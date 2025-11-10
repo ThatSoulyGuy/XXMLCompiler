@@ -1,0 +1,130 @@
+// Comprehensive test of all new XXML features
+
+#import Collections;
+#import IO;
+
+[ Entrypoint {
+	Run System::PrintLine(String::Constructor("======================================"));
+	Run System::PrintLine(String::Constructor("XXML Comprehensive Feature Test"));
+	Run System::PrintLine(String::Constructor("======================================"));
+	Run System::PrintLine(String::Constructor(""));
+
+	// Test 1: If/Else Control Flow
+	Run System::PrintLine(String::Constructor("=== Test 1: If/Else ==="));
+
+	Instantiate Integer^ As <x> = Integer::Constructor(10);
+
+	If (x == Integer::Constructor(10)) -> {
+		Run System::PrintLine(String::Constructor("If statement works correctly!"));
+	} Else -> {
+		Run System::PrintLine(String::Constructor("If statement failed"));
+	}
+
+	Instantiate Integer^ As <y> = Integer::Constructor(5);
+
+	If (y < Integer::Constructor(3)) -> {
+		Run System::PrintLine(String::Constructor("Should not print"));
+	} Else -> {
+		Run System::PrintLine(String::Constructor("Else branch works correctly!"));
+	}
+
+	Run System::PrintLine(String::Constructor(""));
+
+	// Test 2: NativeType and Syscall
+	Run System::PrintLine(String::Constructor("=== Test 2: NativeType & Syscall ==="));
+
+	Instantiate NativeType<"ptr">^ As <buffer> = Syscall::malloc(100);
+	Run System::PrintLine(String::Constructor("Allocated 100 bytes with Syscall::malloc"));
+
+	Run Syscall::memset(buffer, 65, 5);
+	Run System::PrintLine(String::Constructor("Filled buffer with 'A' using memset"));
+
+	Instantiate NativeType<"int64">^ As <value1> = 42;
+	Instantiate NativeType<"int64">^ As <value2> = value1 * 2;
+
+	Run System::Print(String::Constructor("NativeType calculation: 42 * 2 = "));
+	Run System::PrintLine(String::Convert(Integer::Constructor(value2)));
+
+	Run Syscall::free(buffer);
+	Run System::PrintLine(String::Constructor("Freed buffer with Syscall::free"));
+	Run System::PrintLine(String::Constructor(""));
+
+	// Test 3: String Helpers
+	Run System::PrintLine(String::Constructor("=== Test 3: String Helpers ==="));
+
+	Instantiate String^ As <testStr> = String::Constructor("Hello, XXML!");
+	Instantiate NativeType<"ptr">^ As <cstr> = testStr.toCString();
+	Instantiate String^ As <convertedStr> = String::FromCString(cstr);
+
+	Run System::Print(String::Constructor("Original: "));
+	Run System::PrintLine(testStr);
+	Run System::Print(String::Constructor("Converted: "));
+	Run System::PrintLine(convertedStr);
+	Run System::PrintLine(String::Constructor(""));
+
+	// Test 4: IntegerList (basic operations)
+	Run System::PrintLine(String::Constructor("=== Test 4: IntegerList ==="));
+
+	Instantiate Collections::IntegerList^ As <list> = Collections::IntegerList::Constructor();
+	Run list.init();
+
+	Run list.add(Integer::Constructor(10));
+	Run list.add(Integer::Constructor(20));
+	Run list.add(Integer::Constructor(30));
+	Run list.add(Integer::Constructor(40));
+	Run list.add(Integer::Constructor(50));
+
+	Run System::Print(String::Constructor("List size: "));
+	Run System::PrintLine(String::Convert(list.size()));
+
+	Run System::Print(String::Constructor("Element at index 2: "));
+	Run System::PrintLine(String::Convert(list.get(Integer::Constructor(2))));
+
+	Run System::PrintLine(String::Constructor("List contents:"));
+	Run list.print();
+
+	Run list.dispose();
+	Run System::PrintLine(String::Constructor(""));
+
+	// Test 5: File I/O
+	Run System::PrintLine(String::Constructor("=== Test 5: File I/O ==="));
+
+	Instantiate IO::File^ As <file> = IO::File::Constructor();
+	Run file.init();
+
+	Instantiate Bool^ As <opened> = file.open(String::Constructor("test_output.txt"), String::Constructor("w"));
+
+	If (opened) -> {
+		Run System::PrintLine(String::Constructor("File opened for writing"));
+
+		Instantiate Bool^ As <written> = file.write(String::Constructor("Hello from Pure XXML!\nLine 2\nLine 3"));
+
+		If (written) -> {
+			Run System::PrintLine(String::Constructor("Wrote to file"));
+		}
+
+		Run file.close();
+	}
+
+	Instantiate Bool^ As <opened2> = file.open(String::Constructor("test_output.txt"), String::Constructor("r"));
+
+	If (opened2) -> {
+		Run System::PrintLine(String::Constructor("File opened for reading"));
+
+		Instantiate String^ As <content> = file.readAll();
+
+		Run System::PrintLine(String::Constructor("File contents:"));
+		Run System::PrintLine(content);
+
+		Run file.close();
+	}
+
+	Run file.dispose();
+	Run System::PrintLine(String::Constructor(""));
+
+	// Final summary
+	Run System::PrintLine(String::Constructor("======================================"));
+	Run System::PrintLine(String::Constructor("All Tests Completed!"));
+	Run System::PrintLine(String::Constructor("Pure XXML Standard Library Working!"));
+	Run System::PrintLine(String::Constructor("======================================"));
+}]

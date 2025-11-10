@@ -1,0 +1,5 @@
+[ Entrypoint
+    {
+        Run System::Console::printLine(String::Constructor("Hello world!"));
+    }
+]

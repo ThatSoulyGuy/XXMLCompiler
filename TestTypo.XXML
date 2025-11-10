@@ -1,0 +1,3 @@
+[ Entrypoint {
+    Run System::Console::prinnLine(String::Constructor("This has a typo!"));
+}]

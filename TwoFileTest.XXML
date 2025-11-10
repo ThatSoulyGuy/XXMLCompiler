@@ -1,0 +1,36 @@
+#import Language::Core;
+
+[Class <Calculator> Final Extends None
+    [Public
+        [Constructor <Default>() Returns None]
+
+        [Method <RunTest>() Returns None
+            {
+                Run System::PrintLine("Testing multi-file compilation...")
+
+                Instantiate MathHelper As <helper> = Language::Core::MathHelper::Constructor()
+                Instantiate Integer As <a> = Integer::Constructor(10)
+                Instantiate Integer As <b> = Integer::Constructor(5)
+
+                Instantiate Integer As <sum> = helper->Add(a, b)
+                Run System::Print("10 + 5 = ")
+                Run System::PrintLine(String::Convert(sum))
+
+                Instantiate Integer As <product> = helper->Multiply(a, b)
+                Run System::Print("10 * 5 = ")
+                Run System::PrintLine(String::Convert(product))
+            }
+        ]
+    ]
+]
+
+[Entrypoint
+    {
+        Run System::PrintLine("=== Two-File Compilation Test ===")
+
+        Instantiate Calculator As <calc> = Calculator::Constructor()
+        Run calc->RunTest()
+
+        Run System::PrintLine("=== Test Complete ===")
+    }
+]

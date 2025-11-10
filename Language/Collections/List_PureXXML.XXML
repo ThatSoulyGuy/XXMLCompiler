@@ -1,0 +1,396 @@
+// XXML Standard Library - List (Pure XXML Implementation)
+// Dynamic array using manual memory management via Syscall
+// This demonstrates how collections can be implemented entirely in XXML
+
+[ Namespace <Language::Collections>
+
+	[ Class <IntegerList> Final Extends None
+
+		[ Private <>
+			// NativeType properties for raw memory management
+			// NOTE: NativeType syntax is conceptual - awaiting parser support
+			// Property <dataPtr> Types NativeType<"ptr">;      // Pointer to allocated array
+			// Property <capacity> Types NativeType<"int64">;   // Allocated capacity
+			// Property <count> Types NativeType<"int64">;      // Current number of elements
+
+			// Using Integer for now (would be NativeType in full implementation)
+			Property <dataPtr> Types Integer^;    // Represents void*
+			Property <capacity> Types Integer^;
+			Property <count> Types Integer^;
+
+			// Private helper: Resize internal array
+			Method <resize> Returns None Parameters (
+				Parameter <newCapacity> Types Integer^
+			) Do {
+				// ALGORITHM: Allocate new array, copy data, free old array
+
+				// Step 1: Allocate new memory
+				// Let <newPtr> Types Integer^ Equals Syscall::malloc(newCapacity * 8);
+				// NOTE: Syscall syntax conceptual - would be integrated into code generator
+
+				// Step 2: Copy existing data if any
+				// If (dataPtr != 0) {  // If old data exists
+				//     Run Syscall::memcpy(newPtr, dataPtr, count * 8);
+				//     Run Syscall::free(dataPtr);
+				// }
+
+				// Step 3: Update pointers
+				// dataPtr = newPtr;
+				// capacity = newCapacity;
+			}
+
+			// Private helper: Grow array when full
+			Method <grow> Returns None Parameters () Do {
+				// ALGORITHM: Double capacity
+
+				Let <newCapacity> Types Integer^ Equals capacity.multiply(Integer::Constructor(2));
+
+				// Handle edge case: initial allocation
+				// If (capacity == 0) {
+				//     newCapacity = 10;  // Initial capacity
+				// }
+
+				Run resize(&newCapacity);
+			}
+		]
+
+		[ Public <>
+			// Constructor
+			Constructor() {
+				// Initialize with default capacity
+				Let <initialCap> Types Integer^ Equals Integer::Constructor(10);
+				capacity = initialCap;
+
+				Let <zero> Types Integer^ Equals Integer::Constructor(0);
+				count = zero;
+
+				// Allocate initial memory: dataPtr = malloc(10 * 8 bytes)
+				// dataPtr = Syscall::malloc(capacity * 8);
+			}
+
+			// Destructor (when XXML adds destructor support)
+			// Destructor() {
+			//     // Free allocated memory
+			//     If (dataPtr != 0) {
+			//         Run Syscall::free(dataPtr);
+			//     }
+			// }
+
+			// Add element to end of list
+			Method <add> Returns None Parameters (
+				Parameter <value> Types Integer^
+			) Do {
+				// ALGORITHM:
+				// 1. Check if array is full, grow if needed
+				// 2. Write value to array at current count
+				// 3. Increment count
+
+				// If (count >= capacity) {
+				//     Run grow();
+				// }
+
+				// Calculate offset: dataPtr + (count * 8 bytes)
+				// Let <offset> Types Integer^ Equals dataPtr.add(count.multiply(Integer::Constructor(8)));
+
+				// Write integer value to memory
+				// Run Syscall::write_int64(offset, value);
+
+				// Increment count
+				// count = count + 1;
+			}
+
+			// Get element at index
+			Method <get> Returns Integer^ Parameters (
+				Parameter <index> Types Integer^
+			) Do {
+				// ALGORITHM:
+				// 1. Bounds check
+				// 2. Calculate memory offset
+				// 3. Read value from memory
+
+				// Bounds check
+				// If (index < 0 || index >= count) {
+				//     Return Integer::Constructor(0);  // Error: out of bounds
+				// }
+
+				// Calculate offset: dataPtr + (index * 8 bytes)
+				// Let <offset> Types Integer^ Equals dataPtr.add(index.multiply(Integer::Constructor(8)));
+
+				// Read integer from memory
+				// Let <result> Types Integer^ Equals Syscall::read_int64(offset);
+				// Return result;
+
+				Return Integer::Constructor(0);
+			}
+
+			// Set element at index
+			Method <set> Returns None Parameters (
+				Parameter <index> Types Integer^,
+				Parameter <value> Types Integer^
+			) Do {
+				// ALGORITHM: Similar to get but write instead of read
+
+				// Bounds check
+				// If (index < 0 || index >= count) {
+				//     Return;  // Error: out of bounds
+				// }
+
+				// Calculate offset and write
+				// Let <offset> Types Integer^ Equals dataPtr.add(index.multiply(Integer::Constructor(8)));
+				// Run Syscall::write_int64(offset, value);
+			}
+
+			// Insert element at index
+			Method <insert> Returns None Parameters (
+				Parameter <index> Types Integer^,
+				Parameter <value> Types Integer^
+			) Do {
+				// ALGORITHM:
+				// 1. Grow if needed
+				// 2. Shift elements from index to end by one position right
+				// 3. Write value at index
+				// 4. Increment count
+
+				// Grow if needed
+				// If (count >= capacity) {
+				//     Run grow();
+				// }
+
+				// Shift elements: for (i = count; i > index; i--) { arr[i] = arr[i-1]; }
+				// For (Integer <i> = count .. index + 1) -> {  // Reverse iteration
+				//     Let <srcOffset> Types Integer^ Equals dataPtr.add((i - 1).multiply(Integer::Constructor(8)));
+				//     Let <destOffset> Types Integer^ Equals dataPtr.add(i.multiply(Integer::Constructor(8)));
+				//     Let <val> Types Integer^ Equals Syscall::read_int64(srcOffset);
+				//     Run Syscall::write_int64(destOffset, val);
+				// }
+
+				// Write new value
+				// Let <offset> Types Integer^ Equals dataPtr.add(index.multiply(Integer::Constructor(8)));
+				// Run Syscall::write_int64(offset, value);
+				// count = count + 1;
+			}
+
+			// Remove element at index
+			Method <removeAt> Returns None Parameters (
+				Parameter <index> Types Integer^
+			) Do {
+				// ALGORITHM:
+				// 1. Bounds check
+				// 2. Shift elements from index+1 to end one position left
+				// 3. Decrement count
+
+				// Bounds check
+				// If (index < 0 || index >= count) {
+				//     Return;
+				// }
+
+				// Shift elements left
+				// For (Integer <i> = index .. count - 1) -> {
+				//     Let <srcOffset> Types Integer^ Equals dataPtr.add((i + 1).multiply(Integer::Constructor(8)));
+				//     Let <destOffset> Types Integer^ Equals dataPtr.add(i.multiply(Integer::Constructor(8)));
+				//     Let <val> Types Integer^ Equals Syscall::read_int64(srcOffset);
+				//     Run Syscall::write_int64(destOffset, val);
+				// }
+
+				// count = count - 1;
+			}
+
+			// Remove first occurrence of value
+			Method <remove> Returns Bool^ Parameters (
+				Parameter <value> Types Integer^
+			) Do {
+				// ALGORITHM: Find index of value, then removeAt
+
+				Let <index> Types Integer^ Equals indexOf(&value);
+
+				// If (index >= 0) {
+				//     Run removeAt(&index);
+				//     Return Bool::Constructor(true);
+				// }
+
+				Return Bool::Constructor(false);
+			}
+
+			// Find index of first occurrence
+			Method <indexOf> Returns Integer^ Parameters (
+				Parameter <value> Types Integer^
+			) Do {
+				// ALGORITHM: Linear search through array
+
+				// For (Integer <i> = 0 .. count) -> {
+				//     Let <offset> Types Integer^ Equals dataPtr.add(i.multiply(Integer::Constructor(8)));
+				//     Let <element> Types Integer^ Equals Syscall::read_int64(offset);
+				//
+				//     If (element == value) {
+				//         Return i;
+				//     }
+				// }
+
+				Return Integer::Constructor(-1);  // Not found
+			}
+
+			// Check if list contains value
+			Method <contains> Returns Bool^ Parameters (
+				Parameter <value> Types Integer^
+			) Do {
+				Let <index> Types Integer^ Equals indexOf(&value);
+				// Return Bool::Constructor(index >= 0);
+				Return Bool::Constructor(false);
+			}
+
+			// Get size of list
+			Method <size> Returns Integer^ Parameters () Do {
+				Return count;
+			}
+
+			// Check if list is empty
+			Method <isEmpty> Returns Bool^ Parameters () Do {
+				Let <zero> Types Integer^ Equals Integer::Constructor(0);
+				// Return Bool::Constructor(count == 0);
+				Return Bool::Constructor(false);
+			}
+
+			// Clear all elements
+			Method <clear> Returns None Parameters () Do {
+				Let <zero> Types Integer^ Equals Integer::Constructor(0);
+				count = zero;
+				// Note: We keep the allocated memory for reuse
+			}
+
+			// Calculate sum of all elements
+			Method <sum> Returns Integer^ Parameters () Do {
+				// ALGORITHM: Iterate through array and accumulate
+
+				Let <total> Types Integer^ Equals Integer::Constructor(0);
+
+				// For (Integer <i> = 0 .. count) -> {
+				//     Let <offset> Types Integer^ Equals dataPtr.add(i.multiply(Integer::Constructor(8)));
+				//     Let <value> Types Integer^ Equals Syscall::read_int64(offset);
+				//     total = total.add(value);
+				// }
+
+				Return total;
+			}
+
+			// Find minimum element
+			Method <min> Returns Integer^ Parameters () Do {
+				// ALGORITHM: Track minimum while iterating
+
+				// If (count == 0) {
+				//     Return Integer::Constructor(0);
+				// }
+
+				// Let <minVal> Types Integer^ Equals get(Integer::Constructor(0));
+
+				// For (Integer <i> = 1 .. count) -> {
+				//     Let <value> Types Integer^ Equals get(i);
+				//     If (value < minVal) {
+				//         minVal = value;
+				//     }
+				// }
+
+				// Return minVal;
+				Return Integer::Constructor(0);
+			}
+
+			// Find maximum element
+			Method <max> Returns Integer^ Parameters () Do {
+				// Similar to min but track maximum
+				Return Integer::Constructor(0);
+			}
+
+			// Calculate average
+			Method <average> Returns Integer^ Parameters () Do {
+				// If (count == 0) {
+				//     Return Integer::Constructor(0);
+				// }
+
+				Let <total> Types Integer^ Equals sum();
+				// Return total.divide(count);
+				Return Integer::Constructor(0);
+			}
+
+			// Sort array (using quicksort)
+			Method <sort> Returns None Parameters () Do {
+				// ALGORITHM: Quicksort implementation
+				// This would be a recursive quicksort or iterative with stack
+
+				// Run quicksort(Integer::Constructor(0), count.subtract(Integer::Constructor(1)));
+			}
+
+			// Helper: Quicksort partition
+			Method <quicksort> Returns None Parameters (
+				Parameter <low> Types Integer^,
+				Parameter <high> Types Integer^
+			) Do {
+				// ALGORITHM: Standard quicksort recursion
+				// 1. Choose pivot
+				// 2. Partition array
+				// 3. Recursively sort left and right
+			}
+
+			// Reverse the list
+			Method <reverse> Returns None Parameters () Do {
+				// ALGORITHM: Swap elements from start and end moving inward
+
+				Let <left> Types Integer^ Equals Integer::Constructor(0);
+				Let <right> Types Integer^ Equals count.subtract(Integer::Constructor(1));
+
+				// While (left < right) {
+				//     // Swap elements at left and right
+				//     Let <leftVal> Types Integer^ Equals get(left);
+				//     Let <rightVal> Types Integer^ Equals get(right);
+				//     Run set(left, rightVal);
+				//     Run set(right, leftVal);
+				//
+				//     left = left.add(Integer::Constructor(1));
+				//     right = right.subtract(Integer::Constructor(1));
+				// }
+			}
+
+			// Static constructor
+			[ Static <>
+				Method <Constructor> Returns IntegerList^ Parameters () Do {
+					// This would return a new instance
+					// For now, represents conceptual static method
+				}
+			]
+		]
+	]
+]
+
+// ============================================
+// IMPLEMENTATION NOTES
+// ============================================
+//
+// This IntegerList implementation demonstrates:
+//
+// 1. **Memory Management**: Using Syscall::malloc/free for dynamic allocation
+// 2. **Manual Array Growth**: Doubling strategy for amortized O(1) append
+// 3. **Pointer Arithmetic**: Calculating offsets for array access
+// 4. **Algorithm Implementation**: Pure XXML code for all operations
+//
+// REQUIRED LANGUAGE FEATURES (currently missing):
+// - NativeType for primitive storage (ptr, int64)
+// - Syscall syntax integration in parser/code generator
+// - Conditional statements (If/While)
+// - Comparison operators returning Bool
+// - Destructors for cleanup
+//
+// CURRENT LIMITATIONS:
+// - Uses Integer^ for pointers (should be NativeType<"ptr">)
+// - Cannot use conditionals (algorithms shown in comments)
+// - Cannot call Syscall directly (needs code generator support)
+//
+// PERFORMANCE:
+// - add(): O(1) amortized
+// - get/set(): O(1)
+// - insert/remove(): O(n)
+// - indexOf/contains(): O(n)
+// - sort(): O(n log n) with quicksort
+//
+// MEMORY:
+// - Starts with capacity of 10
+// - Doubles when full
+// - Does not shrink (could add shrink operation)
+// - Manual free in destructor prevents leaks

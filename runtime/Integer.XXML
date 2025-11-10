@@ -1,0 +1,50 @@
+// XXML Integer Type
+// Represents a 64-bit signed integer
+
+#import Language::Core;
+
+[ Namespace <XXML::Core>
+	[ Class <Integer> Final Extends None
+		[ Public <>
+			Property <value> Types Integer^;
+
+			Constructor = default;
+
+			// Constructor with initial value
+			Method <Constructor> Returns None Parameters (Parameter <val> Types Integer%) ->
+			{
+				// Initialize value
+			}
+
+			// Addition operator
+			Method <Add> Returns Integer^ Parameters (Parameter <other> Types Integer%) ->
+			{
+				// Return new integer with sum
+			}
+
+			// Subtraction operator
+			Method <Subtract> Returns Integer^ Parameters (Parameter <other> Types Integer%) ->
+			{
+				// Return new integer with difference
+			}
+
+			// Multiplication operator
+			Method <Multiply> Returns Integer^ Parameters (Parameter <other> Types Integer%) ->
+			{
+				// Return new integer with product
+			}
+
+			// Division operator
+			Method <Divide> Returns Integer^ Parameters (Parameter <other> Types Integer%) ->
+			{
+				// Return new integer with quotient
+			}
+
+			// Convert to string
+			Method <ToString> Returns String^ Parameters () ->
+			{
+				// Convert integer to string representation
+			}
+		]
+	]
+]

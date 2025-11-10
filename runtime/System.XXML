@@ -1,0 +1,31 @@
+// XXML System Module
+// Provides system-level functionality like I/O
+
+#import Language::Core;
+#import String;
+
+[ Namespace <System>
+	// Print to standard output
+	Method <Print> Returns None Parameters (Parameter <message> Types String&) ->
+	{
+		// Output message to stdout
+	}
+
+	// Print line to standard output
+	Method <PrintLine> Returns None Parameters (Parameter <message> Types String&) ->
+	{
+		// Output message with newline to stdout
+	}
+
+	// Read input from user
+	Method <ReadLine> Returns String^ Parameters () ->
+	{
+		// Read line from stdin
+	}
+
+	// Get current time
+	Method <GetTime> Returns Integer^ Parameters () ->
+	{
+		// Return current time in milliseconds
+	}
+]

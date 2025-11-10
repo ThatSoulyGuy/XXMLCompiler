@@ -1,0 +1,237 @@
+// XXML Syscall Usage Example
+// Demonstrates how to use low-level system calls in XXML
+
+[ Namespace <Examples>
+
+	[ Class <SyscallExample> Final Extends None
+
+		[ Public <>
+			Constructor = default;
+
+			[ Static <>
+				// Example 1: Memory Management
+				Method <memoryExample> Returns None Parameters () Do {
+					Run System::PrintLine(String::Constructor("=== Memory Management ==="));
+
+					// Allocate 100 bytes
+					// Let <ptr> Types NativeType<"ptr"> Equals Syscall::malloc(100);
+
+					// Write some data
+					// Run Syscall::memset(ptr, 65, 10);  // Fill with 'A' (ASCII 65)
+
+					// Read back
+					// For (Integer <i> = 0 .. 10) -> {
+					//     Let <offset> Types NativeType<"ptr"> Equals ptr + i;
+					//     Let <value> Types Integer^ Equals Syscall::read_int64(offset);
+					//     Run System::Print(String::Convert(value));
+					// }
+
+					// Free memory
+					// Run Syscall::free(ptr);
+
+					Run System::PrintLine(String::Constructor("Memory example complete"));
+				}
+
+				// Example 2: File I/O
+				Method <fileExample> Returns None Parameters () Do {
+					Run System::PrintLine(String::Constructor("=== File I/O ==="));
+
+					// Open file for writing
+					// Let <file> Types NativeType<"ptr"> Equals
+					//     Syscall::fopen("test.txt", "w");
+
+					// If (file != 0) {
+					//     // Write string
+					//     Let <message> Types String^ Equals String::Constructor("Hello from XXML!\n");
+					//     Let <cstr> Types NativeType<"ptr"> Equals message.toCString();
+					//     Let <len> Types Integer^ Equals message.length();
+					//
+					//     Run Syscall::fwrite(cstr, 1, len, file);
+					//     Run Syscall::fclose(file);
+					//
+					//     Run System::PrintLine(String::Constructor("File written successfully"));
+					// }
+
+					// Read file back
+					// file = Syscall::fopen("test.txt", "r");
+					// If (file != 0) {
+					//     Let <buffer> Types NativeType<"ptr"> Equals Syscall::malloc(1024);
+					//     Let <bytesRead> Types Integer^ Equals Syscall::fread(buffer, 1, 1024, file);
+					//
+					//     // Convert to string
+					//     Let <content> Types String^ Equals String::FromCString(buffer);
+					//     Run System::Print(String::Constructor("Read: "));
+					//     Run System::PrintLine(content);
+					//
+					//     Run Syscall::free(buffer);
+					//     Run Syscall::fclose(file);
+					// }
+				}
+
+				// Example 3: Environment Variables
+				Method <environmentExample> Returns None Parameters () Do {
+					Run System::PrintLine(String::Constructor("=== Environment Variables ==="));
+
+					// Get environment variable
+					// Let <pathVar> Types NativeType<"ptr"> Equals Syscall::getenv("PATH");
+
+					// If (pathVar != 0) {
+					//     Let <pathStr> Types String^ Equals String::FromCString(pathVar);
+					//     Run System::Print(String::Constructor("PATH = "));
+					//     Run System::PrintLine(pathStr);
+					// }
+
+					// Set environment variable
+					// Run Syscall::setenv_impl("MY_VAR", "my_value");
+
+					// Get it back
+					// Let <myVar> Types NativeType<"ptr"> Equals Syscall::getenv("MY_VAR");
+					// If (myVar != 0) {
+					//     Let <myVarStr> Types String^ Equals String::FromCString(myVar);
+					//     Run System::Print(String::Constructor("MY_VAR = "));
+					//     Run System::PrintLine(myVarStr);
+					// }
+				}
+
+				// Example 4: Time Operations
+				Method <timeExample> Returns None Parameters () Do {
+					Run System::PrintLine(String::Constructor("=== Time Operations ==="));
+
+					// Get current time
+					// Let <timestamp> Types Integer^ Equals Syscall::time_now();
+					Let <timestamp> Types Integer^ Equals System::GetTime();
+
+					Run System::Print(String::Constructor("Current timestamp: "));
+					Run System::PrintLine(String::Convert(timestamp));
+
+					// Sleep for 1 second
+					Run System::PrintLine(String::Constructor("Sleeping for 1 second..."));
+					// Run Syscall::sleep_ms(1000);
+
+					// Get time again
+					// Let <timestamp2> Types Integer^ Equals Syscall::time_now();
+					Let <timestamp2> Types Integer^ Equals System::GetTime();
+
+					Run System::Print(String::Constructor("After sleep: "));
+					Run System::PrintLine(String::Convert(timestamp2));
+
+					Let <diff> Types Integer^ Equals timestamp2.subtract(timestamp);
+					Run System::Print(String::Constructor("Difference: "));
+					Run System::Print(String::Convert(diff));
+					Run System::PrintLine(String::Constructor(" seconds"));
+				}
+
+				// Example 5: Network Socket (conceptual)
+				Method <networkExample> Returns None Parameters () Do {
+					Run System::PrintLine(String::Constructor("=== Network Socket ==="));
+
+					// Create TCP socket
+					// Let <sock> Types Integer^ Equals Syscall::socket_create(2, 1, 0);  // AF_INET, SOCK_STREAM, 0
+
+					// If (sock >= 0) {
+					//     Run System::PrintLine(String::Constructor("Socket created"));
+					//
+					//     // Connect to server (would need sockaddr structure)
+					//     // Build address structure
+					//     // Let <addr> Types NativeType<"ptr"> Equals Syscall::malloc(16);
+					//     // ... fill in address structure ...
+					//
+					//     // Let <result> Types Integer^ Equals Syscall::socket_connect(sock, addr, 16);
+					//
+					//     // If (result == 0) {
+					//     //     // Send HTTP request
+					//     //     Let <request> Types String^ Equals String::Constructor("GET / HTTP/1.0\r\n\r\n");
+					//     //     Let <cstr> Types NativeType<"ptr"> Equals request.toCString();
+					//     //     Run Syscall::socket_send(sock, cstr, request.length(), 0);
+					//     //
+					//     //     // Receive response
+					//     //     Let <buffer> Types NativeType<"ptr"> Equals Syscall::malloc(4096);
+					//     //     Let <bytesRecv> Types Integer^ Equals Syscall::socket_recv(sock, buffer, 4096, 0);
+					//     //
+					//     //     Let <response> Types String^ Equals String::FromCString(buffer);
+					//     //     Run System::PrintLine(response);
+					//     //
+					//     //     Run Syscall::free(buffer);
+					//     // }
+					//
+					//     Run Syscall::socket_close(sock);
+					// }
+
+					Run System::PrintLine(String::Constructor("Network example (conceptual)"));
+				}
+
+				// Main entry point
+				Method <Main> Returns None Parameters () Do {
+					Run System::PrintLine(String::Constructor("=============================="));
+					Run System::PrintLine(String::Constructor("XXML Syscall Examples"));
+					Run System::PrintLine(String::Constructor("=============================="));
+					Run System::PrintLine(String::Constructor(""));
+
+					Run memoryExample();
+					Run System::PrintLine(String::Constructor(""));
+
+					Run fileExample();
+					Run System::PrintLine(String::Constructor(""));
+
+					Run environmentExample();
+					Run System::PrintLine(String::Constructor(""));
+
+					Run timeExample();
+					Run System::PrintLine(String::Constructor(""));
+
+					Run networkExample();
+					Run System::PrintLine(String::Constructor(""));
+
+					Run System::PrintLine(String::Constructor("=============================="));
+					Run System::PrintLine(String::Constructor("All examples complete!"));
+					Run System::PrintLine(String::Constructor("=============================="));
+				}
+			]
+		]
+	]
+]
+
+// ============================================
+// KEY CONCEPTS DEMONSTRATED
+// ============================================
+//
+// 1. **Manual Memory Management**
+//    - Allocate with Syscall::malloc
+//    - Free with Syscall::free
+//    - Prevents memory leaks
+//
+// 2. **Low-Level File I/O**
+//    - Direct fopen/fread/fwrite calls
+//    - Buffer management
+//    - Error checking
+//
+// 3. **System Integration**
+//    - Environment variables
+//    - Time/date operations
+//    - Process control
+//
+// 4. **Network Programming**
+//    - Socket creation
+//    - TCP connections
+//    - Send/receive data
+//
+// 5. **Pointer Arithmetic**
+//    - Calculating offsets
+//    - Reading/writing memory
+//    - Type casting
+//
+// ============================================
+// BUILDING ABSTRACTIONS
+// ============================================
+//
+// These low-level syscalls can be used to build:
+// - Collections (List, Map, Set, etc.)
+// - String utilities (parsing, formatting)
+// - File systems (reading directories, searching)
+// - Network protocols (HTTP, WebSocket, etc.)
+// - Data formats (JSON, XML, etc.)
+// - Concurrency primitives
+// - And more!
+//
+// The key is that EVERYTHING is implemented in XXML,
+// with only primitives backed by system calls.

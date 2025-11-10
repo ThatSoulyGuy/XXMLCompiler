@@ -1,0 +1,185 @@
+// Comprehensive Multi-File Test
+// Tests the import system and multi-file compilation
+
+#import Language::Core;
+
+// FEATURE 1: Class with Multiple Methods
+[ Class <MathUtilities> Final Extends None
+	[ Public <>
+		Constructor = default;
+
+		// Simple addition
+		Method <Add> Returns <Integer> Parameters (
+			Parameter <a> Types Integer^,
+			Parameter <b> Types Integer^
+		) -> {
+			Instantiate Integer As <result> = a + b;
+			Exit result;
+		}
+
+		// Simple multiplication
+		Method <Multiply> Returns <Integer> Parameters (
+			Parameter <a> Types Integer^,
+			Parameter <b> Types Integer^
+		) -> {
+			Instantiate Integer As <result> = a * b;
+			Exit result;
+		}
+
+		// Square a number
+		Method <Square> Returns <Integer> Parameters (
+			Parameter <x> Types Integer^
+		) -> {
+			Instantiate Integer As <result> = x * x;
+			Exit result;
+		}
+	]
+]
+
+// FEATURE 2: Class that Uses Another Class
+[ Class <Calculator> Final Extends None
+	[ Private <>
+		Property <utils> Types MathUtilities^;
+	]
+
+	[ Public <>
+		Constructor = default;
+
+		Method <RunCalculations> Returns None Parameters () -> {
+			Run System::PrintLine("=== Calculator Demo ===");
+
+			// Create utility instance
+			Instantiate MathUtilities As <u> = MathUtilities::Constructor();
+
+			// Test addition
+			Instantiate Integer As <a> = Integer::Constructor(10);
+			Instantiate Integer As <b> = Integer::Constructor(5);
+			Instantiate Integer As <sum> = u->Add(a, b);
+
+			Run System::Print("10 + 5 = ");
+			Run System::PrintLine(String::Convert(sum));
+
+			// Test multiplication
+			Instantiate Integer As <prod> = u->Multiply(a, b);
+			Run System::Print("10 * 5 = ");
+			Run System::PrintLine(String::Convert(prod));
+
+			// Test square
+			Instantiate Integer As <sq> = u->Square(a);
+			Run System::Print("10^2 = ");
+			Run System::PrintLine(String::Convert(sq));
+		}
+	]
+]
+
+// FEATURE 3: String Manipulation
+[ Class <TextProcessor> Final Extends None
+	[ Public <>
+		Constructor = default;
+
+		Method <ProcessText> Returns None Parameters () -> {
+			Run System::PrintLine("=== Text Processing Demo ===");
+
+			Instantiate String As <greeting> = String::Constructor("Hello, XXML!");
+			Run System::Print("Message: ");
+			Run System::PrintLine(greeting);
+
+			Instantiate String As <upper> = greeting->toUpperCase();
+			Run System::Print("Uppercase: ");
+			Run System::PrintLine(upper);
+
+			Instantiate String As <lower> = greeting->toLowerCase();
+			Run System::Print("Lowercase: ");
+			Run System::PrintLine(lower);
+		}
+	]
+]
+
+// FEATURE 4: Loops and Iteration
+[ Class <LoopTester> Final Extends None
+	[ Public <>
+		Constructor = default;
+
+		Method <TestLoops> Returns None Parameters () -> {
+			Run System::PrintLine("=== Loop Test ===");
+
+			Run System::Print("Numbers 1-10: ");
+			For (Integer <i> = 1 .. 10) -> {
+				Run System::Print(String::Convert(i));
+				Run System::Print(" ");
+			}
+			Run System::PrintLine("");
+
+			Run System::PrintLine("Counting by 2s:");
+			Instantiate Integer As <j> = Integer::Constructor(2);
+			For (Integer <k> = 2 .. 20) -> {
+				Instantiate Integer As <mod> = k % j;
+				Instantiate Bool As <isEven> = mod == Integer::Constructor(0);
+
+				// Only print even numbers
+				Run System::Print(String::Convert(k));
+				Run System::Print(" ");
+			}
+			Run System::PrintLine("");
+		}
+	]
+]
+
+// FEATURE 5: Import from Multi-File Module
+[ Class <ImportTester> Final Extends None
+	[ Public <>
+		Constructor = default;
+
+		Method <TestImports> Returns None Parameters () -> {
+			Run System::PrintLine("=== Import Test ===");
+
+			// This tests if MathHelper from Language::Core was imported
+			Instantiate Language::Core::MathHelper As <helper> = Language::Core::MathHelper::Constructor();
+
+			Instantiate Integer As <x> = Integer::Constructor(7);
+			Instantiate Integer As <y> = Integer::Constructor(3);
+
+			Instantiate Integer As <sum> = helper->Add(x, y);
+			Run System::Print("Imported Add: 7 + 3 = ");
+			Run System::PrintLine(String::Convert(sum));
+
+			Instantiate Integer As <product> = helper->Multiply(x, y);
+			Run System::Print("Imported Multiply: 7 * 3 = ");
+			Run System::PrintLine(String::Convert(product));
+		}
+	]
+]
+
+// ENTRYPOINT: Main Program
+[ Entrypoint
+	{
+		Run System::PrintLine("╔════════════════════════════════════════╗");
+		Run System::PrintLine("║  XXML Comprehensive Multi-File Test   ║");
+		Run System::PrintLine("╚════════════════════════════════════════╝");
+		Run System::PrintLine("");
+
+		// Test 1: Calculator
+		Instantiate Calculator As <calc> = Calculator::Constructor();
+		Run calc->RunCalculations();
+		Run System::PrintLine("");
+
+		// Test 2: Text Processing
+		Instantiate TextProcessor As <tp> = TextProcessor::Constructor();
+		Run tp->ProcessText();
+		Run System::PrintLine("");
+
+		// Test 3: Loops
+		Instantiate LoopTester As <lt> = LoopTester::Constructor();
+		Run lt->TestLoops();
+		Run System::PrintLine("");
+
+		// Test 4: Imports
+		Instantiate ImportTester As <it> = ImportTester::Constructor();
+		Run it->TestImports();
+		Run System::PrintLine("");
+
+		Run System::PrintLine("╔════════════════════════════════════════╗");
+		Run System::PrintLine("║      All Tests Completed!              ║");
+		Run System::PrintLine("╚════════════════════════════════════════╝");
+	}
+]

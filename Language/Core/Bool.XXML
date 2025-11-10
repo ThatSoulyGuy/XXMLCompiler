@@ -1,0 +1,93 @@
+// XXML Standard Library - Bool Class
+// Working implementation using NativeType
+
+[ Namespace <Language::Core>
+	[ Class <Bool> Final Extends None
+		[ Private <>
+			Property <value> Types NativeType<"bool">;
+		]
+
+		[ Public <>
+			// Default constructor
+			Constructor = default;
+
+			// Create from bool
+			Method <Constructor> Returns Bool^ Parameters (
+				Parameter <val> Types NativeType<"bool">
+			) ->
+			{
+				Run Syscall::memcpy(&value, &val, 1);
+				Return this;
+			}
+
+			// Get raw value
+			Method <toBool> Returns NativeType<"bool"> Parameters () ->
+			{
+				Return value;
+			}
+
+			// Logical operations
+			Method <and> Returns Bool^ Parameters (
+				Parameter <other> Types Bool^
+			) ->
+			{
+				Instantiate NativeType<"bool">^ As <v1> = value;
+				Instantiate NativeType<"bool">^ As <v2> = other.value;
+				Instantiate NativeType<"bool">^ As <result> = v1 && v2;
+				Return Bool::Constructor(result);
+			}
+
+			Method <or> Returns Bool^ Parameters (
+				Parameter <other> Types Bool^
+			) ->
+			{
+				Instantiate NativeType<"bool">^ As <v1> = value;
+				Instantiate NativeType<"bool">^ As <v2> = other.value;
+				Instantiate NativeType<"bool">^ As <result> = v1 || v2;
+				Return Bool::Constructor(result);
+			}
+
+			Method <not> Returns Bool^ Parameters () ->
+			{
+				Instantiate NativeType<"bool">^ As <v> = value;
+				Instantiate NativeType<"bool">^ As <result> = !v;
+				Return Bool::Constructor(result);
+			}
+
+			Method <xor> Returns Bool^ Parameters (
+				Parameter <other> Types Bool^
+			) ->
+			{
+				Instantiate NativeType<"bool">^ As <v1> = value;
+				Instantiate NativeType<"bool">^ As <v2> = other.value;
+				If (v1 == v2) -> {
+					Return Bool::Constructor(false);
+				}
+				Return Bool::Constructor(true);
+			}
+
+			// Comparison
+			Method <equals> Returns Bool^ Parameters (
+				Parameter <other> Types Bool^
+			) ->
+			{
+				Instantiate NativeType<"bool">^ As <v1> = value;
+				Instantiate NativeType<"bool">^ As <v2> = other.value;
+				If (v1 == v2) -> {
+					Return Bool::Constructor(true);
+				}
+				Return Bool::Constructor(false);
+			}
+
+			// Convert to Integer (1 for true, 0 for false)
+			Method <toInteger> Returns Integer^ Parameters () ->
+			{
+				Instantiate NativeType<"bool">^ As <v> = value;
+				If (v == true) -> {
+					Return Integer::Constructor(1);
+				}
+				Return Integer::Constructor(0);
+			}
+		]
+	]
+]

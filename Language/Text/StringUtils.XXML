@@ -1,0 +1,503 @@
+// Pure XXML String Utilities
+// Useful string manipulation functions
+
+[ Namespace <Text>
+	[ Class <StringUtils> Final Extends None
+		[ Public <>
+			Constructor = default;
+
+			// Check if string contains substring
+			Static Method <contains> Returns Bool^ Parameters (
+				Parameter <str> Types String^,
+				Parameter <substring> Types String^
+			) Do {
+				Instantiate NativeType<"int64">^ As <index> = indexOf(str, substring);
+
+				If (index < 0) -> {
+					Return Bool::Constructor(false);
+				} Else -> {
+					Return Bool::Constructor(true);
+				}
+			}
+
+			// Find first index of substring (-1 if not found)
+			Static Method <indexOf> Returns NativeType<"int64"> Parameters (
+				Parameter <str> Types String^,
+				Parameter <substring> Types String^
+			) Do {
+				Instantiate NativeType<"int64">^ As <strLen> = str.length();
+				Instantiate NativeType<"int64">^ As <subLen> = substring.length();
+
+				If (subLen > strLen) -> {
+					Return 0 - 1;
+				}
+
+				If (subLen == 0) -> {
+					Return 0;
+				}
+
+				Return indexOfHelper(str, substring, Integer::Constructor(0), Integer::Constructor(strLen), Integer::Constructor(subLen));
+			}
+
+			// Check if string starts with prefix
+			Static Method <startsWith> Returns Bool^ Parameters (
+				Parameter <str> Types String^,
+				Parameter <prefix> Types String^
+			) Do {
+				Instantiate NativeType<"int64">^ As <strLen> = str.length();
+				Instantiate NativeType<"int64">^ As <prefixLen> = prefix.length();
+
+				If (prefixLen > strLen) -> {
+					Return Bool::Constructor(false);
+				}
+
+				If (prefixLen == 0) -> {
+					Return Bool::Constructor(true);
+				}
+
+				Return startsWithHelper(str, prefix, Integer::Constructor(0), Integer::Constructor(prefixLen));
+			}
+
+			// Check if string ends with suffix
+			Static Method <endsWith> Returns Bool^ Parameters (
+				Parameter <str> Types String^,
+				Parameter <suffix> Types String^
+			) Do {
+				Instantiate NativeType<"int64">^ As <strLen> = str.length();
+				Instantiate NativeType<"int64">^ As <suffixLen> = suffix.length();
+
+				If (suffixLen > strLen) -> {
+					Return Bool::Constructor(false);
+				}
+
+				If (suffixLen == 0) -> {
+					Return Bool::Constructor(true);
+				}
+
+				Instantiate NativeType<"int64">^ As <startPos> = strLen - suffixLen;
+				Return endsWithHelper(str, suffix, Integer::Constructor(startPos), Integer::Constructor(0), Integer::Constructor(suffixLen));
+			}
+
+			// Get substring from start to end (exclusive)
+			Static Method <substring> Returns String^ Parameters (
+				Parameter <str> Types String^,
+				Parameter <start> Types Integer^,
+				Parameter <end> Types Integer^
+			) Do {
+				Instantiate NativeType<"int64">^ As <strLen> = str.length();
+				Instantiate NativeType<"int64">^ As <startIdx> = start;
+				Instantiate NativeType<"int64">^ As <endIdx> = end;
+
+				If (startIdx < 0) -> {
+					Return String::Constructor("");
+				}
+
+				If (endIdx > strLen) -> {
+					Return substring(str, start, Integer::Constructor(strLen));
+				}
+
+				If (startIdx >= endIdx) -> {
+					Return String::Constructor("");
+				}
+
+				Instantiate NativeType<"int64">^ As <length> = endIdx - startIdx;
+
+				// Allocate buffer for substring
+				Instantiate NativeType<"int64">^ As <bufferSize> = length + 1;
+				Instantiate NativeType<"ptr">^ As <buffer> = Syscall::malloc(bufferSize);
+
+				// Copy characters
+				Instantiate NativeType<"ptr">^ As <src> = str.toCString();
+				Instantiate NativeType<"ptr">^ As <srcStart> = src + startIdx;
+				Run Syscall::memcpy(buffer, srcStart, length);
+
+				// Null terminate
+				Instantiate NativeType<"ptr">^ As <nullPos> = buffer + length;
+				Instantiate NativeType<"int64">^ As <zero> = 0;
+				Run Syscall::write_int64(nullPos, zero);
+
+				// Convert to string
+				Instantiate String^ As <result> = String::FromCString(buffer);
+
+				// Free buffer
+				Run Syscall::free(buffer);
+
+				Return result;
+			}
+
+			// Split string by delimiter (returns StringList)
+			Static Method <split> Returns Collections::StringList^ Parameters (
+				Parameter <str> Types String^,
+				Parameter <delimiter> Types String^
+			) Do {
+				Instantiate Collections::StringList^ As <list> = Collections::StringList::Constructor();
+				Run list.init();
+
+				Instantiate NativeType<"int64">^ As <strLen> = str.length();
+				Instantiate NativeType<"int64">^ As <delimLen> = delimiter.length();
+
+				If (delimLen == 0) -> {
+					Run list.add(str);
+					Return list;
+				}
+
+				Run splitHelper(str, delimiter, list, Integer::Constructor(0), Integer::Constructor(0), Integer::Constructor(strLen), Integer::Constructor(delimLen));
+
+				Return list;
+			}
+
+			// Trim leading and trailing whitespace
+			Static Method <trim> Returns String^ Parameters (Parameter <str> Types String^) Do {
+				Instantiate NativeType<"int64">^ As <len> = str.length();
+
+				If (len == 0) -> {
+					Return str;
+				}
+
+				// Find first non-whitespace
+				Instantiate NativeType<"int64">^ As <start> = findFirstNonWhitespace(str, Integer::Constructor(0), Integer::Constructor(len));
+
+				If (start < 0) -> {
+					// All whitespace
+					Return String::Constructor("");
+				}
+
+				// Find last non-whitespace
+				Instantiate NativeType<"int64">^ As <end> = findLastNonWhitespace(str, Integer::Constructor(len - 1)) + 1;
+
+				Return substring(str, Integer::Constructor(start), Integer::Constructor(end));
+			}
+
+			// Join StringList with delimiter
+			Static Method <join> Returns String^ Parameters (
+				Parameter <list> Types Collections::StringList^,
+				Parameter <delimiter> Types String^
+			) Do {
+				Instantiate NativeType<"int64">^ As <size> = list.size();
+
+				If (size == 0) -> {
+					Return String::Constructor("");
+				}
+
+				Return joinHelper(list, delimiter, Integer::Constructor(0), String::Constructor(""), Integer::Constructor(size));
+			}
+
+			// Repeat string n times
+			Static Method <repeat> Returns String^ Parameters (
+				Parameter <str> Types String^,
+				Parameter <count> Types Integer^
+			) Do {
+				Instantiate NativeType<"int64">^ As <n> = count;
+
+				If (n <= 0) -> {
+					Return String::Constructor("");
+				}
+
+				Return repeatHelper(str, Integer::Constructor(n), String::Constructor(""));
+			}
+
+			// Pad left to width with character
+			Static Method <padLeft> Returns String^ Parameters (
+				Parameter <str> Types String^,
+				Parameter <width> Types Integer^,
+				Parameter <padChar> Types String^
+			) Do {
+				Instantiate NativeType<"int64">^ As <strLen> = str.length();
+				Instantiate NativeType<"int64">^ As <targetWidth> = width;
+
+				If (strLen >= targetWidth) -> {
+					Return str;
+				}
+
+				Instantiate NativeType<"int64">^ As <padCount> = targetWidth - strLen;
+				Instantiate String^ As <padding> = repeat(padChar, Integer::Constructor(padCount));
+
+				Return padding.concat(str);
+			}
+
+			// Pad right to width with character
+			Static Method <padRight> Returns String^ Parameters (
+				Parameter <str> Types String^,
+				Parameter <width> Types Integer^,
+				Parameter <padChar> Types String^
+			) Do {
+				Instantiate NativeType<"int64">^ As <strLen> = str.length();
+				Instantiate NativeType<"int64">^ As <targetWidth> = width;
+
+				If (strLen >= targetWidth) -> {
+					Return str;
+				}
+
+				Instantiate NativeType<"int64">^ As <padCount> = targetWidth - strLen;
+				Instantiate String^ As <padding> = repeat(padChar, Integer::Constructor(padCount));
+
+				Return str.concat(padding);
+			}
+		]
+
+		[ Private <>
+			// Recursive helper for indexOf
+			Static Method <indexOfHelper> Returns NativeType<"int64"> Parameters (
+				Parameter <str> Types String^,
+				Parameter <substring> Types String^,
+				Parameter <index> Types Integer^,
+				Parameter <strLen> Types Integer^,
+				Parameter <subLen> Types Integer^
+			) Do {
+				Instantiate NativeType<"int64">^ As <idx> = index;
+				Instantiate NativeType<"int64">^ As <maxIdx> = strLen - subLen;
+
+				If (idx > maxIdx) -> {
+					Return 0 - 1;
+				}
+
+				// Check if substring matches at current position
+				Instantiate Bool^ As <matches> = matchesAt(str, substring, index, Integer::Constructor(0), subLen);
+
+				If (matches == Bool::Constructor(true)) -> {
+					Return idx;
+				} Else -> {
+					Instantiate Integer^ As <nextIndex> = index.add(Integer::Constructor(1));
+					Return indexOfHelper(str, substring, nextIndex, strLen, subLen);
+				}
+			}
+
+			// Check if substring matches at position
+			Static Method <matchesAt> Returns Bool^ Parameters (
+				Parameter <str> Types String^,
+				Parameter <substring> Types String^,
+				Parameter <strPos> Types Integer^,
+				Parameter <subPos> Types Integer^,
+				Parameter <subLen> Types Integer^
+			) Do {
+				Instantiate NativeType<"int64">^ As <subIdx> = subPos;
+				Instantiate NativeType<"int64">^ As <length> = subLen;
+
+				If (subIdx >= length) -> {
+					Return Bool::Constructor(true);
+				}
+
+				Instantiate Integer^ As <charPos> = strPos.add(subPos);
+				Instantiate String^ As <strChar> = str.charAt(charPos);
+				Instantiate String^ As <subChar> = substring.charAt(subPos);
+
+				If (strChar == subChar) -> {
+					Instantiate Integer^ As <nextSubPos> = subPos.add(Integer::Constructor(1));
+					Return matchesAt(str, substring, strPos, nextSubPos, subLen);
+				} Else -> {
+					Return Bool::Constructor(false);
+				}
+			}
+
+			// Helper for startsWith
+			Static Method <startsWithHelper> Returns Bool^ Parameters (
+				Parameter <str> Types String^,
+				Parameter <prefix> Types String^,
+				Parameter <index> Types Integer^,
+				Parameter <prefixLen> Types Integer^
+			) Do {
+				Instantiate NativeType<"int64">^ As <idx> = index;
+				Instantiate NativeType<"int64">^ As <len> = prefixLen;
+
+				If (idx >= len) -> {
+					Return Bool::Constructor(true);
+				}
+
+				Instantiate String^ As <strChar> = str.charAt(index);
+				Instantiate String^ As <prefixChar> = prefix.charAt(index);
+
+				If (strChar == prefixChar) -> {
+					Instantiate Integer^ As <nextIndex> = index.add(Integer::Constructor(1));
+					Return startsWithHelper(str, prefix, nextIndex, prefixLen);
+				} Else -> {
+					Return Bool::Constructor(false);
+				}
+			}
+
+			// Helper for endsWith
+			Static Method <endsWithHelper> Returns Bool^ Parameters (
+				Parameter <str> Types String^,
+				Parameter <suffix> Types String^,
+				Parameter <strPos> Types Integer^,
+				Parameter <suffixPos> Types Integer^,
+				Parameter <suffixLen> Types Integer^
+			) Do {
+				Instantiate NativeType<"int64">^ As <sufIdx> = suffixPos;
+				Instantiate NativeType<"int64">^ As <len> = suffixLen;
+
+				If (sufIdx >= len) -> {
+					Return Bool::Constructor(true);
+				}
+
+				Instantiate String^ As <strChar> = str.charAt(strPos);
+				Instantiate String^ As <suffixChar> = suffix.charAt(suffixPos);
+
+				If (strChar == suffixChar) -> {
+					Instantiate Integer^ As <nextStrPos> = strPos.add(Integer::Constructor(1));
+					Instantiate Integer^ As <nextSuffixPos> = suffixPos.add(Integer::Constructor(1));
+					Return endsWithHelper(str, suffix, nextStrPos, nextSuffixPos, suffixLen);
+				} Else -> {
+					Return Bool::Constructor(false);
+				}
+			}
+
+			// Helper for split
+			Static Method <splitHelper> Returns None Parameters (
+				Parameter <str> Types String^,
+				Parameter <delimiter> Types String^,
+				Parameter <list> Types Collections::StringList^,
+				Parameter <start> Types Integer^,
+				Parameter <current> Types Integer^,
+				Parameter <strLen> Types Integer^,
+				Parameter <delimLen> Types Integer^
+			) Do {
+				Instantiate NativeType<"int64">^ As <cur> = current;
+				Instantiate NativeType<"int64">^ As <len> = strLen;
+
+				If (cur >= len) -> {
+					// Add final part
+					Instantiate String^ As <part> = substring(str, start, Integer::Constructor(len));
+					Run list.add(part);
+					Return None::Constructor();
+				}
+
+				// Check if delimiter matches at current position
+				Instantiate Bool^ As <matches> = matchesAt(str, delimiter, current, Integer::Constructor(0), delimLen);
+
+				If (matches == Bool::Constructor(true)) -> {
+					// Found delimiter - add part
+					Instantiate String^ As <part> = substring(str, start, current);
+					Run list.add(part);
+
+					// Skip delimiter
+					Instantiate NativeType<"int64">^ As <delimLength> = delimLen;
+					Instantiate Integer^ As <newStart> = current.add(Integer::Constructor(delimLength));
+					Instantiate Integer^ As <newCurrent> = newStart;
+					Run splitHelper(str, delimiter, list, newStart, newCurrent, strLen, delimLen);
+				} Else -> {
+					// Continue searching
+					Instantiate Integer^ As <nextCurrent> = current.add(Integer::Constructor(1));
+					Run splitHelper(str, delimiter, list, start, nextCurrent, strLen, delimLen);
+				}
+			}
+
+			// Find first non-whitespace character
+			Static Method <findFirstNonWhitespace> Returns NativeType<"int64"> Parameters (
+				Parameter <str> Types String^,
+				Parameter <index> Types Integer^,
+				Parameter <len> Types Integer^
+			) Do {
+				Instantiate NativeType<"int64">^ As <idx> = index;
+				Instantiate NativeType<"int64">^ As <length> = len;
+
+				If (idx >= length) -> {
+					Return 0 - 1;
+				}
+
+				Instantiate String^ As <ch> = str.charAt(index);
+				Instantiate Bool^ As <isWS> = isWhitespace(ch);
+
+				If (isWS == Bool::Constructor(true)) -> {
+					Instantiate Integer^ As <nextIndex> = index.add(Integer::Constructor(1));
+					Return findFirstNonWhitespace(str, nextIndex, len);
+				} Else -> {
+					Return idx;
+				}
+			}
+
+			// Find last non-whitespace character
+			Static Method <findLastNonWhitespace> Returns NativeType<"int64"> Parameters (
+				Parameter <str> Types String^,
+				Parameter <index> Types Integer^
+			) Do {
+				Instantiate NativeType<"int64">^ As <idx> = index;
+
+				If (idx < 0) -> {
+					Return 0 - 1;
+				}
+
+				Instantiate String^ As <ch> = str.charAt(index);
+				Instantiate Bool^ As <isWS> = isWhitespace(ch);
+
+				If (isWS == Bool::Constructor(true)) -> {
+					Instantiate Integer^ As <nextIndex> = index.add(Integer::Constructor(0 - 1));
+					Return findLastNonWhitespace(str, nextIndex);
+				} Else -> {
+					Return idx;
+				}
+			}
+
+			// Check if character is whitespace
+			Static Method <isWhitespace> Returns Bool^ Parameters (Parameter <ch> Types String^) Do {
+				Instantiate NativeType<"ptr">^ As <cstr> = ch.toCString();
+				Instantiate NativeType<"int64">^ As <charCode> = Syscall::read_int64(cstr);
+
+				// Space, tab, newline, carriage return
+				If (charCode == 32) -> {
+					Return Bool::Constructor(true);
+				}
+
+				If (charCode == 9) -> {
+					Return Bool::Constructor(true);
+				}
+
+				If (charCode == 10) -> {
+					Return Bool::Constructor(true);
+				}
+
+				If (charCode == 13) -> {
+					Return Bool::Constructor(true);
+				}
+
+				Return Bool::Constructor(false);
+			}
+
+			// Helper for join
+			Static Method <joinHelper> Returns String^ Parameters (
+				Parameter <list> Types Collections::StringList^,
+				Parameter <delimiter> Types String^,
+				Parameter <index> Types Integer^,
+				Parameter <result> Types String^,
+				Parameter <size> Types Integer^
+			) Do {
+				Instantiate NativeType<"int64">^ As <idx> = index;
+				Instantiate NativeType<"int64">^ As <length> = size;
+
+				If (idx >= length) -> {
+					Return result;
+				}
+
+				Instantiate String^ As <part> = list.get(index);
+				Instantiate String^ As <newResult> = result.concat(part);
+
+				Instantiate NativeType<"int64">^ As <nextIdx> = idx + 1;
+
+				If (nextIdx < length) -> {
+					Instantiate String^ As <withDelim> = newResult.concat(delimiter);
+					Instantiate Integer^ As <nextIndex> = index.add(Integer::Constructor(1));
+					Return joinHelper(list, delimiter, nextIndex, withDelim, size);
+				} Else -> {
+					Return newResult;
+				}
+			}
+
+			// Helper for repeat
+			Static Method <repeatHelper> Returns String^ Parameters (
+				Parameter <str> Types String^,
+				Parameter <count> Types Integer^,
+				Parameter <result> Types String^
+			) Do {
+				Instantiate NativeType<"int64">^ As <n> = count;
+
+				If (n <= 0) -> {
+					Return result;
+				}
+
+				Instantiate String^ As <newResult> = result.concat(str);
+				Instantiate Integer^ As <nextCount> = count.add(Integer::Constructor(0 - 1));
+
+				Return repeatHelper(str, nextCount, newResult);
+			}
+		]
+	]
+]

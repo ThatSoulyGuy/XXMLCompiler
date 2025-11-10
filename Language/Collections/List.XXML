@@ -1,0 +1,196 @@
+// XXML Standard Library - List Class
+// Dynamic-size list collection
+
+[ Namespace <Language::Collections>
+
+	[ Class <IntegerList> Final Extends None
+
+		[ Private <>
+			Property <capacity> Types Integer^;
+			Property <count> Types Integer^;
+		]
+
+		[ Public <>
+			Constructor = default;
+
+			// Basic Operations
+			Method <add> Returns None Parameters (
+				Parameter <value> Types Integer^
+			) Do {
+				// Add element to end
+			}
+
+			Method <insert> Returns None Parameters (
+				Parameter <index> Types Integer^,
+				Parameter <value> Types Integer^
+			) Do {
+				// Insert element at index
+			}
+
+			Method <remove> Returns Bool^ Parameters (
+				Parameter <value> Types Integer^
+			) Do {
+				Return Bool::Constructor(false);
+			}
+
+			Method <removeAt> Returns None Parameters (
+				Parameter <index> Types Integer^
+			) Do {
+				// Remove element at index
+			}
+
+			Method <get> Returns Integer^ Parameters (
+				Parameter <index> Types Integer^
+			) Do {
+				Return Integer::Constructor(0);
+			}
+
+			Method <set> Returns None Parameters (
+				Parameter <index> Types Integer^,
+				Parameter <value> Types Integer^
+			) Do {
+				// Set value at index
+			}
+
+			// Query Operations
+			Method <size> Returns Integer^ Parameters () Do {
+				Return count;
+			}
+
+			Method <isEmpty> Returns Bool^ Parameters () Do {
+				Return Bool::Constructor(false);
+			}
+
+			Method <contains> Returns Bool^ Parameters (
+				Parameter <value> Types Integer^
+			) Do {
+				Return Bool::Constructor(false);
+			}
+
+			Method <indexOf> Returns Integer^ Parameters (
+				Parameter <value> Types Integer^
+			) Do {
+				Return Integer::Constructor(-1);
+			}
+
+			// Bulk Operations
+			Method <clear> Returns None Parameters () Do {
+				// Remove all elements
+			}
+
+			Method <addAll> Returns None Parameters (
+				Parameter <other> Types IntegerList&
+			) Do {
+				// Add all elements from another list
+			}
+
+			// Aggregate Operations
+			Method <sum> Returns Integer^ Parameters () Do {
+				Return Integer::Constructor(0);
+			}
+
+			Method <min> Returns Integer^ Parameters () Do {
+				Return Integer::Constructor(0);
+			}
+
+			Method <max> Returns Integer^ Parameters () Do {
+				Return Integer::Constructor(0);
+			}
+
+			Method <average> Returns Integer^ Parameters () Do {
+				Return Integer::Constructor(0);
+			}
+
+			// Sorting and Filtering
+			Method <sort> Returns None Parameters () Do {
+				// Sort list in ascending order
+			}
+
+			Method <reverse> Returns None Parameters () Do {
+				// Reverse list order
+			}
+		]
+	]
+
+	[ Class <StringList> Final Extends None
+
+		[ Private <>
+			Property <capacity> Types Integer^;
+			Property <count> Types Integer^;
+		]
+
+		[ Public <>
+			Constructor = default;
+
+			Method <add> Returns None Parameters (
+				Parameter <value> Types String^
+			) Do {
+				// Add element to end
+			}
+
+			Method <insert> Returns None Parameters (
+				Parameter <index> Types Integer^,
+				Parameter <value> Types String^
+			) Do {
+				// Insert element at index
+			}
+
+			Method <remove> Returns Bool^ Parameters (
+				Parameter <value> Types String^
+			) Do {
+				Return Bool::Constructor(false);
+			}
+
+			Method <removeAt> Returns None Parameters (
+				Parameter <index> Types Integer^
+			) Do {
+				// Remove element at index
+			}
+
+			Method <get> Returns String^ Parameters (
+				Parameter <index> Types Integer^
+			) Do {
+				Return String::Constructor();
+			}
+
+			Method <set> Returns None Parameters (
+				Parameter <index> Types Integer^,
+				Parameter <value> Types String^
+			) Do {
+				// Set value at index
+			}
+
+			Method <size> Returns Integer^ Parameters () Do {
+				Return count;
+			}
+
+			Method <isEmpty> Returns Bool^ Parameters () Do {
+				Return Bool::Constructor(false);
+			}
+
+			Method <contains> Returns Bool^ Parameters (
+				Parameter <value> Types String^
+			) Do {
+				Return Bool::Constructor(false);
+			}
+
+			Method <clear> Returns None Parameters () Do {
+				// Remove all elements
+			}
+
+			Method <join> Returns String^ Parameters (
+				Parameter <delimiter> Types String^
+			) Do {
+				Return String::Constructor();
+			}
+
+			Method <sort> Returns None Parameters () Do {
+				// Sort list alphabetically
+			}
+
+			Method <reverse> Returns None Parameters () Do {
+				// Reverse list order
+			}
+		]
+	]
+]

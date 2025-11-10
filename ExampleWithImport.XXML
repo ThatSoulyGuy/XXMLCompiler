@@ -1,0 +1,24 @@
+// Example showing how imports work in XXML
+// Note: Standard library is auto-imported, but you can explicitly import other modules
+
+// Explicit import (if you had custom modules)
+// import MyModule::CustomClass;
+
+// The standard library is automatically imported by the compiler:
+// - Language/Core/String.XXML
+// - Language/Core/Integer.XXML
+// - Language/Core/Bool.XXML
+// - Language/Core/Float.XXML
+// - Language/Core/Double.XXML
+// - Language/System/Console.XXML
+
+[ Entrypoint {
+	// Because String, Integer, Bool, Float, Double are auto-imported,
+	// we can use them without any import statement
+	Instantiate Integer^ As <number> = Integer::Constructor(42);
+	Instantiate String^ As <text> = String::Constructor("Hello from XXML!");
+	Instantiate Bool^ As <flag> = Bool::Constructor(true);
+
+	// Use methods from these imported classes
+	Instantiate Integer^ As <doubled> = number.add(number);
+}]

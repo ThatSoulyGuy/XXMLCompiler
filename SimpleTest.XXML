@@ -1,0 +1,33 @@
+// Simple XXML Test - Demonstrates XXML types
+
+[ Entrypoint
+	{
+		// Create some XXML type instances
+		Instantiate String As <message> = String::Constructor("Hello from XXML!");
+		Instantiate Integer As <num> = Integer::Constructor(42);
+
+		// Print them
+		Run System::Print(message);
+		Run System::Print(String::Constructor("\n"));
+		Run System::Print(String::Convert(num));
+		Run System::Print(String::Constructor("\n"));
+
+		// Do some arithmetic
+		Instantiate Integer As <x> = Integer::Constructor(10);
+		Instantiate Integer As <y> = Integer::Constructor(5);
+		Instantiate Integer As <sum> = x + y;
+
+		Run System::Print(String::Constructor("Sum: "));
+		Run System::Print(String::Convert(sum));
+		Run System::Print(String::Constructor("\n"));
+
+		// Loop test
+		For (Integer <i> = 1 .. 5) ->
+		{
+			Run System::Print(String::Convert(i));
+			Run System::Print(String::Constructor(" "));
+		}
+
+		Exit(0);
+	}
+]

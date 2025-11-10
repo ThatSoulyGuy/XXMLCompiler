@@ -1,0 +1,81 @@
+// Test for new control flow features: If/Else, While, Break, Continue
+
+[ Namespace <Test>
+	[ Class <ControlFlowTest> Final Extends None
+		[ Public <>
+			Constructor = default;
+
+			[ Static <>
+				// Test If/Else statement
+				Method <testIf> Returns None Parameters () Do {
+					Instantiate Integer^ As <x> = Integer::Constructor(10);
+
+					If (x.equals(10)) -> {
+						Run System::PrintLine(String::Constructor("If condition passed!"));
+					} Else -> {
+						Run System::PrintLine(String::Constructor("If condition failed!"));
+					}
+				}
+
+				// Test While loop with Break
+				Method <testWhileWithBreak> Returns None Parameters () Do {
+					Instantiate Integer^ As <i> = Integer::Constructor(0);
+
+					While (i.lessThan(10)) -> {
+						Run System::Print(String::Constructor("i = "));
+						Run System::PrintLine(String::Convert(i));
+
+						If (i.equals(5)) -> {
+							Run System::PrintLine(String::Constructor("Breaking at i=5"));
+							Break;
+						}
+
+						Instantiate Integer^ As <newI> = i.add(Integer::Constructor(1));
+						i = newI;
+					}
+				}
+
+				// Test While loop with Continue
+				Method <testWhileWithContinue> Returns None Parameters () Do {
+					Instantiate Integer^ As <i> = Integer::Constructor(0);
+
+					While (i.lessThan(10)) -> {
+						Instantiate Integer^ As <newI> = i.add(Integer::Constructor(1));
+						i = newI;
+
+						If (i.modulo(2).equals(0)) -> {
+							Continue;
+						}
+
+						Run System::Print(String::Constructor("Odd number: "));
+						Run System::PrintLine(String::Convert(i));
+					}
+				}
+
+				// Main test method
+				Method <Main> Returns None Parameters () Do {
+					Run System::PrintLine(String::Constructor("=== Control Flow Tests ==="));
+					Run System::PrintLine(String::Constructor(""));
+
+					Run System::PrintLine(String::Constructor("Test 1: If/Else"));
+					Run testIf();
+					Run System::PrintLine(String::Constructor(""));
+
+					Run System::PrintLine(String::Constructor("Test 2: While with Break"));
+					Run testWhileWithBreak();
+					Run System::PrintLine(String::Constructor(""));
+
+					Run System::PrintLine(String::Constructor("Test 3: While with Continue"));
+					Run testWhileWithContinue();
+					Run System::PrintLine(String::Constructor(""));
+
+					Run System::PrintLine(String::Constructor("=== All tests completed! ==="));
+				}
+			]
+		]
+	]
+]
+
+[ Entrypoint -> {
+	Run Test::ControlFlowTest::Main();
+}]

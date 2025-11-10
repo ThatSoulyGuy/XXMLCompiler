@@ -1,0 +1,10 @@
+// Minimal template test
+[ Class <SimpleList> <T Constrains None> Final Extends None
+	[ Private <>
+		Property <data> Types Integer^;
+	]
+]
+
+[ Entrypoint {
+	Run System::PrintLine(String::Constructor("Test"));
+}]

@@ -1,0 +1,7 @@
+// Test primitive types
+[ Entrypoint {
+	Instantiate Integer^ As <x> = Integer::Constructor(42);
+	Instantiate Integer^ As <y> = Integer::Constructor(8);
+	Instantiate Integer^ As <sum> = x.add(y);
+	Instantiate Bool^ As <flag> = Bool::Constructor(true);
+}]

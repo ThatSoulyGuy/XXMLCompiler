@@ -1,0 +1,169 @@
+// XXML Standard Library Demo
+// Demonstrates the expanded standard library features
+
+[ Entrypoint
+	{
+		Run System::Print(String::Constructor("=== XXML Standard Library Demo ===\n\n"));
+
+		// ==========================================
+		// String Operations Demo
+		// ==========================================
+		Run System::Print(String::Constructor("--- String Operations ---\n"));
+
+		Instantiate String As <text> = String::Constructor("Hello, XXML!");
+		Run System::Print(String::Constructor("Original: "));
+		Run System::Print(text);
+		Run System::Print(String::Constructor("\n"));
+
+		Instantiate String As <upper> = text.toUpperCase();
+		Run System::Print(String::Constructor("Uppercase: "));
+		Run System::Print(upper);
+		Run System::Print(String::Constructor("\n"));
+
+		Instantiate String As <lower> = text.toLowerCase();
+		Run System::Print(String::Constructor("Lowercase: "));
+		Run System::Print(lower);
+		Run System::Print(String::Constructor("\n"));
+
+		Instantiate String As <reversed> = text.reverse();
+		Run System::Print(String::Constructor("Reversed: "));
+		Run System::Print(reversed);
+		Run System::Print(String::Constructor("\n"));
+
+		Instantiate Integer As <len> = text.length();
+		Run System::Print(String::Constructor("Length: "));
+		Run System::Print(String::Convert(len));
+		Run System::Print(String::Constructor("\n"));
+
+		Instantiate String As <repeated> = String::Constructor("X").repeat(Integer::Constructor(5));
+		Run System::Print(String::Constructor("Repeated: "));
+		Run System::Print(repeated);
+		Run System::Print(String::Constructor("\n\n"));
+
+		// ==========================================
+		// String Search and Manipulation
+		// ==========================================
+		Run System::Print(String::Constructor("--- String Search ---\n"));
+
+		Instantiate String As <searchText> = String::Constructor("The quick brown fox jumps over the lazy dog");
+		Run System::Print(searchText);
+		Run System::Print(String::Constructor("\n"));
+
+		Instantiate Integer As <foxPos> = searchText.indexOf(String::Constructor("fox"));
+		Run System::Print(String::Constructor("Position of 'fox': "));
+		Run System::Print(String::Convert(foxPos));
+		Run System::Print(String::Constructor("\n"));
+
+		Instantiate Bool As <containsFox> = searchText.contains(String::Constructor("fox"));
+		Run System::Print(String::Constructor("Contains 'fox': "));
+		Run System::Print(String::Convert(containsFox));
+		Run System::Print(String::Constructor("\n"));
+
+		Instantiate Bool As <startsWithThe> = searchText.startsWith(String::Constructor("The"));
+		Run System::Print(String::Constructor("Starts with 'The': "));
+		Run System::Print(String::Convert(startsWithThe));
+		Run System::Print(String::Constructor("\n"));
+
+		Instantiate String As <replaced> = searchText.replace(String::Constructor("fox"), String::Constructor("cat"));
+		Run System::Print(String::Constructor("After replace: "));
+		Run System::Print(replaced);
+		Run System::Print(String::Constructor("\n\n"));
+
+		// ==========================================
+		// Math Operations Demo
+		// ==========================================
+		Run System::Print(String::Constructor("--- Math Operations ---\n"));
+
+		Instantiate Integer As <a> = Integer::Constructor(42);
+		Instantiate Integer As <b> = Integer::Constructor(-17);
+
+		Instantiate Integer As <absVal> = Math::abs(b);
+		Run System::Print(String::Constructor("abs(-17) = "));
+		Run System::Print(String::Convert(absVal));
+		Run System::Print(String::Constructor("\n"));
+
+		Instantiate Integer As <minVal> = Math::min(a, b);
+		Run System::Print(String::Constructor("min(42, -17) = "));
+		Run System::Print(String::Convert(minVal));
+		Run System::Print(String::Constructor("\n"));
+
+		Instantiate Integer As <maxVal> = Math::max(a, b);
+		Run System::Print(String::Constructor("max(42, -17) = "));
+		Run System::Print(String::Convert(maxVal));
+		Run System::Print(String::Constructor("\n"));
+
+		Instantiate Integer As <power> = Math::pow(Integer::Constructor(2), Integer::Constructor(10));
+		Run System::Print(String::Constructor("2^10 = "));
+		Run System::Print(String::Convert(power));
+		Run System::Print(String::Constructor("\n"));
+
+		Instantiate Integer As <sqrtVal> = Math::sqrt(Integer::Constructor(144));
+		Run System::Print(String::Constructor("sqrt(144) = "));
+		Run System::Print(String::Convert(sqrtVal));
+		Run System::Print(String::Constructor("\n\n"));
+
+		// ==========================================
+		// Number Theory
+		// ==========================================
+		Run System::Print(String::Constructor("--- Number Theory ---\n"));
+
+		Instantiate Integer As <num1> = Integer::Constructor(48);
+		Instantiate Integer As <num2> = Integer::Constructor(18);
+
+		Instantiate Integer As <gcdVal> = Math::gcd(num1, num2);
+		Run System::Print(String::Constructor("gcd(48, 18) = "));
+		Run System::Print(String::Convert(gcdVal));
+		Run System::Print(String::Constructor("\n"));
+
+		Instantiate Integer As <lcmVal> = Math::lcm(num1, num2);
+		Run System::Print(String::Constructor("lcm(48, 18) = "));
+		Run System::Print(String::Convert(lcmVal));
+		Run System::Print(String::Constructor("\n"));
+
+		Instantiate Integer As <fact> = Math::factorial(Integer::Constructor(5));
+		Run System::Print(String::Constructor("5! = "));
+		Run System::Print(String::Convert(fact));
+		Run System::Print(String::Constructor("\n"));
+
+		Run System::Print(String::Constructor("Fibonacci sequence (first 10): "));
+		For (Integer <i> = 0 .. 10) ->
+		{
+			Instantiate Integer As <fib> = Math::fibonacci(i);
+			Run System::Print(String::Convert(fib));
+			Run System::Print(String::Constructor(" "));
+		}
+		Run System::Print(String::Constructor("\n"));
+
+		Run System::Print(String::Constructor("Prime check (2-20): "));
+		For (Integer <n> = 2 .. 21) ->
+		{
+			Instantiate Bool As <prime> = Math::isPrime(n);
+			Instantiate String As <primeStr> = String::Convert(prime);
+			Run System::Print(String::Convert(n));
+			Run System::Print(String::Constructor(":"));
+			Run System::Print(primeStr);
+			Run System::Print(String::Constructor(" "));
+		}
+		Run System::Print(String::Constructor("\n\n"));
+
+		// ==========================================
+		// String Conversion
+		// ==========================================
+		Run System::Print(String::Constructor("--- Type Conversions ---\n"));
+
+		Instantiate String As <numStr> = String::Constructor("12345");
+		Instantiate Integer As <parsed> = numStr.toInteger();
+		Run System::Print(String::Constructor("Parsed '12345' to: "));
+		Run System::Print(String::Convert(parsed));
+		Run System::Print(String::Constructor("\n"));
+
+		Instantiate Integer As <doubled> = parsed * Integer::Constructor(2);
+		Run System::Print(String::Constructor("Doubled: "));
+		Run System::Print(String::Convert(doubled));
+		Run System::Print(String::Constructor("\n\n"));
+
+		Run System::Print(String::Constructor("=== Demo Complete ===\n"));
+
+		Exit(0);
+	}
+]

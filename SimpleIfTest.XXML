@@ -1,0 +1,13 @@
+// Simple test for If/Else statement
+
+[ Entrypoint {
+	Instantiate Integer^ As <x> = Integer::Constructor(10);
+
+	If (x == Integer::Constructor(10)) -> {
+		Run System::PrintLine(String::Constructor("x equals 10!"));
+	} Else -> {
+		Run System::PrintLine(String::Constructor("x does not equal 10"));
+	}
+
+	Run System::PrintLine(String::Constructor("Test completed!"));
+}]

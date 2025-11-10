@@ -1,0 +1,79 @@
+// XXML String Type
+// Represents a string of characters
+
+#import Language::Core;
+
+[ Namespace <XXML::Core>
+	[ Class <String> Final Extends None
+		[ Private <>
+			Property <data> Types String^;
+		]
+
+		[ Public <>
+			Constructor = default;
+
+			// Constructor with initial value
+			Method <Constructor> Returns None Parameters (Parameter <str> Types String%) ->
+			{
+				// Initialize with string value
+			}
+
+			// Copy the string
+			Method <Copy> Returns String^ Parameters () ->
+			{
+				// Return a new copy of this string
+			}
+
+			// Append another string
+			Method <Append> Returns String^ Parameters (Parameter <other> Types String&) ->
+			{
+				// Append other string and return this
+			}
+
+			// Get length
+			Method <Length> Returns Integer^ Parameters () ->
+			{
+				// Return the length of the string
+			}
+
+			// Get character at index
+			Method <CharAt> Returns String^ Parameters (Parameter <index> Types Integer%) ->
+			{
+				// Return character at index
+			}
+
+			// Substring
+			Method <Substring> Returns String^ Parameters (Parameter <start> Types Integer%, Parameter <end> Types Integer%) ->
+			{
+				// Return substring from start to end
+			}
+
+			// Compare with another string
+			Method <Equals> Returns None Parameters (Parameter <other> Types String&) ->
+			{
+				// Return true if strings are equal
+			}
+		]
+	]
+
+	// String utility functions
+	[ Namespace <String>
+		// Convert integer to string
+		Method <Convert> Returns String^ Parameters (Parameter <value> Types Integer%) ->
+		{
+			// Convert integer to string
+		}
+
+		// Convert bool to string
+		Method <ConvertBool> Returns String^ Parameters (Parameter <value> Types None) ->
+		{
+			// Convert bool to string
+		}
+
+		// Constructor helper
+		Method <Constructor> Returns String^ Parameters (Parameter <str> Types String%) ->
+		{
+			// Create new string
+		}
+	]
+]

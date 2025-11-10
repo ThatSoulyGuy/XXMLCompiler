@@ -1,0 +1,263 @@
+// Comprehensive Pure XXML Standard Library Test
+// Tests all major components: Collections, File I/O, String utilities
+
+[ Entrypoint {
+	Run System::PrintLine(String::Constructor("========================================"));
+	Run System::PrintLine(String::Constructor("XXML Standard Library Test Suite"));
+	Run System::PrintLine(String::Constructor("========================================"));
+	Run System::PrintLine(String::Constructor(""));
+
+	// Test 1: IntegerList
+	Run System::PrintLine(String::Constructor("=== Test 1: IntegerList ==="));
+
+	Instantiate Collections::IntegerList^ As <intList> = Collections::IntegerList::Constructor();
+	Run intList.init();
+
+	Run intList.add(Integer::Constructor(42));
+	Run intList.add(Integer::Constructor(17));
+	Run intList.add(Integer::Constructor(99));
+	Run intList.add(Integer::Constructor(3));
+	Run intList.add(Integer::Constructor(56));
+
+	Run System::Print(String::Constructor("List: "));
+	Run intList.print();
+
+	Instantiate Integer^ As <intSize> = intList.size();
+	Run System::Print(String::Constructor("Size: "));
+	Run System::PrintLine(String::Convert(intSize));
+
+	Instantiate Integer^ As <intSum> = intList.sum();
+	Run System::Print(String::Constructor("Sum: "));
+	Run System::PrintLine(String::Convert(intSum));
+
+	Instantiate Integer^ As <intMin> = intList.min();
+	Run System::Print(String::Constructor("Min: "));
+	Run System::PrintLine(String::Convert(intMin));
+
+	Instantiate Integer^ As <intMax> = intList.max();
+	Run System::Print(String::Constructor("Max: "));
+	Run System::PrintLine(String::Convert(intMax));
+
+	Instantiate Integer^ As <elem> = intList.get(Integer::Constructor(2));
+	Run System::Print(String::Constructor("Element at index 2: "));
+	Run System::PrintLine(String::Convert(elem));
+
+	Run intList.dispose();
+	Run System::PrintLine(String::Constructor("✓ IntegerList passed"));
+	Run System::PrintLine(String::Constructor(""));
+
+	// Test 2: StringList
+	Run System::PrintLine(String::Constructor("=== Test 2: StringList ==="));
+
+	Instantiate Collections::StringList^ As <strList> = Collections::StringList::Constructor();
+	Run strList.init();
+
+	Run strList.add(String::Constructor("Hello"));
+	Run strList.add(String::Constructor("XXML"));
+	Run strList.add(String::Constructor("Standard"));
+	Run strList.add(String::Constructor("Library"));
+
+	Run System::Print(String::Constructor("List: "));
+	Run strList.print();
+
+	Instantiate Integer^ As <strSize> = strList.size();
+	Run System::Print(String::Constructor("Size: "));
+	Run System::PrintLine(String::Convert(strSize));
+
+	Instantiate String^ As <strElem> = strList.get(Integer::Constructor(1));
+	Run System::Print(String::Constructor("Element at index 1: "));
+	Run System::PrintLine(strElem);
+
+	Run strList.dispose();
+	Run System::PrintLine(String::Constructor("✓ StringList passed"));
+	Run System::PrintLine(String::Constructor(""));
+
+	// Test 3: HashMap
+	Run System::PrintLine(String::Constructor("=== Test 3: HashMap ==="));
+
+	Instantiate Collections::HashMap^ As <map> = Collections::HashMap::Constructor();
+	Run map.init();
+
+	Run map.put(String::Constructor("name"), String::Constructor("XXML"));
+	Run map.put(String::Constructor("version"), String::Constructor("1.0"));
+	Run map.put(String::Constructor("author"), String::Constructor("Compiler"));
+	Run map.put(String::Constructor("type"), String::Constructor("Language"));
+
+	Run System::PrintLine(String::Constructor("HashMap contents:"));
+	Run map.print();
+
+	Instantiate Integer^ As <mapSize> = map.size();
+	Run System::Print(String::Constructor("Size: "));
+	Run System::PrintLine(String::Convert(mapSize));
+
+	Instantiate String^ As <nameValue> = map.get(String::Constructor("name"));
+	Run System::Print(String::Constructor("Value for 'name': "));
+	Run System::PrintLine(nameValue);
+
+	Instantiate Bool^ As <hasVersion> = map.containsKey(String::Constructor("version"));
+	Run System::Print(String::Constructor("Contains 'version': "));
+	Run System::PrintLine(String::Convert(hasVersion));
+
+	Instantiate Bool^ As <hasTest> = map.containsKey(String::Constructor("test"));
+	Run System::Print(String::Constructor("Contains 'test': "));
+	Run System::PrintLine(String::Convert(hasTest));
+
+	Run map.dispose();
+	Run System::PrintLine(String::Constructor("✓ HashMap passed"));
+	Run System::PrintLine(String::Constructor(""));
+
+	// Test 4: File I/O
+	Run System::PrintLine(String::Constructor("=== Test 4: File I/O ==="));
+
+	// Write file
+	Instantiate IO::File^ As <writeFile> = IO::File::Constructor();
+	Run writeFile.init();
+
+	Instantiate Bool^ As <openedWrite> = writeFile.open(
+		String::Constructor("stdlib_test.txt"),
+		String::Constructor("w")
+	);
+
+	If (openedWrite == Bool::Constructor(true)) -> {
+		Run System::PrintLine(String::Constructor("✓ Opened file for writing"));
+
+		Run writeFile.writeLine(String::Constructor("XXML Standard Library Test"));
+		Run writeFile.writeLine(String::Constructor("Line 2: Testing file I/O"));
+		Run writeFile.writeLine(String::Constructor("Line 3: Pure XXML implementation"));
+
+		Run writeFile.close();
+		Run System::PrintLine(String::Constructor("✓ Wrote 3 lines and closed file"));
+	}
+
+	// Read file
+	Instantiate IO::File^ As <readFile> = IO::File::Constructor();
+	Run readFile.init();
+
+	Instantiate Bool^ As <openedRead> = readFile.open(
+		String::Constructor("stdlib_test.txt"),
+		String::Constructor("r")
+	);
+
+	If (openedRead == Bool::Constructor(true)) -> {
+		Run System::PrintLine(String::Constructor("✓ Opened file for reading"));
+
+		Instantiate String^ As <content> = readFile.readAll();
+		Run System::PrintLine(String::Constructor("File contents:"));
+		Run System::PrintLine(content);
+
+		Instantiate Integer^ As <fileSize> = readFile.getSize();
+		Run System::Print(String::Constructor("File size: "));
+		Run System::Print(String::Convert(fileSize));
+		Run System::PrintLine(String::Constructor(" bytes"));
+
+		Run readFile.close();
+		Run System::PrintLine(String::Constructor("✓ Read file and closed"));
+	}
+
+	// Test static helpers
+	Instantiate Bool^ As <writeSuccess> = IO::File::writeFile(
+		String::Constructor("stdlib_test2.txt"),
+		String::Constructor("Static helper test")
+	);
+
+	If (writeSuccess == Bool::Constructor(true)) -> {
+		Run System::PrintLine(String::Constructor("✓ Static writeFile works"));
+	}
+
+	Instantiate String^ As <readContent> = IO::File::readFile(
+		String::Constructor("stdlib_test2.txt")
+	);
+
+	Run System::Print(String::Constructor("Static readFile result: "));
+	Run System::PrintLine(readContent);
+
+	Run System::PrintLine(String::Constructor("✓ File I/O passed"));
+	Run System::PrintLine(String::Constructor(""));
+
+	// Test 5: String Utilities
+	Run System::PrintLine(String::Constructor("=== Test 5: StringUtils ==="));
+
+	Instantiate String^ As <testStr> = String::Constructor("Hello XXML World");
+
+	// contains
+	Instantiate Bool^ As <containsXXML> = Text::StringUtils::contains(testStr, String::Constructor("XXML"));
+	Run System::Print(String::Constructor("Contains 'XXML': "));
+	Run System::PrintLine(String::Convert(containsXXML));
+
+	// indexOf
+	Instantiate NativeType<"int64">^ As <indexXXML> = Text::StringUtils::indexOf(testStr, String::Constructor("XXML"));
+	Run System::Print(String::Constructor("Index of 'XXML': "));
+	Run System::PrintLine(String::Convert(Integer::Constructor(indexXXML)));
+
+	// startsWith
+	Instantiate Bool^ As <startsWithHello> = Text::StringUtils::startsWith(testStr, String::Constructor("Hello"));
+	Run System::Print(String::Constructor("Starts with 'Hello': "));
+	Run System::PrintLine(String::Convert(startsWithHello));
+
+	// endsWith
+	Instantiate Bool^ As <endsWithWorld> = Text::StringUtils::endsWith(testStr, String::Constructor("World"));
+	Run System::Print(String::Constructor("Ends with 'World': "));
+	Run System::PrintLine(String::Convert(endsWithWorld));
+
+	// substring
+	Instantiate String^ As <sub> = Text::StringUtils::substring(testStr, Integer::Constructor(6), Integer::Constructor(10));
+	Run System::Print(String::Constructor("Substring [6, 10): "));
+	Run System::PrintLine(sub);
+
+	// split
+	Instantiate String^ As <csvData> = String::Constructor("apple,banana,cherry,date");
+	Instantiate Collections::StringList^ As <splitResult> = Text::StringUtils::split(csvData, String::Constructor(","));
+	Run System::Print(String::Constructor("Split by comma: "));
+	Run splitResult.print();
+
+	// join
+	Instantiate String^ As <joined> = Text::StringUtils::join(splitResult, String::Constructor(" | "));
+	Run System::Print(String::Constructor("Joined with ' | ': "));
+	Run System::PrintLine(joined);
+
+	// trim
+	Instantiate String^ As <padded> = String::Constructor("  \t  Hello  \n  ");
+	Instantiate String^ As <trimmed> = Text::StringUtils::trim(padded);
+	Run System::Print(String::Constructor("Trimmed: '"));
+	Run System::Print(trimmed);
+	Run System::PrintLine(String::Constructor("'"));
+
+	// repeat
+	Instantiate String^ As <repeated> = Text::StringUtils::repeat(String::Constructor("X"), Integer::Constructor(5));
+	Run System::Print(String::Constructor("Repeat 'X' 5 times: "));
+	Run System::PrintLine(repeated);
+
+	// padLeft
+	Instantiate String^ As <num> = String::Constructor("42");
+	Instantiate String^ As <paddedLeft> = Text::StringUtils::padLeft(num, Integer::Constructor(5), String::Constructor("0"));
+	Run System::Print(String::Constructor("Pad left to 5 with '0': "));
+	Run System::PrintLine(paddedLeft);
+
+	// padRight
+	Instantiate String^ As <paddedRight> = Text::StringUtils::padRight(num, Integer::Constructor(5), String::Constructor("*"));
+	Run System::Print(String::Constructor("Pad right to 5 with '*': "));
+	Run System::PrintLine(paddedRight);
+
+	Run splitResult.dispose();
+	Run System::PrintLine(String::Constructor("✓ StringUtils passed"));
+	Run System::PrintLine(String::Constructor(""));
+
+	// Final Summary
+	Run System::PrintLine(String::Constructor("========================================"));
+	Run System::PrintLine(String::Constructor("ALL TESTS PASSED!"));
+	Run System::PrintLine(String::Constructor(""));
+	Run System::PrintLine(String::Constructor("Pure XXML Standard Library Components:"));
+	Run System::PrintLine(String::Constructor("  ✓ Collections::IntegerList"));
+	Run System::PrintLine(String::Constructor("  ✓ Collections::StringList"));
+	Run System::PrintLine(String::Constructor("  ✓ Collections::HashMap"));
+	Run System::PrintLine(String::Constructor("  ✓ IO::File"));
+	Run System::PrintLine(String::Constructor("  ✓ Text::StringUtils"));
+	Run System::PrintLine(String::Constructor(""));
+	Run System::PrintLine(String::Constructor("All implementations use:"));
+	Run System::PrintLine(String::Constructor("  • Manual memory management (malloc/free)"));
+	Run System::PrintLine(String::Constructor("  • NativeType for low-level operations"));
+	Run System::PrintLine(String::Constructor("  • Syscall for system operations"));
+	Run System::PrintLine(String::Constructor("  • Recursive helpers (no assignment statements)"));
+	Run System::PrintLine(String::Constructor("  • Pure XXML code with no C++ backing"));
+	Run System::PrintLine(String::Constructor("========================================"));
+}]

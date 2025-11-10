@@ -1,0 +1,86 @@
+// Test template functionality with a generic List class
+
+[ Namespace <Collections>
+	[ Class <List> <T Constrains None> Final Extends None
+		[ Private <>
+			Property <dataPtr> Types NativeType<"ptr">;
+			Property <capacity> Types NativeType<"int64">;
+			Property <count> Types NativeType<"int64">;
+		]
+
+		[ Public <>
+			Constructor = default;
+
+			Method <init> Returns None Parameters () ->
+			{
+				Instantiate NativeType<"int64">^ As <initialCap> = 16;
+				Instantiate NativeType<"int64">^ As <size> = initialCap * 8;
+				Instantiate NativeType<"ptr">^ As <ptr> = Syscall::malloc(size);
+
+				Run Syscall::memcpy(&dataPtr, &ptr, 8);
+				Run Syscall::memcpy(&capacity, &initialCap, 8);
+
+				Instantiate NativeType<"int64">^ As <zero> = 0;
+				Run Syscall::memcpy(&count, &zero, 8);
+			}
+
+			Method <add> Returns None Parameters (Parameter <value> Types T^) ->
+			{
+				Instantiate NativeType<"int64">^ As <currentCount> = count;
+				Instantiate NativeType<"int64">^ As <currentCap> = capacity;
+
+				// For now, just increment count (simplified example)
+				Instantiate NativeType<"int64">^ As <newCount> = currentCount + 1;
+				Run Syscall::memcpy(&count, &newCount, 8);
+			}
+
+			Method <size> Returns Integer^ Parameters () ->
+			{
+				Instantiate NativeType<"int64">^ As <currentCount> = count;
+				Return Integer::Constructor(currentCount);
+			}
+
+			Method <dispose> Returns None Parameters () ->
+			{
+				Instantiate NativeType<"ptr">^ As <currentPtr> = dataPtr;
+
+				If (currentPtr != 0) -> {
+					Run Syscall::free(currentPtr);
+
+					Instantiate NativeType<"ptr">^ As <zero> = 0;
+					Run Syscall::memcpy(&dataPtr, &zero, 8);
+				}
+			}
+		]
+	]
+]
+
+[ Entrypoint {
+	Run System::PrintLine(String::Constructor("=== Template Test ==="));
+
+	// Test with Integer
+	Instantiate Collections::List<Integer>^ As <intList> = Collections::List<Integer>::Constructor();
+	Run intList.init();
+	Run intList.add(Integer::Constructor(42));
+	Run intList.add(Integer::Constructor(100));
+
+	Instantiate Integer^ As <intSize> = intList.size();
+	Run System::Print(String::Constructor("Integer list size: "));
+	Run System::PrintLine(String::Convert(intSize));
+
+	Run intList.dispose();
+
+	// Test with String
+	Instantiate Collections::List<String>^ As <strList> = Collections::List<String>::Constructor();
+	Run strList.init();
+	Run strList.add(String::Constructor("Hello"));
+	Run strList.add(String::Constructor("World"));
+
+	Instantiate Integer^ As <strSize> = strList.size();
+	Run System::Print(String::Constructor("String list size: "));
+	Run System::PrintLine(String::Convert(strSize));
+
+	Run strList.dispose();
+
+	Run System::PrintLine(String::Constructor("✓ Templates work!"));
+}]

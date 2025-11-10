@@ -1,0 +1,34 @@
+// XXML Standard Library - System Functions
+// Provides I/O and system utilities
+
+[ Namespace <System>
+
+	[ Class <Console> Final Extends None
+
+		[ Public <>
+			// Print without newline
+			Method <print> Returns None Parameters (
+				Parameter <message> Types String^
+			) Do {
+				// Implementation in runtime
+			}
+
+			// Print with newline
+			Method <printLine> Returns None Parameters (
+				Parameter <message> Types String^
+			) Do {
+				// Implementation in runtime
+			}
+
+			// Read a line from input
+			Method <readLine> Returns String^ Parameters () Do {
+				Return String::Constructor();
+			}
+
+			// Get current time
+			Method <getTime> Returns Integer^ Parameters () Do {
+				Return Integer::Constructor(0);
+			}
+		]
+	]
+]

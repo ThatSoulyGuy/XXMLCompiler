@@ -1,0 +1,5 @@
+// Simple hello world test
+
+[ Entrypoint {
+	Run System::PrintLine(String::Constructor("Hello world!"));
+}]

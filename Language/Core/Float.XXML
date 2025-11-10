@@ -1,0 +1,143 @@
+// XXML Standard Library - Float Class
+// Single-precision floating point (32-bit)
+
+[ Namespace <Language::Core>
+	[ Class <Float> Final Extends None
+		[ Private <>
+			Property <value> Types NativeType<"float">;
+		]
+
+		[ Public <>
+			// Default constructor
+			Constructor = default;
+
+			// Create from float
+			Method <Constructor> Returns Float^ Parameters (
+				Parameter <val> Types NativeType<"float">
+			) ->
+			{
+				Run Syscall::memcpy(&value, &val, 4);
+				Return this;
+			}
+
+			// Get raw value
+			Method <toFloat> Returns NativeType<"float"> Parameters () ->
+			{
+				Return value;
+			}
+
+			// Arithmetic operations
+			Method <add> Returns Float^ Parameters (
+				Parameter <other> Types Float^
+			) ->
+			{
+				Instantiate NativeType<"float">^ As <v1> = value;
+				Instantiate NativeType<"float">^ As <v2> = other.value;
+				Instantiate NativeType<"float">^ As <result> = v1 + v2;
+				Return Float::Constructor(result);
+			}
+
+			Method <subtract> Returns Float^ Parameters (
+				Parameter <other> Types Float^
+			) ->
+			{
+				Instantiate NativeType<"float">^ As <v1> = value;
+				Instantiate NativeType<"float">^ As <v2> = other.value;
+				Instantiate NativeType<"float">^ As <result> = v1 - v2;
+				Return Float::Constructor(result);
+			}
+
+			Method <multiply> Returns Float^ Parameters (
+				Parameter <other> Types Float^
+			) ->
+			{
+				Instantiate NativeType<"float">^ As <v1> = value;
+				Instantiate NativeType<"float">^ As <v2> = other.value;
+				Instantiate NativeType<"float">^ As <result> = v1 * v2;
+				Return Float::Constructor(result);
+			}
+
+			Method <divide> Returns Float^ Parameters (
+				Parameter <other> Types Float^
+			) ->
+			{
+				Instantiate NativeType<"float">^ As <v1> = value;
+				Instantiate NativeType<"float">^ As <v2> = other.value;
+				Instantiate NativeType<"float">^ As <result> = v1 / v2;
+				Return Float::Constructor(result);
+			}
+
+			// Comparison operations
+			Method <equals> Returns Bool^ Parameters (
+				Parameter <other> Types Float^
+			) ->
+			{
+				Instantiate NativeType<"float">^ As <v1> = value;
+				Instantiate NativeType<"float">^ As <v2> = other.value;
+				If (v1 == v2) -> {
+					Return Bool::Constructor(true);
+				}
+				Return Bool::Constructor(false);
+			}
+
+			Method <lessThan> Returns Bool^ Parameters (
+				Parameter <other> Types Float^
+			) ->
+			{
+				Instantiate NativeType<"float">^ As <v1> = value;
+				Instantiate NativeType<"float">^ As <v2> = other.value;
+				If (v1 < v2) -> {
+					Return Bool::Constructor(true);
+				}
+				Return Bool::Constructor(false);
+			}
+
+			Method <greaterThan> Returns Bool^ Parameters (
+				Parameter <other> Types Float^
+			) ->
+			{
+				Instantiate NativeType<"float">^ As <v1> = value;
+				Instantiate NativeType<"float">^ As <v2> = other.value;
+				If (v1 > v2) -> {
+					Return Bool::Constructor(true);
+				}
+				Return Bool::Constructor(false);
+			}
+
+			// Unary operations
+			Method <negate> Returns Float^ Parameters () ->
+			{
+				Instantiate NativeType<"float">^ As <v> = value;
+				Instantiate NativeType<"float">^ As <zero> = 0;
+				Instantiate NativeType<"float">^ As <result> = zero - v;
+				Return Float::Constructor(result);
+			}
+
+			Method <abs> Returns Float^ Parameters () ->
+			{
+				Instantiate NativeType<"float">^ As <v> = value;
+				Instantiate NativeType<"float">^ As <zero> = 0;
+				If (v < zero) -> {
+					Instantiate NativeType<"float">^ As <result> = zero - v;
+					Return Float::Constructor(result);
+				}
+				Return Float::Constructor(v);
+			}
+
+			// Conversion
+			Method <toInteger> Returns Integer^ Parameters () ->
+			{
+				Instantiate NativeType<"float">^ As <v> = value;
+				Instantiate NativeType<"int64">^ As <result> = v;
+				Return Integer::Constructor(result);
+			}
+
+			Method <toDouble> Returns Double^ Parameters () ->
+			{
+				Instantiate NativeType<"float">^ As <v> = value;
+				Instantiate NativeType<"double">^ As <result> = v;
+				Return Double::Constructor(result);
+			}
+		]
+	]
+]

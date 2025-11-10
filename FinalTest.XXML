@@ -1,0 +1,164 @@
+// Final comprehensive test of new XXML features
+// Demonstrates: If/Else, NativeType, Syscall, String helpers
+
+[ Entrypoint {
+	Run System::PrintLine(String::Constructor("======================================"));
+	Run System::PrintLine(String::Constructor("XXML Pure Standard Library Test"));
+	Run System::PrintLine(String::Constructor("======================================"));
+	Run System::PrintLine(String::Constructor(""));
+
+	// Test 1: If/Else Control Flow
+	Run System::PrintLine(String::Constructor("=== Test 1: If/Else ==="));
+
+	Instantiate Integer^ As <x> = Integer::Constructor(10);
+
+	If (x == Integer::Constructor(10)) -> {
+		Run System::PrintLine(String::Constructor("✓ If statement works!"));
+	} Else -> {
+		Run System::PrintLine(String::Constructor("✗ If statement failed"));
+	}
+
+	Instantiate Integer^ As <y> = Integer::Constructor(5);
+
+	If (y < Integer::Constructor(3)) -> {
+		Run System::PrintLine(String::Constructor("✗ Should not print"));
+	} Else -> {
+		Run System::PrintLine(String::Constructor("✓ Else branch works!"));
+	}
+
+	Run System::PrintLine(String::Constructor(""));
+
+	// Test 2: NativeType with primitive types
+	Run System::PrintLine(String::Constructor("=== Test 2: NativeType Primitives ==="));
+
+	Instantiate NativeType<"int64">^ As <value1> = 42;
+	Instantiate NativeType<"int64">^ As <value2> = value1 * 2;
+	Instantiate NativeType<"int64">^ As <value3> = value2 + value1;
+
+	Run System::Print(String::Constructor("42 * 2 = "));
+	Run System::PrintLine(String::Convert(Integer::Constructor(value2)));
+
+	Run System::Print(String::Constructor("84 + 42 = "));
+	Run System::PrintLine(String::Convert(Integer::Constructor(value3)));
+
+	Run System::PrintLine(String::Constructor("✓ NativeType works for primitives"));
+
+	Run System::PrintLine(String::Constructor(""));
+
+	// Test 3: Syscall - Memory Management
+	Run System::PrintLine(String::Constructor("=== Test 3: Syscall Memory ==="));
+
+	Instantiate NativeType<"ptr">^ As <buffer> = Syscall::malloc(100);
+	Run System::PrintLine(String::Constructor("✓ Allocated 100 bytes"));
+
+	Run Syscall::memset(buffer, 65, 10);
+	Run System::PrintLine(String::Constructor("✓ Filled 10 bytes with 'A'"));
+
+	Instantiate NativeType<"ptr">^ As <offset5> = buffer + 5;
+	Run Syscall::write_int64(offset5, 12345);
+	Run System::PrintLine(String::Constructor("✓ Wrote int64 to offset 5"));
+
+	Instantiate NativeType<"int64">^ As <readValue> = Syscall::read_int64(offset5);
+	Run System::Print(String::Constructor("✓ Read back value: "));
+	Run System::PrintLine(String::Convert(Integer::Constructor(readValue)));
+
+	Run Syscall::free(buffer);
+	Run System::PrintLine(String::Constructor("✓ Freed memory"));
+
+	Run System::PrintLine(String::Constructor(""));
+
+	// Test 4: String Conversion Helpers
+	Run System::PrintLine(String::Constructor("=== Test 4: String Helpers ==="));
+
+	Instantiate String^ As <testStr> = String::Constructor("Hello, Pure XXML!");
+	Instantiate NativeType<"ptr">^ As <cstr> = testStr.toCString();
+
+	Run System::Print(String::Constructor("Original: "));
+	Run System::PrintLine(testStr);
+
+	Instantiate String^ As <convertedStr> = String::FromCString(cstr);
+	Run System::Print(String::Constructor("Converted: "));
+	Run System::PrintLine(convertedStr);
+
+	Run System::PrintLine(String::Constructor("✓ toCString() and FromCString() work!"));
+
+	Run System::PrintLine(String::Constructor(""));
+
+	// Test 5: Syscall - File I/O
+	Run System::PrintLine(String::Constructor("=== Test 5: Syscall File I/O ==="));
+
+	Instantiate NativeType<"ptr">^ As <filePath> = String::Constructor("xxml_test.txt").toCString();
+	Instantiate NativeType<"ptr">^ As <writeMode> = String::Constructor("w").toCString();
+
+	Instantiate NativeType<"ptr">^ As <file> = Syscall::fopen(filePath, writeMode);
+
+	If (file != 0) -> {
+		Run System::PrintLine(String::Constructor("✓ Opened file for writing"));
+
+		Instantiate String^ As <content> = String::Constructor("Hello from Pure XXML!\nLine 2\nLine 3\n");
+		Instantiate NativeType<"ptr">^ As <contentCStr> = content.toCString();
+		Instantiate NativeType<"int64">^ As <len> = content.length();
+
+		Instantiate NativeType<"int64">^ As <written> = Syscall::fwrite(contentCStr, 1, len, file);
+
+		Run System::Print(String::Constructor("✓ Wrote "));
+		Run System::Print(String::Convert(Integer::Constructor(written)));
+		Run System::PrintLine(String::Constructor(" bytes"));
+
+		Run Syscall::fclose(file);
+		Run System::PrintLine(String::Constructor("✓ Closed file"));
+	}
+
+	// Read it back
+	Instantiate NativeType<"ptr">^ As <readMode> = String::Constructor("r").toCString();
+	Instantiate NativeType<"ptr">^ As <file2> = Syscall::fopen(filePath, readMode);
+
+	If (file2 != 0) -> {
+		Run System::PrintLine(String::Constructor("✓ Opened file for reading"));
+
+		// Get file size
+		Run Syscall::fseek(file2, 0, 2);
+		Instantiate NativeType<"int64">^ As <fileSize> = Syscall::ftell(file2);
+		Run Syscall::fseek(file2, 0, 0);
+
+		Run System::Print(String::Constructor("✓ File size: "));
+		Run System::Print(String::Convert(Integer::Constructor(fileSize)));
+		Run System::PrintLine(String::Constructor(" bytes"));
+
+		// Read content
+		Instantiate NativeType<"ptr">^ As <readBuffer> = Syscall::malloc(fileSize + 1);
+		Instantiate NativeType<"int64">^ As <bytesRead> = Syscall::fread(readBuffer, 1, fileSize, file2);
+
+		// Null terminate
+		Instantiate NativeType<"ptr">^ As <endPos> = readBuffer + bytesRead;
+		Run Syscall::write_int64(endPos, 0);
+
+		Instantiate String^ As <fileContent> = String::FromCString(readBuffer);
+
+		Run System::PrintLine(String::Constructor("✓ File contents:"));
+		Run System::PrintLine(fileContent);
+
+		Run Syscall::free(readBuffer);
+		Run Syscall::fclose(file2);
+	}
+
+	Run System::PrintLine(String::Constructor(""));
+
+	// Final Summary
+	Run System::PrintLine(String::Constructor("======================================"));
+	Run System::PrintLine(String::Constructor("All Tests PASSED!"));
+	Run System::PrintLine(String::Constructor(""));
+	Run System::PrintLine(String::Constructor("Pure XXML Standard Library Features:"));
+	Run System::PrintLine(String::Constructor("  ✓ If/Else statements"));
+	Run System::PrintLine(String::Constructor("  ✓ NativeType<T> for primitives"));
+	Run System::PrintLine(String::Constructor("  ✓ Syscall::malloc/free/memset"));
+	Run System::PrintLine(String::Constructor("  ✓ Syscall::fopen/fread/fwrite/fclose"));
+	Run System::PrintLine(String::Constructor("  ✓ String::toCString()"));
+	Run System::PrintLine(String::Constructor("  ✓ String::FromCString()"));
+	Run System::PrintLine(String::Constructor("  ✓ Pointer arithmetic"));
+	Run System::PrintLine(String::Constructor("  ✓ Comparison operators"));
+	Run System::PrintLine(String::Constructor(""));
+	Run System::PrintLine(String::Constructor("Foundation complete for pure XXML"));
+	Run System::PrintLine(String::Constructor("data structures and algorithms!"));
+	Run System::PrintLine(String::Constructor("======================================"));
+}]

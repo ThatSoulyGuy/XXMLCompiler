@@ -1,0 +1,271 @@
+// XXML Standard Library - DateTime Class
+// Date and time manipulation functionality
+// Backed by C++ std::chrono for accurate time operations
+
+[ Namespace <Language::Time>
+
+	[ Class <DateTime> Final Extends None
+
+		[ Private <>
+			// Internal timestamp representation
+			// Backed by C++ DateTime::TimeStamp
+		]
+
+		[ Public <>
+			Constructor = default;
+
+			// Static factory methods
+			[ Static <>
+				Method <now> Returns DateTime^ Parameters () Do {
+					// Get current date and time
+					// Backed by C++ runtime: DateTime::TimeStamp::now
+					Return DateTime::Constructor();
+				}
+
+				Method <fromMilliseconds> Returns DateTime^ Parameters (
+					Parameter <milliseconds> Types Integer^
+				) Do {
+					// Create DateTime from milliseconds since epoch
+					// Backed by C++ runtime: DateTime::TimeStamp constructor
+					Return DateTime::Constructor();
+				}
+
+				Method <fromSeconds> Returns DateTime^ Parameters (
+					Parameter <seconds> Types Integer^
+				) Do {
+					// Create DateTime from seconds since epoch
+					// Backed by C++ runtime
+					Return DateTime::Constructor();
+				}
+
+				Method <Constructor> Returns DateTime^ Parameters () Do {
+					// Creates and returns a new DateTime instance
+				}
+			]
+
+			// Conversion methods
+			Method <toMilliseconds> Returns Integer^ Parameters () Do {
+				// Get milliseconds since epoch (Jan 1, 1970)
+				// Backed by C++ runtime: DateTime::TimeStamp::getMilliseconds
+				Return Integer::Constructor(0);
+			}
+
+			Method <toSeconds> Returns Integer^ Parameters () Do {
+				// Get seconds since epoch
+				// Backed by C++ runtime: DateTime::TimeStamp::getSeconds
+				Return Integer::Constructor(0);
+			}
+
+			Method <toString> Returns String^ Parameters () Do {
+				// Convert to string representation (YYYY-MM-DD HH:MM:SS)
+				// Backed by C++ runtime: DateTime::TimeStamp::toString
+				Return String::Constructor();
+			}
+
+			// Arithmetic operations
+			Method <addMilliseconds> Returns DateTime^ Parameters (
+				Parameter <milliseconds> Types Integer^
+			) Do {
+				// Add milliseconds to this DateTime
+				// Backed by C++ runtime: DateTime::TimeStamp::addMilliseconds
+				Return DateTime::Constructor();
+			}
+
+			Method <addSeconds> Returns DateTime^ Parameters (
+				Parameter <seconds> Types Integer^
+			) Do {
+				// Add seconds to this DateTime
+				// Backed by C++ runtime
+				Return DateTime::Constructor();
+			}
+
+			Method <addMinutes> Returns DateTime^ Parameters (
+				Parameter <minutes> Types Integer^
+			) Do {
+				// Add minutes to this DateTime
+				// Backed by C++ runtime
+				Return DateTime::Constructor();
+			}
+
+			Method <addHours> Returns DateTime^ Parameters (
+				Parameter <hours> Types Integer^
+			) Do {
+				// Add hours to this DateTime
+				// Backed by C++ runtime
+				Return DateTime::Constructor();
+			}
+
+			Method <addDays> Returns DateTime^ Parameters (
+				Parameter <days> Types Integer^
+			) Do {
+				// Add days to this DateTime
+				// Backed by C++ runtime
+				Return DateTime::Constructor();
+			}
+
+			// Comparison and difference
+			Method <difference> Returns Integer^ Parameters (
+				Parameter <other> Types DateTime^
+			) Do {
+				// Get difference in milliseconds
+				// Backed by C++ runtime: DateTime::TimeStamp::differenceMilliseconds
+				Return Integer::Constructor(0);
+			}
+
+			Method <isBefore> Returns Bool^ Parameters (
+				Parameter <other> Types DateTime^
+			) Do {
+				// Check if this DateTime is before another
+				// Backed by C++ runtime
+				Return Bool::Constructor(false);
+			}
+
+			Method <isAfter> Returns Bool^ Parameters (
+				Parameter <other> Types DateTime^
+			) Do {
+				// Check if this DateTime is after another
+				// Backed by C++ runtime
+				Return Bool::Constructor(false);
+			}
+		]
+	]
+
+	[ Class <TimeSpan> Final Extends None
+
+		[ Private <>
+			// Duration in milliseconds
+			Property <duration> Types Integer^;
+		]
+
+		[ Public <>
+			Constructor = default;
+
+			// Factory methods for creating TimeSpan
+			[ Static <>
+				Method <fromMilliseconds> Returns TimeSpan^ Parameters (
+					Parameter <milliseconds> Types Integer^
+				) Do {
+					Return TimeSpan::Constructor();
+				}
+
+				Method <fromSeconds> Returns TimeSpan^ Parameters (
+					Parameter <seconds> Types Integer^
+				) Do {
+					Return TimeSpan::Constructor();
+				}
+
+				Method <fromMinutes> Returns TimeSpan^ Parameters (
+					Parameter <minutes> Types Integer^
+				) Do {
+					Return TimeSpan::Constructor();
+				}
+
+				Method <fromHours> Returns TimeSpan^ Parameters (
+					Parameter <hours> Types Integer^
+				) Do {
+					Return TimeSpan::Constructor();
+				}
+
+				Method <fromDays> Returns TimeSpan^ Parameters (
+					Parameter <days> Types Integer^
+				) Do {
+					Return TimeSpan::Constructor();
+				}
+
+				Method <Constructor> Returns TimeSpan^ Parameters () Do {
+					// Creates and returns a new TimeSpan instance
+				}
+			]
+
+			// Conversion methods
+			Method <toMilliseconds> Returns Integer^ Parameters () Do {
+				Return duration;
+			}
+
+			Method <toSeconds> Returns Integer^ Parameters () Do {
+				// Convert to seconds
+				Return Integer::Constructor(0);
+			}
+
+			Method <toMinutes> Returns Integer^ Parameters () Do {
+				// Convert to minutes
+				Return Integer::Constructor(0);
+			}
+
+			Method <toHours> Returns Integer^ Parameters () Do {
+				// Convert to hours
+				Return Integer::Constructor(0);
+			}
+
+			Method <toDays> Returns Integer^ Parameters () Do {
+				// Convert to days
+				Return Integer::Constructor(0);
+			}
+
+			Method <toString> Returns String^ Parameters () Do {
+				// Convert to human-readable format (HH:MM:SS)
+				Return String::Constructor();
+			}
+
+			// Arithmetic
+			Method <add> Returns TimeSpan^ Parameters (
+				Parameter <other> Types TimeSpan^
+			) Do {
+				// Add two time spans
+				Return TimeSpan::Constructor();
+			}
+
+			Method <subtract> Returns TimeSpan^ Parameters (
+				Parameter <other> Types TimeSpan^
+			) Do {
+				// Subtract time spans
+				Return TimeSpan::Constructor();
+			}
+		]
+	]
+
+	[ Class <Timer> Final Extends None
+
+		[ Private <>
+			// Timer state
+		]
+
+		[ Public <>
+			Constructor = default;
+
+			// Timer operations
+			Method <start> Returns None Parameters () Do {
+				// Start the timer
+				// Backed by C++ runtime
+			}
+
+			Method <stop> Returns None Parameters () Do {
+				// Stop the timer
+				// Backed by C++ runtime
+			}
+
+			Method <reset> Returns None Parameters () Do {
+				// Reset the timer to zero
+				// Backed by C++ runtime
+			}
+
+			Method <elapsed> Returns Integer^ Parameters () Do {
+				// Get elapsed time in milliseconds
+				// Backed by C++ runtime
+				Return Integer::Constructor(0);
+			}
+
+			Method <isRunning> Returns Bool^ Parameters () Do {
+				// Check if timer is running
+				// Backed by C++ runtime
+				Return Bool::Constructor(false);
+			}
+
+			[ Static <>
+				Method <Constructor> Returns Timer^ Parameters () Do {
+					// Creates and returns a new Timer instance
+				}
+			]
+		]
+	]
+]

@@ -1,0 +1,141 @@
+// XXML Standard Library - Array Class
+// Fixed-size array collection
+
+[ Namespace <Language::Collections>
+
+	[ Class <IntegerArray> Final Extends None
+
+		[ Private <>
+			// Internal storage - implemented in C++ runtime
+			Property <capacity> Types Integer^;
+			Property <count> Types Integer^;
+		]
+
+		[ Public <>
+			// Constructor
+			Constructor = default;
+
+			// Basic Operations
+			Method <get> Returns Integer^ Parameters (
+				Parameter <index> Types Integer^
+			) Do {
+				Return Integer::Constructor(0);
+			}
+
+			Method <set> Returns None Parameters (
+				Parameter <index> Types Integer^,
+				Parameter <value> Types Integer^
+			) Do {
+				// Set value at index
+			}
+
+			Method <size> Returns Integer^ Parameters () Do {
+				Return count;
+			}
+
+			Method <isEmpty> Returns Bool^ Parameters () Do {
+				Return Bool::Constructor(false);
+			}
+
+			// Array Operations
+			Method <fill> Returns None Parameters (
+				Parameter <value> Types Integer^
+			) Do {
+				// Fill array with value
+			}
+
+			Method <clear> Returns None Parameters () Do {
+				// Clear all elements
+			}
+
+			Method <contains> Returns Bool^ Parameters (
+				Parameter <value> Types Integer^
+			) Do {
+				Return Bool::Constructor(false);
+			}
+
+			Method <indexOf> Returns Integer^ Parameters (
+				Parameter <value> Types Integer^
+			) Do {
+				Return Integer::Constructor(-1);
+			}
+
+			Method <lastIndexOf> Returns Integer^ Parameters (
+				Parameter <value> Types Integer^
+			) Do {
+				Return Integer::Constructor(-1);
+			}
+
+			// Aggregate Operations
+			Method <sum> Returns Integer^ Parameters () Do {
+				Return Integer::Constructor(0);
+			}
+
+			Method <min> Returns Integer^ Parameters () Do {
+				Return Integer::Constructor(0);
+			}
+
+			Method <max> Returns Integer^ Parameters () Do {
+				Return Integer::Constructor(0);
+			}
+
+			Method <average> Returns Integer^ Parameters () Do {
+				Return Integer::Constructor(0);
+			}
+
+			// Sorting
+			Method <sort> Returns None Parameters () Do {
+				// Sort array in ascending order
+			}
+
+			Method <reverse> Returns None Parameters () Do {
+				// Reverse array order
+			}
+		]
+	]
+
+	[ Class <StringArray> Final Extends None
+
+		[ Private <>
+			Property <capacity> Types Integer^;
+			Property <count> Types Integer^;
+		]
+
+		[ Public <>
+			Constructor = default;
+
+			Method <get> Returns String^ Parameters (
+				Parameter <index> Types Integer^
+			) Do {
+				Return String::Constructor();
+			}
+
+			Method <set> Returns None Parameters (
+				Parameter <index> Types Integer^,
+				Parameter <value> Types String^
+			) Do {
+				// Set value at index
+			}
+
+			Method <size> Returns Integer^ Parameters () Do {
+				Return count;
+			}
+
+			Method <isEmpty> Returns Bool^ Parameters () Do {
+				Return Bool::Constructor(false);
+			}
+
+			Method <contains> Returns Bool^ Parameters (
+				Parameter <value> Types String^
+			) Do {
+				Return Bool::Constructor(false);
+			}
+
+			Method <join> Returns String^ Parameters (
+				Parameter <delimiter> Types String^
+			) Do {
+				Return String::Constructor();
+			}
+		]
+	]
+]

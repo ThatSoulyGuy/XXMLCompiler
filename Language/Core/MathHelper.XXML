@@ -1,0 +1,24 @@
+[Namespace <Language::Core>]
+
+[Class <MathHelper> Final Extends None
+    [Public
+        [Constructor <Default>() Returns None]
+
+        [Method <Add>(<Integer a>, <Integer b>) Returns <Integer>
+            {
+                Run System::Print("Adding numbers...")
+                Instantiate Integer As <result> = a + b
+                Exit result
+            }
+        ]
+
+        [Method <Multiply>(<Integer a>, <Integer b>) Returns <Integer>
+            {
+                Instantiate Integer As <result> = a * b
+                Exit result
+            }
+        ]
+    ]
+]
+
+[/Namespace]

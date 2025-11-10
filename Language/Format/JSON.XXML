@@ -1,0 +1,162 @@
+// XXML Standard Library - JSON Class
+// JSON parsing and generation functionality
+// Provides simple JSON object and array manipulation
+
+[ Namespace <Language::Format>
+
+	[ Class <JSONObject> Final Extends None
+
+		[ Private <>
+			// Implementation note: JSON is represented as String internally
+			// Parsing and generation use C++ runtime string manipulation
+		]
+
+		[ Public <>
+			// Constructor
+			Constructor = default;
+
+			// Parsing
+			[ Static <>
+				Method <parse> Returns JSONObject^ Parameters (
+					Parameter <jsonString> Types String^
+				) Do {
+					// Parse JSON string into JSONObject
+					// Backed by C++ runtime JSON parser
+					Return JSONObject::Constructor();
+				}
+			]
+
+			// Generation
+			Method <stringify> Returns String^ Parameters () Do {
+				// Convert JSONObject to JSON string
+				// Backed by C++ runtime
+				Return String::Constructor();
+			}
+
+			// Object Operations
+			Method <get> Returns String^ Parameters (
+				Parameter <key> Types String^
+			) Do {
+				// Get value for key (returns empty string if not found)
+				// Backed by C++ runtime
+				Return String::Constructor();
+			}
+
+			Method <set> Returns None Parameters (
+				Parameter <key> Types String^,
+				Parameter <value> Types String^
+			) Do {
+				// Set value for key
+				// Backed by C++ runtime
+			}
+
+			Method <has> Returns Bool^ Parameters (
+				Parameter <key> Types String^
+			) Do {
+				// Check if key exists
+				// Backed by C++ runtime
+				Return Bool::Constructor(false);
+			}
+
+			Method <remove> Returns None Parameters (
+				Parameter <key> Types String^
+			) Do {
+				// Remove key-value pair
+				// Backed by C++ runtime
+			}
+
+			Method <size> Returns Integer^ Parameters () Do {
+				// Get number of key-value pairs
+				// Backed by C++ runtime
+				Return Integer::Constructor(0);
+			}
+
+			// Type-specific getters
+			Method <getInteger> Returns Integer^ Parameters (
+				Parameter <key> Types String^
+			) Do {
+				// Get integer value for key
+				// Backed by C++ runtime
+				Return Integer::Constructor(0);
+			}
+
+			Method <getBool> Returns Bool^ Parameters (
+				Parameter <key> Types String^
+			) Do {
+				// Get boolean value for key
+				// Backed by C++ runtime
+				Return Bool::Constructor(false);
+			}
+
+			[ Static <>
+				Method <Constructor> Returns JSONObject^ Parameters () Do {
+					// Creates and returns a new JSONObject instance
+				}
+			]
+		]
+	]
+
+	[ Class <JSONArray> Final Extends None
+
+		[ Private <>
+			// Implementation: Array of JSON values as strings
+		]
+
+		[ Public <>
+			Constructor = default;
+
+			// Parsing
+			[ Static <>
+				Method <parse> Returns JSONArray^ Parameters (
+					Parameter <jsonString> Types String^
+				) Do {
+					// Parse JSON array string
+					// Backed by C++ runtime
+					Return JSONArray::Constructor();
+				}
+			]
+
+			// Generation
+			Method <stringify> Returns String^ Parameters () Do {
+				// Convert JSONArray to JSON string
+				// Backed by C++ runtime
+				Return String::Constructor();
+			}
+
+			// Array Operations
+			Method <get> Returns String^ Parameters (
+				Parameter <index> Types Integer^
+			) Do {
+				// Get value at index
+				// Backed by C++ runtime
+				Return String::Constructor();
+			}
+
+			Method <add> Returns None Parameters (
+				Parameter <value> Types String^
+			) Do {
+				// Add value to end of array
+				// Backed by C++ runtime
+			}
+
+			Method <remove> Returns None Parameters (
+				Parameter <index> Types Integer^
+			) Do {
+				// Remove value at index
+				// Backed by C++ runtime
+			}
+
+			Method <size> Returns Integer^ Parameters () Do {
+				// Get number of elements
+				// Backed by C++ runtime
+				Return Integer::Constructor(0);
+			}
+
+			[ Static <>
+				Method <Constructor> Returns JSONArray^ Parameters () Do {
+					// Creates and returns a new JSONArray instance
+				}
+			]
+		]
+	]
+]

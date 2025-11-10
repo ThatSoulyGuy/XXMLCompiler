@@ -1,0 +1,12 @@
+// XXML Core Language Module
+// This module provides core language functionality
+
+[ Namespace <Language::Core>
+	// Core type definitions and utilities
+
+	[ Class <Object> Final Extends None
+		[ Public <>
+			Constructor = default;
+		]
+	]
+]

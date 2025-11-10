@@ -1,0 +1,36 @@
+// Test NativeType and Syscall features
+
+[ Entrypoint {
+	Run System::PrintLine(String::Constructor("=== NativeType and Syscall Test ==="));
+
+	// Test NativeType with malloc
+	Instantiate NativeType<"ptr">^ As <buffer> = Syscall::malloc(100);
+
+	Run System::Print(String::Constructor("Allocated buffer at: "));
+	Run System::PrintLine(String::Convert(Integer::Constructor(0)));
+
+	// Test memset
+	Run Syscall::memset(buffer, 65, 10);
+
+	Run System::PrintLine(String::Constructor("Filled buffer with 'A' (ASCII 65)"));
+
+	// Test reading int64
+	Instantiate NativeType<"int64">^ As <testValue> = 42;
+	Run System::Print(String::Constructor("Test value: "));
+	Run System::PrintLine(String::Convert(Integer::Constructor(testValue)));
+
+	// Test String conversion
+	Instantiate String^ As <testStr> = String::Constructor("Hello from XXML!");
+	Instantiate NativeType<"ptr">^ As <cstr> = testStr.toCString();
+	Instantiate String^ As <convertedStr> = String::FromCString(cstr);
+
+	Run System::Print(String::Constructor("Original string: "));
+	Run System::PrintLine(testStr);
+	Run System::Print(String::Constructor("Converted string: "));
+	Run System::PrintLine(convertedStr);
+
+	// Free the buffer
+	Run Syscall::free(buffer);
+
+	Run System::PrintLine(String::Constructor("=== Test Complete! ==="));
+}]

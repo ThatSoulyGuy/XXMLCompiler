@@ -1,0 +1,197 @@
+// Pure XXML StringList - Working Implementation
+// Dynamic array of strings with manual memory management
+
+[ Namespace <Collections>
+	[ Class <StringList> Final Extends None
+		[ Private <>
+			Property <dataPtr> Types NativeType<"ptr">;
+			Property <capacity> Types NativeType<"int64">;
+			Property <count> Types NativeType<"int64">;
+		]
+
+		[ Public <>
+			Constructor = default;
+
+			// Initialize list
+			Method <init> Returns None Parameters () Do {
+				Instantiate NativeType<"int64">^ As <initialCap> = 16;
+				Instantiate NativeType<"int64">^ As <size> = initialCap * 8;
+				Instantiate NativeType<"ptr">^ As <ptr> = Syscall::malloc(size);
+
+				Run Syscall::memcpy(&dataPtr, &ptr, 8);
+				Run Syscall::memcpy(&capacity, &initialCap, 8);
+
+				Instantiate NativeType<"int64">^ As <zero> = 0;
+				Run Syscall::memcpy(&count, &zero, 8);
+			}
+
+			// Add string to list
+			Method <add> Returns None Parameters (Parameter <value> Types String^) Do {
+				Instantiate NativeType<"int64">^ As <currentCount> = count;
+				Instantiate NativeType<"int64">^ As <currentCap> = capacity;
+
+				If (currentCount >= currentCap) -> {
+					Run growCapacity();
+				}
+
+				// Allocate memory for string copy
+				Instantiate NativeType<"int64">^ As <len> = value.length();
+				Instantiate NativeType<"int64">^ As <allocSize> = len + 1;
+				Instantiate NativeType<"ptr">^ As <strCopy> = Syscall::malloc(allocSize);
+
+				// Copy string
+				Instantiate NativeType<"ptr">^ As <src> = value.toCString();
+				Run Syscall::memcpy(strCopy, src, len);
+
+				// Null terminate
+				Instantiate NativeType<"ptr">^ As <nullPos> = strCopy + len;
+				Instantiate NativeType<"int64">^ As <zero> = 0;
+				Run Syscall::write_int64(nullPos, zero);
+
+				// Store pointer in array
+				Instantiate NativeType<"ptr">^ As <currentPtr> = dataPtr;
+				Instantiate NativeType<"int64">^ As <offset> = currentCount * 8;
+				Instantiate NativeType<"ptr">^ As <writePos> = currentPtr + offset;
+				Run Syscall::write_int64(writePos, strCopy);
+
+				// Increment count
+				Instantiate NativeType<"int64">^ As <newCount> = currentCount + 1;
+				Run Syscall::memcpy(&count, &newCount, 8);
+			}
+
+			// Get string at index
+			Method <get> Returns String^ Parameters (Parameter <index> Types Integer^) Do {
+				Instantiate NativeType<"int64">^ As <idx> = index;
+				Instantiate NativeType<"int64">^ As <currentCount> = count;
+
+				If (idx >= currentCount) -> {
+					Return String::Constructor("");
+				}
+
+				If (idx < 0) -> {
+					Return String::Constructor("");
+				}
+
+				Instantiate NativeType<"ptr">^ As <currentPtr> = dataPtr;
+				Instantiate NativeType<"int64">^ As <offset> = idx * 8;
+				Instantiate NativeType<"ptr">^ As <readPos> = currentPtr + offset;
+
+				Instantiate NativeType<"ptr">^ As <strPtr> = Syscall::read_int64(readPos);
+				Return String::FromCString(strPtr);
+			}
+
+			// Get size
+			Method <size> Returns Integer^ Parameters () Do {
+				Instantiate NativeType<"int64">^ As <currentCount> = count;
+				Return Integer::Constructor(currentCount);
+			}
+
+			// Check if empty
+			Method <isEmpty> Returns Bool^ Parameters () Do {
+				Instantiate NativeType<"int64">^ As <currentCount> = count;
+				If (currentCount == 0) -> {
+					Return Bool::Constructor(true);
+				} Else -> {
+					Return Bool::Constructor(false);
+				}
+			}
+
+			// Print all elements
+			Method <print> Returns None Parameters () Do {
+				Run System::Print(String::Constructor("["));
+				Run printHelper(Integer::Constructor(0));
+				Run System::PrintLine(String::Constructor("]"));
+			}
+
+			// Dispose (free all memory)
+			Method <dispose> Returns None Parameters () Do {
+				Run disposeHelper(Integer::Constructor(0));
+
+				Instantiate NativeType<"ptr">^ As <currentPtr> = dataPtr;
+
+				If (currentPtr != 0) -> {
+					Run Syscall::free(currentPtr);
+
+					Instantiate NativeType<"ptr">^ As <zero> = 0;
+					Run Syscall::memcpy(&dataPtr, &zero, 8);
+				}
+			}
+		]
+
+		[ Private <>
+			// Grow capacity
+			Method <growCapacity> Returns None Parameters () Do {
+				Instantiate NativeType<"int64">^ As <currentCap> = capacity;
+				Instantiate NativeType<"int64">^ As <newCap> = currentCap * 2;
+
+				If (newCap == 0) -> {
+					Instantiate NativeType<"int64">^ As <defaultCap> = 16;
+					Run Syscall::memcpy(&newCap, &defaultCap, 8);
+				}
+
+				Instantiate NativeType<"int64">^ As <newSize> = newCap * 8;
+				Instantiate NativeType<"ptr">^ As <newPtr> = Syscall::malloc(newSize);
+
+				// Copy old data
+				Instantiate NativeType<"int64">^ As <currentCount> = count;
+				Instantiate NativeType<"int64">^ As <copySize> = currentCount * 8;
+				Instantiate NativeType<"ptr">^ As <currentPtr> = dataPtr;
+
+				Run Syscall::memcpy(newPtr, currentPtr, copySize);
+
+				// Free old memory
+				Run Syscall::free(currentPtr);
+
+				// Update pointers
+				Run Syscall::memcpy(&dataPtr, &newPtr, 8);
+				Run Syscall::memcpy(&capacity, &newCap, 8);
+			}
+
+			// Recursive print helper
+			Method <printHelper> Returns None Parameters (Parameter <index> Types Integer^) Do {
+				Instantiate NativeType<"int64">^ As <currentCount> = count;
+				Instantiate NativeType<"int64">^ As <idx> = index;
+
+				If (idx >= currentCount) -> {
+					Return None::Constructor();
+				}
+
+				Instantiate String^ As <value> = get(index);
+
+				If (idx > 0) -> {
+					Run System::Print(String::Constructor(", "));
+				}
+
+				Run System::Print(String::Constructor("\""));
+				Run System::Print(value);
+				Run System::Print(String::Constructor("\""));
+
+				Instantiate Integer^ As <nextIndex> = index.add(Integer::Constructor(1));
+				Run printHelper(nextIndex);
+			}
+
+			// Recursive dispose helper (free all string allocations)
+			Method <disposeHelper> Returns None Parameters (Parameter <index> Types Integer^) Do {
+				Instantiate NativeType<"int64">^ As <currentCount> = count;
+				Instantiate NativeType<"int64">^ As <idx> = index;
+
+				If (idx >= currentCount) -> {
+					Return None::Constructor();
+				}
+
+				// Free string memory
+				Instantiate NativeType<"ptr">^ As <currentPtr> = dataPtr;
+				Instantiate NativeType<"int64">^ As <offset> = idx * 8;
+				Instantiate NativeType<"ptr">^ As <readPos> = currentPtr + offset;
+				Instantiate NativeType<"ptr">^ As <strPtr> = Syscall::read_int64(readPos);
+
+				If (strPtr != 0) -> {
+					Run Syscall::free(strPtr);
+				}
+
+				Instantiate Integer^ As <nextIndex> = index.add(Integer::Constructor(1));
+				Run disposeHelper(nextIndex);
+			}
+		]
+	]
+]

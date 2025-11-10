@@ -1,0 +1,160 @@
+// XXML Standard Library - Integer Class
+// Working implementation using NativeType
+
+[ Namespace <Language::Core>
+	[ Class <Integer> Final Extends None
+		[ Private <>
+			Property <value> Types NativeType<"int64">;
+		]
+
+		[ Public <>
+			// Default constructor
+			Constructor = default;
+
+			// Create from int64
+			Method <Constructor> Returns Integer^ Parameters (
+				Parameter <val> Types NativeType<"int64">
+			) ->
+			{
+				Run Syscall::memcpy(&value, &val, 8);
+				Return this;
+			}
+
+			// Get raw value
+			Method <toInt64> Returns NativeType<"int64"> Parameters () ->
+			{
+				Return value;
+			}
+
+			// Arithmetic operations
+			Method <add> Returns Integer^ Parameters (
+				Parameter <other> Types Integer^
+			) ->
+			{
+				Instantiate NativeType<"int64">^ As <v1> = value;
+				Instantiate NativeType<"int64">^ As <v2> = other.value;
+				Instantiate NativeType<"int64">^ As <result> = v1 + v2;
+				Return Integer::Constructor(result);
+			}
+
+			Method <subtract> Returns Integer^ Parameters (
+				Parameter <other> Types Integer^
+			) ->
+			{
+				Instantiate NativeType<"int64">^ As <v1> = value;
+				Instantiate NativeType<"int64">^ As <v2> = other.value;
+				Instantiate NativeType<"int64">^ As <result> = v1 - v2;
+				Return Integer::Constructor(result);
+			}
+
+			Method <multiply> Returns Integer^ Parameters (
+				Parameter <other> Types Integer^
+			) ->
+			{
+				Instantiate NativeType<"int64">^ As <v1> = value;
+				Instantiate NativeType<"int64">^ As <v2> = other.value;
+				Instantiate NativeType<"int64">^ As <result> = v1 * v2;
+				Return Integer::Constructor(result);
+			}
+
+			Method <divide> Returns Integer^ Parameters (
+				Parameter <other> Types Integer^
+			) ->
+			{
+				Instantiate NativeType<"int64">^ As <v1> = value;
+				Instantiate NativeType<"int64">^ As <v2> = other.value;
+				Instantiate NativeType<"int64">^ As <result> = v1 / v2;
+				Return Integer::Constructor(result);
+			}
+
+			Method <modulo> Returns Integer^ Parameters (
+				Parameter <other> Types Integer^
+			) ->
+			{
+				Instantiate NativeType<"int64">^ As <v1> = value;
+				Instantiate NativeType<"int64">^ As <v2> = other.value;
+				Instantiate NativeType<"int64">^ As <result> = v1 % v2;
+				Return Integer::Constructor(result);
+			}
+
+			// Comparison operations
+			Method <equals> Returns Bool^ Parameters (
+				Parameter <other> Types Integer^
+			) ->
+			{
+				Instantiate NativeType<"int64">^ As <v1> = value;
+				Instantiate NativeType<"int64">^ As <v2> = other.value;
+				If (v1 == v2) -> {
+					Return Bool::Constructor(true);
+				}
+				Return Bool::Constructor(false);
+			}
+
+			Method <lessThan> Returns Bool^ Parameters (
+				Parameter <other> Types Integer^
+			) ->
+			{
+				Instantiate NativeType<"int64">^ As <v1> = value;
+				Instantiate NativeType<"int64">^ As <v2> = other.value;
+				If (v1 < v2) -> {
+					Return Bool::Constructor(true);
+				}
+				Return Bool::Constructor(false);
+			}
+
+			Method <greaterThan> Returns Bool^ Parameters (
+				Parameter <other> Types Integer^
+			) ->
+			{
+				Instantiate NativeType<"int64">^ As <v1> = value;
+				Instantiate NativeType<"int64">^ As <v2> = other.value;
+				If (v1 > v2) -> {
+					Return Bool::Constructor(true);
+				}
+				Return Bool::Constructor(false);
+			}
+
+			Method <lessOrEqual> Returns Bool^ Parameters (
+				Parameter <other> Types Integer^
+			) ->
+			{
+				Instantiate NativeType<"int64">^ As <v1> = value;
+				Instantiate NativeType<"int64">^ As <v2> = other.value;
+				If (v1 <= v2) -> {
+					Return Bool::Constructor(true);
+				}
+				Return Bool::Constructor(false);
+			}
+
+			Method <greaterOrEqual> Returns Bool^ Parameters (
+				Parameter <other> Types Integer^
+			) ->
+			{
+				Instantiate NativeType<"int64">^ As <v1> = value;
+				Instantiate NativeType<"int64">^ As <v2> = other.value;
+				If (v1 >= v2) -> {
+					Return Bool::Constructor(true);
+				}
+				Return Bool::Constructor(false);
+			}
+
+			// Unary operations
+			Method <negate> Returns Integer^ Parameters () ->
+			{
+				Instantiate NativeType<"int64">^ As <v> = value;
+				Instantiate NativeType<"int64">^ As <result> = 0 - v;
+				Return Integer::Constructor(result);
+			}
+
+			Method <abs> Returns Integer^ Parameters () ->
+			{
+				Instantiate NativeType<"int64">^ As <v> = value;
+				If (v < 0) -> {
+					Instantiate NativeType<"int64">^ As <result> = 0 - v;
+					Return Integer::Constructor(result);
+				}
+				Return Integer::Constructor(v);
+			}
+		]
+	]
+]

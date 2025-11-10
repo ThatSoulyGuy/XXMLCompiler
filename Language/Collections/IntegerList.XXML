@@ -1,0 +1,280 @@
+// Pure XXML IntegerList - Working Implementation
+// Dynamic array with manual memory management
+
+[ Namespace <Collections>
+	[ Class <IntegerList> Final Extends None
+		[ Private <>
+			Property <dataPtr> Types NativeType<"ptr">;
+			Property <capacity> Types NativeType<"int64">;
+			Property <count> Types NativeType<"int64">;
+		]
+
+		[ Public <>
+			Constructor = default;
+
+			// Initialize list (must be called after construction)
+			Method <init> Returns None Parameters () Do {
+				Instantiate NativeType<"int64">^ As <initialCap> = 16;
+				Instantiate NativeType<"ptr">^ As <ptr> = Syscall::malloc(initialCap * 8);
+
+				Run Syscall::memcpy(&dataPtr, &ptr, 8);
+				Run Syscall::memcpy(&capacity, &initialCap, 8);
+
+				Instantiate NativeType<"int64">^ As <zero> = 0;
+				Run Syscall::memcpy(&count, &zero, 8);
+			}
+
+			// Add element to end of list
+			Method <add> Returns None Parameters (Parameter <value> Types Integer^) Do {
+				// Check if need to grow
+				Instantiate NativeType<"int64">^ As <currentCount> = count;
+				Instantiate NativeType<"int64">^ As <currentCap> = capacity;
+
+				If (currentCount >= currentCap) -> {
+					Run growCapacity();
+				}
+
+				// Write value at current count position
+				Instantiate NativeType<"ptr">^ As <currentPtr> = dataPtr;
+				Instantiate NativeType<"int64">^ As <offset> = currentCount * 8;
+				Instantiate NativeType<"ptr">^ As <writePos> = currentPtr + offset;
+
+				Instantiate NativeType<"int64">^ As <val> = value;
+				Run Syscall::write_int64(writePos, val);
+
+				// Increment count
+				Instantiate NativeType<"int64">^ As <newCount> = currentCount + 1;
+				Run Syscall::memcpy(&count, &newCount, 8);
+			}
+
+			// Get element at index
+			Method <get> Returns Integer^ Parameters (Parameter <index> Types Integer^) Do {
+				Instantiate NativeType<"int64">^ As <idx> = index;
+				Instantiate NativeType<"int64">^ As <currentCount> = count;
+
+				If (idx >= currentCount) -> {
+					Return Integer::Constructor(0);
+				}
+
+				If (idx < 0) -> {
+					Return Integer::Constructor(0);
+				}
+
+				Instantiate NativeType<"ptr">^ As <currentPtr> = dataPtr;
+				Instantiate NativeType<"int64">^ As <offset> = idx * 8;
+				Instantiate NativeType<"ptr">^ As <readPos> = currentPtr + offset;
+
+				Instantiate NativeType<"int64">^ As <value> = Syscall::read_int64(readPos);
+				Return Integer::Constructor(value);
+			}
+
+			// Set element at index
+			Method <set> Returns None Parameters (
+				Parameter <index> Types Integer^,
+				Parameter <value> Types Integer^
+			) Do {
+				Instantiate NativeType<"int64">^ As <idx> = index;
+				Instantiate NativeType<"int64">^ As <currentCount> = count;
+
+				If (idx >= currentCount) -> {
+					Return None::Constructor();
+				}
+
+				If (idx < 0) -> {
+					Return None::Constructor();
+				}
+
+				Instantiate NativeType<"ptr">^ As <currentPtr> = dataPtr;
+				Instantiate NativeType<"int64">^ As <offset> = idx * 8;
+				Instantiate NativeType<"ptr">^ As <writePos> = currentPtr + offset;
+
+				Instantiate NativeType<"int64">^ As <val> = value;
+				Run Syscall::write_int64(writePos, val);
+			}
+
+			// Get size
+			Method <size> Returns Integer^ Parameters () Do {
+				Instantiate NativeType<"int64">^ As <currentCount> = count;
+				Return Integer::Constructor(currentCount);
+			}
+
+			// Check if empty
+			Method <isEmpty> Returns Bool^ Parameters () Do {
+				Instantiate NativeType<"int64">^ As <currentCount> = count;
+				If (currentCount == 0) -> {
+					Return Bool::Constructor(true);
+				} Else -> {
+					Return Bool::Constructor(false);
+				}
+			}
+
+			// Clear list
+			Method <clear> Returns None Parameters () Do {
+				Instantiate NativeType<"int64">^ As <zero> = 0;
+				Run Syscall::memcpy(&count, &zero, 8);
+			}
+
+			// Calculate sum of all elements
+			Method <sum> Returns Integer^ Parameters () Do {
+				Return sumHelper(Integer::Constructor(0), Integer::Constructor(0));
+			}
+
+			// Get minimum value
+			Method <min> Returns Integer^ Parameters () Do {
+				Instantiate NativeType<"int64">^ As <currentCount> = count;
+
+				If (currentCount == 0) -> {
+					Return Integer::Constructor(0);
+				}
+
+				Return minHelper(Integer::Constructor(1), get(Integer::Constructor(0)));
+			}
+
+			// Get maximum value
+			Method <max> Returns Integer^ Parameters () Do {
+				Instantiate NativeType<"int64">^ As <currentCount> = count;
+
+				If (currentCount == 0) -> {
+					Return Integer::Constructor(0);
+				}
+
+				Return maxHelper(Integer::Constructor(1), get(Integer::Constructor(0)));
+			}
+
+			// Print all elements
+			Method <print> Returns None Parameters () Do {
+				Run System::Print(String::Constructor("["));
+
+				Run printHelper(Integer::Constructor(0));
+
+				Run System::PrintLine(String::Constructor("]"));
+			}
+
+			// Dispose (free memory)
+			Method <dispose> Returns None Parameters () Do {
+				Instantiate NativeType<"ptr">^ As <currentPtr> = dataPtr;
+
+				If (currentPtr != 0) -> {
+					Run Syscall::free(currentPtr);
+
+					Instantiate NativeType<"ptr">^ As <zero> = 0;
+					Run Syscall::memcpy(&dataPtr, &zero, 8);
+				}
+			}
+		]
+
+		[ Private <>
+			// Grow capacity (double it)
+			Method <growCapacity> Returns None Parameters () Do {
+				Instantiate NativeType<"int64">^ As <currentCap> = capacity;
+				Instantiate NativeType<"int64">^ As <newCap> = currentCap * 2;
+
+				If (newCap == 0) -> {
+					Instantiate NativeType<"int64">^ As <defaultCap> = 16;
+					Run Syscall::memcpy(&newCap, &defaultCap, 8);
+				}
+
+				Instantiate NativeType<"int64">^ As <newSize> = newCap * 8;
+				Instantiate NativeType<"ptr">^ As <newPtr> = Syscall::malloc(newSize);
+
+				// Copy old data
+				Instantiate NativeType<"int64">^ As <currentCount> = count;
+				Instantiate NativeType<"int64">^ As <copySize> = currentCount * 8;
+				Instantiate NativeType<"ptr">^ As <currentPtr> = dataPtr;
+
+				Run Syscall::memcpy(newPtr, currentPtr, copySize);
+
+				// Free old memory
+				Run Syscall::free(currentPtr);
+
+				// Update pointers
+				Run Syscall::memcpy(&dataPtr, &newPtr, 8);
+				Run Syscall::memcpy(&capacity, &newCap, 8);
+			}
+
+			// Recursive sum helper
+			Method <sumHelper> Returns Integer^ Parameters (
+				Parameter <index> Types Integer^,
+				Parameter <accumulator> Types Integer^
+			) Do {
+				Instantiate NativeType<"int64">^ As <currentCount> = count;
+				Instantiate NativeType<"int64">^ As <idx> = index;
+
+				If (idx >= currentCount) -> {
+					Return accumulator;
+				}
+
+				Instantiate Integer^ As <value> = get(index);
+				Instantiate Integer^ As <newAccum> = accumulator.add(value);
+				Instantiate Integer^ As <nextIndex> = index.add(Integer::Constructor(1));
+
+				Return sumHelper(nextIndex, newAccum);
+			}
+
+			// Recursive min helper
+			Method <minHelper> Returns Integer^ Parameters (
+				Parameter <index> Types Integer^,
+				Parameter <currentMin> Types Integer^
+			) Do {
+				Instantiate NativeType<"int64">^ As <currentCount> = count;
+				Instantiate NativeType<"int64">^ As <idx> = index;
+
+				If (idx >= currentCount) -> {
+					Return currentMin;
+				}
+
+				Instantiate Integer^ As <value> = get(index);
+				Instantiate Integer^ As <nextIndex> = index.add(Integer::Constructor(1));
+
+				If (value < currentMin) -> {
+					Return minHelper(nextIndex, value);
+				} Else -> {
+					Return minHelper(nextIndex, currentMin);
+				}
+			}
+
+			// Recursive max helper
+			Method <maxHelper> Returns Integer^ Parameters (
+				Parameter <index> Types Integer^,
+				Parameter <currentMax> Types Integer^
+			) Do {
+				Instantiate NativeType<"int64">^ As <currentCount> = count;
+				Instantiate NativeType<"int64">^ As <idx> = index;
+
+				If (idx >= currentCount) -> {
+					Return currentMax;
+				}
+
+				Instantiate Integer^ As <value> = get(index);
+				Instantiate Integer^ As <nextIndex> = index.add(Integer::Constructor(1));
+
+				If (value > currentMax) -> {
+					Return maxHelper(nextIndex, value);
+				} Else -> {
+					Return maxHelper(nextIndex, currentMax);
+				}
+			}
+
+			// Recursive print helper
+			Method <printHelper> Returns None Parameters (Parameter <index> Types Integer^) Do {
+				Instantiate NativeType<"int64">^ As <currentCount> = count;
+				Instantiate NativeType<"int64">^ As <idx> = index;
+
+				If (idx >= currentCount) -> {
+					Return None::Constructor();
+				}
+
+				Instantiate Integer^ As <value> = get(index);
+
+				If (idx > 0) -> {
+					Run System::Print(String::Constructor(", "));
+				}
+
+				Run System::Print(String::Convert(value));
+
+				Instantiate Integer^ As <nextIndex> = index.add(Integer::Constructor(1));
+				Run printHelper(nextIndex);
+			}
+		]
+	]
+]

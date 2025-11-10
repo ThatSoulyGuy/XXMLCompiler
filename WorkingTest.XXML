@@ -1,0 +1,246 @@
+// Working Comprehensive XXML Test
+// Demonstrates all major features with correct syntax
+
+#import Language::Core;
+
+// Test 1: Basic Namespace and Class
+[ Namespace <TestApp::Math>
+
+	[ Class <Calculator> Final Extends None
+
+		[ Public <>
+			Property <lastResult> Types Integer^;
+
+			Constructor = default;
+
+			Method <add> Returns Integer^ Parameters (
+				Parameter <a> Types Integer%,
+				Parameter <b> Types Integer%
+			) ->
+			{
+				Return a + b;
+			}
+
+			Method <subtract> Returns Integer^ Parameters (
+				Parameter <a> Types Integer%,
+				Parameter <b> Types Integer%
+			) ->
+			{
+				Return a - b;
+			}
+
+			Method <multiply> Returns Integer^ Parameters (
+				Parameter <a> Types Integer%,
+				Parameter <b> Types Integer%
+			) ->
+			{
+				Return a * b;
+			}
+
+			Method <divide> Returns Integer^ Parameters (
+				Parameter <a> Types Integer%,
+				Parameter <b> Types Integer%
+			) ->
+			{
+				Return a / b;
+			}
+		]
+
+		[ Private <>
+			Property <internalState> Types Integer^;
+		]
+	]
+
+	[ Class <AdvancedCalculator> Final Extends Calculator
+
+		[ Public <>
+			Method <square> Returns Integer^ Parameters (Parameter <x> Types Integer%) ->
+			{
+				Return x * x;
+			}
+
+			Method <cube> Returns Integer^ Parameters (Parameter <x> Types Integer%) ->
+			{
+				Return x * x * x;
+			}
+		]
+	]
+]
+
+// Test 2: String Operations Namespace
+[ Namespace <TestApp::Text>
+
+	[ Class <StringHelper> Final Extends None
+
+		[ Public <>
+			Constructor = default;
+
+			Method <concat> Returns String^ Parameters (
+				Parameter <first> Types String&,
+				Parameter <second> Types String&
+			) ->
+			{
+				Return first.Copy().Append(second);
+			}
+		]
+	]
+]
+
+// Test 3: Data Structures Namespace
+[ Namespace <TestApp::Data>
+
+	[ Class <Counter> Final Extends None
+
+		[ Private <>
+			Property <count> Types Integer^;
+		]
+
+		[ Protected <>
+			Property <maxValue> Types Integer^;
+		]
+
+		[ Public <>
+			Constructor = default;
+
+			Method <getValue> Returns Integer^ Parameters () ->
+			{
+				Return count;
+			}
+		]
+	]
+
+	[ Class <BoundedCounter> Final Extends Counter
+
+		[ Public <>
+			Method <getMax> Returns Integer^ Parameters () ->
+			{
+				Return maxValue;
+			}
+		]
+	]
+]
+
+// Test 4: Entrypoint with comprehensive feature demonstration
+[ Entrypoint
+	{
+		// Feature: Instantiate with qualified type
+		Instantiate TestApp::Math::Calculator As <calc> =
+			TestApp::Math::Calculator::Constructor();
+
+		// Feature: Simple integer variables
+		Instantiate Integer As <x> = 10i;
+		Instantiate Integer As <y> = 5i;
+
+		// Feature: Method calls with arithmetic
+		Instantiate Integer As <sum> = calc.add(x, y);
+		Instantiate Integer As <difference> = calc.subtract(x, y);
+		Instantiate Integer As <product> = calc.multiply(x, y);
+		Instantiate Integer As <quotient> = calc.divide(x, y);
+
+		// Feature: System::Print with String::Convert
+		Run System::Print(String::Convert(sum));
+		Run System::Print(String::Convert(difference));
+		Run System::Print(String::Convert(product));
+		Run System::Print(String::Convert(quotient));
+
+		// Feature: Advanced calculator with inheritance
+		Instantiate TestApp::Math::AdvancedCalculator As <advCalc> =
+			TestApp::Math::AdvancedCalculator::Constructor();
+
+		Instantiate Integer As <squared> = advCalc.square(7i);
+		Instantiate Integer As <cubed> = advCalc.cube(3i);
+
+		Run System::Print(String::Convert(squared));
+		Run System::Print(String::Convert(cubed));
+
+		// Feature: For loops
+		Run System::Print(String::Constructor("Counting 0 to 5:"));
+		For (Integer <i> = 0 .. 5) ->
+		{
+			Run System::Print(String::Convert(i));
+		}
+
+		// Feature: Nested for loops
+		Run System::Print(String::Constructor("Nested loops:"));
+		For (Integer <outer> = 0 .. 3) ->
+		{
+			For (Integer <inner> = 0 .. 2) ->
+			{
+				Instantiate Integer As <combined> = outer * 10i + inner;
+				Run System::Print(String::Convert(combined));
+			}
+		}
+
+		// Feature: String operations
+		Instantiate String As <str1> = String::Constructor("Hello");
+		Instantiate String As <str2> = String::Constructor(" World");
+
+		Instantiate TestApp::Text::StringHelper As <strHelper> =
+			TestApp::Text::StringHelper::Constructor();
+
+		Instantiate String As <concatenated> = strHelper.concat(&str1, &str2);
+		Run System::Print(concatenated);
+
+		// Feature: Method chaining
+		Instantiate String As <chained> =
+			str1.Copy().Append(String::Constructor("!"));
+		Run System::Print(chained);
+
+		// Feature: Complex expressions
+		Instantiate Integer As <expr1> = 5i + 3i * 2i;
+		Instantiate Integer As <expr2> = 20i - 4i / 2i;
+		Instantiate Integer As <expr3> = 15i % 4i;
+
+		Run System::Print(String::Convert(expr1));
+		Run System::Print(String::Convert(expr2));
+		Run System::Print(String::Convert(expr3));
+
+		// Feature: Multiple variables in sequence
+		Instantiate Integer As <a> = 1i;
+		Instantiate Integer As <b> = 2i;
+		Instantiate Integer As <c> = 3i;
+		Instantiate Integer As <d> = 4i;
+		Instantiate Integer As <e> = 5i;
+
+		Instantiate Integer As <total> = a + b + c + d + e;
+		Run System::Print(String::Convert(total));
+
+		// Feature: Counter with protected members
+		Instantiate TestApp::Data::Counter As <counter> =
+			TestApp::Data::Counter::Constructor();
+
+		Instantiate Integer As <counterVal> = counter.getValue();
+		Run System::Print(String::Convert(counterVal));
+
+		// Feature: Bounded counter with inheritance
+		Instantiate TestApp::Data::BoundedCounter As <boundedCounter> =
+			TestApp::Data::BoundedCounter::Constructor();
+
+		Instantiate Integer As <maxVal> = boundedCounter.getMax();
+		Run System::Print(String::Convert(maxVal));
+
+		// Feature: Using inherited method
+		Instantiate Integer As <boundedVal> = boundedCounter.getValue();
+		Run System::Print(String::Convert(boundedVal));
+
+		// Feature: Reference passing
+		Run System::Print(&str1);
+		Run System::Print(&str2);
+
+		// Feature: Multiple Print statements
+		Run System::Print(String::Constructor("Test 1"));
+		Run System::Print(String::Constructor("Test 2"));
+		Run System::Print(String::Constructor("Test 3"));
+
+		// Feature: Complex method call chain
+		Instantiate Integer As <chainResult> =
+			advCalc.add(advCalc.square(2i), advCalc.cube(2i));
+		Run System::Print(String::Convert(chainResult));
+
+		// Success message
+		Run System::Print(String::Constructor("All features tested successfully!"));
+
+		// Feature: Exit with code
+		Exit(0);
+	}
+]

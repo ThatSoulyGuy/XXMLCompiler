@@ -1,0 +1,5 @@
+// This should fail - System::PrintLine doesn't exist
+[ Entrypoint {
+	Run System::PrintLine("Hello");
+	Run NonExistentClass::DoSomething();
+}]

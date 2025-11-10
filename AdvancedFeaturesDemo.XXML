@@ -1,0 +1,217 @@
+// XXML Advanced Features Demo
+// Demonstrates the complete standard library functionality
+
+[ Namespace <Examples>
+
+	[ Class <AdvancedFeaturesDemo> Final Extends None
+
+		[ Public <>
+			Constructor = default;
+
+			[ Static <>
+				Method <Main> Returns None Parameters () Do {
+					System::PrintLine(String::Constructor("====================================="));
+					System::PrintLine(String::Constructor("XXML Standard Library - Feature Demo"));
+					System::PrintLine(String::Constructor("====================================="));
+					System::PrintLine(String::Constructor(""));
+
+					demoStringOperations();
+					demoMathFunctions();
+					demoCollections();
+					demoDateTime();
+					demoFileIO();
+					demoRegex();
+					demoEnvironment();
+
+					System::PrintLine(String::Constructor(""));
+					System::PrintLine(String::Constructor("====================================="));
+					System::PrintLine(String::Constructor("Demo Complete!"));
+					System::PrintLine(String::Constructor("====================================="));
+				}
+
+				// String Operations Demo
+				Method <demoStringOperations> Returns None Parameters () Do {
+					System::PrintLine(String::Constructor(">>> STRING OPERATIONS <<<"));
+					System::PrintLine(String::Constructor(""));
+
+					Let <text> Types String^ Equals String::Constructor("  Hello, XXML World!  ");
+					System::Print(String::Constructor("Original: '"));
+					System::Print(text);
+					System::PrintLine(String::Constructor("'"));
+
+					System::Print(String::Constructor("Trimmed: '"));
+					System::Print(text.trim());
+					System::PrintLine(String::Constructor("'"));
+
+					System::Print(String::Constructor("Uppercase: "));
+					System::PrintLine(text.toUpperCase());
+
+					System::Print(String::Constructor("Lowercase: "));
+					System::PrintLine(text.toLowerCase());
+
+					System::Print(String::Constructor("Reversed: "));
+					System::PrintLine(text.reverse());
+
+					System::Print(String::Constructor("Length: "));
+					System::PrintLine(String::Convert(text.length()));
+
+					System::Print(String::Constructor("Contains 'XXML': "));
+					System::PrintLine(String::Convert(text.contains(String::Constructor("XXML"))));
+
+					System::Print(String::Constructor("Repeated 3x: "));
+					System::PrintLine(String::Constructor("Hi!").repeat(Integer::Constructor(3)));
+
+					System::PrintLine(String::Constructor(""));
+				}
+
+				// Math Functions Demo
+				Method <demoMathFunctions> Returns None Parameters () Do {
+					System::PrintLine(String::Constructor(">>> MATH OPERATIONS <<<"));
+					System::PrintLine(String::Constructor(""));
+
+					Let <a> Types Integer^ Equals Integer::Constructor(12);
+					Let <b> Types Integer^ Equals Integer::Constructor(8);
+
+					System::Print(String::Constructor("GCD(12, 8) = "));
+					System::PrintLine(String::Convert(Math::gcd(a, b)));
+
+					System::Print(String::Constructor("LCM(12, 8) = "));
+					System::PrintLine(String::Convert(Math::lcm(a, b)));
+
+					System::Print(String::Constructor("2^10 = "));
+					System::PrintLine(String::Convert(Math::pow(Integer::Constructor(2), Integer::Constructor(10))));
+
+					System::Print(String::Constructor("sqrt(144) = "));
+					System::PrintLine(String::Convert(Math::sqrt(Integer::Constructor(144))));
+
+					System::Print(String::Constructor("Factorial(6) = "));
+					System::PrintLine(String::Convert(Math::factorial(Integer::Constructor(6))));
+
+					System::Print(String::Constructor("Fibonacci(15) = "));
+					System::PrintLine(String::Convert(Math::fibonacci(Integer::Constructor(15))));
+
+					System::Print(String::Constructor("Is 17 prime? "));
+					System::PrintLine(String::Convert(Math::isPrime(Integer::Constructor(17))));
+
+					System::Print(String::Constructor("Is 18 prime? "));
+					System::PrintLine(String::Convert(Math::isPrime(Integer::Constructor(18))));
+
+					System::PrintLine(String::Constructor(""));
+				}
+
+				// Collections Demo
+				Method <demoCollections> Returns None Parameters () Do {
+					System::PrintLine(String::Constructor(">>> COLLECTIONS <<<"));
+					System::PrintLine(String::Constructor(""));
+
+					System::PrintLine(String::Constructor("Available collection types:"));
+					System::PrintLine(String::Constructor("  - IntegerArray / StringArray (fixed-size arrays)"));
+					System::PrintLine(String::Constructor("  - IntegerList / StringList (dynamic lists)"));
+					System::PrintLine(String::Constructor("  - IntegerHashMap / StringHashMap (key-value maps)"));
+					System::PrintLine(String::Constructor("  - IntegerSet / StringSet (unique value sets)"));
+					System::PrintLine(String::Constructor("  - IntegerQueue / StringQueue (FIFO queues)"));
+					System::PrintLine(String::Constructor("  - IntegerStack / StringStack (LIFO stacks)"));
+					System::PrintLine(String::Constructor(""));
+
+					System::PrintLine(String::Constructor("All collections support:"));
+					System::PrintLine(String::Constructor("  - Add/Remove elements"));
+					System::PrintLine(String::Constructor("  - Size and isEmpty queries"));
+					System::PrintLine(String::Constructor("  - Clear operations"));
+					System::PrintLine(String::Constructor("  - Type-specific operations"));
+
+					System::PrintLine(String::Constructor(""));
+				}
+
+				// DateTime Demo
+				Method <demoDateTime> Returns None Parameters () Do {
+					System::PrintLine(String::Constructor(">>> DATE & TIME <<<"));
+					System::PrintLine(String::Constructor(""));
+
+					Let <timestamp> Types Integer^ Equals System::GetTime();
+					System::Print(String::Constructor("Current Unix timestamp: "));
+					System::PrintLine(String::Convert(timestamp));
+
+					System::PrintLine(String::Constructor(""));
+					System::PrintLine(String::Constructor("DateTime features:"));
+					System::PrintLine(String::Constructor("  - DateTime.now() - current date and time"));
+					System::PrintLine(String::Constructor("  - fromMilliseconds/fromSeconds - create from epoch"));
+					System::PrintLine(String::Constructor("  - Add operations: addDays, addHours, addMinutes, etc."));
+					System::PrintLine(String::Constructor("  - Comparison: isBefore, isAfter, difference"));
+					System::PrintLine(String::Constructor("  - TimeSpan for durations"));
+					System::PrintLine(String::Constructor("  - Timer for elapsed time measurement"));
+
+					System::PrintLine(String::Constructor(""));
+				}
+
+				// File I/O Demo
+				Method <demoFileIO> Returns None Parameters () Do {
+					System::PrintLine(String::Constructor(">>> FILE I/O <<<"));
+					System::PrintLine(String::Constructor(""));
+
+					System::PrintLine(String::Constructor("File operations available:"));
+					System::PrintLine(String::Constructor("  - File.open/close/read/write"));
+					System::PrintLine(String::Constructor("  - readAll, readLine, readChar"));
+					System::PrintLine(String::Constructor("  - write, writeLine, append"));
+					System::PrintLine(String::Constructor("  - Static utilities: fileExists, deleteFile, copyFile, moveFile"));
+					System::PrintLine(String::Constructor(""));
+
+					System::PrintLine(String::Constructor("Directory operations:"));
+					System::PrintLine(String::Constructor("  - Directory.create/delete/exists"));
+					System::PrintLine(String::Constructor("  - listFiles - enumerate directory contents"));
+					System::PrintLine(String::Constructor("  - getWorkingDirectory/setWorkingDirectory"));
+
+					System::PrintLine(String::Constructor(""));
+				}
+
+				// Regex Demo
+				Method <demoRegex> Returns None Parameters () Do {
+					System::PrintLine(String::Constructor(">>> REGULAR EXPRESSIONS <<<"));
+					System::PrintLine(String::Constructor(""));
+
+					System::PrintLine(String::Constructor("Pattern matching features:"));
+					System::PrintLine(String::Constructor("  - Pattern.compile - create regex pattern"));
+					System::PrintLine(String::Constructor("  - matches - full string match"));
+					System::PrintLine(String::Constructor("  - find - search for pattern"));
+					System::PrintLine(String::Constructor("  - replace/replaceFirst - text replacement"));
+					System::PrintLine(String::Constructor("  - split - split string by pattern"));
+					System::PrintLine(String::Constructor(""));
+
+					System::PrintLine(String::Constructor("Built-in validators (RegexUtil):"));
+					System::PrintLine(String::Constructor("  - isEmail - validate email addresses"));
+					System::PrintLine(String::Constructor("  - isURL - validate URLs"));
+					System::PrintLine(String::Constructor("  - isNumeric - check for digits only"));
+					System::PrintLine(String::Constructor("  - isAlphabetic - check for letters only"));
+
+					System::PrintLine(String::Constructor(""));
+				}
+
+				// Environment Demo
+				Method <demoEnvironment> Returns None Parameters () Do {
+					System::PrintLine(String::Constructor(">>> ENVIRONMENT & SYSTEM <<<"));
+					System::PrintLine(String::Constructor(""));
+
+					System::PrintLine(String::Constructor("Available operations:"));
+					System::PrintLine(String::Constructor("  - Environment.getEnv/setEnv - environment variables"));
+					System::PrintLine(String::Constructor("  - Environment.sleep - pause execution"));
+					System::PrintLine(String::Constructor("  - Environment.exit - terminate program"));
+					System::PrintLine(String::Constructor("  - Console operations: print, printLine, readLine, etc."));
+					System::PrintLine(String::Constructor(""));
+
+					System::PrintLine(String::Constructor("Threading support:"));
+					System::PrintLine(String::Constructor("  - Thread - thread creation and management"));
+					System::PrintLine(String::Constructor("  - Mutex - mutual exclusion locks"));
+					System::PrintLine(String::Constructor("  - Lock - RAII lock guards"));
+					System::PrintLine(String::Constructor("  - Atomic - atomic integer operations"));
+					System::PrintLine(String::Constructor(""));
+
+					System::PrintLine(String::Constructor("Network support:"));
+					System::PrintLine(String::Constructor("  - HTTPClient - HTTP GET/POST/PUT/DELETE"));
+					System::PrintLine(String::Constructor("  - HTTPResponse - response data"));
+					System::PrintLine(String::Constructor("  - HTTPServer - server functionality (placeholder)"));
+
+					System::PrintLine(String::Constructor(""));
+				}
+			]
+		]
+	]
+]
