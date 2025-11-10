@@ -91,14 +91,13 @@ std::string Cpp20Backend::generatePreamble() {
         preamble << "//\n";
         preamble << "// Compilation settings:\n";
         preamble << std::format("//   C++ Standard: C++20\n");
-        preamble << std::format("//   Optimizations: {}\n",
-                               config_.enableOptimizations ? "enabled" : "disabled");
+        preamble << std::string("//   Optimizations: ") + std::string(config_.enableOptimizations ? "enabled" : "disabled") + "\n";
         preamble << "\n";
     }
 
     // Required includes
     for (const auto& include : getRequiredIncludes()) {
-        preamble << std::format("#include <{}>\n", include);
+        preamble << std::string("#include <") + std::string(include) + ">\n";
     }
 
     preamble << "\n";
@@ -210,12 +209,12 @@ std::string Cpp20Backend::convertOwnership(std::string_view type,
     if (ownershipIndicator == "^") {
         // Owned - use unique_ptr for non-primitives
         if (requiresSmartPointer(std::string(type), Parser::OwnershipType::Owned)) {
-            return std::format("std::unique_ptr<{}>", convertType(type));
+            return std::string("std::unique_ptr<") + convertType(type) + ">";
         }
         return std::string(convertType(type));
     } else if (ownershipIndicator == "&") {
         // Reference
-        return std::format("{}&", convertType(type));
+        return convertType(type) + "&";
     } else if (ownershipIndicator == "%") {
         // Copy/value
         return std::string(convertType(type));
@@ -254,7 +253,7 @@ std::string Cpp20Backend::getOwnershipType(Parser::OwnershipType ownership,
             if (isBuiltin) {
                 return cppType;  // Built-ins use value semantics
             } else {
-                return std::format("std::unique_ptr<{}>", cppType);
+                return std::string("std::unique_ptr<") + cppType + ">";
             }
 
         case Parser::OwnershipType::Reference:
@@ -284,7 +283,7 @@ std::string Cpp20Backend::getParameterType(Parser::OwnershipType ownership,
             if (isBuiltin) {
                 return cppType;
             } else {
-                return std::format("std::unique_ptr<{}>", cppType);
+                return std::string("std::unique_ptr<") + cppType + ">";
             }
 
         case Parser::OwnershipType::Reference:
@@ -293,7 +292,7 @@ std::string Cpp20Backend::getParameterType(Parser::OwnershipType ownership,
         case Parser::OwnershipType::Copy:
             // Optimization: use const reference for strings
             if (typeName == "String") {
-                return std::format("const {}&", cppType);
+                return std::string("const ") + cppType + "&";
             }
             return cppType;
 
@@ -393,7 +392,7 @@ void Cpp20Backend::visit(Parser::Program& node) {
 
 void Cpp20Backend::visit(Parser::ImportDecl& node) {
     if (config_.generateComments) {
-        writeLine(std::format("// Import: {}", node.modulePath));
+        writeLine(std::string("// Import: ") + node.modulePath);
     }
 }
 
@@ -404,7 +403,7 @@ void Cpp20Backend::visit(Parser::NamespaceDecl& node) {
     }
     currentNamespace_ += node.name;
 
-    writeLine(std::format("namespace {} {{", sanitizeIdentifier(node.name)));
+    writeLine(std::string("namespace ") + sanitizeIdentifier(node.name) + " {{");
     writeLine("");
     indent();
 
@@ -413,7 +412,7 @@ void Cpp20Backend::visit(Parser::NamespaceDecl& node) {
     }
 
     dedent();
-    writeLine(std::format("}} // namespace {}", sanitizeIdentifier(node.name)));
+    writeLine(std::string("}} // namespace ") + sanitizeIdentifier(node.name));
     writeLine("");
 
     currentNamespace_ = previousNamespace;
@@ -491,7 +490,7 @@ void Cpp20Backend::visit(Parser::PropertyDecl& node) {
     std::string propertyName = sanitizeIdentifier(node.name);
     std::string type = getOwnershipType(node.type->ownership, node.type->typeName);
 
-    writeLine(std::format("{} {};", type, propertyName));
+    writeLine(type + propertyName + ";");
 }
 
 void Cpp20Backend::visit(Parser::ConstructorDecl& node) {
@@ -500,7 +499,7 @@ void Cpp20Backend::visit(Parser::ConstructorDecl& node) {
     }
 
     if (node.isDefault) {
-        writeLine(std::format("{}() = default;", currentClassName_));
+        writeLine(currentClassName_ + std::string("() = default;"));
     } else {
         output_ << getIndent() << currentClassName_ << "(";
 
@@ -667,15 +666,15 @@ void Cpp20Backend::visit(Parser::ContinueStmt& node) {
 
 // Expression visitors
 void Cpp20Backend::visit(Parser::IntegerLiteralExpr& node) {
-    output_ << std::format("Integer({})", node.value);
+    output_ << std::string("Integer(") + std::to_string(node.value) + ")";
 }
 
 void Cpp20Backend::visit(Parser::StringLiteralExpr& node) {
-    output_ << std::format("String(\"{}\")", node.value);
+    output_ << std::string("String(\"") + node.value + "\")";
 }
 
 void Cpp20Backend::visit(Parser::BoolLiteralExpr& node) {
-    output_ << std::format("Bool({})", node.value ? "true" : "false");
+    output_ << std::string("Bool(") + (node.value ? "true" : "false") + ")";
 }
 
 void Cpp20Backend::visit(Parser::ThisExpr& node) {

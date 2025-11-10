@@ -71,7 +71,7 @@ void CompilationContext::reportError(const Common::Error& error) {
         errors_.push_back(Common::Error{
             Common::ErrorLevel::Fatal,
             Common::ErrorCode::InternalError,
-            std::format("Too many errors ({}), stopping compilation", config_.maxErrors),
+            std::string("Too many errors (") + std::to_string(config_.maxErrors) + "), stopping compilation",
             Common::SourceLocation{}
         });
     }
@@ -85,7 +85,7 @@ void CompilationContext::reportWarning(const std::string& message) {
         errors_.push_back(Common::Error{
             Common::ErrorLevel::Error,
             Common::ErrorCode::InternalError,
-            std::format("Warning treated as error: {}", message),
+            std::string("Warning treated as error: ") + message,
             Common::SourceLocation{}
         });
     }
