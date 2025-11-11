@@ -45,6 +45,7 @@ enum class TokenType {
     Static,           // Static
     Do,               // Do
     This,             // this
+    Set,              // Set
 
     // Identifiers and literals
     Identifier,       // variable names, type names, etc.
@@ -78,6 +79,7 @@ enum class TokenType {
     Ampersand,        // &
     Pipe,             // |
     Caret,            // ^
+    At,               // @
     Exclamation,      // !
     Question,         // ?
     Hash,             // #

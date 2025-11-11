@@ -4,7 +4,7 @@
 [ Namespace <Language::Core>
 	[ Class <Integer> Final Extends None
 		[ Private <>
-			Property <value> Types NativeType<"int64">;
+			Property <value> Types NativeType<"int64">^;
 		]
 
 		[ Public <>
@@ -13,7 +13,7 @@
 
 			// Create from int64
 			Method <Constructor> Returns Integer^ Parameters (
-				Parameter <val> Types NativeType<"int64">
+				Parameter <val> Types NativeType<"int64">%
 			) ->
 			{
 				Run Syscall::memcpy(&value, &val, 8);
@@ -21,14 +21,14 @@
 			}
 
 			// Get raw value
-			Method <toInt64> Returns NativeType<"int64"> Parameters () ->
+			Method <toInt64> Returns NativeType<"int64">% Parameters () ->
 			{
 				Return value;
 			}
 
 			// Arithmetic operations
 			Method <add> Returns Integer^ Parameters (
-				Parameter <other> Types Integer^
+				Parameter <other> Types Integer&
 			) ->
 			{
 				Instantiate NativeType<"int64">^ As <v1> = value;
@@ -38,7 +38,7 @@
 			}
 
 			Method <subtract> Returns Integer^ Parameters (
-				Parameter <other> Types Integer^
+				Parameter <other> Types Integer&
 			) ->
 			{
 				Instantiate NativeType<"int64">^ As <v1> = value;
@@ -48,7 +48,7 @@
 			}
 
 			Method <multiply> Returns Integer^ Parameters (
-				Parameter <other> Types Integer^
+				Parameter <other> Types Integer&
 			) ->
 			{
 				Instantiate NativeType<"int64">^ As <v1> = value;
@@ -58,7 +58,7 @@
 			}
 
 			Method <divide> Returns Integer^ Parameters (
-				Parameter <other> Types Integer^
+				Parameter <other> Types Integer&
 			) ->
 			{
 				Instantiate NativeType<"int64">^ As <v1> = value;
@@ -68,7 +68,7 @@
 			}
 
 			Method <modulo> Returns Integer^ Parameters (
-				Parameter <other> Types Integer^
+				Parameter <other> Types Integer&
 			) ->
 			{
 				Instantiate NativeType<"int64">^ As <v1> = value;
@@ -79,7 +79,7 @@
 
 			// Comparison operations
 			Method <equals> Returns Bool^ Parameters (
-				Parameter <other> Types Integer^
+				Parameter <other> Types Integer&
 			) ->
 			{
 				Instantiate NativeType<"int64">^ As <v1> = value;
@@ -91,7 +91,7 @@
 			}
 
 			Method <lessThan> Returns Bool^ Parameters (
-				Parameter <other> Types Integer^
+				Parameter <other> Types Integer&
 			) ->
 			{
 				Instantiate NativeType<"int64">^ As <v1> = value;
@@ -103,7 +103,7 @@
 			}
 
 			Method <greaterThan> Returns Bool^ Parameters (
-				Parameter <other> Types Integer^
+				Parameter <other> Types Integer&
 			) ->
 			{
 				Instantiate NativeType<"int64">^ As <v1> = value;
@@ -115,7 +115,7 @@
 			}
 
 			Method <lessOrEqual> Returns Bool^ Parameters (
-				Parameter <other> Types Integer^
+				Parameter <other> Types Integer&
 			) ->
 			{
 				Instantiate NativeType<"int64">^ As <v1> = value;
@@ -127,7 +127,7 @@
 			}
 
 			Method <greaterOrEqual> Returns Bool^ Parameters (
-				Parameter <other> Types Integer^
+				Parameter <other> Types Integer&
 			) ->
 			{
 				Instantiate NativeType<"int64">^ As <v1> = value;
@@ -154,6 +154,14 @@
 					Return Integer::Constructor(result);
 				}
 				Return Integer::Constructor(v);
+			}
+
+			// Convert integer to string
+			Method <toString> Returns String^ Parameters () ->
+			{
+				Instantiate NativeType<"int64">^ As <v> = value;
+				Instantiate NativeType<"cstr">^ As <str> = Syscall::int_to_string(v);
+				Return String::Constructor(str);
 			}
 		]
 	]

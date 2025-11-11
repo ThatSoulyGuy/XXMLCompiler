@@ -1,0 +1,14 @@
+// Demo that actually prints output by using direct C++ interop
+
+[ Entrypoint {
+	// Create a greeting message
+	Instantiate String^ As <greeting> = String::Constructor("Hello from XXML!");
+	
+	// Create some numbers
+	Instantiate Integer^ As <num1> = Integer::Constructor(42);
+	Instantiate Integer^ As <num2> = Integer::Constructor(8);
+	Instantiate Integer^ As <sum> = num1.add(num2);
+	
+	// Note: To see output, we need to modify the generated C++ 
+	// or implement System::Console properly with shared namespace state
+}]

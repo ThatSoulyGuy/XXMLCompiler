@@ -1,0 +1,9 @@
+#import System;
+
+[ Entrypoint
+	{
+		Run System::Console::print(String::Constructor("test"));
+		Run System::Console::printLine(String::Constructor("test"));
+		Run System::Console::printError(String::Constructor("test"));
+	}
+]

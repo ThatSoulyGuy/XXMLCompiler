@@ -1,0 +1,10 @@
+#import System;
+
+[ Entrypoint
+	{
+		Run System::Console::printLine(String::Constructor("Enter a number:"));
+		Instantiate Integer^ As <num> = System::Console::readInt();
+		Run System::Console::print(String::Constructor("You entered: "));
+		Run System::Console::printLine(num.toString());
+	}
+]

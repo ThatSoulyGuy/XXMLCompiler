@@ -1,0 +1,156 @@
+// XXML Standard Library - Set Class
+// Collection of unique values with fast membership testing
+// Backed by C++ std::set for efficient operations
+
+[ Namespace <Language::Collections>
+
+	[ Class <IntegerSet> Final Extends None
+
+		[ Private <>
+			// Implementation note: This uses C++ Collections::IntegerSetData
+			// The actual data storage is managed by the C++ runtime
+		]
+
+		[ Public <>
+			// Constructor
+			Constructor = default;
+
+			// Core Operations
+			Method <add> Returns Bool^ Parameters (
+				Parameter <value> Types Integer^
+			) Do {
+				// Backed by C++ runtime: Collections::IntegerSetData::add
+				// Returns true if element was added, false if already exists
+				Return Bool::Constructor(false);
+			}
+
+			Method <remove> Returns Bool^ Parameters (
+				Parameter <value> Types Integer^
+			) Do {
+				// Backed by C++ runtime: Collections::IntegerSetData::remove
+				// Returns true if element was removed, false if not found
+				Return Bool::Constructor(false);
+			}
+
+			Method <contains> Returns Bool^ Parameters (
+				Parameter <value> Types Integer^
+			) Do {
+				// Backed by C++ runtime: Collections::IntegerSetData::contains
+				Return Bool::Constructor(false);
+			}
+
+			Method <size> Returns Integer^ Parameters () Do {
+				// Backed by C++ runtime: Collections::IntegerSetData::size
+				Return Integer::Constructor(0);
+			}
+
+			Method <isEmpty> Returns Bool^ Parameters () Do {
+				// Backed by C++ runtime
+				Return Bool::Constructor(true);
+			}
+
+			Method <clear> Returns None Parameters () Do {
+				// Backed by C++ runtime: Collections::IntegerSetData::clear
+			}
+
+			// Set Operations (would require additional C++ support)
+			Method <union> Returns IntegerSet^ Parameters (
+				Parameter <other> Types IntegerSet^
+			) Do {
+				// Returns new set with all elements from both sets
+				Return IntegerSet::Constructor();
+			}
+
+			Method <intersection> Returns IntegerSet^ Parameters (
+				Parameter <other> Types IntegerSet^
+			) Do {
+				// Returns new set with elements common to both sets
+				Return IntegerSet::Constructor();
+			}
+
+			Method <difference> Returns IntegerSet^ Parameters (
+				Parameter <other> Types IntegerSet^
+			) Do {
+				// Returns new set with elements in this set but not in other
+				Return IntegerSet::Constructor();
+			}
+
+			// Static constructor
+			[ Static <>
+				Method <Constructor> Returns IntegerSet^ Parameters () Do {
+					// Creates and returns a new IntegerSet instance
+				}
+			]
+		]
+	]
+
+	[ Class <StringSet> Final Extends None
+
+		[ Private <>
+			// Implementation note: This uses C++ Collections::StringSetData
+		]
+
+		[ Public <>
+			Constructor = default;
+
+			Method <add> Returns Bool^ Parameters (
+				Parameter <value> Types String^
+			) Do {
+				// Backed by C++ runtime
+				Return Bool::Constructor(false);
+			}
+
+			Method <remove> Returns Bool^ Parameters (
+				Parameter <value> Types String^
+			) Do {
+				// Backed by C++ runtime
+				Return Bool::Constructor(false);
+			}
+
+			Method <contains> Returns Bool^ Parameters (
+				Parameter <value> Types String^
+			) Do {
+				// Backed by C++ runtime
+				Return Bool::Constructor(false);
+			}
+
+			Method <size> Returns Integer^ Parameters () Do {
+				// Backed by C++ runtime
+				Return Integer::Constructor(0);
+			}
+
+			Method <isEmpty> Returns Bool^ Parameters () Do {
+				// Backed by C++ runtime
+				Return Bool::Constructor(true);
+			}
+
+			Method <clear> Returns None Parameters () Do {
+				// Backed by C++ runtime
+			}
+
+			Method <union> Returns StringSet^ Parameters (
+				Parameter <other> Types StringSet^
+			) Do {
+				Return StringSet::Constructor();
+			}
+
+			Method <intersection> Returns StringSet^ Parameters (
+				Parameter <other> Types StringSet^
+			) Do {
+				Return StringSet::Constructor();
+			}
+
+			Method <difference> Returns StringSet^ Parameters (
+				Parameter <other> Types StringSet^
+			) Do {
+				Return StringSet::Constructor();
+			}
+
+			[ Static <>
+				Method <Constructor> Returns StringSet^ Parameters () Do {
+					// Creates and returns a new StringSet instance
+				}
+			]
+		]
+	]
+]

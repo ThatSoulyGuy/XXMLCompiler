@@ -4,7 +4,7 @@
 [ Namespace <Language::Core>
 	[ Class <Double> Final Extends None
 		[ Private <>
-			Property <value> Types NativeType<"double">;
+			Property <value> Types NativeType<"double">^;
 		]
 
 		[ Public <>
@@ -13,7 +13,7 @@
 
 			// Create from double
 			Method <Constructor> Returns Double^ Parameters (
-				Parameter <val> Types NativeType<"double">
+				Parameter <val> Types NativeType<"double">%
 			) ->
 			{
 				Run Syscall::memcpy(&value, &val, 8);
@@ -21,14 +21,14 @@
 			}
 
 			// Get raw value
-			Method <toDouble> Returns NativeType<"double"> Parameters () ->
+			Method <toDouble> Returns NativeType<"double">% Parameters () ->
 			{
 				Return value;
 			}
 
 			// Arithmetic operations
 			Method <add> Returns Double^ Parameters (
-				Parameter <other> Types Double^
+				Parameter <other> Types Double&
 			) ->
 			{
 				Instantiate NativeType<"double">^ As <v1> = value;
@@ -38,7 +38,7 @@
 			}
 
 			Method <subtract> Returns Double^ Parameters (
-				Parameter <other> Types Double^
+				Parameter <other> Types Double&
 			) ->
 			{
 				Instantiate NativeType<"double">^ As <v1> = value;
@@ -48,7 +48,7 @@
 			}
 
 			Method <multiply> Returns Double^ Parameters (
-				Parameter <other> Types Double^
+				Parameter <other> Types Double&
 			) ->
 			{
 				Instantiate NativeType<"double">^ As <v1> = value;
@@ -58,7 +58,7 @@
 			}
 
 			Method <divide> Returns Double^ Parameters (
-				Parameter <other> Types Double^
+				Parameter <other> Types Double&
 			) ->
 			{
 				Instantiate NativeType<"double">^ As <v1> = value;
@@ -69,7 +69,7 @@
 
 			// Comparison operations
 			Method <equals> Returns Bool^ Parameters (
-				Parameter <other> Types Double^
+				Parameter <other> Types Double&
 			) ->
 			{
 				Instantiate NativeType<"double">^ As <v1> = value;
@@ -81,7 +81,7 @@
 			}
 
 			Method <lessThan> Returns Bool^ Parameters (
-				Parameter <other> Types Double^
+				Parameter <other> Types Double&
 			) ->
 			{
 				Instantiate NativeType<"double">^ As <v1> = value;
@@ -93,7 +93,7 @@
 			}
 
 			Method <greaterThan> Returns Bool^ Parameters (
-				Parameter <other> Types Double^
+				Parameter <other> Types Double&
 			) ->
 			{
 				Instantiate NativeType<"double">^ As <v1> = value;
@@ -105,7 +105,7 @@
 			}
 
 			Method <lessOrEqual> Returns Bool^ Parameters (
-				Parameter <other> Types Double^
+				Parameter <other> Types Double&
 			) ->
 			{
 				Instantiate NativeType<"double">^ As <v1> = value;
@@ -117,7 +117,7 @@
 			}
 
 			Method <greaterOrEqual> Returns Bool^ Parameters (
-				Parameter <other> Types Double^
+				Parameter <other> Types Double&
 			) ->
 			{
 				Instantiate NativeType<"double">^ As <v1> = value;
@@ -156,7 +156,7 @@
 				Return Integer::Constructor(result);
 			}
 
-			Method <toFloat> Returns Float^ Parameters () ->
+			Method <toFloat> Returns Float Parameters () ->
 			{
 				Instantiate NativeType<"double">^ As <v> = value;
 				Instantiate NativeType<"float">^ As <result> = v;

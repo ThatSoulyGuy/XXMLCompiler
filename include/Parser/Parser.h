@@ -43,6 +43,7 @@ private:
 
     std::unique_ptr<Statement> parseStatement();
     std::unique_ptr<InstantiateStmt> parseInstantiate();
+    std::unique_ptr<AssignmentStmt> parseAssignment();
     std::unique_ptr<RunStmt> parseRun();
     std::unique_ptr<ForStmt> parseFor();
     std::unique_ptr<ExitStmt> parseExit();

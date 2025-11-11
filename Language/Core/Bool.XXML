@@ -4,7 +4,7 @@
 [ Namespace <Language::Core>
 	[ Class <Bool> Final Extends None
 		[ Private <>
-			Property <value> Types NativeType<"bool">;
+			Property <value> Types NativeType<"bool">^;
 		]
 
 		[ Public <>
@@ -13,7 +13,7 @@
 
 			// Create from bool
 			Method <Constructor> Returns Bool^ Parameters (
-				Parameter <val> Types NativeType<"bool">
+				Parameter <val> Types NativeType<"bool">%
 			) ->
 			{
 				Run Syscall::memcpy(&value, &val, 1);
@@ -21,14 +21,14 @@
 			}
 
 			// Get raw value
-			Method <toBool> Returns NativeType<"bool"> Parameters () ->
+			Method <toBool> Returns NativeType<"bool">% Parameters () ->
 			{
 				Return value;
 			}
 
 			// Logical operations
 			Method <and> Returns Bool^ Parameters (
-				Parameter <other> Types Bool^
+				Parameter <other> Types Bool&
 			) ->
 			{
 				Instantiate NativeType<"bool">^ As <v1> = value;
@@ -38,7 +38,7 @@
 			}
 
 			Method <or> Returns Bool^ Parameters (
-				Parameter <other> Types Bool^
+				Parameter <other> Types Bool&
 			) ->
 			{
 				Instantiate NativeType<"bool">^ As <v1> = value;
@@ -55,7 +55,7 @@
 			}
 
 			Method <xor> Returns Bool^ Parameters (
-				Parameter <other> Types Bool^
+				Parameter <other> Types Bool&
 			) ->
 			{
 				Instantiate NativeType<"bool">^ As <v1> = value;
@@ -68,7 +68,7 @@
 
 			// Comparison
 			Method <equals> Returns Bool^ Parameters (
-				Parameter <other> Types Bool^
+				Parameter <other> Types Bool&
 			) ->
 			{
 				Instantiate NativeType<"bool">^ As <v1> = value;

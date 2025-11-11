@@ -1,0 +1,16 @@
+// XXML Standard Library - Memory/Move Operations
+// This module provides move semantics and ownership transfer
+
+[ Namespace <Language::Core>
+	[ Class <Mem> Final Extends None
+		[ Public <>
+			// Move operation - transfers ownership of T^
+			// This is an intrinsic - implementation is provided by the compiler
+			Method <move> Returns None Parameters (
+				Parameter <value> Types None
+			) Do {
+				// Intrinsic implementation
+			}
+		]
+	]
+]

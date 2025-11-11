@@ -1,0 +1,19 @@
+[ Entrypoint
+    {
+        Instantiate String^ As <hello> = String::Constructor("Hello");
+        Instantiate String^ As <world> = String::Constructor(" World");
+
+        Run System::Console::print(String::Constructor("Before append - hello: "));
+        Run System::Console::printLine(<hello>);
+
+        Run System::Console::print(String::Constructor("Before append - world: "));
+        Run System::Console::printLine(<world>);
+
+        Instantiate String^ As <result> = <hello>;
+
+        Run System::Console::print(String::Constructor("After assignment - result: "));
+        Run System::Console::printLine(<result>);
+
+        Run System::Console::printLine(String::Constructor("=== Test Complete ==="));
+    }
+]

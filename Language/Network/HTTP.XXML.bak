@@ -1,0 +1,169 @@
+// XXML Standard Library - HTTP Class
+// HTTP client functionality for web requests
+// Backed by C++ Network namespace (note: requires external library like libcurl for full implementation)
+
+[ Namespace <Language::Network>
+
+	[ Class <HTTPResponse> Final Extends None
+
+		[ Private <>
+			// Response data
+		]
+
+		[ Public <>
+			Property <statusCode> Types Integer^;
+			Property <body> Types String^;
+
+			Constructor = default;
+
+			// Getters
+			Method <getStatusCode> Returns Integer^ Parameters () Do {
+				Return statusCode;
+			}
+
+			Method <getBody> Returns String^ Parameters () Do {
+				Return body;
+			}
+
+			Method <isSuccess> Returns Bool^ Parameters () Do {
+				// Check if status code indicates success (200-299)
+				// Backed by C++ runtime
+				Return Bool::Constructor(false);
+			}
+
+			Method <isError> Returns Bool^ Parameters () Do {
+				// Check if status code indicates error (400+)
+				// Backed by C++ runtime
+				Return Bool::Constructor(false);
+			}
+
+			[ Static <>
+				Method <Constructor> Returns HTTPResponse^ Parameters () Do {
+					// Creates and returns a new HTTPResponse instance
+				}
+			]
+		]
+	]
+
+	[ Class <HTTPClient> Final Extends None
+
+		[ Private <>
+			// Client configuration
+		]
+
+		[ Public <>
+			Constructor = default;
+
+			// HTTP Methods
+			[ Static <>
+				Method <get> Returns HTTPResponse^ Parameters (
+					Parameter <url> Types String^
+				) Do {
+					// Perform HTTP GET request
+					// Backed by C++ runtime: Network::HTTPClient::get
+					Return HTTPResponse::Constructor();
+				}
+
+				Method <post> Returns HTTPResponse^ Parameters (
+					Parameter <url> Types String^,
+					Parameter <data> Types String^
+				) Do {
+					// Perform HTTP POST request
+					// Backed by C++ runtime: Network::HTTPClient::post
+					Return HTTPResponse::Constructor();
+				}
+
+				Method <put> Returns HTTPResponse^ Parameters (
+					Parameter <url> Types String^,
+					Parameter <data> Types String^
+				) Do {
+					// Perform HTTP PUT request
+					// Backed by C++ runtime (requires implementation)
+					Return HTTPResponse::Constructor();
+				}
+
+				Method <delete> Returns HTTPResponse^ Parameters (
+					Parameter <url> Types String^
+				) Do {
+					// Perform HTTP DELETE request
+					// Backed by C++ runtime (requires implementation)
+					Return HTTPResponse::Constructor();
+				}
+			]
+
+			// Instance methods for configured client
+			Method <setHeader> Returns None Parameters (
+				Parameter <key> Types String^,
+				Parameter <value> Types String^
+			) Do {
+				// Set HTTP header for subsequent requests
+				// Backed by C++ runtime
+			}
+
+			Method <setTimeout> Returns None Parameters (
+				Parameter <milliseconds> Types Integer^
+			) Do {
+				// Set request timeout
+				// Backed by C++ runtime
+			}
+
+			Method <performGet> Returns HTTPResponse^ Parameters (
+				Parameter <url> Types String^
+			) Do {
+				// Perform GET with configured headers/timeout
+				Return HTTPResponse::Constructor();
+			}
+
+			Method <performPost> Returns HTTPResponse^ Parameters (
+				Parameter <url> Types String^,
+				Parameter <data> Types String^
+			) Do {
+				// Perform POST with configured headers/timeout
+				Return HTTPResponse::Constructor();
+			}
+
+			[ Static <>
+				Method <Constructor> Returns HTTPClient^ Parameters () Do {
+					// Creates and returns a new HTTPClient instance
+				}
+			]
+		]
+	]
+
+	[ Class <HTTPServer> Final Extends None
+
+		[ Private <>
+			// Server configuration
+		]
+
+		[ Public <>
+			Constructor = default;
+
+			// Server Operations
+			Method <listen> Returns None Parameters (
+				Parameter <port> Types Integer^
+			) Do {
+				// Start listening on specified port
+				// Backed by C++ runtime (requires full implementation)
+				// This is a placeholder for future server functionality
+			}
+
+			Method <stop> Returns None Parameters () Do {
+				// Stop the server
+				// Backed by C++ runtime
+			}
+
+			Method <isRunning> Returns Bool^ Parameters () Do {
+				// Check if server is running
+				// Backed by C++ runtime
+				Return Bool::Constructor(false);
+			}
+
+			[ Static <>
+				Method <Constructor> Returns HTTPServer^ Parameters () Do {
+					// Creates and returns a new HTTPServer instance
+				}
+			]
+		]
+	]
+]

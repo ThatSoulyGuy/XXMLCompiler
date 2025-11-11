@@ -1,0 +1,42 @@
+#import System;
+
+// Test all console input methods
+[ Entrypoint
+	{
+		Run System::Console::printLine(String::Constructor("=== Comprehensive Console Input Test ==="));
+		Run System::Console::printLine(String::Constructor(""));
+
+		// Test readLine
+		Run System::Console::printLine(String::Constructor("1. Enter your name:"));
+		Instantiate String^ As <name> = System::Console::readLine();
+		Run System::Console::print(String::Constructor("   Hello, "));
+		Run System::Console::printLine(name);
+		Run System::Console::printLine(String::Constructor(""));
+
+		// Test readInt
+		Run System::Console::printLine(String::Constructor("2. Enter your age:"));
+		Instantiate Integer^ As <age> = System::Console::readInt();
+		Run System::Console::print(String::Constructor("   You are "));
+		Run System::Console::print(age.toString());
+		Run System::Console::printLine(String::Constructor(" years old"));
+		Run System::Console::printLine(String::Constructor(""));
+
+		// Test readBool
+		Run System::Console::printLine(String::Constructor("3. Do you like programming? (true/false):"));
+		Instantiate Bool^ As <likesProgramming> = System::Console::readBool();
+		Instantiate Integer^ As <boolAsInt> = likesProgramming.toInteger();
+		Run System::Console::print(String::Constructor("   Answer: "));
+		Run System::Console::printLine(boolAsInt.toString());
+		Run System::Console::printLine(String::Constructor(""));
+
+		// Test readChar
+		Run System::Console::printLine(String::Constructor("4. Enter a single character:"));
+		Instantiate String^ As <character> = System::Console::readChar();
+		Run System::Console::print(String::Constructor("   You entered: '"));
+		Run System::Console::print(character);
+		Run System::Console::printLine(String::Constructor("'"));
+		Run System::Console::printLine(String::Constructor(""));
+
+		Run System::Console::printLine(String::Constructor("=== All tests completed successfully! ==="));
+	}
+]

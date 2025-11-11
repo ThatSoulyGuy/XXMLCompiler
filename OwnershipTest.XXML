@@ -1,0 +1,23 @@
+// Basic test of new ownership system
+[ Class <TestOwnership> Final Extends None
+	[ Private <>
+		Property <value> Types NativeType<"int64">^;
+	]
+
+	[ Public <>
+		Method <Constructor> Returns None Parameters (
+			Parameter <val> Types NativeType<"int64">%
+		) Do {
+			Run Syscall::memcpy(&value, &val, 8);
+		}
+
+		Method <getValue> Returns NativeType<"int64">% Parameters () Do {
+			Return value;
+		}
+	]
+]
+
+[ Entrypoint {
+	Instantiate TestOwnership^ As <obj> = TestOwnership::Constructor(42);
+	// Simple test - just create an object with ownership
+}]

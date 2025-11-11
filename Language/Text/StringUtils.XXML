@@ -21,7 +21,7 @@
 			}
 
 			// Find first index of substring (-1 if not found)
-			Static Method <indexOf> Returns NativeType<"int64"> Parameters (
+			Static Method <indexOf> Returns NativeType<"int64">% Parameters (
 				Parameter <str> Types String^,
 				Parameter <substring> Types String^
 			) Do {
@@ -237,7 +237,7 @@
 
 		[ Private <>
 			// Recursive helper for indexOf
-			Static Method <indexOfHelper> Returns NativeType<"int64"> Parameters (
+			Static Method <indexOfHelper> Returns NativeType<"int64">% Parameters (
 				Parameter <str> Types String^,
 				Parameter <substring> Types String^,
 				Parameter <index> Types Integer^,
@@ -382,7 +382,7 @@
 			}
 
 			// Find first non-whitespace character
-			Static Method <findFirstNonWhitespace> Returns NativeType<"int64"> Parameters (
+			Static Method <findFirstNonWhitespace> Returns NativeType<"int64">% Parameters (
 				Parameter <str> Types String^,
 				Parameter <index> Types Integer^,
 				Parameter <len> Types Integer^
@@ -406,7 +406,7 @@
 			}
 
 			// Find last non-whitespace character
-			Static Method <findLastNonWhitespace> Returns NativeType<"int64"> Parameters (
+			Static Method <findLastNonWhitespace> Returns NativeType<"int64">% Parameters (
 				Parameter <str> Types String^,
 				Parameter <index> Types Integer^
 			) Do {

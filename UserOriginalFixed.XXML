@@ -1,0 +1,34 @@
+#import System;
+
+[ Namespace <Hello>
+    [ Class <MyClass> Final Extends None
+
+    [ Public<>
+        Constructor = default;
+
+        Method <someMethod> Returns None Parameters (Parameter <myInt> Types Integer%) ->
+        {
+            Set myInt = Integer::Constructor(5);
+        }
+    ]
+
+    [ Private<>
+
+    ]
+
+    ]
+]
+
+[ Entrypoint
+    {
+        // Fixed: Changed Integer& to Integer^ (owned instead of reference to temporary)
+        Instantiate Integer^ As <num1> = Integer::Constructor(56);
+        Instantiate Hello::MyClass^ As <myClass> = Hello::MyClass::Constructor();
+
+        Run System::Console::printLine(String::Constructor("Hello world!").append(num1.toString()));
+
+        Run myClass.someMethod(num1);
+
+        Run System::Console::printLine(String::Constructor("Hello world!").append(num1.toString()));
+    }
+]

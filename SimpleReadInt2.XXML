@@ -1,0 +1,7 @@
+#import System;
+
+[ Entrypoint
+	{
+		Run System::Console::readInt();
+	}
+]

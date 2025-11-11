@@ -1,0 +1,17 @@
+// Simple XXML Demo - minimal test
+// Uses only runtime System module to avoid stdlib bugs
+
+#import System;
+
+[ Entrypoint
+	{
+		Run System::PrintLine(String::Constructor("=== Simple XXML Demo ==="));
+
+		Run System::Print(String::Constructor("Testing basic output... "));
+		Run System::PrintLine(String::Constructor("OK!"));
+
+		Run System::PrintLine(String::Constructor("\n=== Test Complete ==="));
+
+		Exit(0);
+	}
+]

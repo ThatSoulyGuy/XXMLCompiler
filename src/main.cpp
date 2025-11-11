@@ -354,7 +354,94 @@ int main(int argc, char* argv[]) {
         fullOutput << "#include <string>\n";
         fullOutput << "#include <memory>\n";
         fullOutput << "#include <cstdint>\n";
-        fullOutput << "#include <cstring>\n\n";
+        fullOutput << "#include <cstring>\n";
+        fullOutput << "#include <limits>\n";
+        fullOutput << "#include <cassert>\n";
+        fullOutput << "#include <stdexcept>\n";
+        fullOutput << "#include <utility>\n";
+        fullOutput << "#include <type_traits>\n\n";
+
+        // Add Owned<T> wrapper for ownership tracking
+        fullOutput << "// ============================================\n";
+        fullOutput << "// Owned<T> - Runtime wrapper for owned values (T^)\n";
+        fullOutput << "// ============================================\n";
+        fullOutput << "namespace Language {\n";
+        fullOutput << "namespace Runtime {\n\n";
+        fullOutput << "template<typename T>\n";
+        fullOutput << "class Owned {\n";
+        fullOutput << "private:\n";
+        fullOutput << "    T value_;\n";
+        fullOutput << "    bool movedFrom_;\n\n";
+        fullOutput << "public:\n";
+        fullOutput << "    Owned() : value_(), movedFrom_(false) {}  // Default constructor\n";
+        fullOutput << "    Owned(const T& val) : value_(val), movedFrom_(false) {}  // Copy for primitives\n";
+        fullOutput << "    Owned(T&& val) : value_(std::move(val)), movedFrom_(false) {}  // Move\n\n";
+        fullOutput << "    // Copy constructor - enabled for primitive types only (int64_t, double, float, bool, void*)\n";
+        fullOutput << "    Owned(const Owned& other) : value_(other.value_), movedFrom_(false) {\n";
+        fullOutput << "        static_assert(\n";
+        fullOutput << "            std::is_same_v<T, int64_t> || std::is_same_v<T, double> ||\n";
+        fullOutput << "            std::is_same_v<T, float> || std::is_same_v<T, bool> ||\n";
+        fullOutput << "            std::is_same_v<T, void*> || std::is_same_v<T, const void*> ||\n";
+        fullOutput << "            std::is_same_v<T, int32_t>,\n";
+        fullOutput << "            \"Owned<T> can only be copied for primitive types. \"\n";
+        fullOutput << "            \"For complex types, use move semantics or reference parameters.\");\n";
+        fullOutput << "    }\n\n";
+        fullOutput << "    Owned& operator=(const Owned& other) {\n";
+        fullOutput << "        static_assert(\n";
+        fullOutput << "            std::is_same_v<T, int64_t> || std::is_same_v<T, double> ||\n";
+        fullOutput << "            std::is_same_v<T, float> || std::is_same_v<T, bool> ||\n";
+        fullOutput << "            std::is_same_v<T, void*> || std::is_same_v<T, const void*> ||\n";
+        fullOutput << "            std::is_same_v<T, int32_t>,\n";
+        fullOutput << "            \"Owned<T> can only be copied for primitive types. \"\n";
+        fullOutput << "            \"For complex types, use move semantics or reference parameters.\");\n";
+        fullOutput << "        if (this != &other) {\n";
+        fullOutput << "            value_ = other.value_;\n";
+        fullOutput << "            movedFrom_ = false;\n";
+        fullOutput << "        }\n";
+        fullOutput << "        return *this;\n";
+        fullOutput << "    }\n\n";
+        fullOutput << "    Owned(Owned&& other) noexcept\n";
+        fullOutput << "        : value_(std::move(other.value_)), movedFrom_(false) {\n";
+        fullOutput << "        other.movedFrom_ = true;\n";
+        fullOutput << "    }\n\n";
+        fullOutput << "    Owned& operator=(Owned&& other) noexcept {\n";
+        fullOutput << "        if (this != &other) {\n";
+        fullOutput << "            value_ = std::move(other.value_);\n";
+        fullOutput << "            movedFrom_ = false;\n";
+        fullOutput << "            other.movedFrom_ = true;\n";
+        fullOutput << "        }\n";
+        fullOutput << "        return *this;\n";
+        fullOutput << "    }\n\n";
+        fullOutput << "    T& get() {\n";
+        fullOutput << "        if (movedFrom_) {\n";
+        fullOutput << "            assert(false && \"Use-after-move detected\");\n";
+        fullOutput << "            throw std::runtime_error(\"Use-after-move detected\");\n";
+        fullOutput << "        }\n";
+        fullOutput << "        return value_;\n";
+        fullOutput << "    }\n\n";
+        fullOutput << "    const T& get() const {\n";
+        fullOutput << "        if (movedFrom_) {\n";
+        fullOutput << "            assert(false && \"Use-after-move detected\");\n";
+        fullOutput << "            throw std::runtime_error(\"Use-after-move detected\");\n";
+        fullOutput << "        }\n";
+        fullOutput << "        return value_;\n";
+        fullOutput << "    }\n\n";
+        fullOutput << "    T extract() {\n";
+        fullOutput << "        if (movedFrom_) {\n";
+        fullOutput << "            assert(false && \"Use-after-move detected\");\n";
+        fullOutput << "            throw std::runtime_error(\"Use-after-move detected\");\n";
+        fullOutput << "        }\n";
+        fullOutput << "        movedFrom_ = true;\n";
+        fullOutput << "        return std::move(value_);\n";
+        fullOutput << "    }\n\n";
+        fullOutput << "    operator T&() { return get(); }\n";
+        fullOutput << "    operator const T&() const { return get(); }\n";
+        fullOutput << "    T* operator->() { return &get(); }\n";
+        fullOutput << "    const T* operator->() const { return &get(); }\n";
+        fullOutput << "    bool isMovedFrom() const { return movedFrom_; }\n";
+        fullOutput << "};\n\n";
+        fullOutput << "} // namespace Runtime\n";
+        fullOutput << "} // namespace Language\n\n";
 
         // Add Syscall intrinsic functions
         fullOutput << "// Syscall intrinsic functions\n";
@@ -386,6 +473,11 @@ int main(int argc, char* argv[]) {
         fullOutput << "    static void memcpy(void* dest, const void* src, size_t n) {\n";
         fullOutput << "        std::memcpy(dest, src, n);\n";
         fullOutput << "    }\n";
+        fullOutput << "    static const char* int_to_string(int64_t value) {\n";
+        fullOutput << "        static thread_local std::string buffer;\n";
+        fullOutput << "        buffer = std::to_string(value);\n";
+        fullOutput << "        return buffer.c_str();\n";
+        fullOutput << "    }\n";
         fullOutput << "};\n\n";
 
         // Add StringArray stub (referenced by Console but not yet implemented)
@@ -393,7 +485,14 @@ int main(int argc, char* argv[]) {
         fullOutput << "class StringArray {\n";
         fullOutput << "public:\n";
         fullOutput << "    StringArray() {}\n";
+        fullOutput << "    static StringArray Constructor() { return StringArray(); }\n";
         fullOutput << "};\n\n";
+
+        // Add System::Console intrinsic class for I/O (forward declared, will use Language::Core types)
+        fullOutput << "// System::Console intrinsic class (will be implemented after core types)\n";
+        fullOutput << "namespace System {\n";
+        fullOutput << "class Console;\n";
+        fullOutput << "} // namespace System\n\n";
 
         // Add forward declarations for all classes to resolve circular dependencies
         fullOutput << "// Forward declarations\n";
@@ -484,41 +583,104 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        // PHASE 3: Generate Console (with inline implementations)
-        std::string consoleModule = "Language/System/Console.XXML";
-        auto consoleIt = moduleMap.find(consoleModule);
-        if (consoleIt != moduleMap.end()) {
-            auto module = consoleIt->second;
-            std::cout << "  Generating: " << consoleModule << "\n";
+        // PHASE 3: Generate System::Console implementation (before any code that uses it)
+        fullOutput << "// ============================================\n";
+        fullOutput << "// System::Console Implementation (C++ intrinsic)\n";
+        fullOutput << "// ============================================\n";
+        fullOutput << "namespace System {\n";
+        fullOutput << "class Console {\n";
+        fullOutput << "public:\n";
+        fullOutput << "    // Print without newline - takes Owned<String> by rvalue reference\n";
+        fullOutput << "    static void print(Language::Runtime::Owned<Language::Core::String>&& str) {\n";
+        fullOutput << "        const char* cstr = (const char*)str.get().toCString();\n";
+        fullOutput << "        std::cout << cstr;\n";
+        fullOutput << "        std::cout.flush();\n";
+        fullOutput << "    }\n\n";
+        fullOutput << "    // Print with newline - takes Owned<String> by rvalue reference\n";
+        fullOutput << "    static void printLine(Language::Runtime::Owned<Language::Core::String>&& str) {\n";
+        fullOutput << "        const char* cstr = (const char*)str.get().toCString();\n";
+        fullOutput << "        std::cout << cstr << std::endl;\n";
+        fullOutput << "    }\n\n";
+        fullOutput << "    // Read a line from stdin - returns wrapped String\n";
+        fullOutput << "    static Language::Runtime::Owned<Language::Core::String> readLine() {\n";
+        fullOutput << "        std::string* line = new std::string();\n";
+        fullOutput << "        std::getline(std::cin, *line);\n";
+        fullOutput << "        return Language::Core::String((void*)line);\n";
+        fullOutput << "    }\n\n";
+        fullOutput << "    // Read a single character - returns wrapped String\n";
+        fullOutput << "    static Language::Runtime::Owned<Language::Core::String> readChar() {\n";
+        fullOutput << "        std::string* ch = new std::string();\n";
+        fullOutput << "        char c;\n";
+        fullOutput << "        if (std::cin.get(c)) {\n";
+        fullOutput << "            *ch = c;\n";
+        fullOutput << "        }\n";
+        fullOutput << "        return Language::Core::String((void*)ch);\n";
+        fullOutput << "    }\n\n";
+        fullOutput << "    // Read an integer - returns wrapped Integer\n";
+        fullOutput << "    static Language::Runtime::Owned<Language::Core::Integer> readInt() {\n";
+        fullOutput << "        int64_t value = 0;\n";
+        fullOutput << "        std::cin >> value;\n";
+        fullOutput << "        std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\\n');\n";
+        fullOutput << "        return Language::Core::Integer(value);\n";
+        fullOutput << "    }\n\n";
+        fullOutput << "    // Read a float - returns wrapped Float\n";
+        fullOutput << "    static Language::Runtime::Owned<Language::Core::Float> readFloat() {\n";
+        fullOutput << "        float value = 0.0f;\n";
+        fullOutput << "        std::cin >> value;\n";
+        fullOutput << "        std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\\n');\n";
+        fullOutput << "        return Language::Core::Float(value);\n";
+        fullOutput << "    }\n\n";
+        fullOutput << "    // Read a double - returns wrapped Double\n";
+        fullOutput << "    static Language::Runtime::Owned<Language::Core::Double> readDouble() {\n";
+        fullOutput << "        double value = 0.0;\n";
+        fullOutput << "        std::cin >> value;\n";
+        fullOutput << "        std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\\n');\n";
+        fullOutput << "        return Language::Core::Double(value);\n";
+        fullOutput << "    }\n\n";
+        fullOutput << "    // Read a boolean - reads 'true'/'false' or '1'/'0', returns wrapped Bool\n";
+        fullOutput << "    static Language::Runtime::Owned<Language::Core::Bool> readBool() {\n";
+        fullOutput << "        std::string input;\n";
+        fullOutput << "        std::cin >> input;\n";
+        fullOutput << "        std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\\n');\n";
+        fullOutput << "        // Convert to lowercase for comparison\n";
+        fullOutput << "        for (auto& c : input) c = std::tolower(c);\n";
+        fullOutput << "        bool result = (input == \"true\" || input == \"1\" || input == \"yes\");\n";
+        fullOutput << "        return Language::Core::Bool(result);\n";
+        fullOutput << "    }\n";
+        fullOutput << "};\n";
+        fullOutput << "} // namespace System\n\n";
 
-            XXML::CodeGen::CodeGenerator codeGen(errorReporter);
-
-            auto analyzerIt = analyzerMap.find(consoleModule);
-            if (analyzerIt != analyzerMap.end()) {
-                codeGen.setSemanticAnalyzer(analyzerIt->second.get());
-            }
-
-            std::string moduleCode = codeGen.generate(*module->ast, false);
-
-            if (errorReporter.hasErrors()) {
-                std::cerr << "\nCode generation failed for " << consoleModule << ":\n";
-                errorReporter.printErrors();
-                return 1;
-            }
-
-            fullOutput << "// ============================================\n";
-            fullOutput << "// Module: " << consoleModule << "\n";
-            fullOutput << "// ============================================\n";
-            fullOutput << moduleCode << "\n\n";
-            module->isCompiled = true;
-            generatedModules.insert(consoleModule);
-        }
+        // Generate Language::Core::Mem implementation (move semantics intrinsic)
+        fullOutput << "// ============================================\n";
+        fullOutput << "// Language::Core::Mem Implementation\n";
+        fullOutput << "// ============================================\n";
+        fullOutput << "namespace Language {\n";
+        fullOutput << "namespace Core {\n";
+        fullOutput << "namespace Mem {\n\n";
+        fullOutput << "    // Move operation - transfers ownership from Owned<T>\n";
+        fullOutput << "    template<typename T>\n";
+        fullOutput << "    Language::Runtime::Owned<T> move(Language::Runtime::Owned<T>& owned) {\n";
+        fullOutput << "        T extracted = owned.extract();\n";
+        fullOutput << "        return Language::Runtime::Owned<T>(std::move(extracted));\n";
+        fullOutput << "    }\n\n";
+        fullOutput << "} // namespace Mem\n";
+        fullOutput << "} // namespace Core\n";
+        fullOutput << "} // namespace Language\n\n";
 
         // Generate remaining modules in dependency order (non-core library)
         for (const auto& moduleName : compilationOrder) {
             if (generatedModules.find(moduleName) != generatedModules.end()) {
                 continue; // Already generated
             }
+
+            // Skip intrinsic modules - they're handled by the compiler
+            if (moduleName.find("Console") != std::string::npos ||
+                moduleName.find("System") != std::string::npos ||
+                moduleName.find("Mem.XXML") != std::string::npos) {
+                std::cout << "  Skipping: " << moduleName << " (using intrinsic implementation)\n";
+                continue;
+            }
+
             auto it = moduleMap.find(moduleName);
             if (it != moduleMap.end()) {
                 auto module = it->second;

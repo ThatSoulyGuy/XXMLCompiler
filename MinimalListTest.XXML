@@ -1,0 +1,33 @@
+// Minimal test - embed the List class directly
+
+[ Namespace <Collections>
+	[ Class <List> <T Constrains None> Final Extends None
+		[ Private <>
+			Property <count> Types NativeType<"int64">;
+		]
+
+		[ Public <>
+			Constructor = default;
+
+			Method <size> Returns Integer^ Parameters () Do
+			{
+				Return Integer::Constructor(count);
+			}
+
+			Method <clear> Returns None Parameters () Do
+			{
+				Instantiate NativeType<"int64">^ As <zero> = 0;
+				Run Syscall::memcpy(&count, &zero, 8);
+			}
+		]
+	]
+]
+
+[ Entrypoint {
+	// Test List@Integer
+	Instantiate Collections::List<Integer>^ As <intList> = Collections::List@Integer::Constructor();
+
+	Run intList.clear();
+
+	Instantiate Integer^ As <size> = intList.size();
+}]

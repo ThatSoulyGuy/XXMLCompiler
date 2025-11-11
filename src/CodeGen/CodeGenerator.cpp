@@ -33,12 +33,14 @@ bool CodeGenerator::isPrimitiveType(const std::string& typeName) {
 }
 
 bool CodeGenerator::isBuiltinType(const std::string& typeName) {
-    return typeName == "Integer" || typeName == "Bool" || typeName == "String" || typeName.find("NativeType<") == 0;
+    return typeName == "Integer" || typeName == "Bool" || typeName == "String" ||
+           typeName == "Float" || typeName == "Double" || typeName == "StringArray" ||
+           typeName.find("NativeType<") == 0;
 }
 
 bool CodeGenerator::isSmartPointerType(const std::string& typeName, Parser::OwnershipType ownership) {
-    // Only user-defined types with owned ownership use smart pointers
-    return ownership == Parser::OwnershipType::Owned && !isBuiltinType(typeName) && typeName != "None";
+    // All types with Owned ownership (T^) generate Owned<T> which has smart pointer semantics
+    return ownership == Parser::OwnershipType::Owned && typeName != "None";
 }
 
 std::string CodeGenerator::getOwnershipType(Parser::OwnershipType ownership, const std::string& typeName) {
@@ -49,22 +51,22 @@ std::string CodeGenerator::getOwnershipType(Parser::OwnershipType ownership, con
         return "void";
     }
 
-    // Special case: Built-in types (Integer, String, Bool) are NEVER wrapped in unique_ptr
-    bool isBuiltin = isBuiltinType(typeName);
-
     switch (ownership) {
+        case Parser::OwnershipType::None:
+            // Bare type (only valid in templates or for primitives in specific contexts)
+            return cppType;
+
         case Parser::OwnershipType::Owned:
-            if (isBuiltin) {
-                return cppType;  // int64_t, std::string, bool
-            } else {
-                return "std::unique_ptr<" + cppType + ">";  // User-defined classes
-            }
+            // T^ - Owned value, wrapped in Owned<T> for move tracking
+            return "Language::Runtime::Owned<" + cppType + ">";
 
         case Parser::OwnershipType::Reference:
+            // T& - Reference/borrow
             return cppType + "&";
 
         case Parser::OwnershipType::Copy:
-            return cppType;  // Pass by value for parameters
+            // T% - Explicit copy (only in parameters/returns)
+            return cppType;
 
         default:
             return cppType;
@@ -75,24 +77,21 @@ std::string CodeGenerator::getParameterType(Parser::OwnershipType ownership, con
     std::string cppType = convertType(typeName);
 
     switch (ownership) {
+        case Parser::OwnershipType::None:
+            // Bare type in parameter (shouldn't typically happen, but treat as value)
+            return cppType;
+
         case Parser::OwnershipType::Owned:
-            // For owned parameters, pass by value for built-ins, by unique_ptr for classes
-            if (isBuiltinType(typeName)) {
-                return cppType;
-            } else {
-                return "std::unique_ptr<" + cppType + ">";
-            }
+            // T^ - Takes ownership (move parameter)
+            return "Language::Runtime::Owned<" + cppType + ">";
 
         case Parser::OwnershipType::Reference:
+            // T& - Borrows (reference parameter)
             return cppType + "&";
 
         case Parser::OwnershipType::Copy:
-            // For copy, use const reference for strings (optimization), value for primitives
-            if (typeName == "String") {
-                return "const " + cppType + "&";
-            } else {
-                return cppType;
-            }
+            // T% - Explicit copy (pass by value)
+            return cppType;
 
         default:
             return cppType;
@@ -154,15 +153,15 @@ std::string CodeGenerator::convertType(const std::string& xxmlType) {
     }
 
     if (xxmlType == "Integer") {
-        return "Integer";
+        return "Language::Core::Integer";
     } else if (xxmlType == "String") {
-        return "String";
+        return "Language::Core::String";
     } else if (xxmlType == "Bool") {
-        return "Bool";
+        return "Language::Core::Bool";
     } else if (xxmlType == "Float") {
-        return "Float";
+        return "Language::Core::Float";
     } else if (xxmlType == "Double") {
-        return "Double";
+        return "Language::Core::Double";
     } else if (xxmlType == "None") {
         return "void";
     } else if (xxmlType.find("NativeType<") == 0) {
@@ -448,10 +447,11 @@ void CodeGenerator::visit(Parser::MethodDecl& node) {
 
         write(")");
 
-        // Track parameters as smart pointers if needed
+        // Track parameters as smart pointers and ownership type
         for (auto& param : node.parameters) {
             bool isSmartPtr = isSmartPointerType(param->type->typeName, param->type->ownership);
             variableIsSmartPointer[param->name] = isSmartPtr;
+            variableOwnership[param->name] = param->type->ownership;
         }
 
         // For primitive wrappers with one parameter, use initialization list
@@ -486,6 +486,29 @@ void CodeGenerator::visit(Parser::MethodDecl& node) {
 
             writeLine("}");
         }
+
+        // Also generate a static factory method for calling as ClassName::Constructor(args)
+        indent();
+        write("static " + currentClassName + " Constructor(");
+
+        // Parameters - same as constructor
+        for (size_t i = 0; i < node.parameters.size(); ++i) {
+            if (i > 0) write(", ");
+            auto& param = node.parameters[i];
+            std::string paramType = getParameterType(param->type->ownership, param->type->typeName);
+            if (currentClassName == "String" && paramType == "void*") {
+                paramType = "const void*";
+            }
+            write(paramType + " " + sanitizeIdentifier(param->name));
+        }
+
+        write(") { return " + currentClassName + "(");
+        // Pass parameters to constructor
+        for (size_t i = 0; i < node.parameters.size(); ++i) {
+            if (i > 0) write(", ");
+            write(sanitizeIdentifier(node.parameters[i]->name));
+        }
+        output << "); }\n";
     } else {
         // Regular method
         // Console methods should be static since they're called as System::Console::methodName()
@@ -539,10 +562,11 @@ void CodeGenerator::visit(Parser::MethodDecl& node) {
         write(") {");
         output << "\n";
 
-        // Track parameters as smart pointers if needed
+        // Track parameters as smart pointers and ownership type
         for (auto& param : node.parameters) {
             bool isSmartPtr = isSmartPointerType(param->type->typeName, param->type->ownership);
             variableIsSmartPointer[param->name] = isSmartPtr;
+            variableOwnership[param->name] = param->type->ownership;
         }
 
         indentLevel++;
@@ -562,11 +586,17 @@ void CodeGenerator::visit(Parser::MethodDecl& node) {
                 writeLine("    system(\"clear\");");
                 writeLine("#endif");
             } else if (methodName == "readLine") {
-                writeLine("return Language::Core::String();");
+                writeLine("return String::Constructor();");  // Intrinsic - actual implementation in main.cpp
             } else if (methodName == "readChar") {
-                writeLine("return Language::Core::String();");
+                writeLine("return String::Constructor();");  // Intrinsic
             } else if (methodName == "readInt") {
-                writeLine("return Language::Core::Integer(0);");
+                writeLine("return Integer::Constructor(0);");  // Intrinsic
+            } else if (methodName == "readFloat") {
+                writeLine("return Float::Constructor(0);");  // Intrinsic
+            } else if (methodName == "readDouble") {
+                writeLine("return Double::Constructor(0);");  // Intrinsic
+            } else if (methodName == "readBool") {
+                writeLine("return Bool::Constructor(false);");  // Intrinsic
             } else if (methodName == "getTime") {
                 writeLine("return Language::Core::Integer(0);");
             } else if (methodName == "getTimeMillis") {
@@ -602,6 +632,10 @@ void CodeGenerator::visit(Parser::EntrypointDecl& node) {
     writeLine("int main() {");
     indentLevel++;
 
+    // Add using directive for standard library
+    writeLine("using namespace Language::Core;");
+    writeLine("");
+
     for (auto& stmt : node.body) {
         stmt->accept(*this);
     }
@@ -616,15 +650,103 @@ void CodeGenerator::visit(Parser::InstantiateStmt& node) {
     indent();
 
     std::string varName = sanitizeIdentifier(node.variableName);
-    std::string type = getOwnershipType(node.type->ownership, node.type->typeName);
 
-    write(type + " " + varName + " = ");
+    // Reconstruct full type name with template arguments if present
+    std::string fullTypeName = node.type->typeName;
+    if (!node.type->templateArgs.empty()) {
+        fullTypeName += "<";
+        for (size_t i = 0; i < node.type->templateArgs.size(); ++i) {
+            if (i > 0) fullTypeName += ", ";
+            const auto& arg = node.type->templateArgs[i];
+            if (arg.kind == Parser::TemplateArgument::Kind::Type) {
+                fullTypeName += arg.typeArg;
+            } else {
+                // For value arguments, convert to string
+                // Note: This is simplified - full implementation would evaluate the expression
+                fullTypeName += "/* value arg */";
+            }
+        }
+        fullTypeName += ">";
+    }
+
+    std::string type = getOwnershipType(node.type->ownership, fullTypeName);
 
     // Track if this variable is a smart pointer for later member access
-    bool isSmartPtr = isSmartPointerType(node.type->typeName, node.type->ownership);
+    bool isSmartPtr = isSmartPointerType(fullTypeName, node.type->ownership);
     variableIsSmartPointer[node.variableName] = isSmartPtr;
 
-    node.initializer->accept(*this);
+    // Track ownership type for this variable (for copy vs reference validation)
+    variableOwnership[node.variableName] = node.type->ownership;
+
+    // Special handling for Owned<T> initialization
+    // When initializing Owned<T> from a member access or identifier that might be Owned<T>,
+    // we need to call .get() to extract the underlying value
+    bool needsGet = false;
+    if (node.type->ownership == Parser::OwnershipType::Owned) {
+        // Check if initializer is a member access or identifier (likely accessing an Owned property)
+        if (dynamic_cast<Parser::MemberAccessExpr*>(node.initializer.get()) ||
+            dynamic_cast<Parser::IdentifierExpr*>(node.initializer.get())) {
+            needsGet = true;
+        }
+    }
+
+    if (needsGet) {
+        // Use constructor syntax with .get() call
+        write(type + " " + varName + "(");
+        node.initializer->accept(*this);
+        write(".get())");
+    } else {
+        // Regular assignment
+        write(type + " " + varName + " = ");
+        node.initializer->accept(*this);
+    }
+
+    write(";");
+    output << "\n";
+}
+
+void CodeGenerator::visit(Parser::AssignmentStmt& node) {
+    indent();
+
+    std::string varName = sanitizeIdentifier(node.variableName);
+
+    // Check ownership type of the variable (for parameters)
+    // - Reference (&): Assignment affects the referenced object (intended behavior)
+    // - Copy (%): Assignment only affects the local copy (C++ pass-by-value semantics)
+    // - Owned (^): Assignment moves ownership
+    auto ownershipIt = variableOwnership.find(node.variableName);
+    if (ownershipIt != variableOwnership.end()) {
+        Parser::OwnershipType ownership = ownershipIt->second;
+        // Copy parameters: assignments only affect local copy, not the original
+        // Reference parameters: assignments affect the original object
+        // Owned parameters: use move semantics
+        // This is handled automatically by the C++ type system via getParameterType()
+    }
+
+    // Check if this variable is a smart pointer (Owned<T>)
+    bool isSmartPtr = variableIsSmartPointer[node.variableName];
+
+    if (isSmartPtr) {
+        // For Owned<T>, we need to use the assignment operator or extract/construct
+        // Generate: varName = Owned<T>(value.get())
+        write(varName + " = ");
+
+        // Check if value is a member access or identifier that might be Owned<T>
+        if (dynamic_cast<Parser::MemberAccessExpr*>(node.value.get()) ||
+            dynamic_cast<Parser::IdentifierExpr*>(node.value.get())) {
+            // Wrap in constructor with .get() call
+            write("std::move(");
+            node.value->accept(*this);
+            write(")");
+        } else {
+            // Regular expression
+            node.value->accept(*this);
+        }
+    } else {
+        // Regular assignment
+        write(varName + " = ");
+        node.value->accept(*this);
+    }
 
     write(";");
     output << "\n";
@@ -675,7 +797,25 @@ void CodeGenerator::visit(Parser::ReturnStmt& node) {
 
     if (node.value) {
         write(" ");
-        node.value->accept(*this);
+
+        // Check if we're returning 'this' - if so, move from it for value returns
+        if (auto* thisExpr = dynamic_cast<Parser::ThisExpr*>(node.value.get())) {
+            write("std::move(*this)");  // Move from this to transfer ownership
+        } else if (auto* identExpr = dynamic_cast<Parser::IdentifierExpr*>(node.value.get())) {
+            // Check if this is an owned variable that needs to be moved
+            auto ownershipIt = variableOwnership.find(identExpr->name);
+            if (ownershipIt != variableOwnership.end() &&
+                ownershipIt->second == Parser::OwnershipType::Owned) {
+                // Return owned value with std::move
+                write("std::move(");
+                node.value->accept(*this);
+                write(")");
+            } else {
+                node.value->accept(*this);
+            }
+        } else {
+            node.value->accept(*this);
+        }
     }
 
     write(";");
@@ -776,8 +916,8 @@ void CodeGenerator::visit(Parser::IdentifierExpr& node) {
 }
 
 void CodeGenerator::visit(Parser::ReferenceExpr& node) {
-    // Reference is just the variable itself in C++ (passed by reference in parameter)
-    // Or address-of if needed
+    // Generate address-of operator
+    write("&");
     node.expr->accept(*this);
 }
 
@@ -850,13 +990,33 @@ void CodeGenerator::visit(Parser::CallExpr& node) {
     bool isConstructorCall = false;
     std::string className;
 
-    // Check for MemberAccessExpr pattern: Obj.Constructor()
+    // Check for MemberAccessExpr pattern: Obj.Constructor() or Obj::Member::Constructor()
     if (auto* memberExpr = dynamic_cast<Parser::MemberAccessExpr*>(node.callee.get())) {
-        if (memberExpr->member == "Constructor") {
+        if (memberExpr->member == "Constructor" || memberExpr->member == "::Constructor") {
             isConstructorCall = true;
             // Get the class name from the object part
+            // Handle both simple identifiers and nested member access (for qualified names)
             if (auto* identExpr = dynamic_cast<Parser::IdentifierExpr*>(memberExpr->object.get())) {
                 className = identExpr->name;
+            } else if (auto* nestedMember = dynamic_cast<Parser::MemberAccessExpr*>(memberExpr->object.get())) {
+                // Build the full qualified name from nested MemberAccessExprs
+                // Recursively build: Test::Box<Integer> from nested structure
+                std::function<std::string(Parser::Expression*)> buildQualifiedName;
+                buildQualifiedName = [&](Parser::Expression* expr) -> std::string {
+                    if (auto* ident = dynamic_cast<Parser::IdentifierExpr*>(expr)) {
+                        return ident->name;
+                    } else if (auto* member = dynamic_cast<Parser::MemberAccessExpr*>(expr)) {
+                        std::string base = buildQualifiedName(member->object.get());
+                        // Remove leading :: from member if present
+                        std::string memberName = member->member;
+                        if (memberName.substr(0, 2) == "::") {
+                            memberName = memberName.substr(2);
+                        }
+                        return base + "::" + memberName;
+                    }
+                    return "";
+                };
+                className = buildQualifiedName(memberExpr->object.get());
             }
         }
         // Check if this is a runtime extension function (Copy, Append, Length, etc.)
@@ -898,6 +1058,9 @@ void CodeGenerator::visit(Parser::CallExpr& node) {
         // Check if this is a built-in type (String, Integer, Bool) or user-defined
         // For built-ins, use direct construction; for user types, use make_unique
 
+        // Convert className to handle template instantiations (mangling)
+        std::string convertedClassName = convertType(className);
+
         // Extract the last component for built-in type checking
         std::string baseType = className;
         size_t lastColon = className.rfind("::");
@@ -905,23 +1068,39 @@ void CodeGenerator::visit(Parser::CallExpr& node) {
             baseType = className.substr(lastColon + 2);
         }
 
-        if (baseType == "String" || baseType == "Integer" || baseType == "Bool") {
-            // Value types: String, Integer, Bool -> Language::Core::Type(...)
-            // Use fully qualified name to avoid namespace issues
-            if (lastColon != std::string::npos) {
-                write(className + "(");  // Use full qualified name
-            } else {
-                write("Language::Core::" + baseType + "(");  // Add namespace if not present
-            }
-        } else {
-            // Smart pointer types (Float, Double, user-defined) -> std::make_unique<Type>(...)
-            write("std::make_unique<" + baseType + ">(");
+        // Check if baseType contains template args - remove them for built-in check
+        std::string baseTypeNoTemplates = baseType;
+        size_t anglePos = baseType.find('<');
+        if (anglePos != std::string::npos) {
+            baseTypeNoTemplates = baseType.substr(0, anglePos);
         }
+
+        // With Owned<T> wrapper, all types use direct construction
+        // Owned<T> wraps the actual object, not a unique_ptr
+        write(convertedClassName + "(");
 
         // Write arguments
         for (size_t i = 0; i < node.arguments.size(); ++i) {
             if (i > 0) write(", ");
-            node.arguments[i]->accept(*this);
+
+            // Check if argument is an Owned variable that needs std::move
+            bool needsMove = false;
+            if (auto* identExpr = dynamic_cast<Parser::IdentifierExpr*>(node.arguments[i].get())) {
+                // Check if this variable is owned
+                auto ownershipIt = variableOwnership.find(identExpr->name);
+                if (ownershipIt != variableOwnership.end() &&
+                    ownershipIt->second == Parser::OwnershipType::Owned) {
+                    needsMove = true;
+                }
+            }
+
+            if (needsMove) {
+                write("std::move(");
+                node.arguments[i]->accept(*this);
+                write(")");
+            } else {
+                node.arguments[i]->accept(*this);
+            }
         }
 
         write(")");
@@ -933,7 +1112,25 @@ void CodeGenerator::visit(Parser::CallExpr& node) {
 
         for (size_t i = 0; i < node.arguments.size(); ++i) {
             if (i > 0) write(", ");
-            node.arguments[i]->accept(*this);
+
+            // Check if argument is an Owned variable that needs std::move
+            bool needsMove = false;
+            if (auto* identExpr = dynamic_cast<Parser::IdentifierExpr*>(node.arguments[i].get())) {
+                // Check if this variable is owned
+                auto ownershipIt = variableOwnership.find(identExpr->name);
+                if (ownershipIt != variableOwnership.end() &&
+                    ownershipIt->second == Parser::OwnershipType::Owned) {
+                    needsMove = true;
+                }
+            }
+
+            if (needsMove) {
+                write("std::move(");
+                node.arguments[i]->accept(*this);
+                write(")");
+            } else {
+                node.arguments[i]->accept(*this);
+            }
         }
 
         write(")");
@@ -1136,9 +1333,9 @@ void CodeGenerator::generateTemplateInstantiations() {
     writeLine("// ============================================================================");
     writeLine("");
 
-    for (const auto& [templateName, args] : instantiations) {
+    for (const auto& inst : instantiations) {
         // Find the template class definition
-        auto it = templateClasses.find(templateName);
+        auto it = templateClasses.find(inst.templateName);
         if (it == templateClasses.end()) {
             // Template class not found - this should have been caught by semantic analysis
             continue;
@@ -1149,29 +1346,46 @@ void CodeGenerator::generateTemplateInstantiations() {
         // Clone the template class
         auto instantiatedClass = cloneClassDecl(templateClass);
 
-        // Build type substitution map
+        // Build type substitution map and extract type arguments as strings
         std::unordered_map<std::string, std::string> typeMap;
-        for (size_t i = 0; i < templateClass->templateParams.size() && i < args.size(); ++i) {
-            typeMap[templateClass->templateParams[i].name] = args[i];
+        std::vector<std::string> typeArgsAsStrings;
+        size_t valueIndex = 0;
+
+        for (size_t i = 0; i < templateClass->templateParams.size() && i < inst.arguments.size(); ++i) {
+            const auto& param = templateClass->templateParams[i];
+            const auto& arg = inst.arguments[i];
+
+            if (arg.kind == Parser::TemplateArgument::Kind::Type) {
+                typeMap[param.name] = arg.typeArg;
+                typeArgsAsStrings.push_back(arg.typeArg);
+            } else {
+                // Non-type parameter - use evaluated value
+                if (valueIndex < inst.evaluatedValues.size()) {
+                    std::string valueStr = std::to_string(inst.evaluatedValues[valueIndex]);
+                    typeMap[param.name] = valueStr;
+                    typeArgsAsStrings.push_back(valueStr);
+                    valueIndex++;
+                }
+            }
         }
 
         // Substitute types throughout the class
         substituteTypes(instantiatedClass.get(), typeMap);
 
         // Generate mangled name
-        std::string mangledName = mangleTemplateName(templateName, args);
+        std::string mangledName = mangleTemplateName(inst.templateName, typeArgsAsStrings);
         instantiatedClass->name = mangledName;
 
         // Clear template parameters (it's no longer a template)
         instantiatedClass->templateParams.clear();
 
         // Generate code for this instantiated class
-        writeLine("// Instantiation: " + templateName + "<" +
-                  [&args]() {
+        writeLine("// Instantiation: " + inst.templateName + "<" +
+                  [&typeArgsAsStrings]() {
                       std::string result;
-                      for (size_t i = 0; i < args.size(); ++i) {
+                      for (size_t i = 0; i < typeArgsAsStrings.size(); ++i) {
                           if (i > 0) result += ", ";
-                          result += args[i];
+                          result += typeArgsAsStrings[i];
                       }
                       return result;
                   }() + ">");

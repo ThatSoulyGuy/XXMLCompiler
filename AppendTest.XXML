@@ -1,0 +1,12 @@
+[ Entrypoint {
+	Instantiate String^ As <hello> = String::Constructor("Hello");
+	Instantiate String^ As <world> = String::Constructor(" World");
+
+	Run System::Console::print(String::Constructor("Before: "));
+	Run System::Console::printLine(<hello>);
+
+	Instantiate String^ As <result> = <hello>;
+
+	Run System::Console::print(String::Constructor("After assignment: "));
+	Run System::Console::printLine(<result>);
+}]

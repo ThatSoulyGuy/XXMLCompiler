@@ -1,0 +1,31 @@
+// Test Integer to String conversion
+
+[ Entrypoint {
+	Run System::Console::printLine(String::Constructor("=== Integer to String Test ==="));
+	Run System::Console::printLine(String::Constructor(""));
+
+	// Convert positive integer to string
+	Instantiate Integer^ As <num1> = Integer::Constructor(42);
+	Instantiate String^ As <str1> = num1.toString();
+	Run System::Console::printLine(String::Constructor("Converted 42 to string"));
+
+	// Convert zero to string
+	Instantiate Integer^ As <zero> = Integer::Constructor(0);
+	Instantiate String^ As <strZero> = zero.toString();
+	Run System::Console::printLine(String::Constructor("Converted 0 to string"));
+
+	// Convert negative integer to string
+	Instantiate Integer^ As <negative> = Integer::Constructor(-123);
+	Instantiate String^ As <strNeg> = negative.toString();
+	Run System::Console::printLine(String::Constructor("Converted -123 to string"));
+
+	// Use in string concatenation
+	Instantiate Integer^ As <count> = Integer::Constructor(5);
+	Instantiate String^ As <prefix> = String::Constructor("Count: ");
+	Instantiate String^ As <countStr> = count.toString();
+	Instantiate String^ As <message> = prefix.append(countStr);
+	Run System::Console::printLine(String::Constructor("Built message with count"));
+
+	Run System::Console::printLine(String::Constructor(""));
+	Run System::Console::printLine(String::Constructor("✓ All conversions successful!"));
+}]

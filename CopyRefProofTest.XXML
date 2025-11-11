@@ -1,0 +1,54 @@
+// Proof that copy parameters don't modify the original and reference parameters do
+
+[ Namespace <Test>
+    [ Class <ValueChecker> Final Extends None
+
+    [ Public<>
+        Constructor = default;
+
+        Method <modifyCopy> Returns None Parameters (Parameter <num> Types Integer%) ->
+        {
+            Set num = Integer::Constructor(999);
+        }
+
+        Method <modifyRef> Returns None Parameters (Parameter <num> Types Integer&) ->
+        {
+            Set num = Integer::Constructor(777);
+        }
+    ]
+
+    [ Private<>
+
+    ]
+
+    ]
+]
+
+[ Entrypoint
+    {
+        Run System::Console::printLine(String::Constructor("=== Proof Test: Copy vs Reference ==="));
+
+        Instantiate Test::ValueChecker^ As <checker> = Test::ValueChecker::Constructor();
+
+        // Test copy parameter
+        Run System::Console::printLine(String::Constructor(""));
+        Run System::Console::printLine(String::Constructor("COPY PARAMETER TEST:"));
+        Instantiate Integer^ As <copyTest> = Integer::Constructor(42);
+        Run System::Console::printLine(String::Constructor("Before: ").append(copyTest.toString()));
+        Run checker.modifyCopy(copyTest);
+        Run System::Console::printLine(String::Constructor("After:  ").append(copyTest.toString()));
+        Run System::Console::printLine(String::Constructor("Expected: 42 (unchanged)"));
+
+        // Test reference parameter
+        Run System::Console::printLine(String::Constructor(""));
+        Run System::Console::printLine(String::Constructor("REFERENCE PARAMETER TEST:"));
+        Instantiate Integer^ As <refTest> = Integer::Constructor(42);
+        Run System::Console::printLine(String::Constructor("Before: ").append(refTest.toString()));
+        Run checker.modifyRef(refTest);
+        Run System::Console::printLine(String::Constructor("After:  ").append(refTest.toString()));
+        Run System::Console::printLine(String::Constructor("Expected: 777 (changed)"));
+
+        Run System::Console::printLine(String::Constructor(""));
+        Run System::Console::printLine(String::Constructor("✓ Test complete!"));
+    }
+]

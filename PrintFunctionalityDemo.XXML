@@ -1,0 +1,71 @@
+// ========================================================================
+// XXML Print Functionality Demo
+// ========================================================================
+// This demo shows string creation and manipulation in XXML.
+// 
+// NOTE: Console.printLine() requires cross-module namespace resolution 
+// (System namespace from Console.XXML must be visible in main module).
+// This is a known limitation - namespaces are currently per-analyzer.
+//
+// Workaround: The generated C++ code can be modified to add cout statements,
+// or System functions can be used directly if properly imported.
+// ========================================================================
+
+[ Entrypoint {
+	// ====== STRING CREATION ======
+	Instantiate String^ As <greeting> = String::Constructor("Hello, XXML!");
+	Instantiate String^ As <name> = String::Constructor("Developer");
+	Instantiate String^ As <message> = String::Constructor("Welcome to XXML programming");
+	
+	// ====== INTEGER OPERATIONS ======
+	Instantiate Integer^ As <answerToLife> = Integer::Constructor(42);
+	Instantiate Integer^ As <multiplier> = Integer::Constructor(2);
+	Instantiate Integer^ As <result> = answerToLife.multiply(multiplier);
+	
+	// ====== STRING OPERATIONS ======
+	Instantiate String^ As <combined> = String::Constructor("Hello");
+	Instantiate String^ As <space> = String::Constructor(" ");
+	Instantiate String^ As <world> = String::Constructor("World!");
+	
+	Run combined.append(space);
+	Run combined.append(world);
+	
+	// Get string length
+	Instantiate Integer^ As <length> = combined.length();
+	
+	// ====== BOOLEAN OPERATIONS ======
+	Instantiate Integer^ As <num1> = Integer::Constructor(100);
+	Instantiate Integer^ As <num2> = Integer::Constructor(50);
+	Instantiate Bool^ As <isGreater> = num1.greaterThan(num2);
+	Instantiate Bool^ As <isEqual> = num1.equals(num2);
+	
+	// ====== MORE ARITHMETIC ======
+	Instantiate Integer^ As <a> = Integer::Constructor(15);
+	Instantiate Integer^ As <b> = Integer::Constructor(7);
+	Instantiate Integer^ As <sum> = a.add(b);
+	Instantiate Integer^ As <diff> = a.subtract(b);
+	Instantiate Integer^ As <prod> = a.multiply(b);
+	Instantiate Integer^ As <quot> = a.divide(b);
+	Instantiate Integer^ As <mod> = a.modulo(b);
+	
+	// ====== COPYING AND COMPARISON ======
+	Instantiate String^ As <original> = String::Constructor("Test String");
+	Instantiate String^ As <copy> = original.copy();
+	Instantiate Bool^ As <areEqual> = original.equals(copy);
+}]
+
+// ========================================================================
+// TO ADD CONSOLE OUTPUT TO GENERATED C++:
+// ========================================================================
+// After compilation, you can add this to the generated WorkingDemo.cpp:
+//
+// At the top (after #include <cstring>):
+//   #include <iostream>
+//
+// In main() after creating strings:
+//   std::cout << "Greeting: " << /* greeting string */ << std::endl;
+//   std::cout << "Result: " << /* result integer */ << std::endl;
+//
+// Or use the Syscall methods directly in XXML (advanced):
+//   Run Syscall::puts(greeting.toCString());
+// ========================================================================

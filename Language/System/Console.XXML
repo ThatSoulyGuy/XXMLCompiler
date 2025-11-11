@@ -42,6 +42,18 @@
 				Return Integer::Constructor(0);
 			}
 
+			Method <readFloat> Returns Float^ Parameters () Do {
+				Return Float::Constructor(0);
+			}
+
+			Method <readDouble> Returns Double^ Parameters () Do {
+				Return Double::Constructor(0);
+			}
+
+			Method <readBool> Returns Bool^ Parameters () Do {
+				Return Bool::Constructor(false);
+			}
+
 			// Formatting
 			Method <printFormatted> Returns None Parameters (
 				Parameter <format> Types String^,

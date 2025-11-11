@@ -1,0 +1,9 @@
+// Simple test for generic template instantiation
+
+[ Entrypoint {
+	Run System::PrintLine(String::Constructor("Testing generic templates"));
+
+	// Simple test with one type parameter
+	Instantiate Integer^ As <num> = Integer::Constructor(42);
+	Run System::PrintLine(String::Convert(num));
+}]

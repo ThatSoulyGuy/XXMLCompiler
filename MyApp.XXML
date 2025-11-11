@@ -1,0 +1,17 @@
+// MyApp.XXML - Main application that uses MyUtils
+#import MyUtils;
+
+[ Entrypoint {
+	Run System::Console::printLine(String::Constructor("=== Testing Import System ==="));
+	Run System::Console::printLine(String::Constructor(""));
+
+	// Use the imported MathHelper class
+	Instantiate Integer^ As <a> = Integer::Constructor(10);
+	Instantiate Integer^ As <b> = Integer::Constructor(5);
+
+	Run System::Console::print(String::Constructor("Created: a=10, b=5"));
+	Run System::Console::printLine(String::Constructor(""));
+
+	Run System::Console::printLine(String::Constructor(""));
+	Run System::Console::printLine(String::Constructor("=== Import Test Complete! ==="));
+}]

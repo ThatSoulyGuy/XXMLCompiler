@@ -1,0 +1,103 @@
+// Comprehensive test for copy, reference, and move semantics
+
+[ Namespace <Test>
+    [ Class <Tester> Final Extends None
+
+    [ Public<>
+        Constructor = default;
+
+        // Method with COPY parameter (%) - creates independent copy
+        // Assignment to parameter does NOT affect caller's value
+        Method <modifyCopy> Returns None Parameters (Parameter <num> Types Integer%) ->
+        {
+            Run System::Console::printLine(String::Constructor("  [modifyCopy] Received copy, modifying to 999"));
+            Set num = Integer::Constructor(999);
+            Run System::Console::printLine(String::Constructor("  [modifyCopy] Local copy is now 999"));
+        }
+
+        // Method with REFERENCE parameter (&) - borrows the value
+        // Assignment to parameter DOES affect caller's value
+        Method <modifyRef> Returns None Parameters (Parameter <num> Types Integer&) ->
+        {
+            Run System::Console::printLine(String::Constructor("  [modifyRef] Received reference, modifying to 777"));
+            Set num = Integer::Constructor(777);
+            Run System::Console::printLine(String::Constructor("  [modifyRef] Reference updated to 777"));
+        }
+
+        // Method with OWNED parameter (^) - takes ownership
+        // Caller's value is moved, cannot be used afterward
+        Method <takeOwnership> Returns None Parameters (Parameter <num> Types Integer^) ->
+        {
+            Run System::Console::printLine(String::Constructor("  [takeOwnership] Took ownership of Integer"));
+            Run System::Console::printLine(String::Constructor("  [takeOwnership] Value is now owned by this method"));
+        }
+
+        // Method that RETURNS an owned value
+        Method <createInteger> Returns Integer^ Parameters () ->
+        {
+            Instantiate Integer^ As <result> = Integer::Constructor(12345);
+            Run System::Console::printLine(String::Constructor("  [createInteger] Returning owned Integer(12345)"));
+            Return result;
+        }
+
+        // Method that returns owned value directly (no local variable)
+        Method <createIntegerDirect> Returns Integer^ Parameters () ->
+        {
+            Run System::Console::printLine(String::Constructor("  [createIntegerDirect] Returning Integer(54321)"));
+            Return Integer::Constructor(54321);
+        }
+    ]
+
+    [ Private<>
+
+    ]
+
+    ]
+]
+
+[ Entrypoint
+    {
+        Run System::Console::printLine(String::Constructor("=== Copy, Reference, and Move Semantics Test ==="));
+        Run System::Console::printLine(String::Constructor(""));
+
+        Instantiate Test::Tester^ As <tester> = Test::Tester::Constructor();
+
+        // Test 1: Copy parameter semantics
+        Run System::Console::printLine(String::Constructor("TEST 1: Copy Parameter (Integer%)"));
+        Instantiate Integer^ As <num1> = Integer::Constructor(100);
+        Run System::Console::printLine(String::Constructor("Before modifyCopy: num1 = 100"));
+        Run tester.modifyCopy(num1);
+        Run System::Console::printLine(String::Constructor("After modifyCopy: num1 should still be 100 (unchanged)"));
+        Run System::Console::printLine(String::Constructor(""));
+
+        // Test 2: Reference parameter semantics
+        Run System::Console::printLine(String::Constructor("TEST 2: Reference Parameter (Integer&)"));
+        Instantiate Integer^ As <num2> = Integer::Constructor(200);
+        Run System::Console::printLine(String::Constructor("Before modifyRef: num2 = 200"));
+        Run tester.modifyRef(num2);
+        Run System::Console::printLine(String::Constructor("After modifyRef: num2 should be 777 (modified)"));
+        Run System::Console::printLine(String::Constructor(""));
+
+        // Test 3: Owned parameter semantics (move)
+        Run System::Console::printLine(String::Constructor("TEST 3: Owned Parameter (Integer^) - Move Semantics"));
+        Instantiate Integer^ As <num3> = Integer::Constructor(300);
+        Run System::Console::printLine(String::Constructor("Before takeOwnership: num3 = 300"));
+        Run tester.takeOwnership(num3);
+        Run System::Console::printLine(String::Constructor("After takeOwnership: num3 has been moved (ownership transferred)"));
+        Run System::Console::printLine(String::Constructor(""));
+
+        // Test 4: Returning owned values
+        Run System::Console::printLine(String::Constructor("TEST 4: Returning Owned Values"));
+        Instantiate Integer^ As <num4> = tester.createInteger();
+        Run System::Console::printLine(String::Constructor("Received returned value: 12345"));
+        Run System::Console::printLine(String::Constructor(""));
+
+        // Test 5: Returning owned values directly
+        Run System::Console::printLine(String::Constructor("TEST 5: Returning Owned Values (Direct)"));
+        Instantiate Integer^ As <num5> = tester.createIntegerDirect();
+        Run System::Console::printLine(String::Constructor("Received returned value: 54321"));
+        Run System::Console::printLine(String::Constructor(""));
+
+        Run System::Console::printLine(String::Constructor("=== All Tests Complete ==="));
+    }
+]

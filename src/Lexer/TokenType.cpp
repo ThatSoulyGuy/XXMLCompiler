@@ -39,6 +39,7 @@ static const std::unordered_map<std::string, TokenType> keywords = {
     {"Static", TokenType::Static},
     {"Do", TokenType::Do},
     {"this", TokenType::This},
+    {"Set", TokenType::Set},
     {"true", TokenType::BoolLiteral},
     {"false", TokenType::BoolLiteral}
 };
@@ -81,6 +82,7 @@ std::string tokenTypeToString(TokenType type) {
         case TokenType::Static: return "Static";
         case TokenType::Do: return "Do";
         case TokenType::This: return "This";
+        case TokenType::Set: return "Set";
         case TokenType::Identifier: return "Identifier";
         case TokenType::AngleBracketId: return "AngleBracketId";
         case TokenType::IntegerLiteral: return "IntegerLiteral";
@@ -110,6 +112,7 @@ std::string tokenTypeToString(TokenType type) {
         case TokenType::Ampersand: return "Ampersand";
         case TokenType::Pipe: return "Pipe";
         case TokenType::Caret: return "Caret";
+        case TokenType::At: return "At";
         case TokenType::Exclamation: return "Exclamation";
         case TokenType::Question: return "Question";
         case TokenType::Hash: return "Hash";

@@ -5,9 +5,9 @@
 [ Namespace <Collections>
 	[ Class <HashMap> Final Extends None
 		[ Private <>
-			Property <bucketsPtr> Types NativeType<"ptr">;
-			Property <capacity> Types NativeType<"int64">;
-			Property <count> Types NativeType<"int64">;
+			Property <bucketsPtr> Types NativeType<"0">^;
+			Property <capacity> Types NativeType<"0">^;
+			Property <count> Types NativeType<"0">^;
 		]
 
 		[ Public <>
@@ -136,7 +136,7 @@
 			// Recursive hash helper (djb2 algorithm)
 			Method <hashHelper> Returns NativeType<"int64"> Parameters (
 				Parameter <str> Types String^,
-				Parameter <index> Types Integer^,
+				Parameter <index> Types Integer&,
 				Parameter <hash> Types Integer^,
 				Parameter <len> Types Integer^
 			) Do {
@@ -358,7 +358,7 @@
 			}
 
 			// Dispose all buckets
-			Method <disposeBuckets> Returns None Parameters (Parameter <index> Types Integer^) Do {
+			Method <disposeBuckets> Returns None Parameters (Parameter <index> Types Integer&) Do {
 				Instantiate NativeType<"int64">^ As <currentCap> = capacity;
 				Instantiate NativeType<"int64">^ As <idx> = index;
 
@@ -407,7 +407,7 @@
 			}
 
 			// Print all buckets
-			Method <printBuckets> Returns None Parameters (Parameter <index> Types Integer^) Do {
+			Method <printBuckets> Returns None Parameters (Parameter <index> Types Integer&) Do {
 				Instantiate NativeType<"int64">^ As <currentCap> = capacity;
 				Instantiate NativeType<"int64">^ As <idx> = index;
 

@@ -1,0 +1,10 @@
+#import System;
+
+[ Entrypoint
+	{
+		Run System::Console::printLine(String::Constructor("Enter your name:"));
+		Instantiate String^ As <name> = System::Console::readLine();
+		Run System::Console::print(String::Constructor("Hello, "));
+		Run System::Console::printLine(name);
+	}
+]

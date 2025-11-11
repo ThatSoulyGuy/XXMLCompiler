@@ -1,0 +1,36 @@
+[ Entrypoint {
+	Run System::Console::printLine(String::Constructor("=== XXML Comprehensive Console Test ==="));
+	Run System::Console::printLine(String::Constructor(""));
+
+	// Test 1: Basic string output
+	Run System::Console::printLine(String::Constructor("Test 1: Basic Output"));
+	Run System::Console::print(String::Constructor("Hello from "));
+	Run System::Console::printLine(String::Constructor("XXML!"));
+	Run System::Console::printLine(String::Constructor(""));
+
+	// Test 2: Integer creation and arithmetic
+	Run System::Console::printLine(String::Constructor("Test 2: Integer Operations"));
+	Instantiate Integer^ As <num1> = Integer::Constructor(42);
+	Instantiate Integer^ As <num2> = Integer::Constructor(8);
+	Instantiate Integer^ As <sum> = Integer::Constructor(50);
+	Run System::Console::print(String::Constructor("Created integers: 42 and 8"));
+	Run System::Console::printLine(String::Constructor(""));
+	Run System::Console::printLine(String::Constructor(""));
+
+	// Test 3: String operations
+	Run System::Console::printLine(String::Constructor("Test 3: String Operations"));
+	Instantiate String^ As <greeting> = String::Constructor("Hello");
+	Instantiate String^ As <name> = String::Constructor("World");
+	Run System::Console::print(String::Constructor("Created strings!"));
+	Run System::Console::printLine(String::Constructor(""));
+	Run System::Console::printLine(String::Constructor(""));
+
+	// Test 4: Boolean operations
+	Run System::Console::printLine(String::Constructor("Test 4: Boolean Operations"));
+	Instantiate Bool^ As <flag1> = Bool::Constructor(true);
+	Instantiate Bool^ As <flag2> = Bool::Constructor(false);
+	Run System::Console::printLine(String::Constructor("Created booleans!"));
+	Run System::Console::printLine(String::Constructor(""));
+
+	Run System::Console::printLine(String::Constructor("=== All Tests Complete! ==="));
+}]

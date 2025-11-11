@@ -4,9 +4,9 @@
 [ Namespace <Collections>
 	[ Class <IntegerList> Final Extends None
 		[ Private <>
-			Property <dataPtr> Types NativeType<"ptr">;
-			Property <capacity> Types NativeType<"int64">;
-			Property <count> Types NativeType<"int64">;
+			Property <dataPtr> Types NativeType<"0">^;
+			Property <capacity> Types NativeType<"0">^;
+			Property <count> Types NativeType<"0">^;
 		]
 
 		[ Public <>
@@ -48,7 +48,7 @@
 			}
 
 			// Get element at index
-			Method <get> Returns Integer^ Parameters (Parameter <index> Types Integer^) Do {
+			Method <get> Returns Integer^ Parameters (Parameter <index> Types Integer&) Do {
 				Instantiate NativeType<"int64">^ As <idx> = index;
 				Instantiate NativeType<"int64">^ As <currentCount> = count;
 
@@ -70,7 +70,7 @@
 
 			// Set element at index
 			Method <set> Returns None Parameters (
-				Parameter <index> Types Integer^,
+				Parameter <index> Types Integer&,
 				Parameter <value> Types Integer^
 			) Do {
 				Instantiate NativeType<"int64">^ As <idx> = index;
@@ -194,7 +194,7 @@
 
 			// Recursive sum helper
 			Method <sumHelper> Returns Integer^ Parameters (
-				Parameter <index> Types Integer^,
+				Parameter <index> Types Integer&,
 				Parameter <accumulator> Types Integer^
 			) Do {
 				Instantiate NativeType<"int64">^ As <currentCount> = count;
@@ -213,7 +213,7 @@
 
 			// Recursive min helper
 			Method <minHelper> Returns Integer^ Parameters (
-				Parameter <index> Types Integer^,
+				Parameter <index> Types Integer&,
 				Parameter <currentMin> Types Integer^
 			) Do {
 				Instantiate NativeType<"int64">^ As <currentCount> = count;
@@ -235,7 +235,7 @@
 
 			// Recursive max helper
 			Method <maxHelper> Returns Integer^ Parameters (
-				Parameter <index> Types Integer^,
+				Parameter <index> Types Integer&,
 				Parameter <currentMax> Types Integer^
 			) Do {
 				Instantiate NativeType<"int64">^ As <currentCount> = count;
@@ -256,7 +256,7 @@
 			}
 
 			// Recursive print helper
-			Method <printHelper> Returns None Parameters (Parameter <index> Types Integer^) Do {
+			Method <printHelper> Returns None Parameters (Parameter <index> Types Integer&) Do {
 				Instantiate NativeType<"int64">^ As <currentCount> = count;
 				Instantiate NativeType<"int64">^ As <idx> = index;
 

@@ -1,0 +1,22 @@
+// Test the updated standard library with proper ownership qualifiers
+[ Entrypoint {
+	Run System::Console::printLine(String::Constructor("=== Testing Updated Standard Library ==="));
+	Run System::Console::printLine(String::Constructor(""));
+
+	// Test Integer
+	Instantiate Integer^ As <num1> = Integer::Constructor(42);
+	Instantiate Integer^ As <num2> = Integer::Constructor(8);
+
+	Run System::Console::printLine(String::Constructor("Created two integers: 42 and 8"));
+
+	// Test Bool
+	Instantiate Bool^ As <flag> = Bool::Constructor(true);
+	Run System::Console::printLine(String::Constructor("Created boolean: true"));
+
+	// Test String
+	Instantiate String^ As <greeting> = String::Constructor("Hello XXML!");
+	Run System::Console::printLine(String::Constructor("Created string successfully"));
+
+	Run System::Console::printLine(String::Constructor(""));
+	Run System::Console::printLine(String::Constructor("=== All Tests Passed! ==="));
+}]

@@ -4,9 +4,9 @@
 [ Namespace <Collections>
 	[ Class <StringList> Final Extends None
 		[ Private <>
-			Property <dataPtr> Types NativeType<"ptr">;
-			Property <capacity> Types NativeType<"int64">;
-			Property <count> Types NativeType<"int64">;
+			Property <dataPtr> Types NativeType<"0">^;
+			Property <capacity> Types NativeType<"0">^;
+			Property <count> Types NativeType<"0">^;
 		]
 
 		[ Public <>
@@ -60,7 +60,7 @@
 			}
 
 			// Get string at index
-			Method <get> Returns String^ Parameters (Parameter <index> Types Integer^) Do {
+			Method <get> Returns String^ Parameters (Parameter <index> Types Integer&) Do {
 				Instantiate NativeType<"int64">^ As <idx> = index;
 				Instantiate NativeType<"int64">^ As <currentCount> = count;
 
@@ -148,7 +148,7 @@
 			}
 
 			// Recursive print helper
-			Method <printHelper> Returns None Parameters (Parameter <index> Types Integer^) Do {
+			Method <printHelper> Returns None Parameters (Parameter <index> Types Integer&) Do {
 				Instantiate NativeType<"int64">^ As <currentCount> = count;
 				Instantiate NativeType<"int64">^ As <idx> = index;
 
@@ -171,7 +171,7 @@
 			}
 
 			// Recursive dispose helper (free all string allocations)
-			Method <disposeHelper> Returns None Parameters (Parameter <index> Types Integer^) Do {
+			Method <disposeHelper> Returns None Parameters (Parameter <index> Types Integer&) Do {
 				Instantiate NativeType<"int64">^ As <currentCount> = count;
 				Instantiate NativeType<"int64">^ As <idx> = index;
 

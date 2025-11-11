@@ -346,8 +346,64 @@ std::string Cpp20Backend::mangleTemplateName(const std::string& templateName,
 }
 
 void Cpp20Backend::generateTemplateInstantiations() {
-    // Template instantiation logic would go here
-    // For now, placeholder
+    if (!semanticAnalyzer_) {
+        return; // No semantic analyzer, skip template generation
+    }
+
+    const auto& instantiations = semanticAnalyzer_->getTemplateInstantiations();
+    const auto& templateClasses = semanticAnalyzer_->getTemplateClasses();
+
+    for (const auto& inst : instantiations) {
+        auto it = templateClasses.find(inst.templateName);
+        if (it == templateClasses.end()) {
+            continue; // Template class not found, skip
+        }
+
+        Parser::ClassDecl* templateClass = it->second;
+
+        // Generate mangled class name
+        std::string mangledName = inst.templateName;
+        size_t valueIndex = 0;
+        for (const auto& arg : inst.arguments) {
+            if (arg.kind == Parser::TemplateArgument::Kind::Type) {
+                mangledName += "_" + arg.typeArg;
+            } else {
+                // Use evaluated value for non-type parameters
+                if (valueIndex < inst.evaluatedValues.size()) {
+                    mangledName += "_" + std::to_string(inst.evaluatedValues[valueIndex]);
+                    valueIndex++;
+                }
+            }
+        }
+
+        // Build type substitution map (template params -> concrete types/values)
+        std::unordered_map<std::string, std::string> typeMap;
+        valueIndex = 0;
+        for (size_t i = 0; i < templateClass->templateParams.size() && i < inst.arguments.size(); ++i) {
+            const auto& param = templateClass->templateParams[i];
+            const auto& arg = inst.arguments[i];
+
+            if (param.kind == Parser::TemplateParameter::Kind::Type) {
+                if (arg.kind == Parser::TemplateArgument::Kind::Type) {
+                    typeMap[param.name] = arg.typeArg;
+                }
+            } else {
+                // Non-type parameter - substitute with the evaluated constant
+                if (valueIndex < inst.evaluatedValues.size()) {
+                    typeMap[param.name] = std::to_string(inst.evaluatedValues[valueIndex]);
+                    valueIndex++;
+                }
+            }
+        }
+
+        // Clone the template class and substitute types
+        auto instantiated = cloneAndSubstituteClassDecl(templateClass, mangledName, typeMap);
+
+        // Generate code for the instantiated class
+        if (instantiated) {
+            instantiated->accept(*this);
+        }
+    }
 }
 
 std::unique_ptr<Parser::ClassDecl> Cpp20Backend::cloneClassDecl(Parser::ClassDecl* original) {
@@ -360,6 +416,221 @@ std::unique_ptr<Parser::ClassDecl> Cpp20Backend::cloneClassDecl(Parser::ClassDec
         original->location
     );
     return clone;
+}
+
+std::unique_ptr<Parser::ClassDecl> Cpp20Backend::cloneAndSubstituteClassDecl(
+    Parser::ClassDecl* original,
+    const std::string& newName,
+    const std::unordered_map<std::string, std::string>& typeMap) {
+
+    // Create new class with mangled name and no template parameters
+    auto instantiated = std::make_unique<Parser::ClassDecl>(
+        newName,
+        std::vector<Parser::TemplateParameter>{},  // No template params
+        original->isFinal,
+        original->baseClass,
+        original->location
+    );
+
+    // Deep clone all sections
+    for (const auto& section : original->sections) {
+        auto newSection = std::make_unique<Parser::AccessSection>(
+            section->modifier,
+            section->location
+        );
+
+        // Clone all declarations in the section
+        for (const auto& decl : section->declarations) {
+            if (auto* prop = dynamic_cast<Parser::PropertyDecl*>(decl.get())) {
+                auto clonedType = cloneTypeRef(prop->type.get(), typeMap);
+                auto clonedProp = std::make_unique<Parser::PropertyDecl>(
+                    prop->name,
+                    std::move(clonedType),
+                    prop->location
+                );
+                newSection->declarations.push_back(std::move(clonedProp));
+            }
+            else if (auto* ctor = dynamic_cast<Parser::ConstructorDecl*>(decl.get())) {
+                // Clone constructor (simplified - copy structure)
+                std::vector<std::unique_ptr<Parser::ParameterDecl>> clonedParams;
+                for (const auto& param : ctor->parameters) {
+                    auto clonedType = cloneTypeRef(param->type.get(), typeMap);
+                    auto clonedParam = std::make_unique<Parser::ParameterDecl>(
+                        param->name,
+                        std::move(clonedType),
+                        param->location
+                    );
+                    clonedParams.push_back(std::move(clonedParam));
+                }
+
+                std::vector<std::unique_ptr<Parser::Statement>> clonedBody;
+                for (const auto& stmt : ctor->body) {
+                    auto clonedStmt = cloneStatement(stmt.get(), typeMap);
+                    if (clonedStmt) clonedBody.push_back(std::move(clonedStmt));
+                }
+
+                auto clonedCtor = std::make_unique<Parser::ConstructorDecl>(
+                    ctor->isDefault,
+                    std::move(clonedParams),
+                    std::move(clonedBody),
+                    ctor->location
+                );
+                newSection->declarations.push_back(std::move(clonedCtor));
+            }
+            else if (auto* method = dynamic_cast<Parser::MethodDecl*>(decl.get())) {
+                // Clone method with type substitution
+                auto clonedRetType = cloneTypeRef(method->returnType.get(), typeMap);
+
+                std::vector<std::unique_ptr<Parser::ParameterDecl>> clonedParams;
+                for (const auto& param : method->parameters) {
+                    auto clonedType = cloneTypeRef(param->type.get(), typeMap);
+                    auto clonedParam = std::make_unique<Parser::ParameterDecl>(
+                        param->name,
+                        std::move(clonedType),
+                        param->location
+                    );
+                    clonedParams.push_back(std::move(clonedParam));
+                }
+
+                std::vector<std::unique_ptr<Parser::Statement>> clonedBody;
+                for (const auto& stmt : method->body) {
+                    auto clonedStmt = cloneStatement(stmt.get(), typeMap);
+                    if (clonedStmt) clonedBody.push_back(std::move(clonedStmt));
+                }
+
+                auto clonedMethod = std::make_unique<Parser::MethodDecl>(
+                    method->name,
+                    std::move(clonedRetType),
+                    std::move(clonedParams),
+                    std::move(clonedBody),
+                    method->location
+                );
+                newSection->declarations.push_back(std::move(clonedMethod));
+            }
+        }
+
+        instantiated->sections.push_back(std::move(newSection));
+    }
+
+    return instantiated;
+}
+
+// Implement cloning helper methods
+std::unique_ptr<Parser::TypeRef> Cpp20Backend::cloneTypeRef(Parser::TypeRef* original,
+                                                             const std::unordered_map<std::string, std::string>& typeMap) {
+    if (!original) return nullptr;
+
+    // Substitute type name if it's a template parameter
+    std::string typeName = original->typeName;
+    auto it = typeMap.find(typeName);
+    if (it != typeMap.end()) {
+        typeName = it->second;
+    }
+
+    // Clone template arguments
+    std::vector<Parser::TemplateArgument> clonedArgs;
+    for (const auto& arg : original->templateArgs) {
+        if (arg.kind == Parser::TemplateArgument::Kind::Type) {
+            // Type argument - substitute if it's a template parameter
+            std::string argType = arg.typeArg;
+            auto argIt = typeMap.find(argType);
+            if (argIt != typeMap.end()) {
+                argType = argIt->second;
+            }
+            clonedArgs.emplace_back(argType, arg.location);
+        } else {
+            // Value argument - clone the expression
+            auto clonedExpr = cloneExpression(arg.valueArg.get(), typeMap);
+            clonedArgs.emplace_back(std::move(clonedExpr), arg.location);
+        }
+    }
+
+    return std::make_unique<Parser::TypeRef>(typeName, std::move(clonedArgs), original->ownership, original->location);
+}
+
+std::unique_ptr<Parser::Statement> Cpp20Backend::cloneStatement(Parser::Statement* stmt,
+                                                                 const std::unordered_map<std::string, std::string>& typeMap) {
+    if (!stmt) return nullptr;
+
+    // Simplified statement cloning - handle the most common cases
+    if (auto* inst = dynamic_cast<Parser::InstantiateStmt*>(stmt)) {
+        auto clonedType = cloneTypeRef(inst->type.get(), typeMap);
+        auto clonedInit = cloneExpression(inst->initializer.get(), typeMap);
+        return std::make_unique<Parser::InstantiateStmt>(
+            std::move(clonedType),
+            inst->variableName,
+            std::move(clonedInit),
+            inst->location
+        );
+    }
+    if (auto* run = dynamic_cast<Parser::RunStmt*>(stmt)) {
+        auto clonedExpr = cloneExpression(run->expression.get(), typeMap);
+        return std::make_unique<Parser::RunStmt>(std::move(clonedExpr), run->location);
+    }
+    if (auto* ret = dynamic_cast<Parser::ReturnStmt*>(stmt)) {
+        auto clonedExpr = ret->value ? cloneExpression(ret->value.get(), typeMap) : nullptr;
+        return std::make_unique<Parser::ReturnStmt>(std::move(clonedExpr), ret->location);
+    }
+
+    // For other statement types, return nullptr (placeholder)
+    return nullptr;
+}
+
+std::unique_ptr<Parser::Expression> Cpp20Backend::cloneExpression(Parser::Expression* expr,
+                                                                   const std::unordered_map<std::string, std::string>& typeMap) {
+    if (!expr) return nullptr;
+
+    // Clone various expression types
+    if (auto* intLit = dynamic_cast<Parser::IntegerLiteralExpr*>(expr)) {
+        return std::make_unique<Parser::IntegerLiteralExpr>(intLit->value, intLit->location);
+    }
+    if (auto* strLit = dynamic_cast<Parser::StringLiteralExpr*>(expr)) {
+        return std::make_unique<Parser::StringLiteralExpr>(strLit->value, strLit->location);
+    }
+    if (auto* boolLit = dynamic_cast<Parser::BoolLiteralExpr*>(expr)) {
+        return std::make_unique<Parser::BoolLiteralExpr>(boolLit->value, boolLit->location);
+    }
+    if (auto* ident = dynamic_cast<Parser::IdentifierExpr*>(expr)) {
+        // Check if identifier references a non-type template parameter
+        std::string name = ident->name;
+        auto it = typeMap.find(name);
+        if (it != typeMap.end()) {
+            // Replace with the substituted value (as integer literal if possible)
+            try {
+                int64_t value = std::stoll(it->second);
+                return std::make_unique<Parser::IntegerLiteralExpr>(value, ident->location);
+            } catch (...) {
+                // Not a number, keep as identifier with substituted name
+                return std::make_unique<Parser::IdentifierExpr>(it->second, ident->location);
+            }
+        }
+        return std::make_unique<Parser::IdentifierExpr>(name, ident->location);
+    }
+    if (auto* binExpr = dynamic_cast<Parser::BinaryExpr*>(expr)) {
+        auto clonedLeft = cloneExpression(binExpr->left.get(), typeMap);
+        auto clonedRight = cloneExpression(binExpr->right.get(), typeMap);
+        return std::make_unique<Parser::BinaryExpr>(
+            std::move(clonedLeft),
+            binExpr->op,
+            std::move(clonedRight),
+            binExpr->location
+        );
+    }
+    if (auto* callExpr = dynamic_cast<Parser::CallExpr*>(expr)) {
+        auto clonedCallee = cloneExpression(callExpr->callee.get(), typeMap);
+        std::vector<std::unique_ptr<Parser::Expression>> clonedArgs;
+        for (const auto& arg : callExpr->arguments) {
+            clonedArgs.push_back(cloneExpression(arg.get(), typeMap));
+        }
+        return std::make_unique<Parser::CallExpr>(
+            std::move(clonedCallee),
+            std::move(clonedArgs),
+            callExpr->location
+        );
+    }
+
+    // For other expression types, return nullptr (placeholder)
+    return nullptr;
 }
 
 void Cpp20Backend::substituteTypes(Parser::ClassDecl* classDecl,
@@ -662,6 +933,32 @@ void Cpp20Backend::visit(Parser::BreakStmt& node) {
 
 void Cpp20Backend::visit(Parser::ContinueStmt& node) {
     writeLine("continue;");
+}
+
+void Cpp20Backend::visit(Parser::AssignmentStmt& node) {
+    std::string varName = sanitizeIdentifier(node.variableName);
+
+    // Check if this variable is a smart pointer (Owned<T>)
+    bool isSmartPtr = variableIsSmartPointer_[node.variableName];
+
+    output_ << getIndent() << varName << " = ";
+
+    if (isSmartPtr) {
+        // For smart pointers, wrap in std::move if needed
+        if (dynamic_cast<Parser::MemberAccessExpr*>(node.value.get()) ||
+            dynamic_cast<Parser::IdentifierExpr*>(node.value.get())) {
+            output_ << "std::move(";
+            node.value->accept(*this);
+            output_ << ")";
+        } else {
+            node.value->accept(*this);
+        }
+    } else {
+        // Regular assignment
+        node.value->accept(*this);
+    }
+
+    output_ << ";\n";
 }
 
 // Expression visitors

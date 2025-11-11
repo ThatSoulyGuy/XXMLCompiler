@@ -1,0 +1,22 @@
+// Print Demo - Demonstrates console output in XXML
+
+[ Entrypoint {
+	// Print simple greeting
+	Instantiate String^ As <greeting> = String::Constructor("Hello, XXML World!");
+	Run System::Console::printLine(greeting);
+
+	// Print numbers
+	Instantiate Integer^ As <num1> = Integer::Constructor(42);
+	Instantiate Integer^ As <num2> = Integer::Constructor(8);
+	
+	Run System::Console::print(String::Constructor("The answer is: "));
+	// Note: Would need integer-to-string conversion for proper output
+	
+	// Demonstrate arithmetic
+	Instantiate Integer^ As <sum> = num1.add(num2);
+	Instantiate Integer^ As <product> = num1.multiply(num2);
+	
+	Run System::Console::printLine(String::Constructor(""));
+	Run System::Console::printLine(String::Constructor("Arithmetic operations completed!"));
+	Run System::Console::printLine(String::Constructor("Sum and product calculated."));
+}]

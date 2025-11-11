@@ -1,0 +1,12 @@
+// Minimal XXML Demo - uses native types only to avoid stdlib bugs
+
+[ Entrypoint
+	{
+		// Use native C++ directly
+		Instantiate NativeType<"int64">^ As <x> = 42;
+		Instantiate NativeType<"int64">^ As <y> = 10;
+		Instantiate NativeType<"int64">^ As <result> = x + y;
+
+		Exit(0);
+	}
+]

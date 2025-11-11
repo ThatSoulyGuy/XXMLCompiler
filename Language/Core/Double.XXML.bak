@@ -1,0 +1,167 @@
+// XXML Standard Library - Double Class
+// Double-precision floating point (64-bit)
+
+[ Namespace <Language::Core>
+	[ Class <Double> Final Extends None
+		[ Private <>
+			Property <value> Types NativeType<"double">^;
+		]
+
+		[ Public <>
+			// Default constructor
+			Constructor = default;
+
+			// Create from double
+			Method <Constructor> Returns Double^ Parameters (
+				Parameter <val> Types NativeType<"double">%
+			) ->
+			{
+				Run Syscall::memcpy(&value, &val, 8);
+				Return this;
+			}
+
+			// Get raw value
+			Method <toDouble> Returns NativeType<"double"> Parameters () ->
+			{
+				Return value;
+			}
+
+			// Arithmetic operations
+			Method <add> Returns Double^ Parameters (
+				Parameter <other> Types Double&
+			) ->
+			{
+				Instantiate NativeType<"double">^ As <v1> = value;
+				Instantiate NativeType<"double">^ As <v2> = other.value;
+				Instantiate NativeType<"double">^ As <result> = v1 + v2;
+				Return Double::Constructor(result);
+			}
+
+			Method <subtract> Returns Double^ Parameters (
+				Parameter <other> Types Double&
+			) ->
+			{
+				Instantiate NativeType<"double">^ As <v1> = value;
+				Instantiate NativeType<"double">^ As <v2> = other.value;
+				Instantiate NativeType<"double">^ As <result> = v1 - v2;
+				Return Double::Constructor(result);
+			}
+
+			Method <multiply> Returns Double^ Parameters (
+				Parameter <other> Types Double&
+			) ->
+			{
+				Instantiate NativeType<"double">^ As <v1> = value;
+				Instantiate NativeType<"double">^ As <v2> = other.value;
+				Instantiate NativeType<"double">^ As <result> = v1 * v2;
+				Return Double::Constructor(result);
+			}
+
+			Method <divide> Returns Double^ Parameters (
+				Parameter <other> Types Double&
+			) ->
+			{
+				Instantiate NativeType<"double">^ As <v1> = value;
+				Instantiate NativeType<"double">^ As <v2> = other.value;
+				Instantiate NativeType<"double">^ As <result> = v1 / v2;
+				Return Double::Constructor(result);
+			}
+
+			// Comparison operations
+			Method <equals> Returns Bool^ Parameters (
+				Parameter <other> Types Double&
+			) ->
+			{
+				Instantiate NativeType<"double">^ As <v1> = value;
+				Instantiate NativeType<"double">^ As <v2> = other.value;
+				If (v1 == v2) -> {
+					Return Bool::Constructor(true);
+				}
+				Return Bool::Constructor(false);
+			}
+
+			Method <lessThan> Returns Bool^ Parameters (
+				Parameter <other> Types Double&
+			) ->
+			{
+				Instantiate NativeType<"double">^ As <v1> = value;
+				Instantiate NativeType<"double">^ As <v2> = other.value;
+				If (v1 < v2) -> {
+					Return Bool::Constructor(true);
+				}
+				Return Bool::Constructor(false);
+			}
+
+			Method <greaterThan> Returns Bool^ Parameters (
+				Parameter <other> Types Double&
+			) ->
+			{
+				Instantiate NativeType<"double">^ As <v1> = value;
+				Instantiate NativeType<"double">^ As <v2> = other.value;
+				If (v1 > v2) -> {
+					Return Bool::Constructor(true);
+				}
+				Return Bool::Constructor(false);
+			}
+
+			Method <lessOrEqual> Returns Bool^ Parameters (
+				Parameter <other> Types Double&
+			) ->
+			{
+				Instantiate NativeType<"double">^ As <v1> = value;
+				Instantiate NativeType<"double">^ As <v2> = other.value;
+				If (v1 <= v2) -> {
+					Return Bool::Constructor(true);
+				}
+				Return Bool::Constructor(false);
+			}
+
+			Method <greaterOrEqual> Returns Bool^ Parameters (
+				Parameter <other> Types Double&
+			) ->
+			{
+				Instantiate NativeType<"double">^ As <v1> = value;
+				Instantiate NativeType<"double">^ As <v2> = other.value;
+				If (v1 >= v2) -> {
+					Return Bool::Constructor(true);
+				}
+				Return Bool::Constructor(false);
+			}
+
+			// Unary operations
+			Method <negate> Returns Double^ Parameters () ->
+			{
+				Instantiate NativeType<"double">^ As <v> = value;
+				Instantiate NativeType<"double">^ As <zero> = 0;
+				Instantiate NativeType<"double">^ As <result> = zero - v;
+				Return Double::Constructor(result);
+			}
+
+			Method <abs> Returns Double^ Parameters () ->
+			{
+				Instantiate NativeType<"double">^ As <v> = value;
+				Instantiate NativeType<"double">^ As <zero> = 0;
+				If (v < zero) -> {
+					Instantiate NativeType<"double">^ As <result> = zero - v;
+					Return Double::Constructor(result);
+				}
+				Return Double::Constructor(v);
+			}
+
+			// Conversion
+			Method <toInteger> Returns Integer^ Parameters () ->
+			{
+				Instantiate NativeType<"double">^ As <v> = value;
+				Instantiate NativeType<"int64">^ As <result> = v;
+				Return Integer::Constructor(result);
+			}
+
+			Method <toFloat> Returns Float Parameters () ->
+			{
+				Instantiate NativeType<"double">^ As <v> = value;
+				Instantiate NativeType<"float">^ As <result> = v;
+				Return Float::Constructor(result);
+			}
+		]
+	]
+]

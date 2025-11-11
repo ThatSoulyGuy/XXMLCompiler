@@ -9,9 +9,9 @@
 		[ Private <>
 			// NativeType properties for raw memory management
 			// NOTE: NativeType syntax is conceptual - awaiting parser support
-			// Property <dataPtr> Types NativeType<"ptr">;      // Pointer to allocated array
-			// Property <capacity> Types NativeType<"int64">;   // Allocated capacity
-			// Property <count> Types NativeType<"int64">;      // Current number of elements
+			// Property <dataPtr> Types NativeType<"ptr">^;      // Pointer to allocated array
+			// Property <capacity> Types NativeType<"int64">^;   // Allocated capacity
+			// Property <count> Types NativeType<"int64">^;      // Current number of elements
 
 			// Using Integer for now (would be NativeType in full implementation)
 			Property <dataPtr> Types Integer^;    // Represents void*
@@ -101,7 +101,7 @@
 
 			// Get element at index
 			Method <get> Returns Integer^ Parameters (
-				Parameter <index> Types Integer^
+				Parameter <index> Types Integer&
 			) Do {
 				// ALGORITHM:
 				// 1. Bounds check
@@ -125,7 +125,7 @@
 
 			// Set element at index
 			Method <set> Returns None Parameters (
-				Parameter <index> Types Integer^,
+				Parameter <index> Types Integer&,
 				Parameter <value> Types Integer^
 			) Do {
 				// ALGORITHM: Similar to get but write instead of read
@@ -142,7 +142,7 @@
 
 			// Insert element at index
 			Method <insert> Returns None Parameters (
-				Parameter <index> Types Integer^,
+				Parameter <index> Types Integer&,
 				Parameter <value> Types Integer^
 			) Do {
 				// ALGORITHM:
@@ -172,7 +172,7 @@
 
 			// Remove element at index
 			Method <removeAt> Returns None Parameters (
-				Parameter <index> Types Integer^
+				Parameter <index> Types Integer&
 			) Do {
 				// ALGORITHM:
 				// 1. Bounds check

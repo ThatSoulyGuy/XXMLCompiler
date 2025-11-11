@@ -49,6 +49,9 @@ private:
     // Track which variables are smart pointers (by variable name)
     std::unordered_map<std::string, bool> variableIsSmartPointer;
 
+    // Track ownership type of each variable (for copy vs reference parameters)
+    std::unordered_map<std::string, Parser::OwnershipType> variableOwnership;
+
     // Template code generation
     std::string mangleTemplateName(const std::string& templateName, const std::vector<std::string>& args);
     std::unique_ptr<Parser::ClassDecl> cloneClassDecl(Parser::ClassDecl* original);
@@ -80,6 +83,7 @@ public:
     void visit(Parser::EntrypointDecl& node) override;
 
     void visit(Parser::InstantiateStmt& node) override;
+    void visit(Parser::AssignmentStmt& node) override;
     void visit(Parser::RunStmt& node) override;
     void visit(Parser::ForStmt& node) override;
     void visit(Parser::ExitStmt& node) override;

@@ -1,0 +1,46 @@
+// Simple test for generic List<T> collection
+// Testing @ syntax for template instantiation in expressions
+
+#import Language::Collections::List;
+#import System;
+
+[ Entrypoint {
+	Run System::Console::printLine(String::Constructor("=== Simple Generic List Test ==="));
+
+	// Test List<Integer>
+	Run System::Console::printLine(String::Constructor("Creating List@Integer..."));
+	Instantiate Collections::List<Integer>^ As <intList> = Collections::List@Integer::Constructor();
+
+	Run intList.add(Integer::Constructor(10));
+	Run intList.add(Integer::Constructor(20));
+	Run intList.add(Integer::Constructor(30));
+
+	Instantiate Integer^ As <size> = intList.size();
+	Run System::Console::print(String::Constructor("Size: "));
+	Run System::Console::printLine(String::Convert(size));
+
+	Instantiate Integer^ As <item> = intList.get(Integer::Constructor(0));
+	Run System::Console::print(String::Constructor("First item: "));
+	Run System::Console::printLine(String::Convert(item));
+
+	Run intList.dispose();
+
+	// Test List<String>
+	Run System::Console::printLine(String::Constructor("Creating List@String..."));
+	Instantiate Collections::List<String>^ As <strList> = Collections::List@String::Constructor();
+
+	Run strList.add(String::Constructor("Hello"));
+	Run strList.add(String::Constructor("World"));
+
+	Instantiate Integer^ As <strSize> = strList.size();
+	Run System::Console::print(String::Constructor("Size: "));
+	Run System::Console::printLine(String::Convert(strSize));
+
+	Instantiate String^ As <str> = strList.get(Integer::Constructor(0));
+	Run System::Console::print(String::Constructor("First item: "));
+	Run System::Console::printLine(str);
+
+	Run strList.dispose();
+
+	Run System::Console::printLine(String::Constructor("=== Test Passed! ==="));
+}]

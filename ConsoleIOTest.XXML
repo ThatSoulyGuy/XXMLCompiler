@@ -1,0 +1,22 @@
+[ Entrypoint {
+	// Test basic printing
+	Run System::Console::printLine(String::Constructor("=== XXML Console I/O Test ==="));
+	Run System::Console::printLine(String::Constructor(""));
+
+	// Test print without newline
+	Run System::Console::print(String::Constructor("Hello from "));
+	Run System::Console::printLine(String::Constructor("XXML!"));
+
+	// Test integer display
+	Instantiate Integer^ As <num> = Integer::Constructor(42);
+	Run System::Console::print(String::Constructor("The answer is: "));
+	Run System::Console::printLine(Call <num>::toString());
+
+	// Test arithmetic with display
+	Instantiate Integer^ As <sum> = Call <num>::add(Integer::Constructor(8));
+	Run System::Console::print(String::Constructor("42 + 8 = "));
+	Run System::Console::printLine(Call <sum>::toString());
+
+	Run System::Console::printLine(String::Constructor(""));
+	Run System::Console::printLine(String::Constructor("=== Test Complete! ==="));
+}]

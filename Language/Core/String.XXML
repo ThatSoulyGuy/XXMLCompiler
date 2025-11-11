@@ -4,7 +4,7 @@
 [ Namespace <Language::Core>
 	[ Class <String> Final Extends None
 		[ Private <>
-			Property <data> Types NativeType<"string_ptr">;
+			Property <data> Types NativeType<"string_ptr">^;
 		]
 
 		[ Public <>
@@ -13,7 +13,7 @@
 
 			// Create from C string literal
 			Method <Constructor> Returns String^ Parameters (
-				Parameter <cstr> Types NativeType<"cstr">
+				Parameter <cstr> Types NativeType<"cstr">%
 			) ->
 			{
 				// Allocate std::string and store pointer
@@ -23,7 +23,7 @@
 			}
 
 			// Get C string for printing
-			Method <toCString> Returns NativeType<"cstr"> Parameters () ->
+			Method <toCString> Returns NativeType<"cstr">% Parameters () ->
 			{
 				Instantiate NativeType<"string_ptr">^ As <ptr> = data;
 				Return Syscall::string_cstr(ptr);
@@ -50,7 +50,7 @@
 
 			// Append another string
 			Method <append> Returns String^ Parameters (
-				Parameter <other> Types String^
+				Parameter <other> Types String&
 			) ->
 			{
 				Instantiate NativeType<"string_ptr">^ As <ptr1> = data;
@@ -63,7 +63,8 @@
 			// Copy string
 			Method <copy> Returns String^ Parameters () ->
 			{
-				Instantiate String^ As <result> = String::Constructor();
+				Instantiate NativeType<"cstr">^ As <empty> = "";
+				Instantiate String^ As <result> = String::Constructor(empty);
 				Instantiate NativeType<"string_ptr">^ As <ptr> = data;
 				Instantiate NativeType<"string_ptr">^ As <newPtr> = Syscall::string_copy(ptr);
 				Run Syscall::memcpy(&result.data, &newPtr, 8);
@@ -72,7 +73,7 @@
 
 			// Equals
 			Method <equals> Returns Bool^ Parameters (
-				Parameter <other> Types String^
+				Parameter <other> Types String&
 			) ->
 			{
 				Instantiate NativeType<"string_ptr">^ As <ptr1> = data;

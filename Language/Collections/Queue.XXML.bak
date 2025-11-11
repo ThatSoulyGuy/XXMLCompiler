@@ -1,0 +1,111 @@
+// XXML Standard Library - Queue Class
+// FIFO (First In First Out) data structure
+// Backed by C++ std::deque for efficient operations
+
+[ Namespace <Language::Collections>
+
+	[ Class <IntegerQueue> Final Extends None
+
+		[ Private <>
+			// Implementation: Uses C++ Collections::IntegerArrayData internally
+			// Operations are optimized for FIFO access pattern
+		]
+
+		[ Public <>
+			// Constructor
+			Constructor = default;
+
+			// Queue Operations
+			Method <enqueue> Returns None Parameters (
+				Parameter <value> Types Integer^
+			) Do {
+				// Add element to the back of the queue
+				// Backed by C++ runtime
+			}
+
+			Method <dequeue> Returns Integer^ Parameters () Do {
+				// Remove and return element from the front of the queue
+				// Returns 0 if queue is empty
+				// Backed by C++ runtime
+				Return Integer::Constructor(0);
+			}
+
+			Method <peek> Returns Integer^ Parameters () Do {
+				// Return element at front without removing it
+				// Returns 0 if queue is empty
+				// Backed by C++ runtime
+				Return Integer::Constructor(0);
+			}
+
+			Method <size> Returns Integer^ Parameters () Do {
+				// Return number of elements in queue
+				// Backed by C++ runtime
+				Return Integer::Constructor(0);
+			}
+
+			Method <isEmpty> Returns Bool^ Parameters () Do {
+				// Check if queue has no elements
+				// Backed by C++ runtime
+				Return Bool::Constructor(true);
+			}
+
+			Method <clear> Returns None Parameters () Do {
+				// Remove all elements from queue
+				// Backed by C++ runtime
+			}
+
+			[ Static <>
+				Method <Constructor> Returns IntegerQueue^ Parameters () Do {
+					// Creates and returns a new IntegerQueue instance
+				}
+			]
+		]
+	]
+
+	[ Class <StringQueue> Final Extends None
+
+		[ Private <>
+			// Implementation: Uses C++ Collections::StringArrayData internally
+		]
+
+		[ Public <>
+			Constructor = default;
+
+			Method <enqueue> Returns None Parameters (
+				Parameter <value> Types String^
+			) Do {
+				// Backed by C++ runtime
+			}
+
+			Method <dequeue> Returns String^ Parameters () Do {
+				// Backed by C++ runtime
+				Return String::Constructor();
+			}
+
+			Method <peek> Returns String^ Parameters () Do {
+				// Backed by C++ runtime
+				Return String::Constructor();
+			}
+
+			Method <size> Returns Integer^ Parameters () Do {
+				// Backed by C++ runtime
+				Return Integer::Constructor(0);
+			}
+
+			Method <isEmpty> Returns Bool^ Parameters () Do {
+				// Backed by C++ runtime
+				Return Bool::Constructor(true);
+			}
+
+			Method <clear> Returns None Parameters () Do {
+				// Backed by C++ runtime
+			}
+
+			[ Static <>
+				Method <Constructor> Returns StringQueue^ Parameters () Do {
+					// Creates and returns a new StringQueue instance
+				}
+			]
+		]
+	]
+]

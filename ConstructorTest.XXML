@@ -1,0 +1,50 @@
+// Constructor Test - Tests cross-module Constructor resolution
+// This validates that the semantic analyzer fix is working
+
+[ Entrypoint
+	{
+		// Test Integer::Constructor calls
+		Instantiate Integer^ As <a> = Integer::Constructor(50);
+		Instantiate Integer^ As <b> = Integer::Constructor(25);
+
+		// Test Bool::Constructor calls from Integer methods
+		Instantiate Bool^ As <isEqual> = a.equals(b);
+		Instantiate Bool^ As <isLess> = b.lessThan(a);
+		Instantiate Bool^ As <isGreater> = a.greaterThan(b);
+
+		// Test Bool operations
+		Instantiate Bool^ As <andResult> = isEqual.and(isLess);
+		Instantiate Bool^ As <orResult> = isEqual.or(isGreater);
+		Instantiate Bool^ As <notResult> = isEqual.not();
+
+		// Test Integer::Constructor from Bool methods
+		Instantiate Integer^ As <boolAsInt> = isEqual.toInteger();
+
+		// Test String::Constructor
+		Instantiate String^ As <str1> = String::Constructor("Hello");
+		Instantiate String^ As <str2> = String::Constructor(" World");
+
+		// Test Integer::Constructor from String methods
+		Instantiate Integer^ As <len> = str1.length();
+
+		// Test Bool::Constructor from String methods
+		Instantiate Bool^ As <isEmpty> = str1.isEmpty();
+		Instantiate Bool^ As <strEquals> = str1.equals(str2);
+
+		// Test arithmetic operations (produces Integer results)
+		Instantiate Integer^ As <sum> = a.add(b);
+		Instantiate Integer^ As <diff> = a.subtract(b);
+		Instantiate Integer^ As <product> = a.multiply(Integer::Constructor(2));
+
+		// Test more Bool::Constructor calls from Integer
+		Instantiate Bool^ As <lessOrEqual> = a.lessOrEqual(b);
+		Instantiate Bool^ As <greaterOrEqual> = a.greaterOrEqual(b);
+
+		// Test Bool operations with multiple calls
+		Instantiate Bool^ As <true1> = Bool::Constructor(true);
+		Instantiate Bool^ As <false1> = Bool::Constructor(false);
+		Instantiate Bool^ As <xorResult> = true1.xor(false1);
+
+		Exit(0);
+	}
+]

@@ -64,6 +64,7 @@ public:
     void visit(Parser::WhileStmt& node) override;
     void visit(Parser::BreakStmt& node) override;
     void visit(Parser::ContinueStmt& node) override;
+    void visit(Parser::AssignmentStmt& node) override;
 
     void visit(Parser::IntegerLiteralExpr& node) override;
     void visit(Parser::StringLiteralExpr& node) override;
@@ -117,6 +118,19 @@ private:
     std::string mangleTemplateName(const std::string& templateName,
                                   const std::vector<std::string>& args) const;
     std::unique_ptr<Parser::ClassDecl> cloneClassDecl(Parser::ClassDecl* original);
+    std::unique_ptr<Parser::ClassDecl> cloneAndSubstituteClassDecl(
+        Parser::ClassDecl* original,
+        const std::string& newName,
+        const std::unordered_map<std::string, std::string>& typeMap);
+
+    // AST cloning helpers
+    std::unique_ptr<Parser::TypeRef> cloneTypeRef(Parser::TypeRef* original,
+                                                   const std::unordered_map<std::string, std::string>& typeMap);
+    std::unique_ptr<Parser::Statement> cloneStatement(Parser::Statement* stmt,
+                                                       const std::unordered_map<std::string, std::string>& typeMap);
+    std::unique_ptr<Parser::Expression> cloneExpression(Parser::Expression* expr,
+                                                        const std::unordered_map<std::string, std::string>& typeMap);
+
     void substituteTypes(Parser::ClassDecl* classDecl,
                         const std::unordered_map<std::string, std::string>& typeMap);
     void substituteTypesInTypeRef(Parser::TypeRef* typeRef,

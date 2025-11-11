@@ -1,0 +1,22 @@
+// MyUtils.XXML - A simple utility module
+[ Class <MathHelper> Final Extends None
+	[ Public <>
+		Method <add> Returns Integer^ Parameters (
+			Parameter <a> Types Integer^,
+			Parameter <b> Types Integer^
+		) Do {
+			Instantiate Integer^ As <v1> = Integer::Constructor(Call <a>::toInt64());
+			Instantiate Integer^ As <v2> = Integer::Constructor(Call <b>::toInt64());
+			Return Call <v1>::add(<v2>);
+		}
+
+		Method <multiply> Returns Integer^ Parameters (
+			Parameter <a> Types Integer^,
+			Parameter <b> Types Integer^
+		) Do {
+			Instantiate Integer^ As <v1> = Integer::Constructor(Call <a>::toInt64());
+			Instantiate Integer^ As <v2> = Integer::Constructor(Call <b>::toInt64());
+			Return Call <v1>::multiply(<v2>);
+		}
+	]
+]

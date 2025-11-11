@@ -22,24 +22,66 @@ public:
 
 // Ownership type specifier
 enum class OwnershipType {
-    Owned,      // ^
-    Reference,  // &
-    Copy        // %
+    None,       // (no qualifier) - only valid in template parameters
+    Owned,      // ^ - owned value, requires Mem::move to transfer
+    Reference,  // & - borrow/reference
+    Copy        // % - explicit copy (only in parameters/returns)
+};
+
+// Forward declare Expression for TemplateArgument
+class Expression;
+
+// Template argument (for template instantiations) - MUST be declared before TypeRef
+struct TemplateArgument {
+    enum class Kind { Type, Value };
+
+    Kind kind;
+    std::string typeArg;                      // For type arguments (e.g., "Integer")
+    std::unique_ptr<Expression> valueArg;     // For value arguments (e.g., 5+3)
+    Common::SourceLocation location;
+
+    // Constructor for type arguments
+    TemplateArgument(const std::string& type, const Common::SourceLocation& loc)
+        : kind(Kind::Type), typeArg(type), valueArg(nullptr), location(loc) {}
+
+    // Constructor for value arguments
+    TemplateArgument(std::unique_ptr<Expression> value, const Common::SourceLocation& loc)
+        : kind(Kind::Value), typeArg(""), valueArg(std::move(value)), location(loc) {}
+
+    // Copy constructor (needed for AST cloning)
+    TemplateArgument(const TemplateArgument& other);
+
+    // Move constructor
+    TemplateArgument(TemplateArgument&& other) noexcept = default;
+
+    // Assignment operators
+    TemplateArgument& operator=(const TemplateArgument& other);
+    TemplateArgument& operator=(TemplateArgument&& other) noexcept = default;
 };
 
 // Type reference
 class TypeRef : public ASTNode {
 public:
     std::string typeName;  // Could be qualified like "RenderStar::Default::MyClass"
-    std::vector<std::string> templateArgs;  // Template arguments for instantiation (e.g., ["Integer", "String"])
+    std::vector<TemplateArgument> templateArgs;  // Template arguments for instantiation
     OwnershipType ownership;
+    bool isTemplateParameter;  // True if this type is a template parameter (allows bare types)
 
-    TypeRef(const std::string& name, OwnershipType own, const Common::SourceLocation& loc)
-        : ASTNode(loc), typeName(name), ownership(own) {}
+    TypeRef(const std::string& name, OwnershipType own, const Common::SourceLocation& loc, bool isTemplate = false)
+        : ASTNode(loc), typeName(name), ownership(own), isTemplateParameter(isTemplate) {}
 
+    TypeRef(const std::string& name, std::vector<TemplateArgument> args,
+            OwnershipType own, const Common::SourceLocation& loc, bool isTemplate = false)
+        : ASTNode(loc), typeName(name), templateArgs(std::move(args)), ownership(own), isTemplateParameter(isTemplate) {}
+
+    // Legacy constructor for backward compatibility with string args
     TypeRef(const std::string& name, const std::vector<std::string>& args,
-            OwnershipType own, const Common::SourceLocation& loc)
-        : ASTNode(loc), typeName(name), templateArgs(args), ownership(own) {}
+            OwnershipType own, const Common::SourceLocation& loc, bool isTemplate = false)
+        : ASTNode(loc), typeName(name), ownership(own), isTemplateParameter(isTemplate) {
+        for (const auto& arg : args) {
+            templateArgs.emplace_back(arg, loc);
+        }
+    }
 
     void accept(ASTVisitor& visitor) override;
 };
@@ -258,6 +300,17 @@ public:
     void accept(ASTVisitor& visitor) override;
 };
 
+class AssignmentStmt : public Statement {
+public:
+    std::string variableName;
+    std::unique_ptr<Expression> value;
+
+    AssignmentStmt(const std::string& varName, std::unique_ptr<Expression> val, const Common::SourceLocation& loc)
+        : Statement(loc), variableName(varName), value(std::move(val)) {}
+
+    void accept(ASTVisitor& visitor) override;
+};
+
 // Declarations
 class Declaration : public ASTNode {
 public:
@@ -318,15 +371,20 @@ public:
     void accept(ASTVisitor& visitor) override;
 };
 
-// Template parameter
+// Template parameter (for template class definitions)
 struct TemplateParameter {
+    enum class Kind { Type, Value };  // Type parameter (T) or non-type parameter (N)
+
     std::string name;
+    Kind kind;
     std::vector<std::string> constraints;  // Empty means no constraints (any type)
+    std::string valueType;  // For non-type parameters: the type (e.g., "int64")
     Common::SourceLocation location;
 
     TemplateParameter(const std::string& n, const std::vector<std::string>& c,
-                     const Common::SourceLocation& loc)
-        : name(n), constraints(c), location(loc) {}
+                     const Common::SourceLocation& loc,
+                     Kind k = Kind::Type, const std::string& vType = "")
+        : name(n), kind(k), constraints(c), valueType(vType), location(loc) {}
 };
 
 enum class AccessModifier {
@@ -429,6 +487,7 @@ public:
     virtual void visit(WhileStmt& node) = 0;
     virtual void visit(BreakStmt& node) = 0;
     virtual void visit(ContinueStmt& node) = 0;
+    virtual void visit(AssignmentStmt& node) = 0;
 
     virtual void visit(IntegerLiteralExpr& node) = 0;
     virtual void visit(StringLiteralExpr& node) = 0;

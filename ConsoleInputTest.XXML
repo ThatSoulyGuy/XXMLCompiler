@@ -1,0 +1,33 @@
+#import System;
+
+// Simple test for Console input methods
+[ Entrypoint
+	{
+		Run System::Console::printLine(String::Constructor("=== Testing Console Input ==="));
+		Run System::Console::printLine(String::Constructor(""));
+
+		// Test readLine
+		Run System::Console::printLine(String::Constructor("Enter a line of text:"));
+		Instantiate String^ As <line> = System::Console::readLine();
+		Run System::Console::print(String::Constructor("You entered: "));
+		Run System::Console::printLine(line);
+		Run System::Console::printLine(String::Constructor(""));
+
+		// Test readInt
+		Run System::Console::printLine(String::Constructor("Enter an integer:"));
+		Instantiate Integer^ As <num> = System::Console::readInt();
+		Run System::Console::print(String::Constructor("You entered: "));
+		Run System::Console::printLine(num.toString());
+		Run System::Console::printLine(String::Constructor(""));
+
+		// Test readBool
+		Run System::Console::printLine(String::Constructor("Enter a boolean (true/false or 1/0):"));
+		Instantiate Bool^ As <boolVal> = System::Console::readBool();
+		Run System::Console::print(String::Constructor("You entered: "));
+		Instantiate Integer^ As <boolAsInt> = boolVal.toInteger();
+		Run System::Console::printLine(boolAsInt.toString());
+		Run System::Console::printLine(String::Constructor(""));
+
+		Run System::Console::printLine(String::Constructor("=== Test completed! ==="));
+	}
+]

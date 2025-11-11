@@ -30,14 +30,38 @@ private:
     void validateOwnershipSemantics(Parser::TypeRef* type, const Common::SourceLocation& loc);
     void validateMethodCall(Parser::CallExpr& node);
     void validateConstructorCall(Parser::CallExpr& node);
+    bool isTemporaryExpression(Parser::Expression* expr);  // Check if expression is a temporary (rvalue)
 
     // Temporary storage for expression type information
     std::unordered_map<Parser::Expression*, std::string> expressionTypes;
     std::unordered_map<Parser::Expression*, Parser::OwnershipType> expressionOwnerships;
 
     // Template tracking
+    struct TemplateInstantiation {
+        std::string templateName;
+        std::vector<Parser::TemplateArgument> arguments;  // Can be type or value arguments
+        std::vector<int64_t> evaluatedValues;  // Evaluated constant values for non-type parameters
+
+        bool operator<(const TemplateInstantiation& other) const {
+            if (templateName != other.templateName) return templateName < other.templateName;
+            if (arguments.size() != other.arguments.size()) return arguments.size() < other.arguments.size();
+            // Compare arguments (simplified - just compare types for now)
+            for (size_t i = 0; i < arguments.size(); ++i) {
+                if (arguments[i].kind != other.arguments[i].kind) return arguments[i].kind < other.arguments[i].kind;
+                if (arguments[i].kind == Parser::TemplateArgument::Kind::Type) {
+                    if (arguments[i].typeArg != other.arguments[i].typeArg)
+                        return arguments[i].typeArg < other.arguments[i].typeArg;
+                } else if (i < evaluatedValues.size() && i < other.evaluatedValues.size()) {
+                    if (evaluatedValues[i] != other.evaluatedValues[i])
+                        return evaluatedValues[i] < other.evaluatedValues[i];
+                }
+            }
+            return false;
+        }
+    };
+
     std::unordered_map<std::string, Parser::ClassDecl*> templateClasses;  // Template class name -> definition
-    std::set<std::pair<std::string, std::vector<std::string>>> templateInstantiations;  // Set of (template_name, args)
+    std::set<TemplateInstantiation> templateInstantiations;  // Set of template instantiations
 
     // Class member registry for validation
     struct MethodInfo {
@@ -59,7 +83,8 @@ private:
     std::set<std::string> validNamespaces_;  // Track all valid namespaces
 
     // Helper for templates
-    void recordTemplateInstantiation(const std::string& templateName, const std::vector<std::string>& args);
+    void recordTemplateInstantiation(const std::string& templateName, const std::vector<Parser::TemplateArgument>& args);
+    int64_t evaluateConstantExpression(Parser::Expression* expr);  // Evaluate constant expressions at compile time
     bool isTemplateClass(const std::string& className);
 
     // Helper for class member lookup
@@ -67,9 +92,14 @@ private:
     MethodInfo* findMethod(const std::string& className, const std::string& methodName);
     bool validateQualifiedIdentifier(const std::string& qualifiedName, const Common::SourceLocation& loc);
 
+    // Template-aware qualified name parsing
+    std::string extractClassName(const std::string& qualifiedName);
+    std::string extractMethodName(const std::string& qualifiedName);
+    std::string buildQualifiedName(Parser::Expression* expr);
+
 public:
     // Get template instantiations for code generation
-    const std::set<std::pair<std::string, std::vector<std::string>>>& getTemplateInstantiations() const {
+    const std::set<TemplateInstantiation>& getTemplateInstantiations() const {
         return templateInstantiations;
     }
     const std::unordered_map<std::string, Parser::ClassDecl*>& getTemplateClasses() const {
@@ -102,6 +132,7 @@ public:
     void visit(Parser::EntrypointDecl& node) override;
 
     void visit(Parser::InstantiateStmt& node) override;
+    void visit(Parser::AssignmentStmt& node) override;
     void visit(Parser::RunStmt& node) override;
     void visit(Parser::ForStmt& node) override;
     void visit(Parser::ExitStmt& node) override;

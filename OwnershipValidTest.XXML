@@ -1,0 +1,61 @@
+// This file tests correct ownership usage
+// NOTE: Copy parameters (%) cannot be used with Integer, String, etc. because
+// these types contain Owned<T> fields which are non-copyable.
+// This is a fundamental limitation of the current ownership model.
+
+[ Namespace <Test>
+    [ Class <RefTest> Final Extends None
+
+    [ Public<>
+        Constructor = default;
+
+        // Method with REFERENCE parameter - assignment WILL affect caller's value
+        Method <modifyRef> Returns None Parameters (Parameter <num> Types Integer&) ->
+        {
+            Set num = Integer::Constructor(777);
+            Run System::Console::printLine(String::Constructor("Inside modifyRef, set num to 777"));
+        }
+
+        // Method with OWNED parameter - takes ownership
+        Method <takeOwnership> Returns None Parameters (Parameter <num> Types Integer^) ->
+        {
+            Run System::Console::printLine(String::Constructor("Took ownership of Integer"));
+        }
+    ]
+
+    [ Private<>
+
+    ]
+
+    ]
+]
+
+[ Entrypoint
+    {
+        Run System::Console::printLine(String::Constructor("=== Ownership Validation Test ==="));
+
+        // CORRECT: Owned value (takes ownership)
+        Instantiate Integer^ As <num1> = Integer::Constructor(42);
+        Run System::Console::printLine(String::Constructor("Created owned Integer: 42"));
+
+        // CORRECT: Reference to existing variable (not temporary)
+        Instantiate Integer& As <num1Ref> = num1;
+        Run System::Console::printLine(String::Constructor("Created reference to num1"));
+
+        // Test reference semantics
+        Instantiate Test::RefTest^ As <tester> = Test::RefTest::Constructor();
+
+        Instantiate Integer^ As <testNum> = Integer::Constructor(50);
+        Run System::Console::printLine(String::Constructor("Original value: 50"));
+
+        Run tester.modifyRef(testNum);
+        Run System::Console::printLine(String::Constructor("After modifyRef, value should be 777"));
+
+        // Test owned semantics
+        Instantiate Integer^ As <testNum2> = Integer::Constructor(100);
+        Run tester.takeOwnership(testNum2);
+        Run System::Console::printLine(String::Constructor("Passed ownership to method"));
+
+        Run System::Console::printLine(String::Constructor("=== Test Complete ==="));
+    }
+]

@@ -1,0 +1,19 @@
+// This file tests that ownership validation errors are properly detected
+// All instantiations in this file should produce compilation errors
+
+[ Entrypoint
+    {
+        // ERROR #1: Reference to temporary (constructor call)
+        // Should error: Cannot bind reference (&) to temporary value
+        Instantiate Integer& As <refToTemp> = Integer::Constructor(42);
+
+        // ERROR #2: Unqualified type (no ownership marker)
+        // Should error: Type must have an ownership qualifier
+        Instantiate Integer As <noQualifier> = Integer::Constructor(56);
+
+        // ERROR #3: Another reference to temporary
+        Instantiate String& As <strRef> = String::Constructor("Hello");
+
+        Run System::Console::printLine(String::Constructor("This should not compile!"));
+    }
+]

@@ -1,0 +1,10 @@
+[ Entrypoint
+    {
+        Instantiate String^ As <hello> = String::Constructor("Hello world!");
+        Instantiate String^ As <str1> = String::Constructor(" World");
+
+        Instantiate String^ As <result> = Call <hello>::append(<str1>);
+
+        Run System::Console::printLine(<result>);
+    }
+]

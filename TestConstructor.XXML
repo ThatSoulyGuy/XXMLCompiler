@@ -1,0 +1,6 @@
+// Simple test for Integer::Constructor static method
+
+[ Entrypoint {
+	Instantiate Integer^ As <x> = Integer::Constructor(42);
+	Instantiate Integer^ As <y> = x.add(Integer::Constructor(8));
+}]

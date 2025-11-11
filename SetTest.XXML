@@ -1,0 +1,26 @@
+[ Entrypoint {
+    Run System::Console::printLine(String::Constructor("=== Set Statement Test ==="));
+
+    // Test 1: Simple assignment with Integer
+    Instantiate Integer^ As <num> = Integer::Constructor(42);
+    Run System::Console::printLine(String::Constructor("Initial value: 42"));
+
+    Set <num> = Integer::Constructor(100);
+    Run System::Console::printLine(String::Constructor("After Set: should be 100"));
+
+    // Test 2: Assignment with String
+    Instantiate String^ As <text> = String::Constructor("Hello");
+    Run System::Console::printLine(String::Constructor("Initial text: Hello"));
+
+    Set <text> = String::Constructor("World");
+    Run System::Console::printLine(String::Constructor("After Set: should be World"));
+
+    // Test 3: Multiple assignments
+    Instantiate Integer^ As <counter> = Integer::Constructor(0);
+    Set <counter> = Integer::Constructor(1);
+    Set <counter> = Integer::Constructor(2);
+    Set <counter> = Integer::Constructor(3);
+    Run System::Console::printLine(String::Constructor("Counter after multiple sets: should be 3"));
+
+    Run System::Console::printLine(String::Constructor("✓ All Set tests completed!"));
+}]

@@ -1,0 +1,7 @@
+// MyProject/Utils/Calculator.XXML
+[ Class <Calculator> Final Extends None
+	[ Public <>
+		Method <Constructor> Returns None Parameters () Do {
+		}
+	]
+]

@@ -103,6 +103,48 @@ void SemanticAnalyzer::validateConstructorCall(Parser::CallExpr& node) {
     // Validate constructor calls
 }
 
+bool SemanticAnalyzer::isTemporaryExpression(Parser::Expression* expr) {
+    // Temporaries (rvalues) are expressions that don't refer to existing objects
+    // They are created on-the-fly and destroyed at the end of the statement
+
+    if (!expr) return false;
+
+    // CallExpr creates a temporary (constructor call or method call returning value)
+    if (dynamic_cast<Parser::CallExpr*>(expr)) {
+        return true;
+    }
+
+    // Literals are temporaries
+    if (dynamic_cast<Parser::IntegerLiteralExpr*>(expr) ||
+        dynamic_cast<Parser::StringLiteralExpr*>(expr) ||
+        dynamic_cast<Parser::BoolLiteralExpr*>(expr)) {
+        return true;
+    }
+
+    // Binary expressions create temporaries
+    if (dynamic_cast<Parser::BinaryExpr*>(expr)) {
+        return true;
+    }
+
+    // IdentifierExpr refers to an existing variable (lvalue)
+    if (dynamic_cast<Parser::IdentifierExpr*>(expr)) {
+        return false;
+    }
+
+    // MemberAccessExpr can be lvalue if accessing a property/field
+    if (dynamic_cast<Parser::MemberAccessExpr*>(expr)) {
+        return false;  // Accessing a member is an lvalue
+    }
+
+    // ReferenceExpr creates a reference to an lvalue
+    if (dynamic_cast<Parser::ReferenceExpr*>(expr)) {
+        return false;
+    }
+
+    // Default to temporary for safety
+    return true;
+}
+
 // Visitor implementations
 void SemanticAnalyzer::visit(Parser::Program& node) {
     for (auto& decl : node.declarations) {
@@ -158,7 +200,12 @@ void SemanticAnalyzer::visit(Parser::ClassDecl& node) {
 
     // Record template class if it has template parameters
     if (!node.templateParams.empty()) {
-        templateClasses[node.name] = &node;
+        std::string qualifiedTemplateName = currentNamespace.empty() ? node.name : currentNamespace + "::" + node.name;
+        templateClasses[qualifiedTemplateName] = &node;
+        // Also register without namespace for convenience
+        if (!currentNamespace.empty()) {
+            templateClasses[node.name] = &node;
+        }
     }
 
     // Define the class symbol in the CURRENT (parent) scope first
@@ -245,6 +292,22 @@ void SemanticAnalyzer::visit(Parser::ClassDecl& node) {
     if (!currentNamespace.empty()) {
         // Also register without namespace prefix for easier lookup
         classRegistry_[node.name] = classInfo;
+    }
+
+    // ✅ FIX: Also register in global registry shared across all analyzers
+    if (context_) {
+        auto* globalRegistry = context_->getCustomData<std::unordered_map<std::string, ClassInfo>>("globalClassRegistry");
+        if (!globalRegistry) {
+            // Create global registry if it doesn't exist
+            context_->setCustomData("globalClassRegistry", std::unordered_map<std::string, ClassInfo>{});
+            globalRegistry = context_->getCustomData<std::unordered_map<std::string, ClassInfo>>("globalClassRegistry");
+        }
+        if (globalRegistry) {
+            (*globalRegistry)[qualifiedClassName] = classInfo;
+            if (!currentNamespace.empty()) {
+                (*globalRegistry)[node.name] = classInfo;
+            }
+        }
     }
 
     // Process access sections (normal visitor pattern)
@@ -430,8 +493,33 @@ void SemanticAnalyzer::visit(Parser::InstantiateStmt& node) {
         }
     }
 
-    // Analyze initializer
+    // VALIDATION: Check for unqualified types (ownership must be specified)
+    if (node.type->ownership == Parser::OwnershipType::None) {
+        errorReporter.reportError(
+            Common::ErrorCode::InvalidOwnership,
+            "Type '" + node.type->typeName + "' must have an ownership qualifier (^, &, or %). "
+            "Unqualified types are only allowed in template parameters.",
+            node.location
+        );
+        return;
+    }
+
+    // Analyze initializer first to check if it's a temporary
     node.initializer->accept(*this);
+
+    // VALIDATION: Check for reference to temporary
+    if (node.type->ownership == Parser::OwnershipType::Reference) {
+        if (isTemporaryExpression(node.initializer.get())) {
+            errorReporter.reportError(
+                Common::ErrorCode::InvalidReference,
+                "Cannot bind reference (&) to temporary value. "
+                "Constructor calls and expressions create temporary objects that are destroyed immediately. "
+                "Use owned (^) to take ownership, or reference an existing variable.",
+                node.location
+            );
+            return;
+        }
+    }
 
     // Type check initializer (but be lenient with Unknown types from method calls)
     std::string initType = getExpressionType(node.initializer.get());
@@ -449,6 +537,28 @@ void SemanticAnalyzer::visit(Parser::InstantiateStmt& node) {
         node.location
     );
     symbolTable_->define(node.variableName, std::move(symbol));
+}
+
+void SemanticAnalyzer::visit(Parser::AssignmentStmt& node) {
+    // Check if variable exists
+    Symbol* existing = symbolTable_->resolve(node.variableName);
+    if (!existing) {
+        errorReporter.reportError(
+            Common::ErrorCode::UndeclaredIdentifier,
+            "Variable '" + node.variableName + "' not declared",
+            node.location
+        );
+        return;
+    }
+
+    // Analyze the value expression
+    node.value->accept(*this);
+
+    // Type check (but be lenient with Unknown types)
+    std::string valueType = getExpressionType(node.value.get());
+    if (valueType != "Unknown" && !isCompatibleType(existing->typeName, valueType)) {
+        // Warn about type mismatch but don't error
+    }
 }
 
 void SemanticAnalyzer::visit(Parser::RunStmt& node) {
@@ -630,6 +740,23 @@ void SemanticAnalyzer::visit(Parser::IdentifierExpr& node) {
     Symbol* sym = symbolTable_->resolve(node.name);
 
     if (!sym) {
+        // Check if this is a namespace or class name (used as part of a qualified name)
+        if (validNamespaces_.find(node.name) != validNamespaces_.end() ||
+            classRegistry_.find(node.name) != classRegistry_.end()) {
+            // It's a valid namespace or class name, assume it's part of a qualified expression
+            expressionTypes[&node] = "Unknown";
+            expressionOwnerships[&node] = Parser::OwnershipType::Owned;
+            return;
+        }
+
+        // Check if it's a known intrinsic (Syscall, StringArray, System, Console, Mem, etc.)
+        if (node.name == "Syscall" || node.name == "StringArray" ||
+            node.name == "System" || node.name == "Console" || node.name == "Mem") {
+            expressionTypes[&node] = "Unknown";
+            expressionOwnerships[&node] = Parser::OwnershipType::Owned;
+            return;
+        }
+
         // Don't error on qualified names or constructor calls
         if (node.name.find("Constructor") != std::string::npos ||
             node.name.find("::") != std::string::npos) {
@@ -638,11 +765,14 @@ void SemanticAnalyzer::visit(Parser::IdentifierExpr& node) {
             return;
         }
 
-        errorReporter.reportError(
-            Common::ErrorCode::UndeclaredIdentifier,
-            "Undeclared identifier '" + node.name + "'",
-            node.location
-        );
+        // Only error during validation phase
+        if (enableValidation) {
+            errorReporter.reportError(
+                Common::ErrorCode::UndeclaredIdentifier,
+                "Undeclared identifier '" + node.name + "'",
+                node.location
+            );
+        }
         expressionTypes[&node] = "Unknown";
         expressionOwnerships[&node] = Parser::OwnershipType::Owned;
         return;
@@ -682,15 +812,70 @@ void SemanticAnalyzer::visit(Parser::CallExpr& node) {
     std::string className;
     std::string methodName;
 
-    // Check if this is a qualified call like Class::method() or obj.method()
-    if (auto* identExpr = dynamic_cast<Parser::IdentifierExpr*>(node.callee.get())) {
-        std::string fullName = identExpr->name;
+    // Build the full qualified name from the expression tree
+    // This handles both IdentifierExpr and MemberAccessExpr chains
+    std::string fullName = buildQualifiedName(node.callee.get());
 
-        // Check if it contains :: (static method call)
-        size_t colonPos = fullName.rfind("::");
-        if (colonPos != std::string::npos) {
-            className = fullName.substr(0, colonPos);
-            methodName = fullName.substr(colonPos + 2);
+    // DEBUG: Print the full name and parsing results
+    if (!fullName.empty()) {
+        std::cerr << "DEBUG: fullName = '" << fullName << "'" << std::endl;
+    }
+
+    // Check if this is a qualified static call like Class::method()
+    if (!fullName.empty()) {
+        // Use template-aware parsing to handle names like "List<Integer>::Constructor"
+        className = extractClassName(fullName);
+        methodName = extractMethodName(fullName);
+
+        std::cerr << "DEBUG: className = '" << className << "', methodName = '" << methodName << "'" << std::endl;
+
+        // Only treat it as a static call if we successfully extracted a class name
+        if (!className.empty()) {
+            // Check if this is a template instantiation (e.g., "Test::Box<Integer>")
+            size_t angleBracketPos = className.find('<');
+            if (angleBracketPos != std::string::npos) {
+                // Extract template name and arguments
+                std::string templateName = className.substr(0, angleBracketPos);
+                std::cerr << "DEBUG: Found template instantiation, templateName = '" << templateName << "'" << std::endl;
+
+                // Check if it's a template class
+                bool isTemplate = isTemplateClass(templateName);
+                std::cerr << "DEBUG: isTemplateClass('" << templateName << "') = " << isTemplate << std::endl;
+                if (isTemplate) {
+                    // Parse template arguments from the string
+                    size_t endBracket = className.rfind('>');
+                    if (endBracket != std::string::npos) {
+                        std::string argsStr = className.substr(angleBracketPos + 1, endBracket - angleBracketPos - 1);
+
+                        // Simple parsing: split by comma
+                        std::vector<Parser::TemplateArgument> args;
+                        size_t start = 0;
+                        size_t comma;
+                        while ((comma = argsStr.find(',', start)) != std::string::npos) {
+                            std::string arg = argsStr.substr(start, comma - start);
+                            // Trim whitespace
+                            size_t first = arg.find_first_not_of(" \t");
+                            size_t last = arg.find_last_not_of(" \t");
+                            if (first != std::string::npos && last != std::string::npos) {
+                                arg = arg.substr(first, last - first + 1);
+                            }
+                            args.emplace_back(arg, node.location);
+                            start = comma + 1;
+                        }
+                        // Add last argument
+                        std::string arg = argsStr.substr(start);
+                        size_t first = arg.find_first_not_of(" \t");
+                        size_t last = arg.find_last_not_of(" \t");
+                        if (first != std::string::npos && last != std::string::npos) {
+                            arg = arg.substr(first, last - first + 1);
+                        }
+                        args.emplace_back(arg, node.location);
+
+                        // Record the template instantiation
+                        recordTemplateInstantiation(templateName, args);
+                    }
+                }
+            }
 
             // Validate the qualified identifier
             validateQualifiedIdentifier(className, node.location);
@@ -700,10 +885,14 @@ void SemanticAnalyzer::visit(Parser::CallExpr& node) {
 
             // Only validate if validation is enabled
             if (enableValidation) {
-                // Only exempt Syscall and StringArray from validation (intrinsic functions / stubs)
-                bool isIntrinsic = (className == "Syscall" || className == "StringArray");
+                // Check if this is a template instantiation (contains <...>)
+                bool isTemplateInstantiation = (className.find('<') != std::string::npos);
 
-                if (!method && !isIntrinsic) {
+                // Only exempt Syscall, StringArray, Mem, Console, and template instantiations from validation
+                bool isIntrinsic = (className == "Syscall" || className == "StringArray" || className == "Mem" ||
+                                    className == "Console" || className == "System::Console");
+
+                if (!method && !isIntrinsic && !isTemplateInstantiation) {
                     errorReporter.reportError(
                         Common::ErrorCode::UndeclaredIdentifier,
                         "Method '" + methodName + "' not found in class '" + className + "'",
@@ -735,8 +924,9 @@ void SemanticAnalyzer::visit(Parser::CallExpr& node) {
 
             // Only validate if validation is enabled
             if (enableValidation) {
-                // Only exempt Syscall and StringArray from validation (intrinsic functions / stubs)
-                bool isIntrinsic = (objectType == "Syscall" || objectType == "StringArray");
+                // Only exempt Syscall, StringArray, Mem, and Console from validation (intrinsic functions / stubs)
+                bool isIntrinsic = (objectType == "Syscall" || objectType == "StringArray" || objectType == "Mem" ||
+                                    objectType == "Console" || objectType == "System::Console");
 
                 if (!method && !isIntrinsic) {
                     errorReporter.reportError(
@@ -820,27 +1010,128 @@ void SemanticAnalyzer::visit(Parser::TypeRef& node) {
     }
 }
 
-void SemanticAnalyzer::recordTemplateInstantiation(const std::string& templateName, const std::vector<std::string>& args) {
+void SemanticAnalyzer::recordTemplateInstantiation(const std::string& templateName, const std::vector<Parser::TemplateArgument>& args) {
     // Check if this template class exists
     if (templateClasses.find(templateName) == templateClasses.end()) {
         // Not a template class - maybe it's a regular class or error will be caught elsewhere
         return;
     }
 
-    // Add to instantiations set
-    templateInstantiations.insert({templateName, args});
-
-    // TODO: Validate constraints
     auto* templateClass = templateClasses[templateName];
+
+    // Validate argument count
     if (templateClass->templateParams.size() != args.size()) {
         errorReporter.reportError(
             Common::ErrorCode::TypeMismatch,
             "Template '" + templateName + "' expects " +
             std::to_string(templateClass->templateParams.size()) +
             " arguments but got " + std::to_string(args.size()),
-            Common::SourceLocation{} // We'd need to pass location from TypeRef
+            args.empty() ? Common::SourceLocation{} : args[0].location
         );
+        return;
     }
+
+    // Create instantiation record
+    TemplateInstantiation inst;
+    inst.templateName = templateName;
+    inst.arguments = args;
+
+    // Evaluate constant expressions for non-type parameters
+    for (size_t i = 0; i < args.size(); ++i) {
+        const auto& arg = args[i];
+        const auto& param = templateClass->templateParams[i];
+
+        // Validate argument kind matches parameter kind
+        if (param.kind == Parser::TemplateParameter::Kind::Type) {
+            if (arg.kind != Parser::TemplateArgument::Kind::Type) {
+                errorReporter.reportError(
+                    Common::ErrorCode::TypeMismatch,
+                    "Template parameter '" + param.name + "' expects a type, but got a value",
+                    arg.location
+                );
+            }
+        } else {  // Non-type parameter
+            if (arg.kind != Parser::TemplateArgument::Kind::Value) {
+                errorReporter.reportError(
+                    Common::ErrorCode::TypeMismatch,
+                    "Template parameter '" + param.name + "' expects a value, but got a type",
+                    arg.location
+                );
+            } else {
+                // Evaluate the constant expression
+                int64_t value = evaluateConstantExpression(arg.valueArg.get());
+                inst.evaluatedValues.push_back(value);
+            }
+        }
+    }
+
+    // Add to instantiations set
+    templateInstantiations.insert(std::move(inst));
+}
+
+int64_t SemanticAnalyzer::evaluateConstantExpression(Parser::Expression* expr) {
+    if (!expr) return 0;
+
+    // Integer literal
+    if (auto* intLit = dynamic_cast<Parser::IntegerLiteralExpr*>(expr)) {
+        return intLit->value;
+    }
+
+    // Binary expression (arithmetic)
+    if (auto* binExpr = dynamic_cast<Parser::BinaryExpr*>(expr)) {
+        int64_t left = evaluateConstantExpression(binExpr->left.get());
+        int64_t right = evaluateConstantExpression(binExpr->right.get());
+
+        if (binExpr->op == "+") return left + right;
+        if (binExpr->op == "-") return left - right;
+        if (binExpr->op == "*") return left * right;
+        if (binExpr->op == "/") {
+            if (right == 0) {
+                errorReporter.reportError(
+                    Common::ErrorCode::TypeMismatch,
+                    "Division by zero in constant expression",
+                    binExpr->location
+                );
+                return 0;
+            }
+            return left / right;
+        }
+        if (binExpr->op == "%") {
+            if (right == 0) {
+                errorReporter.reportError(
+                    Common::ErrorCode::TypeMismatch,
+                    "Modulo by zero in constant expression",
+                    binExpr->location
+                );
+                return 0;
+            }
+            return left % right;
+        }
+
+        errorReporter.reportError(
+            Common::ErrorCode::TypeMismatch,
+            "Unsupported operator '" + binExpr->op + "' in constant expression",
+            binExpr->location
+        );
+        return 0;
+    }
+
+    // Identifier - could be a named constant (not yet supported)
+    if (auto* ident = dynamic_cast<Parser::IdentifierExpr*>(expr)) {
+        errorReporter.reportError(
+            Common::ErrorCode::TypeMismatch,
+            "Constant expression must be a compile-time constant, not identifier '" + ident->name + "'",
+            expr->location
+        );
+        return 0;
+    }
+
+    errorReporter.reportError(
+        Common::ErrorCode::TypeMismatch,
+        "Expression is not a valid constant expression",
+        expr->location
+    );
+    return 0;
 }
 
 bool SemanticAnalyzer::isTemplateClass(const std::string& className) {
@@ -848,7 +1139,7 @@ bool SemanticAnalyzer::isTemplateClass(const std::string& className) {
 }
 
 SemanticAnalyzer::ClassInfo* SemanticAnalyzer::findClass(const std::string& className) {
-    // Try exact match first
+    // Try exact match first in local registry
     auto it = classRegistry_.find(className);
     if (it != classRegistry_.end()) {
         return &it->second;
@@ -873,7 +1164,7 @@ SemanticAnalyzer::ClassInfo* SemanticAnalyzer::findClass(const std::string& clas
         }
     }
 
-    // Try all registered classes - match by simple name if nothing else works
+    // Try all registered classes in local registry - match by simple name if nothing else works
     for (auto& entry : classRegistry_) {
         // Extract simple name from qualified name
         std::string entrySimpleName = entry.first;
@@ -891,6 +1182,55 @@ SemanticAnalyzer::ClassInfo* SemanticAnalyzer::findClass(const std::string& clas
 
         if (entrySimpleName == searchSimpleName) {
             return &entry.second;
+        }
+    }
+
+    // ✅ FIX: If not found locally, search in global registry shared across all analyzers
+    if (context_) {
+        auto* globalRegistry = context_->getCustomData<std::unordered_map<std::string, ClassInfo>>("globalClassRegistry");
+        if (globalRegistry) {
+            // Try exact match in global registry
+            auto git = globalRegistry->find(className);
+            if (git != globalRegistry->end()) {
+                return &git->second;
+            }
+
+            // Try with current namespace prefix
+            if (className.find("::") == std::string::npos && !currentNamespace.empty()) {
+                std::string qualifiedName = currentNamespace + "::" + className;
+                git = globalRegistry->find(qualifiedName);
+                if (git != globalRegistry->end()) {
+                    return &git->second;
+                }
+            }
+
+            // Try without namespace prefix
+            if (lastColon != std::string::npos) {
+                std::string baseName = className.substr(lastColon + 2);
+                git = globalRegistry->find(baseName);
+                if (git != globalRegistry->end()) {
+                    return &git->second;
+                }
+            }
+
+            // Try matching by simple name in global registry
+            for (auto& entry : *globalRegistry) {
+                std::string entrySimpleName = entry.first;
+                size_t pos = entry.first.rfind("::");
+                if (pos != std::string::npos) {
+                    entrySimpleName = entry.first.substr(pos + 2);
+                }
+
+                std::string searchSimpleName = className;
+                pos = className.rfind("::");
+                if (pos != std::string::npos) {
+                    searchSimpleName = className.substr(pos + 2);
+                }
+
+                if (entrySimpleName == searchSimpleName) {
+                    return &entry.second;
+                }
+            }
         }
     }
 
@@ -949,7 +1289,12 @@ bool SemanticAnalyzer::validateQualifiedIdentifier(const std::string& qualifiedN
             accumulated += components[i];
 
             // Check if this is a valid namespace or class
-            if (validNamespaces_.find(accumulated) == validNamespaces_.end() &&
+            bool isIntrinsic = (accumulated == "System" || accumulated == "System::Console" ||
+                                accumulated == "Syscall" || accumulated == "StringArray" ||
+                                accumulated == "Mem" || accumulated == "Language::Core::Mem");
+
+            if (!isIntrinsic &&
+                validNamespaces_.find(accumulated) == validNamespaces_.end() &&
                 classRegistry_.find(accumulated) == classRegistry_.end()) {
                 // This component is not a known namespace or class
                 errorReporter.reportError(
@@ -962,6 +1307,79 @@ bool SemanticAnalyzer::validateQualifiedIdentifier(const std::string& qualifiedN
         }
         return true;
     }
+}
+
+std::string SemanticAnalyzer::buildQualifiedName(Parser::Expression* expr) {
+    // Recursively build qualified name from expression tree
+    // Only works for static calls (::), not instance calls (.)
+    if (auto* identExpr = dynamic_cast<Parser::IdentifierExpr*>(expr)) {
+        std::cerr << "DEBUG buildQualifiedName: IdentifierExpr = '" << identExpr->name << "'" << std::endl;
+        return identExpr->name;
+    } else if (auto* memberExpr = dynamic_cast<Parser::MemberAccessExpr*>(expr)) {
+        std::string member = memberExpr->member;
+        std::cerr << "DEBUG buildQualifiedName: MemberAccessExpr member = '" << member << "'" << std::endl;
+
+        // Check if this is a static call (member starts with ::)
+        if (member.length() >= 2 && member[0] == ':' && member[1] == ':') {
+            // Remove :: prefix
+            member = member.substr(2);
+
+            // Recursively get the object name
+            std::string objectName = buildQualifiedName(memberExpr->object.get());
+
+            std::string result = objectName.empty() ? member : (objectName + "::" + member);
+            std::cerr << "DEBUG buildQualifiedName: returning '" << result << "'" << std::endl;
+            return result;
+        } else {
+            // This is an instance call (dot access), not a static call
+            std::cerr << "DEBUG buildQualifiedName: instance call, returning empty" << std::endl;
+            return "";
+        }
+    }
+    std::cerr << "DEBUG buildQualifiedName: unknown expression type, returning empty" << std::endl;
+    return "";
+}
+
+std::string SemanticAnalyzer::extractClassName(const std::string& qualifiedName) {
+    // Find the rightmost :: that's NOT inside template brackets
+    int bracketDepth = 0;
+    size_t lastColonPos = std::string::npos;
+
+    for (size_t i = 0; i < qualifiedName.length() - 1; i++) {
+        if (qualifiedName[i] == '<') {
+            bracketDepth++;
+        } else if (qualifiedName[i] == '>') {
+            bracketDepth--;
+        } else if (bracketDepth == 0 && qualifiedName[i] == ':' && qualifiedName[i+1] == ':') {
+            lastColonPos = i;
+        }
+    }
+
+    if (lastColonPos != std::string::npos) {
+        return qualifiedName.substr(0, lastColonPos);
+    }
+    return "";
+}
+
+std::string SemanticAnalyzer::extractMethodName(const std::string& qualifiedName) {
+    // Find the rightmost :: that's NOT inside template brackets
+    int bracketDepth = 0;
+    size_t lastColonPos = std::string::npos;
+
+    for (size_t i = 0; i < qualifiedName.length() - 1; i++) {
+        if (qualifiedName[i] == '<') {
+            bracketDepth++;
+        } else if (qualifiedName[i] == '>') {
+            bracketDepth--;
+        } else if (bracketDepth == 0 && qualifiedName[i] == ':' && qualifiedName[i+1] == ':') {
+            lastColonPos = i;
+        }
+    }
+
+    if (lastColonPos != std::string::npos) {
+        return qualifiedName.substr(lastColonPos + 2);
+    }
+    return qualifiedName;  // No :: found, return the whole name
 }
 
 } // namespace Semantic

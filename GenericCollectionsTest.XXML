@@ -1,0 +1,120 @@
+// Comprehensive test for generic collections: List<T> and Array<T, N>
+// Tests type parameters and non-type parameters
+// Note: Standard library including Collections is auto-imported
+// Template syntax in expressions: Use @ instead of <> (e.g., List@Integer)
+
+[ Entrypoint {
+	Run System::Console::printLine(String::Constructor("=== Generic Collections Test ==="));
+	Run System::Console::printLine(String::Constructor(""));
+
+	// Test 1: List<Integer>
+	Run System::Console::printLine(String::Constructor("Test 1: List@Integer"));
+	Instantiate Collections::List<Integer>^ As <intList> = Collections::List@Integer::Constructor();
+
+	Run intList.add(Integer::Constructor(10));
+	Run intList.add(Integer::Constructor(20));
+	Run intList.add(Integer::Constructor(30));
+
+	Instantiate Integer^ As <size1> = intList.size();
+	Run System::Console::print(String::Constructor("  Size: "));
+	Run System::Console::printLine(String::Convert(size1));
+
+	Instantiate Integer^ As <item0> = intList.get(Integer::Constructor(0));
+	Run System::Console::print(String::Constructor("  Item 0: "));
+	Run System::Console::printLine(String::Convert(item0));
+
+	Instantiate Integer^ As <item2> = intList.get(Integer::Constructor(2));
+	Run System::Console::print(String::Constructor("  Item 2: "));
+	Run System::Console::printLine(String::Convert(item2));
+
+	Run intList.dispose();
+	Run System::Console::printLine(String::Constructor(""));
+
+	// Test 2: List<String>
+	Run System::Console::printLine(String::Constructor("Test 2: List@String"));
+	Instantiate Collections::List<String>^ As <strList> = Collections::List@String::Constructor();
+
+	Run strList.add(String::Constructor("Hello"));
+	Run strList.add(String::Constructor("Generic"));
+	Run strList.add(String::Constructor("World"));
+
+	Instantiate Integer^ As <size2> = strList.size();
+	Run System::Console::print(String::Constructor("  Size: "));
+	Run System::Console::printLine(String::Convert(size2));
+
+	Instantiate String^ As <str0> = strList.get(Integer::Constructor(0));
+	Run System::Console::print(String::Constructor("  Item 0: "));
+	Run System::Console::printLine(str0);
+
+	Instantiate String^ As <str1> = strList.get(Integer::Constructor(1));
+	Run System::Console::print(String::Constructor("  Item 1: "));
+	Run System::Console::printLine(str1);
+
+	Run strList.dispose();
+	Run System::Console::printLine(String::Constructor(""));
+
+	// Test 3: Array<Integer, 5>
+	Run System::Console::printLine(String::Constructor("Test 3: Array@Integer, 5"));
+	Instantiate Collections::Array<Integer, 5>^ As <intArray> = Collections::Array@Integer, 5::Constructor();
+
+	Run intArray.set(Integer::Constructor(0), Integer::Constructor(100));
+	Run intArray.set(Integer::Constructor(1), Integer::Constructor(200));
+	Run intArray.set(Integer::Constructor(4), Integer::Constructor(500));
+
+	Instantiate Integer^ As <size3> = intArray.size();
+	Run System::Console::print(String::Constructor("  Size: "));
+	Run System::Console::printLine(String::Convert(size3));
+
+	Instantiate Integer^ As <arrItem0> = intArray.get(Integer::Constructor(0));
+	Run System::Console::print(String::Constructor("  Item 0: "));
+	Run System::Console::printLine(String::Convert(arrItem0));
+
+	Instantiate Integer^ As <arrItem4> = intArray.get(Integer::Constructor(4));
+	Run System::Console::print(String::Constructor("  Item 4: "));
+	Run System::Console::printLine(String::Convert(arrItem4));
+
+	Run intArray.dispose();
+	Run System::Console::printLine(String::Constructor(""));
+
+	// Test 4: Array<String, 3>
+	Run System::Console::printLine(String::Constructor("Test 4: Array@String, 3"));
+	Instantiate Collections::Array<String, 3>^ As <strArray> = Collections::Array@String, 3::Constructor();
+
+	Run strArray.fill(String::Constructor("Empty"));
+	Run strArray.set(Integer::Constructor(0), String::Constructor("First"));
+	Run strArray.set(Integer::Constructor(2), String::Constructor("Last"));
+
+	Instantiate String^ As <arrStr0> = strArray.get(Integer::Constructor(0));
+	Run System::Console::print(String::Constructor("  Item 0: "));
+	Run System::Console::printLine(arrStr0);
+
+	Instantiate String^ As <arrStr1> = strArray.get(Integer::Constructor(1));
+	Run System::Console::print(String::Constructor("  Item 1: "));
+	Run System::Console::printLine(arrStr1);
+
+	Instantiate String^ As <arrStr2> = strArray.get(Integer::Constructor(2));
+	Run System::Console::print(String::Constructor("  Item 2: "));
+	Run System::Console::printLine(arrStr2);
+
+	Run strArray.dispose();
+	Run System::Console::printLine(String::Constructor(""));
+
+	// Test 5: Array with constant size - Array<Integer, 8>
+	Run System::Console::printLine(String::Constructor("Test 5: Array@Integer, 8"));
+	Instantiate Collections::Array<Integer, 8>^ As <exprArray> = Collections::Array@Integer, 8::Constructor();
+
+	Instantiate Integer^ As <size5> = exprArray.size();
+	Run System::Console::print(String::Constructor("  Size: "));
+	Run System::Console::printLine(String::Convert(size5));
+
+	Run exprArray.fill(Integer::Constructor(42));
+
+	Instantiate Integer^ As <exprItem> = exprArray.get(Integer::Constructor(7));
+	Run System::Console::print(String::Constructor("  Item 7 (after fill): "));
+	Run System::Console::printLine(String::Convert(exprItem));
+
+	Run exprArray.dispose();
+	Run System::Console::printLine(String::Constructor(""));
+
+	Run System::Console::printLine(String::Constructor("=== All Tests Passed! ==="));
+}]

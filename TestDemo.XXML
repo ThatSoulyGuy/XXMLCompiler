@@ -1,0 +1,62 @@
+// Test XXML File - Demonstrates various XXML features
+
+#import System;
+
+[ Entrypoint
+	{
+		// Basic string output
+		Run System::PrintLine(String::Constructor("=== XXML Test Demo ==="));
+
+		// Variables and basic types
+		Instantiate String As <greeting> = String::Constructor("Welcome to XXML!");
+		Instantiate Integer As <count> = Integer::Constructor(100);
+		Instantiate Integer As <multiplier> = Integer::Constructor(3);
+
+		Run System::PrintLine(greeting);
+
+		// Arithmetic operations
+		Instantiate Integer As <result> = count * multiplier;
+		Run System::Print(String::Constructor("Count * Multiplier = "));
+		Run System::PrintLine(String::Convert(result));
+
+		// Addition and subtraction
+		Instantiate Integer As <a> = Integer::Constructor(50);
+		Instantiate Integer As <b> = Integer::Constructor(25);
+		Instantiate Integer As <sum> = a + b;
+		Instantiate Integer As <diff> = a - b;
+
+		Run System::Print(String::Constructor("Sum: "));
+		Run System::PrintLine(String::Convert(sum));
+		Run System::Print(String::Constructor("Difference: "));
+		Run System::PrintLine(String::Convert(diff));
+
+		// Loop demonstration
+		Run System::PrintLine(String::Constructor("\nCounting from 1 to 10:"));
+		For (Integer <i> = 1 .. 10) ->
+		{
+			Run System::Print(String::Convert(i));
+			Run System::Print(String::Constructor(" "));
+		}
+		Run System::PrintLine(String::Constructor(""));
+
+		// Nested operations
+		Instantiate Integer As <x> = Integer::Constructor(5);
+		Instantiate Integer As <y> = Integer::Constructor(10);
+		Instantiate Integer As <z> = (x + y) * Integer::Constructor(2);
+
+		Run System::Print(String::Constructor("\n(5 + 10) * 2 = "));
+		Run System::PrintLine(String::Convert(z));
+
+		// String operations
+		Instantiate String As <name> = String::Constructor("XXML");
+		Instantiate String As <type> = String::Constructor("Language");
+		Run System::Print(name);
+		Run System::Print(String::Constructor(" is a programming "));
+		Run System::PrintLine(type);
+
+		// Final message
+		Run System::PrintLine(String::Constructor("\n=== Test Complete ==="));
+
+		Exit(0);
+	}
+]

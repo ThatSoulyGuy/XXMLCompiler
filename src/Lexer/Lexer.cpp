@@ -89,7 +89,7 @@ bool Lexer::isAlphaNumeric(char c) const {
 }
 
 bool Lexer::isIdentifierChar(char c) const {
-    return isAlphaNumeric(c) || c == '_' || c == ':';
+    return isAlphaNumeric(c) || c == '_';
 }
 
 Token Lexer::lexIdentifier() {
@@ -279,6 +279,7 @@ Token Lexer::lexOperator() {
         case ',': advance(); return makeToken(TokenType::Comma, ",", startLoc);
         case '?': advance(); return makeToken(TokenType::Question, "?", startLoc);
         case '^': advance(); return makeToken(TokenType::Caret, "^", startLoc);
+        case '@': advance(); return makeToken(TokenType::At, "@", startLoc);
 
         case '#': advance(); return makeToken(TokenType::Hash, "#", startLoc);
 

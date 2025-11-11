@@ -1,5 +1,6 @@
 #include "../../include/Parser/Parser.h"
 #include <sstream>
+#include <iostream>
 
 namespace XXML {
 namespace Parser {
@@ -364,6 +365,8 @@ std::vector<std::unique_ptr<Statement>> Parser::parseBlock() {
 std::unique_ptr<Statement> Parser::parseStatement() {
     if (match(Lexer::TokenType::Instantiate)) {
         return parseInstantiate();
+    } else if (match(Lexer::TokenType::Set)) {
+        return parseAssignment();
     } else if (match(Lexer::TokenType::Run)) {
         return parseRun();
     } else if (match(Lexer::TokenType::For)) {
@@ -404,6 +407,29 @@ std::unique_ptr<InstantiateStmt> Parser::parseInstantiate() {
 
     return std::make_unique<InstantiateStmt>(std::move(type), varName,
                                              std::move(initializer), loc);
+}
+
+std::unique_ptr<AssignmentStmt> Parser::parseAssignment() {
+    auto loc = previous().location;
+
+    // Parse variable name (can be identifier or angle bracket id)
+    std::string varName;
+    if (check(Lexer::TokenType::AngleBracketId)) {
+        varName = parseAngleBracketIdentifier();
+    } else if (check(Lexer::TokenType::Identifier)) {
+        varName = advance().lexeme;
+    } else {
+        error("Expected variable name after 'Set'");
+        return nullptr;
+    }
+
+    consume(Lexer::TokenType::Equals, "Expected '=' after variable name");
+
+    auto value = parseExpression();
+
+    consume(Lexer::TokenType::Semicolon, "Expected ';' after assignment");
+
+    return std::make_unique<AssignmentStmt>(varName, std::move(value), loc);
 }
 
 std::unique_ptr<RunStmt> Parser::parseRun() {
@@ -657,9 +683,38 @@ std::unique_ptr<Expression> Parser::parseCallOrMemberAccess(std::unique_ptr<Expr
             expr = std::make_unique<CallExpr>(std::move(expr), std::move(args), previous().location);
         } else if (match(Lexer::TokenType::DoubleColon)) {
             // Namespace/class member access
-            if (check(Lexer::TokenType::Identifier)) {
+            // Accept both identifiers and Constructor keyword
+            if (check(Lexer::TokenType::Identifier) || check(Lexer::TokenType::Constructor)) {
                 std::string member = advance().lexeme;
+
+                // Check for template arguments using @ syntax: Collections::List@Integer
+                if (match(Lexer::TokenType::At)) {
+                    member += "<";
+
+                    // Parse template arguments
+                    bool first = true;
+                    do {
+                        if (!first) {
+                            member += ", ";
+                        }
+                        first = false;
+
+                        // Parse type or value argument (accept Constructor as type name)
+                        if (check(Lexer::TokenType::Identifier) || check(Lexer::TokenType::Constructor)) {
+                            member += advance().lexeme;
+                        } else if (check(Lexer::TokenType::IntegerLiteral)) {
+                            member += std::to_string(advance().intValue);
+                        } else {
+                            error("Expected type or value in template arguments");
+                            break;
+                        }
+                    } while (match(Lexer::TokenType::Comma));
+
+                    member += ">";
+                }
+
                 // Treat :: as special member access
+                std::cerr << "DEBUG Parser: Creating MemberAccessExpr with member = '::"+member<<"'" << std::endl;
                 expr = std::make_unique<MemberAccessExpr>(std::move(expr), "::" + member, previous().location);
             } else {
                 error("Expected identifier after '::'");
@@ -691,7 +746,42 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
     }
 
     if (match(Lexer::TokenType::Identifier)) {
-        return std::make_unique<IdentifierExpr>(previous().lexeme, previous().location);
+        std::string name = previous().lexeme;
+        auto loc = previous().location;
+        std::cerr << "DEBUG Parser parsePrimary: got identifier '" << name << "'" << std::endl;
+
+        // Check for template arguments using @ syntax: List@Integer
+        if (match(Lexer::TokenType::At)) {
+            name += "<";
+            std::cerr << "DEBUG Parser parsePrimary: found @, parsing template args" << std::endl;
+
+            // Parse template arguments
+            bool first = true;
+            do {
+                if (!first) {
+                    name += ", ";
+                }
+                first = false;
+
+                // Parse type or value argument
+                if (check(Lexer::TokenType::Identifier)) {
+                    std::string argName = advance().lexeme;
+                    std::cerr << "DEBUG Parser parsePrimary: template arg identifier = '" << argName << "'" << std::endl;
+                    name += argName;
+                } else if (check(Lexer::TokenType::IntegerLiteral)) {
+                    name += std::to_string(advance().intValue);
+                } else {
+                    error("Expected type or value in template arguments");
+                    break;
+                }
+            } while (match(Lexer::TokenType::Comma));
+
+            name += ">";
+            std::cerr << "DEBUG Parser parsePrimary: final name with template = '" << name << "'" << std::endl;
+        }
+
+        std::cerr << "DEBUG Parser parsePrimary: Creating IdentifierExpr with name = '" << name << "'" << std::endl;
+        return std::make_unique<IdentifierExpr>(name, loc);
     }
 
     if (match(Lexer::TokenType::LeftParen)) {
@@ -727,14 +817,41 @@ std::unique_ptr<TypeRef> Parser::parseTypeRef() {
         typeName = parseQualifiedIdentifier();
     }
 
-    // Parse template arguments if present (e.g., List<Integer>)
-    std::vector<std::string> templateArgs;
+    // Parse template arguments if present (e.g., List<Integer>, Array<Integer, 10>)
+    std::vector<TemplateArgument> templateArgs;
     if (check(Lexer::TokenType::LeftAngle)) {
         advance(); // consume '<'
 
         do {
-            std::string argType = parseQualifiedIdentifier();
-            templateArgs.push_back(argType);
+            auto argLoc = peek().location;
+
+            // Try to determine if this is a type or value argument
+            // Simple heuristic: if it starts with an identifier and is followed by ',' or '>',
+            // it's likely a type. Otherwise, parse as expression.
+            bool isType = false;
+            if (check(Lexer::TokenType::Identifier)) {
+                // Lookahead to determine if this is a simple type reference
+                size_t savedPos = current;
+                parseQualifiedIdentifier(); // consume the identifier chain
+
+                // Check what follows
+                if (check(Lexer::TokenType::Comma) || check(Lexer::TokenType::RightAngle)) {
+                    isType = true;
+                }
+
+                // Restore position
+                current = savedPos;
+            }
+
+            if (isType) {
+                // Parse as type argument
+                std::string argType = parseQualifiedIdentifier();
+                templateArgs.emplace_back(argType, argLoc);
+            } else {
+                // Parse as value argument (constant expression)
+                auto valueExpr = parseExpression();
+                templateArgs.emplace_back(std::move(valueExpr), argLoc);
+            }
 
             if (!match(Lexer::TokenType::Comma)) {
                 break;
@@ -747,7 +864,7 @@ std::unique_ptr<TypeRef> Parser::parseTypeRef() {
     OwnershipType ownership = parseOwnershipType();
 
     if (!templateArgs.empty()) {
-        return std::make_unique<TypeRef>(typeName, templateArgs, ownership, loc);
+        return std::make_unique<TypeRef>(typeName, std::move(templateArgs), ownership, loc);
     } else {
         return std::make_unique<TypeRef>(typeName, ownership, loc);
     }
@@ -761,8 +878,9 @@ OwnershipType Parser::parseOwnershipType() {
     } else if (match(Lexer::TokenType::Percent)) {
         return OwnershipType::Copy;
     } else {
-        // Default to owned if not specified
-        return OwnershipType::Owned;
+        // No qualifier - returns None (bare type)
+        // Validation happens later to ensure this is only allowed in templates
+        return OwnershipType::None;
     }
 }
 

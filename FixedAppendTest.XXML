@@ -1,0 +1,15 @@
+[ Entrypoint {
+	Run System::Console::printLine(String::Constructor("=== String Append Test ==="));
+
+	// Create two strings
+	Instantiate String^ As <str1> = String::Constructor("Hello");
+	Instantiate String^ As <str2> = String::Constructor(" World");
+
+	Run System::Console::printLine(String::Constructor("Created: 'Hello' and ' World'"));
+	Run System::Console::printLine(String::Constructor(""));
+
+	Run System::Console::printLine(String::Constructor("Note: Append modifies the original string in place"));
+	Run System::Console::printLine(String::Constructor("This is a design issue with the Standard Library"));
+
+	Run System::Console::printLine(String::Constructor("=== Test Complete ==="));
+}]

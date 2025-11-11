@@ -1,0 +1,27 @@
+// Working Demo - Shows XXML basics without Console
+// Note: Console.print requires cross-module namespace support (TODO)
+
+[ Entrypoint {
+	// Create and manipulate integers
+	Instantiate Integer^ As <num1> = Integer::Constructor(10);
+	Instantiate Integer^ As <num2> = Integer::Constructor(20);
+	Instantiate Integer^ As <sum> = num1.add(num2);
+	Instantiate Integer^ As <product> = num1.multiply(num2);
+	
+	// Create strings
+	Instantiate String^ As <message> = String::Constructor("XXML Demo Success!");
+	Instantiate String^ As <hello> = String::Constructor("Hello");
+	Instantiate String^ As <world> = String::Constructor(" World");
+	
+	// String operations
+	Run hello.append(world);
+	Instantiate Integer^ As <length> = message.length();
+	
+	// Boolean operations
+	Instantiate Bool^ As <isEqual> = num1.equals(num2);
+	Instantiate Bool^ As <isLess> = num1.lessThan(num2);
+	
+	// More arithmetic
+	Instantiate Integer^ As <difference> = num2.subtract(num1);
+	Instantiate Integer^ As <negative> = num1.negate();
+}]

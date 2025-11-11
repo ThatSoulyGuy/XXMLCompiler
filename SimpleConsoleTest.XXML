@@ -1,0 +1,9 @@
+[ Entrypoint {
+	Run System::Console::printLine(String::Constructor("=== XXML Console Test ==="));
+	Run System::Console::printLine(String::Constructor(""));
+	Run System::Console::print(String::Constructor("Hello from "));
+	Run System::Console::printLine(String::Constructor("XXML!"));
+	Run System::Console::printLine(String::Constructor(""));
+	Run System::Console::printLine(String::Constructor("Print functionality works!"));
+	Run System::Console::printLine(String::Constructor("=== Test Complete ==="));
+}]
