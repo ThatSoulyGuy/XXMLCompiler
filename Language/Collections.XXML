@@ -1,0 +1,14 @@
+// Collections Module - Umbrella import for all collection types
+// Import this to get access to List<T>, Array<T, N>, HashMap<K, V>, etc.
+
+// This file serves as a namespace aggregator
+// The actual implementations are in separate files:
+// - List.XXML
+// - Array.XXML
+// - HashMap.XXML
+// - Set.XXML
+// - Stack.XXML
+// - Queue.XXML
+
+// Note: Due to the import system, users should import specific collection files
+// or rely on explicit file references like "Language/Collections/List.XXML"

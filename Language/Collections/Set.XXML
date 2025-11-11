@@ -74,13 +74,6 @@
 				// Returns new set with elements in this set but not in other
 				Return IntegerSet::Constructor();
 			}
-
-			// Static constructor
-			[ Static <>
-				Method <Constructor> Returns IntegerSet^ Parameters () Do {
-					// Creates and returns a new IntegerSet instance
-				}
-			]
 		]
 	]
 
@@ -145,12 +138,6 @@
 			) Do {
 				Return StringSet::Constructor();
 			}
-
-			[ Static <>
-				Method <Constructor> Returns StringSet^ Parameters () Do {
-					// Creates and returns a new StringSet instance
-				}
-			]
 		]
 	]
 ]

@@ -163,7 +163,7 @@
 
 		[ Public <>
 			// Static helper to read entire file
-			Static Method <readFile> Returns String^ Parameters (Parameter <path> Types String^) Do {
+			Method <readFile> Returns String^ Parameters (Parameter <path> Types String^) Do {
 				Instantiate File^ As <file> = File::Constructor();
 				Run file.init();
 
@@ -179,7 +179,7 @@
 			}
 
 			// Static helper to write entire file
-			Static Method <writeFile> Returns Bool^ Parameters (
+			Method <writeFile> Returns Bool^ Parameters (
 				Parameter <path> Types String^,
 				Parameter <content> Types String^
 			) Do {
@@ -206,7 +206,7 @@
 			}
 
 			// Static helper to append to file
-			Static Method <appendFile> Returns Bool^ Parameters (
+			Method <appendFile> Returns Bool^ Parameters (
 				Parameter <path> Types String^,
 				Parameter <content> Types String^
 			) Do {

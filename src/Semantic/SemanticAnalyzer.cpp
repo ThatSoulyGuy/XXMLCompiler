@@ -16,7 +16,8 @@ SemanticAnalyzer::SemanticAnalyzer(Core::CompilationContext& context, Common::Er
       errorReporter(reporter),
       currentClass(""),
       currentNamespace(""),
-      enableValidation(true) {
+      enableValidation(true),
+      inTemplateDefinition(false) {
     // Pre-populate symbol table with built-in types from registry
     const auto& typeRegistry = context.types();
 
@@ -38,7 +39,8 @@ SemanticAnalyzer::SemanticAnalyzer(Common::ErrorReporter& reporter)
       errorReporter(reporter),
       currentClass(""),
       currentNamespace(""),
-      enableValidation(true) {
+      enableValidation(true),
+      inTemplateDefinition(false) {
     // WARNING: This constructor doesn't have access to CompilationContext
     // Should only be used for testing or transitional code
     std::cerr << "Warning: SemanticAnalyzer created without CompilationContext\n";
@@ -243,6 +245,18 @@ void SemanticAnalyzer::visit(Parser::ClassDecl& node) {
     // Now enter class scope for processing members
     symbolTable_->enterScope(node.name);
 
+    // ✅ Phase 5: Set template context and register template parameters
+    bool wasInTemplateDefinition = inTemplateDefinition;
+    std::set<std::string> previousTemplateParams = templateTypeParameters;
+
+    if (!node.templateParams.empty()) {
+        inTemplateDefinition = true;
+        // Populate template type parameters
+        for (const auto& templateParam : node.templateParams) {
+            templateTypeParameters.insert(templateParam.name);
+        }
+    }
+
     // Register template parameters as valid types within this class scope
     for (const auto& templateParam : node.templateParams) {
         auto templateTypeSymbol = std::make_unique<Symbol>(
@@ -265,6 +279,12 @@ void SemanticAnalyzer::visit(Parser::ClassDecl& node) {
     for (auto& section : node.sections) {
         for (auto& decl : section->declarations) {
             if (auto* methodDecl = dynamic_cast<Parser::MethodDecl*>(decl.get())) {
+                // Register template methods
+                if (!methodDecl->templateParams.empty()) {
+                    std::string methodKey = qualifiedClassName + "::" + methodDecl->name;
+                    templateMethods[methodKey] = methodDecl;
+                }
+
                 MethodInfo methodInfo;
                 methodInfo.returnType = methodDecl->returnType->typeName;
                 methodInfo.returnOwnership = methodDecl->returnType->ownership;
@@ -318,6 +338,11 @@ void SemanticAnalyzer::visit(Parser::ClassDecl& node) {
     if (symbolTable_) {
         symbolTable_->exitScope();
     }
+
+    // ✅ Phase 5: Restore template context
+    inTemplateDefinition = wasInTemplateDefinition;
+    templateTypeParameters = previousTemplateParams;
+
     currentClass = previousClass;
 }
 
@@ -346,8 +371,13 @@ void SemanticAnalyzer::visit(Parser::PropertyDecl& node) {
     // Validate the type exists (allow NativeType and builtin types)
     Symbol* typeSym = symbolTable_->resolve(node.type->typeName);
     if (!typeSym && node.type->typeName.find("NativeType<") != 0) {
-        // Only error if it's not a NativeType or builtin type
-        if (node.type->typeName != "Integer" &&
+        // ✅ Phase 5: Skip validation if this is a template parameter in a template definition
+        bool isTemplateParam = (inTemplateDefinition &&
+                                templateTypeParameters.find(node.type->typeName) != templateTypeParameters.end());
+
+        // Only error if it's not a NativeType, builtin type, or template parameter
+        if (!isTemplateParam &&
+            node.type->typeName != "Integer" &&
             node.type->typeName != "String" &&
             node.type->typeName != "Bool" &&
             node.type->typeName != "Float" &&
@@ -413,6 +443,28 @@ void SemanticAnalyzer::visit(Parser::MethodDecl& node) {
     // Enter method scope
     symbolTable_->enterScope(node.name);
 
+    // ✅ Phase 5: Set template context for template methods
+    bool wasInTemplateDefinition = inTemplateDefinition;
+    std::set<std::string> previousTemplateParams = templateTypeParameters;
+
+    if (!node.templateParams.empty()) {
+        inTemplateDefinition = true;
+        // Add method template parameters to the set
+        for (const auto& templateParam : node.templateParams) {
+            templateTypeParameters.insert(templateParam.name);
+
+            // Register template parameters as valid types within method scope
+            auto templateTypeSymbol = std::make_unique<Symbol>(
+                templateParam.name,
+                SymbolKind::Class,  // Treat template parameters as types
+                templateParam.name,
+                Parser::OwnershipType::Owned,
+                templateParam.location
+            );
+            symbolTable_->define(templateParam.name, std::move(templateTypeSymbol));
+        }
+    }
+
     // Process parameters
     for (auto& param : node.parameters) {
         param->accept(*this);
@@ -422,6 +474,10 @@ void SemanticAnalyzer::visit(Parser::MethodDecl& node) {
     for (auto& stmt : node.body) {
         stmt->accept(*this);
     }
+
+    // ✅ Phase 5: Restore template context
+    inTemplateDefinition = wasInTemplateDefinition;
+    templateTypeParameters = previousTemplateParams;
 
     symbolTable_->exitScope();
 }
@@ -474,8 +530,13 @@ void SemanticAnalyzer::visit(Parser::InstantiateStmt& node) {
 
     // Validate the type exists (allow qualified names, NativeType, and user-defined types)
     Symbol* typeSym = symbolTable_->resolve(node.type->typeName);
-    // Don't error if type is qualified (contains ::), NativeType, or a builtin type
-    if (!typeSym &&
+
+    // ✅ Phase 5: Skip validation if this is a template parameter in a template definition
+    bool isTemplateParam = (inTemplateDefinition &&
+                            templateTypeParameters.find(node.type->typeName) != templateTypeParameters.end());
+
+    // Don't error if type is qualified (contains ::), NativeType, template parameter, or a builtin type
+    if (!typeSym && !isTemplateParam &&
         node.type->typeName.find("::") == std::string::npos &&
         node.type->typeName.find("NativeType<") != 0) {
         // Only error for simple unqualified types that aren't found
@@ -494,7 +555,8 @@ void SemanticAnalyzer::visit(Parser::InstantiateStmt& node) {
     }
 
     // VALIDATION: Check for unqualified types (ownership must be specified)
-    if (node.type->ownership == Parser::OwnershipType::None) {
+    // ✅ Phase 5: Skip ownership validation for template parameters in template definitions
+    if (node.type->ownership == Parser::OwnershipType::None && !isTemplateParam) {
         errorReporter.reportError(
             Common::ErrorCode::InvalidOwnership,
             "Type '" + node.type->typeName + "' must have an ownership qualifier (^, &, or %). "
@@ -749,8 +811,8 @@ void SemanticAnalyzer::visit(Parser::IdentifierExpr& node) {
             return;
         }
 
-        // Check if it's a known intrinsic (Syscall, StringArray, System, Console, Mem, etc.)
-        if (node.name == "Syscall" || node.name == "StringArray" ||
+        // Check if it's a known intrinsic (Syscall, System, Console, Mem, etc.)
+        if (node.name == "Syscall" ||
             node.name == "System" || node.name == "Console" || node.name == "Mem") {
             expressionTypes[&node] = "Unknown";
             expressionOwnerships[&node] = Parser::OwnershipType::Owned;
@@ -888,8 +950,8 @@ void SemanticAnalyzer::visit(Parser::CallExpr& node) {
                 // Check if this is a template instantiation (contains <...>)
                 bool isTemplateInstantiation = (className.find('<') != std::string::npos);
 
-                // Only exempt Syscall, StringArray, Mem, Console, and template instantiations from validation
-                bool isIntrinsic = (className == "Syscall" || className == "StringArray" || className == "Mem" ||
+                // Only exempt Syscall, Mem, Console, and template instantiations from validation
+                bool isIntrinsic = (className == "Syscall" || className == "Mem" ||
                                     className == "Console" || className == "System::Console");
 
                 if (!method && !isIntrinsic && !isTemplateInstantiation) {
@@ -924,8 +986,8 @@ void SemanticAnalyzer::visit(Parser::CallExpr& node) {
 
             // Only validate if validation is enabled
             if (enableValidation) {
-                // Only exempt Syscall, StringArray, Mem, and Console from validation (intrinsic functions / stubs)
-                bool isIntrinsic = (objectType == "Syscall" || objectType == "StringArray" || objectType == "Mem" ||
+                // Only exempt Syscall, Mem, and Console from validation (intrinsic functions / stubs)
+                bool isIntrinsic = (objectType == "Syscall" || objectType == "Mem" ||
                                     objectType == "Console" || objectType == "System::Console");
 
                 if (!method && !isIntrinsic) {
@@ -1019,13 +1081,22 @@ void SemanticAnalyzer::recordTemplateInstantiation(const std::string& templateNa
 
     auto* templateClass = templateClasses[templateName];
 
+    // ✅ Phase 7: Improved error message for argument count mismatch
     // Validate argument count
     if (templateClass->templateParams.size() != args.size()) {
+        // Build parameter list for better error message
+        std::string paramList;
+        for (size_t i = 0; i < templateClass->templateParams.size(); ++i) {
+            if (i > 0) paramList += ", ";
+            paramList += templateClass->templateParams[i].name;
+        }
+
         errorReporter.reportError(
             Common::ErrorCode::TypeMismatch,
             "Template '" + templateName + "' expects " +
             std::to_string(templateClass->templateParams.size()) +
-            " arguments but got " + std::to_string(args.size()),
+            " argument(s) <" + paramList + "> but got " +
+            std::to_string(args.size()),
             args.empty() ? Common::SourceLocation{} : args[0].location
         );
         return;
@@ -1041,20 +1112,57 @@ void SemanticAnalyzer::recordTemplateInstantiation(const std::string& templateNa
         const auto& arg = args[i];
         const auto& param = templateClass->templateParams[i];
 
+        // ✅ Phase 7: Improved wildcard error message
+        // Wildcard can match any type parameter
+        if (arg.kind == Parser::TemplateArgument::Kind::Wildcard) {
+            if (param.kind != Parser::TemplateParameter::Kind::Type) {
+                errorReporter.reportError(
+                    Common::ErrorCode::TypeMismatch,
+                    "Wildcard '?' can only be used for type parameters, not value parameters.\n"
+                    "  Template parameter '" + param.name + "' expects a constant value (e.g., 10, 42)",
+                    arg.location
+                );
+            }
+            // Wildcard is valid, continue
+            continue;
+        }
+
+        // ✅ Phase 7: Improved type/value mismatch error messages
         // Validate argument kind matches parameter kind
         if (param.kind == Parser::TemplateParameter::Kind::Type) {
             if (arg.kind != Parser::TemplateArgument::Kind::Type) {
                 errorReporter.reportError(
                     Common::ErrorCode::TypeMismatch,
-                    "Template parameter '" + param.name + "' expects a type, but got a value",
+                    "Template parameter '" + param.name + "' expects a type argument (e.g., Integer, String), but got a value.\n"
+                    "  Usage: " + templateName + "<" + param.name + "=SomeType>",
                     arg.location
                 );
+            } else {
+                // ✅ Phase 7: Improved constraint validation error message
+                // Validate type constraints
+                if (!validateConstraint(arg.typeArg, param.constraints)) {
+                    // Build constraint list for error message
+                    std::string constraintList;
+                    for (size_t j = 0; j < param.constraints.size(); ++j) {
+                        if (j > 0) constraintList += " | ";
+                        constraintList += param.constraints[j];
+                    }
+                    errorReporter.reportError(
+                        Common::ErrorCode::TypeMismatch,
+                        "Type '" + arg.typeArg + "' does not satisfy constraint for template parameter '" + param.name + "'.\n"
+                        "  Required: " + constraintList + "\n"
+                        "  Provided: " + arg.typeArg + "\n"
+                        "  Constraint uses union semantics - type must match at least one option.",
+                        arg.location
+                    );
+                }
             }
         } else {  // Non-type parameter
             if (arg.kind != Parser::TemplateArgument::Kind::Value) {
                 errorReporter.reportError(
                     Common::ErrorCode::TypeMismatch,
-                    "Template parameter '" + param.name + "' expects a value, but got a type",
+                    "Template parameter '" + param.name + "' expects a constant value (e.g., 10, 42), but got a type.\n"
+                    "  Usage: " + templateName + "<" + param.name + "=42>",
                     arg.location
                 );
             } else {
@@ -1290,7 +1398,7 @@ bool SemanticAnalyzer::validateQualifiedIdentifier(const std::string& qualifiedN
 
             // Check if this is a valid namespace or class
             bool isIntrinsic = (accumulated == "System" || accumulated == "System::Console" ||
-                                accumulated == "Syscall" || accumulated == "StringArray" ||
+                                accumulated == "Syscall" ||
                                 accumulated == "Mem" || accumulated == "Language::Core::Mem");
 
             if (!isIntrinsic &&
@@ -1380,6 +1488,145 @@ std::string SemanticAnalyzer::extractMethodName(const std::string& qualifiedName
         return qualifiedName.substr(lastColonPos + 2);
     }
     return qualifiedName;  // No :: found, return the whole name
+}
+
+void SemanticAnalyzer::recordMethodTemplateInstantiation(const std::string& className, const std::string& methodName, const std::vector<Parser::TemplateArgument>& args) {
+    std::string methodKey = className + "::" + methodName;
+
+    // Check if this template method exists
+    if (templateMethods.find(methodKey) == templateMethods.end()) {
+        // Not a template method - might be a regular method or error caught elsewhere
+        return;
+    }
+
+    auto* templateMethod = templateMethods[methodKey];
+
+    // Validate argument count
+    if (templateMethod->templateParams.size() != args.size()) {
+        errorReporter.reportError(
+            Common::ErrorCode::TypeMismatch,
+            "Method template '" + methodName + "' expects " +
+            std::to_string(templateMethod->templateParams.size()) +
+            " arguments but got " + std::to_string(args.size()),
+            args.empty() ? Common::SourceLocation{} : args[0].location
+        );
+        return;
+    }
+
+    // Create instantiation record
+    MethodTemplateInstantiation inst;
+    inst.className = className;
+    inst.methodName = methodName;
+    inst.arguments = args;
+
+    // Evaluate constant expressions for non-type parameters
+    for (size_t i = 0; i < args.size(); ++i) {
+        const auto& arg = args[i];
+        const auto& param = templateMethod->templateParams[i];
+
+        // Wildcard can match any type parameter
+        if (arg.kind == Parser::TemplateArgument::Kind::Wildcard) {
+            if (param.kind != Parser::TemplateParameter::Kind::Type) {
+                errorReporter.reportError(
+                    Common::ErrorCode::TypeMismatch,
+                    "Wildcard '?' can only be used for type parameters, not value parameters",
+                    arg.location
+                );
+            }
+            // Wildcard is valid, continue
+            continue;
+        }
+
+        // Validate argument kind matches parameter kind
+        if (param.kind == Parser::TemplateParameter::Kind::Type) {
+            if (arg.kind != Parser::TemplateArgument::Kind::Type) {
+                errorReporter.reportError(
+                    Common::ErrorCode::TypeMismatch,
+                    "Method template parameter '" + param.name + "' expects a type, but got a value",
+                    arg.location
+                );
+            } else {
+                // Validate type constraints
+                if (!validateConstraint(arg.typeArg, param.constraints)) {
+                    // Build constraint list for error message
+                    std::string constraintList;
+                    for (size_t j = 0; j < param.constraints.size(); ++j) {
+                        if (j > 0) constraintList += " | ";
+                        constraintList += param.constraints[j];
+                    }
+                    errorReporter.reportError(
+                        Common::ErrorCode::TypeMismatch,
+                        "Type '" + arg.typeArg + "' does not satisfy constraint '" +
+                        constraintList + "' for method template parameter '" + param.name + "'",
+                        arg.location
+                    );
+                }
+            }
+        } else {  // Non-type parameter
+            if (arg.kind != Parser::TemplateArgument::Kind::Value) {
+                errorReporter.reportError(
+                    Common::ErrorCode::TypeMismatch,
+                    "Method template parameter '" + param.name + "' expects a value, but got a type",
+                    arg.location
+                );
+            } else {
+                // Evaluate the constant expression
+                int64_t value = evaluateConstantExpression(arg.valueArg.get());
+                inst.evaluatedValues.push_back(value);
+            }
+        }
+    }
+
+    // Record the instantiation
+    methodTemplateInstantiations.insert(inst);
+}
+
+bool SemanticAnalyzer::isTemplateMethod(const std::string& className, const std::string& methodName) {
+    std::string methodKey = className + "::" + methodName;
+    return templateMethods.find(methodKey) != templateMethods.end();
+}
+
+bool SemanticAnalyzer::isTypeCompatible(const std::string& actualType, const std::string& constraintType) {
+    // Exact match
+    if (actualType == constraintType) {
+        return true;
+    }
+
+    // Check if actualType is in the class registry
+    auto* actualClass = findClass(actualType);
+    if (!actualClass) {
+        // Type not found in registry, assume it's compatible if names match
+        return actualType == constraintType;
+    }
+
+    // Check inheritance - does actualType extend constraintType?
+    // For now, simple check: if actualClass has a base class, check it
+    if (actualClass->astNode && !actualClass->astNode->baseClass.empty()) {
+        if (actualClass->astNode->baseClass == constraintType) {
+            return true;
+        }
+        // Recursive check up the inheritance chain
+        return isTypeCompatible(actualClass->astNode->baseClass, constraintType);
+    }
+
+    return false;
+}
+
+bool SemanticAnalyzer::validateConstraint(const std::string& typeName, const std::vector<std::string>& constraints) {
+    // Empty constraints means no restrictions (any type allowed)
+    if (constraints.empty()) {
+        return true;
+    }
+
+    // Check if the type satisfies at least one constraint (union semantics: Type1 | Type2 | ...)
+    for (const auto& constraint : constraints) {
+        if (isTypeCompatible(typeName, constraint)) {
+            return true;
+        }
+    }
+
+    // Type doesn't satisfy any constraint
+    return false;
 }
 
 } // namespace Semantic

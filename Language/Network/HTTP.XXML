@@ -37,11 +37,6 @@
 				Return Bool::Constructor(false);
 			}
 
-			[ Static <>
-				Method <Constructor> Returns HTTPResponse^ Parameters () Do {
-					// Creates and returns a new HTTPResponse instance
-				}
-			]
 		]
 	]
 
@@ -55,41 +50,6 @@
 			Constructor = default;
 
 			// HTTP Methods
-			[ Static <>
-				Method <get> Returns HTTPResponse^ Parameters (
-					Parameter <url> Types String^
-				) Do {
-					// Perform HTTP GET request
-					// Backed by C++ runtime: Network::HTTPClient::get
-					Return HTTPResponse::Constructor();
-				}
-
-				Method <post> Returns HTTPResponse^ Parameters (
-					Parameter <url> Types String^,
-					Parameter <data> Types String^
-				) Do {
-					// Perform HTTP POST request
-					// Backed by C++ runtime: Network::HTTPClient::post
-					Return HTTPResponse::Constructor();
-				}
-
-				Method <put> Returns HTTPResponse^ Parameters (
-					Parameter <url> Types String^,
-					Parameter <data> Types String^
-				) Do {
-					// Perform HTTP PUT request
-					// Backed by C++ runtime (requires implementation)
-					Return HTTPResponse::Constructor();
-				}
-
-				Method <delete> Returns HTTPResponse^ Parameters (
-					Parameter <url> Types String^
-				) Do {
-					// Perform HTTP DELETE request
-					// Backed by C++ runtime (requires implementation)
-					Return HTTPResponse::Constructor();
-				}
-			]
 
 			// Instance methods for configured client
 			Method <setHeader> Returns None Parameters (
@@ -122,11 +82,6 @@
 				Return HTTPResponse::Constructor();
 			}
 
-			[ Static <>
-				Method <Constructor> Returns HTTPClient^ Parameters () Do {
-					// Creates and returns a new HTTPClient instance
-				}
-			]
 		]
 	]
 
@@ -159,11 +114,6 @@
 				Return Bool::Constructor(false);
 			}
 
-			[ Static <>
-				Method <Constructor> Returns HTTPServer^ Parameters () Do {
-					// Creates and returns a new HTTPServer instance
-				}
-			]
 		]
 	]
 ]

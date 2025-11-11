@@ -293,6 +293,12 @@ std::unique_ptr<MethodDecl> Parser::parseMethod() {
 
     std::string methodName = parseAngleBracketIdentifier();
 
+    // Parse template parameters if present
+    std::vector<TemplateParameter> templateParams;
+    if (check(Lexer::TokenType::LeftAngle)) {
+        templateParams = parseTemplateParameters();
+    }
+
     consume(Lexer::TokenType::Returns, "Expected 'Returns' after method name");
 
     auto returnType = parseTypeRef();
@@ -317,7 +323,7 @@ std::unique_ptr<MethodDecl> Parser::parseMethod() {
 
     auto body = parseBlock();
 
-    return std::make_unique<MethodDecl>(methodName, std::move(returnType),
+    return std::make_unique<MethodDecl>(methodName, templateParams, std::move(returnType),
                                         std::move(params), std::move(body), loc);
 }
 
@@ -687,6 +693,60 @@ std::unique_ptr<Expression> Parser::parseCallOrMemberAccess(std::unique_ptr<Expr
             if (check(Lexer::TokenType::Identifier) || check(Lexer::TokenType::Constructor)) {
                 std::string member = advance().lexeme;
 
+                // ✅ Check for template arguments using < > syntax: Collections::List<Integer>
+                if (check(Lexer::TokenType::LeftAngle)) {
+                    // Lookahead to distinguish template from comparison
+                    size_t savedPos = current;
+                    advance(); // consume <
+
+                    bool looksLikeTemplate = false;
+                    if (check(Lexer::TokenType::Identifier) || check(Lexer::TokenType::Question)) {
+                        advance();
+                        if (check(Lexer::TokenType::RightAngle) || check(Lexer::TokenType::Comma)) {
+                            looksLikeTemplate = true;
+                        }
+                    } else if (check(Lexer::TokenType::IntegerLiteral)) {
+                        advance();
+                        if (check(Lexer::TokenType::RightAngle) || check(Lexer::TokenType::Comma)) {
+                            looksLikeTemplate = true;
+                        }
+                    }
+
+                    // Restore position
+                    current = savedPos;
+
+                    if (looksLikeTemplate) {
+                        advance(); // consume <
+                        member += "<";
+
+                        // Parse template arguments
+                        bool first = true;
+                        do {
+                            if (!first) {
+                                member += ", ";
+                            }
+                            first = false;
+
+                            // Check for wildcard
+                            if (match(Lexer::TokenType::Question)) {
+                                member += "?";
+                            }
+                            // Parse type or value argument
+                            else if (check(Lexer::TokenType::Identifier) || check(Lexer::TokenType::Constructor)) {
+                                member += advance().lexeme;
+                            } else if (check(Lexer::TokenType::IntegerLiteral)) {
+                                member += std::to_string(advance().intValue);
+                            } else {
+                                error("Expected type or value in template arguments");
+                                break;
+                            }
+                        } while (match(Lexer::TokenType::Comma));
+
+                        consume(Lexer::TokenType::RightAngle, "Expected '>' after template arguments");
+                        member += ">";
+                    }
+                }
+
                 // Check for template arguments using @ syntax: Collections::List@Integer
                 if (match(Lexer::TokenType::At)) {
                     member += "<";
@@ -745,12 +805,82 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
         return std::make_unique<ThisExpr>(previous().location);
     }
 
+    // ✅ Handle None keyword as identifier for None::Constructor() calls
+    if (match(Lexer::TokenType::None)) {
+        std::string name = "None";
+        auto loc = previous().location;
+        std::cerr << "DEBUG Parser parsePrimary: got None keyword as identifier" << std::endl;
+        return std::make_unique<IdentifierExpr>(name, loc);
+    }
+
     if (match(Lexer::TokenType::Identifier)) {
         std::string name = previous().lexeme;
         auto loc = previous().location;
         std::cerr << "DEBUG Parser parsePrimary: got identifier '" << name << "'" << std::endl;
 
-        // Check for template arguments using @ syntax: List@Integer
+        // ✅ Check for template arguments using < > syntax: List<Integer>
+        // We need to be careful here - < could be a comparison operator
+        // Heuristic: if we see Identifier followed by <, lookahead to see if it looks like a template
+        if (check(Lexer::TokenType::LeftAngle)) {
+            // Lookahead to distinguish template from comparison
+            size_t savedPos = current;
+            advance(); // consume <
+
+            bool looksLikeTemplate = false;
+            if (check(Lexer::TokenType::Identifier) || check(Lexer::TokenType::Question)) {
+                // Lookahead further to see if we have Identifier followed by > or ,
+                advance();
+                if (check(Lexer::TokenType::RightAngle) || check(Lexer::TokenType::Comma)) {
+                    looksLikeTemplate = true;
+                }
+            } else if (check(Lexer::TokenType::IntegerLiteral)) {
+                // Could be a value template parameter like Array<Integer, 5>
+                advance();
+                if (check(Lexer::TokenType::RightAngle) || check(Lexer::TokenType::Comma)) {
+                    looksLikeTemplate = true;
+                }
+            }
+
+            // Restore position
+            current = savedPos;
+
+            if (looksLikeTemplate) {
+                advance(); // consume <
+                name += "<";
+                std::cerr << "DEBUG Parser parsePrimary: found <, parsing template args" << std::endl;
+
+                // Parse template arguments
+                bool first = true;
+                do {
+                    if (!first) {
+                        name += ", ";
+                    }
+                    first = false;
+
+                    // Check for wildcard
+                    if (match(Lexer::TokenType::Question)) {
+                        name += "?";
+                    }
+                    // Parse type or value argument
+                    else if (check(Lexer::TokenType::Identifier)) {
+                        std::string argName = advance().lexeme;
+                        std::cerr << "DEBUG Parser parsePrimary: template arg identifier = '" << argName << "'" << std::endl;
+                        name += argName;
+                    } else if (check(Lexer::TokenType::IntegerLiteral)) {
+                        name += std::to_string(advance().intValue);
+                    } else {
+                        error("Expected type or value in template arguments");
+                        break;
+                    }
+                } while (match(Lexer::TokenType::Comma));
+
+                consume(Lexer::TokenType::RightAngle, "Expected '>' after template arguments");
+                name += ">";
+                std::cerr << "DEBUG Parser parsePrimary: final name with template = '" << name << "'" << std::endl;
+            }
+        }
+
+        // Check for template arguments using @ syntax: List@Integer (alternative)
         if (match(Lexer::TokenType::At)) {
             name += "<";
             std::cerr << "DEBUG Parser parsePrimary: found @, parsing template args" << std::endl;
@@ -817,40 +947,51 @@ std::unique_ptr<TypeRef> Parser::parseTypeRef() {
         typeName = parseQualifiedIdentifier();
     }
 
+    // ✅ Phase 7: Try to parse ownership FIRST (supports MyClass^<Integer> ordering)
+    OwnershipType ownership = parseOwnershipType();
+    bool ownershipParsed = (ownership != OwnershipType::None);
+
     // Parse template arguments if present (e.g., List<Integer>, Array<Integer, 10>)
+    // Supports both @ and < as template argument delimiters
     std::vector<TemplateArgument> templateArgs;
-    if (check(Lexer::TokenType::LeftAngle)) {
-        advance(); // consume '<'
+    if (check(Lexer::TokenType::LeftAngle) || check(Lexer::TokenType::At)) {
+        bool usingAtSyntax = check(Lexer::TokenType::At);
+        advance(); // consume '<' or '@'
 
         do {
             auto argLoc = peek().location;
 
-            // Try to determine if this is a type or value argument
-            // Simple heuristic: if it starts with an identifier and is followed by ',' or '>',
-            // it's likely a type. Otherwise, parse as expression.
-            bool isType = false;
-            if (check(Lexer::TokenType::Identifier)) {
-                // Lookahead to determine if this is a simple type reference
-                size_t savedPos = current;
-                parseQualifiedIdentifier(); // consume the identifier chain
+            // Check for wildcard '?'
+            if (match(Lexer::TokenType::Question)) {
+                templateArgs.push_back(TemplateArgument::Wildcard(argLoc));
+            } else {
+                // Try to determine if this is a type or value argument
+                // Simple heuristic: if it starts with an identifier and is followed by ',' or '>',
+                // it's likely a type. Otherwise, parse as expression.
+                bool isType = false;
+                if (check(Lexer::TokenType::Identifier)) {
+                    // Lookahead to determine if this is a simple type reference
+                    size_t savedPos = current;
+                    parseQualifiedIdentifier(); // consume the identifier chain
 
-                // Check what follows
-                if (check(Lexer::TokenType::Comma) || check(Lexer::TokenType::RightAngle)) {
-                    isType = true;
+                    // Check what follows
+                    if (check(Lexer::TokenType::Comma) || check(Lexer::TokenType::RightAngle)) {
+                        isType = true;
+                    }
+
+                    // Restore position
+                    current = savedPos;
                 }
 
-                // Restore position
-                current = savedPos;
-            }
-
-            if (isType) {
-                // Parse as type argument
-                std::string argType = parseQualifiedIdentifier();
-                templateArgs.emplace_back(argType, argLoc);
-            } else {
-                // Parse as value argument (constant expression)
-                auto valueExpr = parseExpression();
-                templateArgs.emplace_back(std::move(valueExpr), argLoc);
+                if (isType) {
+                    // Parse as type argument
+                    std::string argType = parseQualifiedIdentifier();
+                    templateArgs.emplace_back(argType, argLoc);
+                } else {
+                    // Parse as value argument (constant expression)
+                    auto valueExpr = parseExpression();
+                    templateArgs.emplace_back(std::move(valueExpr), argLoc);
+                }
             }
 
             if (!match(Lexer::TokenType::Comma)) {
@@ -858,10 +999,18 @@ std::unique_ptr<TypeRef> Parser::parseTypeRef() {
             }
         } while (true);
 
-        consume(Lexer::TokenType::RightAngle, "Expected '>' after template arguments");
+        if (usingAtSyntax) {
+            // @ syntax doesn't require closing delimiter
+        } else {
+            consume(Lexer::TokenType::RightAngle, "Expected '>' after template arguments");
+        }
     }
 
-    OwnershipType ownership = parseOwnershipType();
+    // ✅ Phase 7: If ownership wasn't parsed before template args, try parsing it now
+    // This supports the old MyClass<Integer>^ ordering
+    if (!ownershipParsed) {
+        ownership = parseOwnershipType();
+    }
 
     if (!templateArgs.empty()) {
         return std::make_unique<TypeRef>(typeName, std::move(templateArgs), ownership, loc);

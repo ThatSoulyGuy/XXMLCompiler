@@ -122,14 +122,63 @@ int main(int argc, char* argv[]) {
         std::cout << "  Found " << mainModule->imports.size() << " import(s)\n";
 
         // Auto-import standard library types from Language folder
-        std::vector<std::string> stdLibFiles = {
-            "Language/Core/String.XXML",
-            "Language/Core/Integer.XXML",
-            "Language/Core/Bool.XXML",
-            "Language/Core/Float.XXML",
-            "Language/Core/Double.XXML",
-            "Language/System/Console.XXML"
+        // Try both relative and absolute paths to support different working directories
+        std::vector<std::string> stdLibBasePaths = {
+            "Language/Core/", "../Language/Core/",
+            "Language/System/", "../Language/System/",
+            "Language/Collections/", "../Language/Collections/"
         };
+        std::vector<std::string> stdLibFileNames = {
+            "None.XXML",
+            "String.XXML",
+            "Integer.XXML",
+            "Bool.XXML",
+            "Float.XXML",
+            "Double.XXML"
+        };
+        std::vector<std::string> stdLibSystemFiles = {"Console.XXML"};
+        std::vector<std::string> stdLibCollectionFiles = {"List.XXML", "Array.XXML", "HashMap.XXML"};
+
+        std::vector<std::string> stdLibFiles;
+        // Try to find core files
+        for (const auto& fileName : stdLibFileNames) {
+            for (const auto& basePath : stdLibBasePaths) {
+                if (basePath.find("/Core/") != std::string::npos) {
+                    std::string fullPath = basePath + fileName;
+                    std::ifstream check(fullPath);
+                    if (check.good()) {
+                        stdLibFiles.push_back(fullPath);
+                        break;
+                    }
+                }
+            }
+        }
+        // Try to find system files
+        for (const auto& fileName : stdLibSystemFiles) {
+            for (const auto& basePath : stdLibBasePaths) {
+                if (basePath.find("/System/") != std::string::npos) {
+                    std::string fullPath = basePath + fileName;
+                    std::ifstream check(fullPath);
+                    if (check.good()) {
+                        stdLibFiles.push_back(fullPath);
+                        break;
+                    }
+                }
+            }
+        }
+        // Try to find collection files
+        for (const auto& fileName : stdLibCollectionFiles) {
+            for (const auto& basePath : stdLibBasePaths) {
+                if (basePath.find("/Collections/") != std::string::npos) {
+                    std::string fullPath = basePath + fileName;
+                    std::ifstream check(fullPath);
+                    if (check.good()) {
+                        stdLibFiles.push_back(fullPath);
+                        break;
+                    }
+                }
+            }
+        }
 
         std::cout << "Auto-importing standard library...\n";
         std::vector<std::string> autoImports;
@@ -478,14 +527,6 @@ int main(int argc, char* argv[]) {
         fullOutput << "        buffer = std::to_string(value);\n";
         fullOutput << "        return buffer.c_str();\n";
         fullOutput << "    }\n";
-        fullOutput << "};\n\n";
-
-        // Add StringArray stub (referenced by Console but not yet implemented)
-        fullOutput << "// StringArray stub\n";
-        fullOutput << "class StringArray {\n";
-        fullOutput << "public:\n";
-        fullOutput << "    StringArray() {}\n";
-        fullOutput << "    static StringArray Constructor() { return StringArray(); }\n";
         fullOutput << "};\n\n";
 
         // Add System::Console intrinsic class for I/O (forward declared, will use Language::Core types)

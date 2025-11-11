@@ -15,33 +15,6 @@
 			Constructor = default;
 
 			// Static factory methods
-			[ Static <>
-				Method <now> Returns DateTime^ Parameters () Do {
-					// Get current date and time
-					// Backed by C++ runtime: DateTime::TimeStamp::now
-					Return DateTime::Constructor();
-				}
-
-				Method <fromMilliseconds> Returns DateTime^ Parameters (
-					Parameter <milliseconds> Types Integer^
-				) Do {
-					// Create DateTime from milliseconds since epoch
-					// Backed by C++ runtime: DateTime::TimeStamp constructor
-					Return DateTime::Constructor();
-				}
-
-				Method <fromSeconds> Returns DateTime^ Parameters (
-					Parameter <seconds> Types Integer^
-				) Do {
-					// Create DateTime from seconds since epoch
-					// Backed by C++ runtime
-					Return DateTime::Constructor();
-				}
-
-				Method <Constructor> Returns DateTime^ Parameters () Do {
-					// Creates and returns a new DateTime instance
-				}
-			]
 
 			// Conversion methods
 			Method <toMilliseconds> Returns Integer^ Parameters () Do {
@@ -141,41 +114,6 @@
 			Constructor = default;
 
 			// Factory methods for creating TimeSpan
-			[ Static <>
-				Method <fromMilliseconds> Returns TimeSpan^ Parameters (
-					Parameter <milliseconds> Types Integer^
-				) Do {
-					Return TimeSpan::Constructor();
-				}
-
-				Method <fromSeconds> Returns TimeSpan^ Parameters (
-					Parameter <seconds> Types Integer^
-				) Do {
-					Return TimeSpan::Constructor();
-				}
-
-				Method <fromMinutes> Returns TimeSpan^ Parameters (
-					Parameter <minutes> Types Integer^
-				) Do {
-					Return TimeSpan::Constructor();
-				}
-
-				Method <fromHours> Returns TimeSpan^ Parameters (
-					Parameter <hours> Types Integer^
-				) Do {
-					Return TimeSpan::Constructor();
-				}
-
-				Method <fromDays> Returns TimeSpan^ Parameters (
-					Parameter <days> Types Integer^
-				) Do {
-					Return TimeSpan::Constructor();
-				}
-
-				Method <Constructor> Returns TimeSpan^ Parameters () Do {
-					// Creates and returns a new TimeSpan instance
-				}
-			]
 
 			// Conversion methods
 			Method <toMilliseconds> Returns Integer^ Parameters () Do {
@@ -261,11 +199,6 @@
 				Return Bool::Constructor(false);
 			}
 
-			[ Static <>
-				Method <Constructor> Returns Timer^ Parameters () Do {
-					// Creates and returns a new Timer instance
-				}
-			]
 		]
 	]
 ]

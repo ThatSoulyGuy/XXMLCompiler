@@ -7,13 +7,16 @@
 	[ Class <Array> <T Constrains None, N Constrains None> Final Extends None
 
 		[ Private <>
-			Property <dataPtr> Types NativeType<"0">^;
-			Property <arraySize> Types NativeType<"0">^;
+			Property <dataPtr> Types NativeType<"ptr">^;
+			Property <arraySize> Types NativeType<"int64">^;
 		]
 
 		[ Public <>
-			// Constructor - allocate fixed-size array
-			Constructor <> Parameters () Do
+			// Constructor - use default
+			Constructor = default;
+
+			// Initialize - allocate fixed-size array
+			Method <init> Returns None Parameters () Do
 			{
 				// N will be substituted with the actual size at instantiation
 				Run Syscall::memcpy(&arraySize, N, 8);
@@ -21,12 +24,14 @@
 				Run Syscall::memcpy(&dataPtr, &ptr, 8);
 
 				// Initialize all slots to zero/null
-				Instantiate NativeType<"int64">^ As <zero> = 0;
-				Instantiate NativeType<"int64">^ As <one> = 1;
-				For (NativeType<"int64"> <i> = zero .. N - one) ->
+				Instantiate Integer^ As <zero> = Integer::Constructor(0);
+				Instantiate Integer^ As <sizeInt> = Integer::Constructor(arraySize);
+				For (Integer <i> = zero .. sizeInt) ->
 				{
-					Instantiate NativeType<"ptr">^ As <offset> = dataPtr + (i * 8);
-					Run Syscall::ptr_write(offset, zero);
+					Instantiate NativeType<"int64">^ As <idx> = i;
+					Instantiate NativeType<"ptr">^ As <offset> = dataPtr + (idx * 8);
+					Instantiate NativeType<"int64">^ As <zeroVal> = 0;
+					Run Syscall::ptr_write(offset, zeroVal);
 				}
 			}
 
@@ -78,11 +83,12 @@
 			// Fill all elements with a value
 			Method <fill> Returns None Parameters (Parameter <value> Types T^) Do
 			{
-				Instantiate NativeType<"int64">^ As <zero> = 0;
-				Instantiate NativeType<"int64">^ As <one> = 1;
-				For (NativeType<"int64"> <i> = zero .. arraySize - one) ->
+				Instantiate Integer^ As <zero> = Integer::Constructor(0);
+				Instantiate Integer^ As <sizeInt> = Integer::Constructor(arraySize);
+				For (Integer <i> = zero .. sizeInt) ->
 				{
-					Instantiate NativeType<"ptr">^ As <offset> = dataPtr + (i * 8);
+					Instantiate NativeType<"int64">^ As <idx> = i;
+					Instantiate NativeType<"ptr">^ As <offset> = dataPtr + (idx * 8);
 					Run Syscall::ptr_write(offset, value);
 				}
 			}

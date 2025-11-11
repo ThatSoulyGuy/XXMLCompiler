@@ -1,0 +1,14 @@
+// XXML Standard Library - None Class
+// Unit type representing no value (similar to void or unit in other languages)
+
+[ Namespace <Language::Core>
+	[ Class <None> Final Extends None
+		[ Public <>
+			// Constructor method for creating None instances
+			Method <Constructor> Returns None^ Parameters () ->
+			{
+				Return this;
+			}
+		]
+	]
+]

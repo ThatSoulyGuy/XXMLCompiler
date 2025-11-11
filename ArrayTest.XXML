@@ -1,0 +1,30 @@
+#import System;
+#import Collections;
+
+[ Entrypoint
+{
+    // Test Array<Integer, 5> with both type parameter T=Integer and non-type parameter N=5
+    Instantiate Collections::Array^<Integer, 5> As <intArray> = Collections::Array<Integer, 5>::Constructor();
+
+    // Set some values
+    Run intArray.set(Integer::Constructor(0), Integer::Constructor(10));
+    Run intArray.set(Integer::Constructor(1), Integer::Constructor(20));
+    Run intArray.set(Integer::Constructor(2), Integer::Constructor(30));
+
+    // Get and print values
+    Instantiate Integer^ As <val0> = intArray.get(Integer::Constructor(0));
+    Instantiate Integer^ As <val1> = intArray.get(Integer::Constructor(1));
+    Instantiate Integer^ As <val2> = intArray.get(Integer::Constructor(2));
+
+    Run System::Console::printLine(String::Constructor("Array<Integer, 5> test complete!"));
+
+    // Test Array<String, 3>
+    Instantiate Collections::Array^<String, 3> As <strArray> = Collections::Array<String, 3>::Constructor();
+
+    Run System::Console::printLine(String::Constructor("Array<String, 3> test complete!"));
+
+    // Cleanup
+    Run intArray.dispose();
+    Run strArray.dispose();
+}
+]

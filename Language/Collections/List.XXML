@@ -117,15 +117,19 @@
 				}
 
 				// Shift elements down
-				Instantiate NativeType<"int64">^ As <one> = 1;
-				For (NativeType<"int64"> <i> = idx .. count - one) ->
+				Instantiate Integer^ As <startIdx> = Integer::Constructor(idx);
+				Instantiate Integer^ As <endIdx> = Integer::Constructor(count);
+				For (Integer <i> = startIdx .. endIdx) ->
 				{
-					Instantiate NativeType<"ptr">^ As <destOffset> = dataPtr + (i * 8);
-					Instantiate NativeType<"ptr">^ As <srcOffset> = dataPtr + ((i + one) * 8);
+					Instantiate NativeType<"int64">^ As <iVal> = i;
+					Instantiate NativeType<"ptr">^ As <destOffset> = dataPtr + (iVal * 8);
+					Instantiate NativeType<"int64">^ As <iValPlusOne> = iVal + 1;
+					Instantiate NativeType<"ptr">^ As <srcOffset> = dataPtr + (iValPlusOne * 8);
 					Instantiate T^ As <val> = Syscall::ptr_read(srcOffset);
 					Run Syscall::ptr_write(destOffset, val);
 				}
 
+				Instantiate NativeType<"int64">^ As <one> = 1;
 				Instantiate NativeType<"int64">^ As <newCount> = count - one;
 				Run Syscall::memcpy(&count, &newCount, 8);
 			}

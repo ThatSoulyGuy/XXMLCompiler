@@ -222,47 +222,6 @@
 			}
 
 			// Check if file exists
-			[ Static <>
-				Method <exists> Returns Bool^ Parameters (
-					Parameter <path> Types String^
-				) Do {
-					// ALGORITHM: Try to open file, check if successful, then close
-
-					// Let <cstr> Types NativeType<"ptr"> Equals path.toCString();
-					// Let <handle> Types NativeType<"ptr"> Equals Syscall::fopen(cstr, "r");
-
-					// If (handle == 0) {
-					//     Return Bool::Constructor(false);
-					// }
-
-					// Run Syscall::fclose(handle);
-					// Return Bool::Constructor(true);
-
-					Return Bool::Constructor(false);
-				}
-
-				// Get file size
-				Method <getSize> Returns Integer^ Parameters (
-					Parameter <path> Types String^
-				) Do {
-					// ALGORITHM: Open file, seek to end, get position, close
-
-					// Let <cstr> Types NativeType<"ptr"> Equals path.toCString();
-					// Let <handle> Types NativeType<"ptr"> Equals Syscall::fopen(cstr, "r");
-
-					// If (handle == 0) {
-					//     Return Integer::Constructor(-1);
-					// }
-
-					// Run Syscall::fseek(handle, 0, 2);  // SEEK_END
-					// Let <size> Types Integer^ Equals Syscall::ftell(handle);
-					// Run Syscall::fclose(handle);
-
-					// Return size;
-
-					Return Integer::Constructor(-1);
-				}
-			]
 		]
 	]
 
@@ -272,41 +231,6 @@
 			Constructor() {}
 
 			// Get current working directory
-			[ Static <>
-				Method <getCurrentDirectory> Returns String^ Parameters () Do {
-					// ALGORITHM: Use platform-specific getcwd or GetCurrentDirectory
-
-					// Windows: GetCurrentDirectory
-					// Unix: getcwd
-					// Would need platform-specific syscalls
-
-					// Let <buffer> Types NativeType<"ptr"> Equals Syscall::malloc(1024);
-					// Run Syscall::getcwd(buffer, 1024);
-					// Let <result> Types String^ Equals String::FromCString(buffer);
-					// Run Syscall::free(buffer);
-					// Return result;
-
-					Return String::Constructor();
-				}
-
-				// Check if directory exists
-				Method <exists> Returns Bool^ Parameters (
-					Parameter <path> Types String^
-				) Do {
-					// Would use stat() or similar syscall
-					Return Bool::Constructor(false);
-				}
-
-				// Create directory
-				Method <create> Returns Bool^ Parameters (
-					Parameter <path> Types String^
-				) Do {
-					// Would use mkdir() syscall
-					// Unix: mkdir(path, 0755)
-					// Windows: CreateDirectory
-					Return Bool::Constructor(false);
-				}
-			]
 		]
 	]
 ]

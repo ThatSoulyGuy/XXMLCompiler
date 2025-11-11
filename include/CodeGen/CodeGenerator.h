@@ -61,6 +61,14 @@ private:
     void substituteTypesInExpression(Parser::Expression* expr, const std::unordered_map<std::string, std::string>& typeMap);
     void generateTemplateInstantiations();
 
+    // Method template code generation
+    std::unique_ptr<Parser::MethodDecl> cloneMethodDecl(Parser::MethodDecl* original);
+    void substituteTypesInMethod(Parser::MethodDecl* methodDecl, const std::unordered_map<std::string, std::string>& typeMap);
+
+    // Wildcard support
+    void generateAnyWrapperClass();
+    bool needsAnyWrapper;
+
 public:
     CodeGenerator(Common::ErrorReporter& reporter);
     void setSemanticAnalyzer(Semantic::SemanticAnalyzer* analyzer);

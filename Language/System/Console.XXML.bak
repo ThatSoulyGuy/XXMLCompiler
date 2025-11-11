@@ -98,8 +98,8 @@
 				// Exit program
 			}
 
-			Method <getArgs> Returns None^ Parameters () Do {
-				Return None::Constructor();
+			Method <getArgs> Returns StringArray^ Parameters () Do {
+				Return StringArray::Constructor();
 			}
 		]
 	]

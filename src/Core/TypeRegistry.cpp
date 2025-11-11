@@ -78,6 +78,16 @@ void TypeRegistry::registerCoreTypes() {
     doubleType.ownership = OwnershipSemantics::Value;
     doubleType.isBuiltin = true;
     registerType(doubleType);
+
+    // None type (unit type)
+    TypeInfo none;
+    none.xxmlName = "None";
+    none.cppType = "None";
+    none.llvmType = "void";
+    none.category = TypeCategory::Class;
+    none.ownership = OwnershipSemantics::Value;
+    none.isBuiltin = true;
+    registerType(none);
 }
 
 void TypeRegistry::registerSystemTypes() {

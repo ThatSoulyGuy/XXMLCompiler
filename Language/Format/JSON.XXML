@@ -16,15 +16,6 @@
 			Constructor = default;
 
 			// Parsing
-			[ Static <>
-				Method <parse> Returns JSONObject^ Parameters (
-					Parameter <jsonString> Types String^
-				) Do {
-					// Parse JSON string into JSONObject
-					// Backed by C++ runtime JSON parser
-					Return JSONObject::Constructor();
-				}
-			]
 
 			// Generation
 			Method <stringify> Returns String^ Parameters () Do {
@@ -88,11 +79,6 @@
 				Return Bool::Constructor(false);
 			}
 
-			[ Static <>
-				Method <Constructor> Returns JSONObject^ Parameters () Do {
-					// Creates and returns a new JSONObject instance
-				}
-			]
 		]
 	]
 
@@ -106,15 +92,6 @@
 			Constructor = default;
 
 			// Parsing
-			[ Static <>
-				Method <parse> Returns JSONArray^ Parameters (
-					Parameter <jsonString> Types String^
-				) Do {
-					// Parse JSON array string
-					// Backed by C++ runtime
-					Return JSONArray::Constructor();
-				}
-			]
 
 			// Generation
 			Method <stringify> Returns String^ Parameters () Do {
@@ -152,11 +129,6 @@
 				Return Integer::Constructor(0);
 			}
 
-			[ Static <>
-				Method <Constructor> Returns JSONArray^ Parameters () Do {
-					// Creates and returns a new JSONArray instance
-				}
-			]
 		]
 	]
 ]

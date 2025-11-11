@@ -100,7 +100,14 @@
       "Bash(./SimpleInputTest.exe)",
       "Bash(printf:*)",
       "Bash(./ConsoleInputTest.exe)",
-      "Bash(./ComprehensiveInputTest.exe)"
+      "Bash(./ComprehensiveInputTest.exe)",
+      "Bash(if [ -d build ])",
+      "Bash(then echo \"Build directory exists\")",
+      "Bash(else mkdir build)",
+      "Bash(./bin/xxml:*)",
+      "Bash(/tmp/File_fixed.XXML)",
+      "Bash(./hello:*)",
+      "Bash(../bin/xxml:*)"
     ],
     "deny": [],
     "ask": []

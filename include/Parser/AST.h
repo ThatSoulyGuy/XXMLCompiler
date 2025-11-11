@@ -18,6 +18,7 @@ public:
     ASTNode(const Common::SourceLocation& loc) : location(loc) {}
     virtual ~ASTNode() = default;
     virtual void accept(ASTVisitor& visitor) = 0;
+    virtual std::unique_ptr<ASTNode> clone() const = 0;
 };
 
 // Ownership type specifier
@@ -33,7 +34,7 @@ class Expression;
 
 // Template argument (for template instantiations) - MUST be declared before TypeRef
 struct TemplateArgument {
-    enum class Kind { Type, Value };
+    enum class Kind { Type, Value, Wildcard };
 
     Kind kind;
     std::string typeArg;                      // For type arguments (e.g., "Integer")
@@ -47,6 +48,13 @@ struct TemplateArgument {
     // Constructor for value arguments
     TemplateArgument(std::unique_ptr<Expression> value, const Common::SourceLocation& loc)
         : kind(Kind::Value), typeArg(""), valueArg(std::move(value)), location(loc) {}
+
+    // Constructor for wildcard (?)
+    static TemplateArgument Wildcard(const Common::SourceLocation& loc) {
+        TemplateArgument arg("", loc);
+        arg.kind = Kind::Wildcard;
+        return arg;
+    }
 
     // Copy constructor (needed for AST cloning)
     TemplateArgument(const TemplateArgument& other);
@@ -84,12 +92,17 @@ public:
     }
 
     void accept(ASTVisitor& visitor) override;
+    std::unique_ptr<ASTNode> clone() const override;
+    std::unique_ptr<TypeRef> cloneType() const;
 };
 
 // Expressions
 class Expression : public ASTNode {
 public:
     Expression(const Common::SourceLocation& loc) : ASTNode(loc) {}
+    std::unique_ptr<ASTNode> clone() const override = 0;
+    // Convenience method that returns properly typed pointer
+    virtual std::unique_ptr<Expression> cloneExpr() const = 0;
 };
 
 class IntegerLiteralExpr : public Expression {
@@ -100,6 +113,8 @@ public:
         : Expression(loc), value(val) {}
 
     void accept(ASTVisitor& visitor) override;
+    std::unique_ptr<ASTNode> clone() const override;
+    std::unique_ptr<Expression> cloneExpr() const override;
 };
 
 class StringLiteralExpr : public Expression {
@@ -110,6 +125,8 @@ public:
         : Expression(loc), value(val) {}
 
     void accept(ASTVisitor& visitor) override;
+    std::unique_ptr<ASTNode> clone() const override;
+    std::unique_ptr<Expression> cloneExpr() const override;
 };
 
 class BoolLiteralExpr : public Expression {
@@ -120,6 +137,8 @@ public:
         : Expression(loc), value(val) {}
 
     void accept(ASTVisitor& visitor) override;
+    std::unique_ptr<ASTNode> clone() const override;
+    std::unique_ptr<Expression> cloneExpr() const override;
 };
 
 class ThisExpr : public Expression {
@@ -128,6 +147,8 @@ public:
         : Expression(loc) {}
 
     void accept(ASTVisitor& visitor) override;
+    std::unique_ptr<ASTNode> clone() const override;
+    std::unique_ptr<Expression> cloneExpr() const override;
 };
 
 class IdentifierExpr : public Expression {
@@ -138,6 +159,8 @@ public:
         : Expression(loc), name(n) {}
 
     void accept(ASTVisitor& visitor) override;
+    std::unique_ptr<ASTNode> clone() const override;
+    std::unique_ptr<Expression> cloneExpr() const override;
 };
 
 class ReferenceExpr : public Expression {
@@ -148,6 +171,8 @@ public:
         : Expression(loc), expr(std::move(e)) {}
 
     void accept(ASTVisitor& visitor) override;
+    std::unique_ptr<ASTNode> clone() const override;
+    std::unique_ptr<Expression> cloneExpr() const override;
 };
 
 class MemberAccessExpr : public Expression {
@@ -160,6 +185,8 @@ public:
         : Expression(loc), object(std::move(obj)), member(mem) {}
 
     void accept(ASTVisitor& visitor) override;
+    std::unique_ptr<ASTNode> clone() const override;
+    std::unique_ptr<Expression> cloneExpr() const override;
 };
 
 class CallExpr : public Expression {
@@ -172,6 +199,8 @@ public:
         : Expression(loc), callee(std::move(call)), arguments(std::move(args)) {}
 
     void accept(ASTVisitor& visitor) override;
+    std::unique_ptr<ASTNode> clone() const override;
+    std::unique_ptr<Expression> cloneExpr() const override;
 };
 
 class BinaryExpr : public Expression {
@@ -185,12 +214,17 @@ public:
         : Expression(loc), left(std::move(l)), op(operation), right(std::move(r)) {}
 
     void accept(ASTVisitor& visitor) override;
+    std::unique_ptr<ASTNode> clone() const override;
+    std::unique_ptr<Expression> cloneExpr() const override;
 };
 
 // Statements
 class Statement : public ASTNode {
 public:
     Statement(const Common::SourceLocation& loc) : ASTNode(loc) {}
+    std::unique_ptr<ASTNode> clone() const override = 0;
+    // Convenience method that returns properly typed pointer
+    virtual std::unique_ptr<Statement> cloneStmt() const = 0;
 };
 
 class InstantiateStmt : public Statement {
@@ -203,7 +237,7 @@ public:
                     std::unique_ptr<Expression> init, const Common::SourceLocation& loc)
         : Statement(loc), type(std::move(t)), variableName(name), initializer(std::move(init)) {}
 
-    void accept(ASTVisitor& visitor) override;
+    void accept(ASTVisitor& visitor) override;    std::unique_ptr<ASTNode> clone() const override;    std::unique_ptr<Statement> cloneStmt() const override;
 };
 
 class RunStmt : public Statement {
@@ -213,7 +247,7 @@ public:
     RunStmt(std::unique_ptr<Expression> expr, const Common::SourceLocation& loc)
         : Statement(loc), expression(std::move(expr)) {}
 
-    void accept(ASTVisitor& visitor) override;
+    void accept(ASTVisitor& visitor) override;    std::unique_ptr<ASTNode> clone() const override;    std::unique_ptr<Statement> cloneStmt() const override;
 };
 
 class ForStmt : public Statement {
@@ -230,7 +264,7 @@ public:
         : Statement(loc), iteratorType(std::move(type)), iteratorName(name),
           rangeStart(std::move(start)), rangeEnd(std::move(end)), body(std::move(bodyStmts)) {}
 
-    void accept(ASTVisitor& visitor) override;
+    void accept(ASTVisitor& visitor) override;    std::unique_ptr<ASTNode> clone() const override;    std::unique_ptr<Statement> cloneStmt() const override;
 };
 
 class ExitStmt : public Statement {
@@ -240,7 +274,7 @@ public:
     ExitStmt(std::unique_ptr<Expression> code, const Common::SourceLocation& loc)
         : Statement(loc), exitCode(std::move(code)) {}
 
-    void accept(ASTVisitor& visitor) override;
+    void accept(ASTVisitor& visitor) override;    std::unique_ptr<ASTNode> clone() const override;    std::unique_ptr<Statement> cloneStmt() const override;
 };
 
 class ReturnStmt : public Statement {
@@ -250,7 +284,7 @@ public:
     ReturnStmt(std::unique_ptr<Expression> val, const Common::SourceLocation& loc)
         : Statement(loc), value(std::move(val)) {}
 
-    void accept(ASTVisitor& visitor) override;
+    void accept(ASTVisitor& visitor) override;    std::unique_ptr<ASTNode> clone() const override;    std::unique_ptr<Statement> cloneStmt() const override;
 };
 
 class IfStmt : public Statement {
@@ -267,7 +301,7 @@ public:
           thenBranch(std::move(thenStmts)),
           elseBranch(std::move(elseStmts)) {}
 
-    void accept(ASTVisitor& visitor) override;
+    void accept(ASTVisitor& visitor) override;    std::unique_ptr<ASTNode> clone() const override;    std::unique_ptr<Statement> cloneStmt() const override;
 };
 
 class WhileStmt : public Statement {
@@ -281,7 +315,7 @@ public:
         : Statement(loc), condition(std::move(cond)),
           body(std::move(bodyStmts)) {}
 
-    void accept(ASTVisitor& visitor) override;
+    void accept(ASTVisitor& visitor) override;    std::unique_ptr<ASTNode> clone() const override;    std::unique_ptr<Statement> cloneStmt() const override;
 };
 
 class BreakStmt : public Statement {
@@ -289,7 +323,7 @@ public:
     BreakStmt(const Common::SourceLocation& loc)
         : Statement(loc) {}
 
-    void accept(ASTVisitor& visitor) override;
+    void accept(ASTVisitor& visitor) override;    std::unique_ptr<ASTNode> clone() const override;    std::unique_ptr<Statement> cloneStmt() const override;
 };
 
 class ContinueStmt : public Statement {
@@ -297,7 +331,7 @@ public:
     ContinueStmt(const Common::SourceLocation& loc)
         : Statement(loc) {}
 
-    void accept(ASTVisitor& visitor) override;
+    void accept(ASTVisitor& visitor) override;    std::unique_ptr<ASTNode> clone() const override;    std::unique_ptr<Statement> cloneStmt() const override;
 };
 
 class AssignmentStmt : public Statement {
@@ -308,13 +342,32 @@ public:
     AssignmentStmt(const std::string& varName, std::unique_ptr<Expression> val, const Common::SourceLocation& loc)
         : Statement(loc), variableName(varName), value(std::move(val)) {}
 
-    void accept(ASTVisitor& visitor) override;
+    void accept(ASTVisitor& visitor) override;    std::unique_ptr<ASTNode> clone() const override;    std::unique_ptr<Statement> cloneStmt() const override;
 };
 
 // Declarations
 class Declaration : public ASTNode {
 public:
     Declaration(const Common::SourceLocation& loc) : ASTNode(loc) {}
+    std::unique_ptr<ASTNode> clone() const override = 0;
+    // Convenience method that returns properly typed pointer
+    virtual std::unique_ptr<Declaration> cloneDecl() const = 0;
+};
+
+// Template parameter (for template class and method definitions)
+struct TemplateParameter {
+    enum class Kind { Type, Value };  // Type parameter (T) or non-type parameter (N)
+
+    std::string name;
+    Kind kind;
+    std::vector<std::string> constraints;  // Empty means no constraints (any type)
+    std::string valueType;  // For non-type parameters: the type (e.g., "int64")
+    Common::SourceLocation location;
+
+    TemplateParameter(const std::string& n, const std::vector<std::string>& c,
+                     const Common::SourceLocation& loc,
+                     Kind k = Kind::Type, const std::string& vType = "")
+        : name(n), kind(k), constraints(c), valueType(vType), location(loc) {}
 };
 
 class ParameterDecl : public Declaration {
@@ -325,7 +378,7 @@ public:
     ParameterDecl(const std::string& n, std::unique_ptr<TypeRef> t, const Common::SourceLocation& loc)
         : Declaration(loc), name(n), type(std::move(t)) {}
 
-    void accept(ASTVisitor& visitor) override;
+    void accept(ASTVisitor& visitor) override;    std::unique_ptr<ASTNode> clone() const override;    std::unique_ptr<Declaration> cloneDecl() const override;
 };
 
 class PropertyDecl : public Declaration {
@@ -336,7 +389,7 @@ public:
     PropertyDecl(const std::string& n, std::unique_ptr<TypeRef> t, const Common::SourceLocation& loc)
         : Declaration(loc), name(n), type(std::move(t)) {}
 
-    void accept(ASTVisitor& visitor) override;
+    void accept(ASTVisitor& visitor) override;    std::unique_ptr<ASTNode> clone() const override;    std::unique_ptr<Declaration> cloneDecl() const override;
 };
 
 class ConstructorDecl : public Declaration {
@@ -351,12 +404,13 @@ public:
         : Declaration(loc), isDefault(isDef), parameters(std::move(params)),
           body(std::move(bodyStmts)) {}
 
-    void accept(ASTVisitor& visitor) override;
+    void accept(ASTVisitor& visitor) override;    std::unique_ptr<ASTNode> clone() const override;    std::unique_ptr<Declaration> cloneDecl() const override;
 };
 
 class MethodDecl : public Declaration {
 public:
     std::string name;
+    std::vector<TemplateParameter> templateParams;  // Template parameters if this is a template method
     std::unique_ptr<TypeRef> returnType;
     std::vector<std::unique_ptr<ParameterDecl>> parameters;
     std::vector<std::unique_ptr<Statement>> body;
@@ -368,23 +422,15 @@ public:
         : Declaration(loc), name(n), returnType(std::move(retType)),
           parameters(std::move(params)), body(std::move(bodyStmts)) {}
 
-    void accept(ASTVisitor& visitor) override;
-};
+    MethodDecl(const std::string& n, const std::vector<TemplateParameter>& tparams,
+               std::unique_ptr<TypeRef> retType,
+               std::vector<std::unique_ptr<ParameterDecl>> params,
+               std::vector<std::unique_ptr<Statement>> bodyStmts,
+               const Common::SourceLocation& loc)
+        : Declaration(loc), name(n), templateParams(tparams), returnType(std::move(retType)),
+          parameters(std::move(params)), body(std::move(bodyStmts)) {}
 
-// Template parameter (for template class definitions)
-struct TemplateParameter {
-    enum class Kind { Type, Value };  // Type parameter (T) or non-type parameter (N)
-
-    std::string name;
-    Kind kind;
-    std::vector<std::string> constraints;  // Empty means no constraints (any type)
-    std::string valueType;  // For non-type parameters: the type (e.g., "int64")
-    Common::SourceLocation location;
-
-    TemplateParameter(const std::string& n, const std::vector<std::string>& c,
-                     const Common::SourceLocation& loc,
-                     Kind k = Kind::Type, const std::string& vType = "")
-        : name(n), kind(k), constraints(c), valueType(vType), location(loc) {}
+    void accept(ASTVisitor& visitor) override;    std::unique_ptr<ASTNode> clone() const override;    std::unique_ptr<Declaration> cloneDecl() const override;
 };
 
 enum class AccessModifier {
@@ -402,6 +448,7 @@ public:
         : ASTNode(loc), modifier(mod) {}
 
     void accept(ASTVisitor& visitor) override;
+    std::unique_ptr<ASTNode> clone() const override;
 };
 
 class ClassDecl : public Declaration {
@@ -417,7 +464,7 @@ public:
               const Common::SourceLocation& loc)
         : Declaration(loc), name(n), templateParams(tparams), isFinal(final), baseClass(base) {}
 
-    void accept(ASTVisitor& visitor) override;
+    void accept(ASTVisitor& visitor) override;    std::unique_ptr<ASTNode> clone() const override;    std::unique_ptr<Declaration> cloneDecl() const override;
 };
 
 class NamespaceDecl : public Declaration {
@@ -428,7 +475,7 @@ public:
     NamespaceDecl(const std::string& n, const Common::SourceLocation& loc)
         : Declaration(loc), name(n) {}
 
-    void accept(ASTVisitor& visitor) override;
+    void accept(ASTVisitor& visitor) override;    std::unique_ptr<ASTNode> clone() const override;    std::unique_ptr<Declaration> cloneDecl() const override;
 };
 
 class ImportDecl : public Declaration {
@@ -438,7 +485,7 @@ public:
     ImportDecl(const std::string& path, const Common::SourceLocation& loc)
         : Declaration(loc), modulePath(path) {}
 
-    void accept(ASTVisitor& visitor) override;
+    void accept(ASTVisitor& visitor) override;    std::unique_ptr<ASTNode> clone() const override;    std::unique_ptr<Declaration> cloneDecl() const override;
 };
 
 class EntrypointDecl : public Declaration {
@@ -449,7 +496,7 @@ public:
                    const Common::SourceLocation& loc)
         : Declaration(loc), body(std::move(bodyStmts)) {}
 
-    void accept(ASTVisitor& visitor) override;
+    void accept(ASTVisitor& visitor) override;    std::unique_ptr<ASTNode> clone() const override;    std::unique_ptr<Declaration> cloneDecl() const override;
 };
 
 // Root node
@@ -460,6 +507,7 @@ public:
     Program(const Common::SourceLocation& loc) : ASTNode(loc) {}
 
     void accept(ASTVisitor& visitor) override;
+    std::unique_ptr<ASTNode> clone() const override;
 };
 
 // Visitor interface for AST traversal

@@ -1,10 +1,29 @@
-// Minimal template test
-[ Class <SimpleList> <T Constrains None> Final Extends None
-	[ Private <>
-		Property <data> Types Integer^;
-	]
+#import System;
+
+[ Namespace <Test>
+    [ Class <Box> <T> Final Extends None
+
+    [ Private<>
+        Property <value> Types Integer%;
+    ]
+
+    [ Public<>
+        Constructor = default;
+
+        Method <getValue> Returns Integer^ Parameters () ->
+        {
+            Return Integer::Constructor(42);
+        }
+    ]
+
+    ]
 ]
 
-[ Entrypoint {
-	Run System::PrintLine(String::Constructor("Test"));
-}]
+[ Entrypoint
+    {
+        // Test instantiation of template with Integer
+        Instantiate Test::Box^<Integer> As <intBox> = Test::Box<Integer>::Constructor();
+
+        Run System::Console::printLine(String::Constructor("Template test complete!"));
+    }
+]

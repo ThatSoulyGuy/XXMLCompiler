@@ -7,7 +7,7 @@
 			Constructor = default;
 
 			// Check if string contains substring
-			Static Method <contains> Returns Bool^ Parameters (
+			Method <contains> Returns Bool^ Parameters (
 				Parameter <str> Types String^,
 				Parameter <substring> Types String^
 			) Do {
@@ -21,7 +21,7 @@
 			}
 
 			// Find first index of substring (-1 if not found)
-			Static Method <indexOf> Returns NativeType<"int64">% Parameters (
+			Method <indexOf> Returns NativeType<"int64">% Parameters (
 				Parameter <str> Types String^,
 				Parameter <substring> Types String^
 			) Do {
@@ -40,7 +40,7 @@
 			}
 
 			// Check if string starts with prefix
-			Static Method <startsWith> Returns Bool^ Parameters (
+			Method <startsWith> Returns Bool^ Parameters (
 				Parameter <str> Types String^,
 				Parameter <prefix> Types String^
 			) Do {
@@ -59,7 +59,7 @@
 			}
 
 			// Check if string ends with suffix
-			Static Method <endsWith> Returns Bool^ Parameters (
+			Method <endsWith> Returns Bool^ Parameters (
 				Parameter <str> Types String^,
 				Parameter <suffix> Types String^
 			) Do {
@@ -79,7 +79,7 @@
 			}
 
 			// Get substring from start to end (exclusive)
-			Static Method <substring> Returns String^ Parameters (
+			Method <substring> Returns String^ Parameters (
 				Parameter <str> Types String^,
 				Parameter <start> Types Integer^,
 				Parameter <end> Types Integer^
@@ -125,13 +125,12 @@
 				Return result;
 			}
 
-			// Split string by delimiter (returns StringList)
-			Static Method <split> Returns Collections::StringList^ Parameters (
+			// Split string by delimiter (returns List<String>)
+			Method <split> Returns Collections::List<String>^ Parameters (
 				Parameter <str> Types String^,
 				Parameter <delimiter> Types String^
 			) Do {
-				Instantiate Collections::StringList^ As <list> = Collections::StringList::Constructor();
-				Run list.init();
+				Instantiate Collections::List<String>^ As <list> = Collections::List<String>::Constructor();
 
 				Instantiate NativeType<"int64">^ As <strLen> = str.length();
 				Instantiate NativeType<"int64">^ As <delimLen> = delimiter.length();
@@ -147,7 +146,7 @@
 			}
 
 			// Trim leading and trailing whitespace
-			Static Method <trim> Returns String^ Parameters (Parameter <str> Types String^) Do {
+			Method <trim> Returns String^ Parameters (Parameter <str> Types String^) Do {
 				Instantiate NativeType<"int64">^ As <len> = str.length();
 
 				If (len == 0) -> {
@@ -168,9 +167,9 @@
 				Return substring(str, Integer::Constructor(start), Integer::Constructor(end));
 			}
 
-			// Join StringList with delimiter
-			Static Method <join> Returns String^ Parameters (
-				Parameter <list> Types Collections::StringList^,
+			// Join List<String> with delimiter
+			Method <join> Returns String^ Parameters (
+				Parameter <list> Types Collections::List<String>^,
 				Parameter <delimiter> Types String^
 			) Do {
 				Instantiate NativeType<"int64">^ As <size> = list.size();
@@ -183,7 +182,7 @@
 			}
 
 			// Repeat string n times
-			Static Method <repeat> Returns String^ Parameters (
+			Method <repeat> Returns String^ Parameters (
 				Parameter <str> Types String^,
 				Parameter <count> Types Integer^
 			) Do {
@@ -197,7 +196,7 @@
 			}
 
 			// Pad left to width with character
-			Static Method <padLeft> Returns String^ Parameters (
+			Method <padLeft> Returns String^ Parameters (
 				Parameter <str> Types String^,
 				Parameter <width> Types Integer^,
 				Parameter <padChar> Types String^
@@ -216,7 +215,7 @@
 			}
 
 			// Pad right to width with character
-			Static Method <padRight> Returns String^ Parameters (
+			Method <padRight> Returns String^ Parameters (
 				Parameter <str> Types String^,
 				Parameter <width> Types Integer^,
 				Parameter <padChar> Types String^
@@ -237,7 +236,7 @@
 
 		[ Private <>
 			// Recursive helper for indexOf
-			Static Method <indexOfHelper> Returns NativeType<"int64">% Parameters (
+			Method <indexOfHelper> Returns NativeType<"int64">% Parameters (
 				Parameter <str> Types String^,
 				Parameter <substring> Types String^,
 				Parameter <index> Types Integer^,
@@ -263,7 +262,7 @@
 			}
 
 			// Check if substring matches at position
-			Static Method <matchesAt> Returns Bool^ Parameters (
+			Method <matchesAt> Returns Bool^ Parameters (
 				Parameter <str> Types String^,
 				Parameter <substring> Types String^,
 				Parameter <strPos> Types Integer^,
@@ -290,7 +289,7 @@
 			}
 
 			// Helper for startsWith
-			Static Method <startsWithHelper> Returns Bool^ Parameters (
+			Method <startsWithHelper> Returns Bool^ Parameters (
 				Parameter <str> Types String^,
 				Parameter <prefix> Types String^,
 				Parameter <index> Types Integer^,
@@ -315,7 +314,7 @@
 			}
 
 			// Helper for endsWith
-			Static Method <endsWithHelper> Returns Bool^ Parameters (
+			Method <endsWithHelper> Returns Bool^ Parameters (
 				Parameter <str> Types String^,
 				Parameter <suffix> Types String^,
 				Parameter <strPos> Types Integer^,
@@ -342,10 +341,10 @@
 			}
 
 			// Helper for split
-			Static Method <splitHelper> Returns None Parameters (
+			Method <splitHelper> Returns None Parameters (
 				Parameter <str> Types String^,
 				Parameter <delimiter> Types String^,
-				Parameter <list> Types Collections::StringList^,
+				Parameter <list> Types Collections::List<String>^,
 				Parameter <start> Types Integer^,
 				Parameter <current> Types Integer^,
 				Parameter <strLen> Types Integer^,
@@ -382,7 +381,7 @@
 			}
 
 			// Find first non-whitespace character
-			Static Method <findFirstNonWhitespace> Returns NativeType<"int64">% Parameters (
+			Method <findFirstNonWhitespace> Returns NativeType<"int64">% Parameters (
 				Parameter <str> Types String^,
 				Parameter <index> Types Integer^,
 				Parameter <len> Types Integer^
@@ -406,7 +405,7 @@
 			}
 
 			// Find last non-whitespace character
-			Static Method <findLastNonWhitespace> Returns NativeType<"int64">% Parameters (
+			Method <findLastNonWhitespace> Returns NativeType<"int64">% Parameters (
 				Parameter <str> Types String^,
 				Parameter <index> Types Integer^
 			) Do {
@@ -428,7 +427,7 @@
 			}
 
 			// Check if character is whitespace
-			Static Method <isWhitespace> Returns Bool^ Parameters (Parameter <ch> Types String^) Do {
+			Method <isWhitespace> Returns Bool^ Parameters (Parameter <ch> Types String^) Do {
 				Instantiate NativeType<"ptr">^ As <cstr> = ch.toCString();
 				Instantiate NativeType<"int64">^ As <charCode> = Syscall::read_int64(cstr);
 
@@ -453,8 +452,8 @@
 			}
 
 			// Helper for join
-			Static Method <joinHelper> Returns String^ Parameters (
-				Parameter <list> Types Collections::StringList^,
+			Method <joinHelper> Returns String^ Parameters (
+				Parameter <list> Types Collections::List<String>^,
 				Parameter <delimiter> Types String^,
 				Parameter <index> Types Integer^,
 				Parameter <result> Types String^,
@@ -482,7 +481,7 @@
 			}
 
 			// Helper for repeat
-			Static Method <repeatHelper> Returns String^ Parameters (
+			Method <repeatHelper> Returns String^ Parameters (
 				Parameter <str> Types String^,
 				Parameter <count> Types Integer^,
 				Parameter <result> Types String^

@@ -54,11 +54,6 @@
 				// Backed by C++ runtime: IntegerArrayData::clear
 			}
 
-			[ Static <>
-				Method <Constructor> Returns IntegerStack^ Parameters () Do {
-					// Creates and returns a new IntegerStack instance
-				}
-			]
 		]
 	]
 
@@ -101,11 +96,6 @@
 				// Backed by C++ runtime
 			}
 
-			[ Static <>
-				Method <Constructor> Returns StringStack^ Parameters () Do {
-					// Creates and returns a new StringStack instance
-				}
-			]
 		]
 	]
 ]

@@ -53,12 +53,6 @@
 				// Remove all elements from queue
 				// Backed by C++ runtime
 			}
-
-			[ Static <>
-				Method <Constructor> Returns IntegerQueue^ Parameters () Do {
-					// Creates and returns a new IntegerQueue instance
-				}
-			]
 		]
 	]
 
@@ -100,12 +94,6 @@
 			Method <clear> Returns None Parameters () Do {
 				// Backed by C++ runtime
 			}
-
-			[ Static <>
-				Method <Constructor> Returns StringQueue^ Parameters () Do {
-					// Creates and returns a new StringQueue instance
-				}
-			]
 		]
 	]
 ]

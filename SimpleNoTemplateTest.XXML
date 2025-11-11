@@ -1,0 +1,23 @@
+#import System;
+
+[ Class <Box> Final Extends None
+
+    [ Public<>
+        Property <value> Types Integer^;
+
+        Constructor = default;
+
+        Method <getValue> Returns Integer^ Parameters () ->
+        {
+            Return 42;
+        }
+    ]
+
+]
+
+[ Entrypoint
+{
+    Instantiate Box^ As <b> = Box::Constructor();
+    Instantiate Integer^ As <v> = b.getValue();
+}
+]

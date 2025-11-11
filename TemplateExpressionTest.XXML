@@ -1,0 +1,30 @@
+#import System;
+
+// Test template instantiation in expressions
+
+[ Namespace <Test>
+    [ Class <Container> <T> Final Extends None
+
+    [ Public<>
+        Property <value> Types T^;
+
+        Constructor = default;
+
+        Method <getValue> Returns T^ Parameters () ->
+        {
+            Return value;
+        }
+    ]
+
+    ]
+]
+
+[ Entrypoint
+{
+    // ✅ Test: Template instantiation in expression context
+    // This used to fail with "Expected expression" error
+    Instantiate Test::Container^<Integer> As <c> = Test::Container<Integer>::Constructor();
+
+    Instantiate Integer^ As <v> = c.getValue();
+}
+]

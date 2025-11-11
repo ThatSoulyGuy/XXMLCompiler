@@ -1,0 +1,12 @@
+#import System;
+
+// Test None type
+
+[ Entrypoint
+{
+    // Test None::Constructor()
+    Instantiate None^ As <result> = None::Constructor();
+
+    Run Console::printLine(String::Constructor("None test passed!"));
+}
+]

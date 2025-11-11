@@ -1,0 +1,22 @@
+#import System;
+
+[ Class <Container> <T> Final Extends None
+
+    [ Public<>
+        Property <value> Types T^;
+
+        Constructor = default;
+
+        Method <getValue> Returns T^ Parameters () ->
+        {
+            Return value;
+        }
+    ]
+
+]
+
+[ Entrypoint
+{
+    Instantiate Container^<Integer> As <c> = Container<Integer>::Constructor();
+}
+]

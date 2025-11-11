@@ -33,29 +33,6 @@
 			}
 
 			// Static thread utilities
-			[ Static <>
-				Method <sleep> Returns None Parameters (
-					Parameter <milliseconds> Types Integer^
-				) Do {
-					// Sleep current thread for specified time
-					// Backed by C++ runtime: Environment::sleep
-				}
-
-				Method <yield> Returns None Parameters () Do {
-					// Yield execution to other threads
-					// Backed by C++ runtime: std::this_thread::yield
-				}
-
-				Method <getCurrentId> Returns Integer^ Parameters () Do {
-					// Get ID of current thread
-					// Backed by C++ runtime
-					Return Integer::Constructor(0);
-				}
-
-				Method <Constructor> Returns Thread^ Parameters () Do {
-					// Creates and returns a new Thread instance
-				}
-			]
 		]
 	]
 
@@ -87,11 +64,6 @@
 				Return Bool::Constructor(false);
 			}
 
-			[ Static <>
-				Method <Constructor> Returns Mutex^ Parameters () Do {
-					// Creates and returns a new Mutex instance
-				}
-			]
 		]
 	]
 
@@ -106,20 +78,6 @@
 			Constructor = default;
 
 			// Constructor with mutex
-			[ Static <>
-				Method <create> Returns Lock^ Parameters (
-					Parameter <mtx> Types Mutex^
-				) Do {
-					// Create lock and automatically acquire mutex
-					// Lock is released when Lock object is destroyed
-					// Implements RAII pattern
-					Return Lock::Constructor();
-				}
-
-				Method <Constructor> Returns Lock^ Parameters () Do {
-					// Creates and returns a new Lock instance
-				}
-			]
 
 			// Manual operations (if not using RAII)
 			Method <acquire> Returns None Parameters () Do {
@@ -178,11 +136,6 @@
 				Return Bool::Constructor(false);
 			}
 
-			[ Static <>
-				Method <Constructor> Returns Atomic^ Parameters () Do {
-					// Creates and returns a new Atomic instance
-				}
-			]
 		]
 	]
 ]

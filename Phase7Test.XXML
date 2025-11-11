@@ -1,0 +1,32 @@
+#import System;
+
+// Test Phase 7 syntax improvements
+
+[ Class <Container> <T> Final Extends None
+
+    [ Public<>
+        Property <value> Types T^;
+
+        Constructor = default;
+
+        Method <getValue> Returns T^ Parameters () ->
+        {
+            Return value;
+        }
+    ]
+
+]
+
+[ Entrypoint
+{
+    // ✅ Test 1: New syntax - ownership before template args (MyClass^<Integer>)
+    Instantiate Container^<Integer> As <c1> = Container<Integer>::Constructor();
+
+    // ✅ Test 2: Old syntax - ownership after template args (MyClass<Integer>^) - should still work
+    Instantiate Container<Integer>^ As <c2> = Container<Integer>::Constructor();
+
+    // ✅ Test 3: Both syntaxes should generate the same code
+    Instantiate Integer^ As <v1> = c1.getValue();
+    Instantiate Integer^ As <v2> = c2.getValue();
+}
+]

@@ -19,6 +19,8 @@ private:
     std::string currentClass;
     std::string currentNamespace;
     bool enableValidation;  // Controls whether to do full validation
+    bool inTemplateDefinition;  // True when analyzing template class/method definition
+    std::set<std::string> templateTypeParameters;  // Template parameters in current scope
 
     // Type checking helpers
     bool isCompatibleType(const std::string& expected, const std::string& actual);
@@ -60,8 +62,36 @@ private:
         }
     };
 
+    struct MethodTemplateInstantiation {
+        std::string className;  // Class containing the method
+        std::string methodName;  // Template method name
+        std::vector<Parser::TemplateArgument> arguments;
+        std::vector<int64_t> evaluatedValues;
+
+        bool operator<(const MethodTemplateInstantiation& other) const {
+            if (className != other.className) return className < other.className;
+            if (methodName != other.methodName) return methodName < other.methodName;
+            if (arguments.size() != other.arguments.size()) return arguments.size() < other.arguments.size();
+            for (size_t i = 0; i < arguments.size(); ++i) {
+                if (arguments[i].kind != other.arguments[i].kind) return arguments[i].kind < other.arguments[i].kind;
+                if (arguments[i].kind == Parser::TemplateArgument::Kind::Type) {
+                    if (arguments[i].typeArg != other.arguments[i].typeArg)
+                        return arguments[i].typeArg < other.arguments[i].typeArg;
+                } else if (i < evaluatedValues.size() && i < other.evaluatedValues.size()) {
+                    if (evaluatedValues[i] != other.evaluatedValues[i])
+                        return evaluatedValues[i] < other.evaluatedValues[i];
+                }
+            }
+            return false;
+        }
+    };
+
     std::unordered_map<std::string, Parser::ClassDecl*> templateClasses;  // Template class name -> definition
     std::set<TemplateInstantiation> templateInstantiations;  // Set of template instantiations
+
+    // Method template tracking (key: className::methodName -> MethodDecl*)
+    std::unordered_map<std::string, Parser::MethodDecl*> templateMethods;
+    std::set<MethodTemplateInstantiation> methodTemplateInstantiations;
 
     // Class member registry for validation
     struct MethodInfo {
@@ -84,8 +114,14 @@ private:
 
     // Helper for templates
     void recordTemplateInstantiation(const std::string& templateName, const std::vector<Parser::TemplateArgument>& args);
+    void recordMethodTemplateInstantiation(const std::string& className, const std::string& methodName, const std::vector<Parser::TemplateArgument>& args);
     int64_t evaluateConstantExpression(Parser::Expression* expr);  // Evaluate constant expressions at compile time
     bool isTemplateClass(const std::string& className);
+    bool isTemplateMethod(const std::string& className, const std::string& methodName);
+
+    // Constraint validation
+    bool validateConstraint(const std::string& typeName, const std::vector<std::string>& constraints);
+    bool isTypeCompatible(const std::string& actualType, const std::string& constraintType);
 
     // Helper for class member lookup
     ClassInfo* findClass(const std::string& className);
@@ -104,6 +140,12 @@ public:
     }
     const std::unordered_map<std::string, Parser::ClassDecl*>& getTemplateClasses() const {
         return templateClasses;
+    }
+    const std::set<MethodTemplateInstantiation>& getMethodTemplateInstantiations() const {
+        return methodTemplateInstantiations;
+    }
+    const std::unordered_map<std::string, Parser::MethodDecl*>& getTemplateMethods() const {
+        return templateMethods;
     }
 
 public:

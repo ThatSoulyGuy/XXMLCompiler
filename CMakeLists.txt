@@ -52,6 +52,7 @@ target_include_directories(XXMLLexer PUBLIC ${CMAKE_SOURCE_DIR}/include)
 # Parser library
 set(PARSER_SOURCES
     src/Parser/AST.cpp
+    src/Parser/ASTClone.cpp
     src/Parser/Parser.cpp
 )
 

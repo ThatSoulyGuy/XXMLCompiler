@@ -7,7 +7,8 @@ namespace CodeGen {
 
 CodeGenerator::CodeGenerator(Common::ErrorReporter& reporter)
     : indentLevel(0), errorReporter(reporter), semanticAnalyzer(nullptr), inClassDefinition(false),
-      currentNamespace(""), generatingDeclarationsOnly(false), generatingImplementationsOnly(false) {}
+      currentNamespace(""), generatingDeclarationsOnly(false), generatingImplementationsOnly(false),
+      needsAnyWrapper(false) {}
 
 void CodeGenerator::setSemanticAnalyzer(Semantic::SemanticAnalyzer* analyzer) {
     semanticAnalyzer = analyzer;
@@ -34,7 +35,7 @@ bool CodeGenerator::isPrimitiveType(const std::string& typeName) {
 
 bool CodeGenerator::isBuiltinType(const std::string& typeName) {
     return typeName == "Integer" || typeName == "Bool" || typeName == "String" ||
-           typeName == "Float" || typeName == "Double" || typeName == "StringArray" ||
+           typeName == "Float" || typeName == "Double" ||
            typeName.find("NativeType<") == 0;
 }
 
@@ -1188,34 +1189,10 @@ std::string CodeGenerator::mangleTemplateName(const std::string& templateName, c
 }
 
 std::unique_ptr<Parser::ClassDecl> CodeGenerator::cloneClassDecl(Parser::ClassDecl* original) {
-    // Create new ClassDecl with copied template parameters
-    auto cloned = std::make_unique<Parser::ClassDecl>(
-        original->name,
-        original->templateParams,  // Copy template params
-        original->isFinal,
-        original->baseClass,
-        original->location
+    // Use the proper clone() method for safe deep copying
+    return std::unique_ptr<Parser::ClassDecl>(
+        static_cast<Parser::ClassDecl*>(original->cloneDecl().release())
     );
-
-    // Clone each access section
-    for (auto& section : original->sections) {
-        auto clonedSection = std::make_unique<Parser::AccessSection>(section->modifier, section->location);
-
-        // Clone declarations in this section
-        for (auto& decl : section->declarations) {
-            // We need to clone each type of declaration
-            // For now, we'll use a simplified approach - copy the pointer
-            // In a production compiler, you'd deep-copy the entire AST
-            // This is safe because we only read from the original
-            clonedSection->declarations.push_back(std::unique_ptr<Parser::Declaration>(
-                static_cast<Parser::Declaration*>(decl.get())
-            ));
-        }
-
-        cloned->sections.push_back(std::move(clonedSection));
-    }
-
-    return cloned;
 }
 
 void CodeGenerator::substituteTypes(Parser::ClassDecl* classDecl, const std::unordered_map<std::string, std::string>& typeMap) {
@@ -1316,6 +1293,86 @@ void CodeGenerator::substituteTypesInExpression(Parser::Expression* expr, const 
     // Literals don't need substitution
 }
 
+void CodeGenerator::generateAnyWrapperClass() {
+    writeLine("// ============================================================================");
+    writeLine("// XXMLAny - Universal Type Wrapper for Wildcard Templates");
+    writeLine("// ============================================================================");
+    writeLine("");
+    writeLine("class XXMLAny {");
+    writeLine("private:");
+    indentLevel++;
+    writeLine("void* data;");
+    writeLine("std::string typeName;");
+    writeLine("std::function<void(void*)> deleter;");
+    writeLine("std::function<void*(const void*)> copier;");
+    indentLevel--;
+    writeLine("");
+    writeLine("public:");
+    indentLevel++;
+    writeLine("// Default constructor");
+    writeLine("XXMLAny() : data(nullptr), typeName(\"\") {}");
+    writeLine("");
+    writeLine("// Template constructor for any type");
+    writeLine("template<typename T>");
+    writeLine("XXMLAny(std::unique_ptr<T>&& value) {");
+    indentLevel++;
+    writeLine("data = value.release();");
+    writeLine("typeName = typeid(T).name();");
+    writeLine("deleter = [](void* ptr) { delete static_cast<T*>(ptr); };");
+    writeLine("copier = [](const void* ptr) -> void* { return new T(*static_cast<const T*>(ptr)); };");
+    indentLevel--;
+    writeLine("}");
+    writeLine("");
+    writeLine("// Copy constructor");
+    writeLine("XXMLAny(const XXMLAny& other) {");
+    indentLevel++;
+    writeLine("if (other.data && other.copier) {");
+    indentLevel++;
+    writeLine("data = other.copier(other.data);");
+    writeLine("typeName = other.typeName;");
+    writeLine("deleter = other.deleter;");
+    writeLine("copier = other.copier;");
+    indentLevel--;
+    writeLine("} else {");
+    indentLevel++;
+    writeLine("data = nullptr;");
+    writeLine("typeName = \"\";");
+    indentLevel--;
+    writeLine("}");
+    indentLevel--;
+    writeLine("}");
+    writeLine("");
+    writeLine("// Destructor");
+    writeLine("~XXMLAny() {");
+    indentLevel++;
+    writeLine("if (data && deleter) {");
+    indentLevel++;
+    writeLine("deleter(data);");
+    indentLevel--;
+    writeLine("}");
+    indentLevel--;
+    writeLine("}");
+    writeLine("");
+    writeLine("// Get type name");
+    writeLine("std::string getTypeName() const { return typeName; }");
+    writeLine("");
+    writeLine("// Cast to specific type");
+    writeLine("template<typename T>");
+    writeLine("T* as() {");
+    indentLevel++;
+    writeLine("if (typeName == typeid(T).name()) {");
+    indentLevel++;
+    writeLine("return static_cast<T*>(data);");
+    indentLevel--;
+    writeLine("}");
+    writeLine("return nullptr;");
+    indentLevel--;
+    writeLine("}");
+    indentLevel--;
+    writeLine("};");
+    writeLine("");
+}
+
 void CodeGenerator::generateTemplateInstantiations() {
     if (!semanticAnalyzer) {
         return;  // No semantic analyzer, skip template generation
@@ -1323,9 +1380,36 @@ void CodeGenerator::generateTemplateInstantiations() {
 
     const auto& instantiations = semanticAnalyzer->getTemplateInstantiations();
     const auto& templateClasses = semanticAnalyzer->getTemplateClasses();
+    const auto& methodInstantiations = semanticAnalyzer->getMethodTemplateInstantiations();
+    const auto& templateMethods = semanticAnalyzer->getTemplateMethods();
 
-    if (instantiations.empty()) {
+    if (instantiations.empty() && methodInstantiations.empty()) {
         return;  // No templates to instantiate
+    }
+
+    // Check if any instantiations use wildcards
+    for (const auto& inst : instantiations) {
+        for (const auto& arg : inst.arguments) {
+            if (arg.kind == Parser::TemplateArgument::Kind::Wildcard) {
+                needsAnyWrapper = true;
+                break;
+            }
+        }
+        if (needsAnyWrapper) break;
+    }
+    for (const auto& inst : methodInstantiations) {
+        for (const auto& arg : inst.arguments) {
+            if (arg.kind == Parser::TemplateArgument::Kind::Wildcard) {
+                needsAnyWrapper = true;
+                break;
+            }
+        }
+        if (needsAnyWrapper) break;
+    }
+
+    // Generate Any wrapper if needed
+    if (needsAnyWrapper) {
+        generateAnyWrapperClass();
     }
 
     writeLine("// ============================================================================");
@@ -1333,6 +1417,7 @@ void CodeGenerator::generateTemplateInstantiations() {
     writeLine("// ============================================================================");
     writeLine("");
 
+    // Generate class template instantiations
     for (const auto& inst : instantiations) {
         // Find the template class definition
         auto it = templateClasses.find(inst.templateName);
@@ -1358,6 +1443,10 @@ void CodeGenerator::generateTemplateInstantiations() {
             if (arg.kind == Parser::TemplateArgument::Kind::Type) {
                 typeMap[param.name] = arg.typeArg;
                 typeArgsAsStrings.push_back(arg.typeArg);
+            } else if (arg.kind == Parser::TemplateArgument::Kind::Wildcard) {
+                // Wildcard - substitute with XXMLAny wrapper
+                typeMap[param.name] = "XXMLAny";
+                typeArgsAsStrings.push_back("?");
             } else {
                 // Non-type parameter - use evaluated value
                 if (valueIndex < inst.evaluatedValues.size()) {
@@ -1391,6 +1480,100 @@ void CodeGenerator::generateTemplateInstantiations() {
                   }() + ">");
         instantiatedClass->accept(*this);
         writeLine("");
+    }
+
+    // Generate method template instantiations
+    for (const auto& inst : methodInstantiations) {
+        std::string methodKey = inst.className + "::" + inst.methodName;
+
+        // Find the template method definition
+        auto it = templateMethods.find(methodKey);
+        if (it == templateMethods.end()) {
+            // Template method not found
+            continue;
+        }
+
+        Parser::MethodDecl* templateMethod = it->second;
+
+        // Clone the template method
+        auto instantiatedMethod = cloneMethodDecl(templateMethod);
+
+        // Build type substitution map and extract type arguments as strings
+        std::unordered_map<std::string, std::string> typeMap;
+        std::vector<std::string> typeArgsAsStrings;
+        size_t valueIndex = 0;
+
+        for (size_t i = 0; i < templateMethod->templateParams.size() && i < inst.arguments.size(); ++i) {
+            const auto& param = templateMethod->templateParams[i];
+            const auto& arg = inst.arguments[i];
+
+            if (arg.kind == Parser::TemplateArgument::Kind::Type) {
+                typeMap[param.name] = arg.typeArg;
+                typeArgsAsStrings.push_back(arg.typeArg);
+            } else if (arg.kind == Parser::TemplateArgument::Kind::Wildcard) {
+                // Wildcard - substitute with XXMLAny wrapper
+                typeMap[param.name] = "XXMLAny";
+                typeArgsAsStrings.push_back("?");
+            } else {
+                // Non-type parameter - use evaluated value
+                if (valueIndex < inst.evaluatedValues.size()) {
+                    std::string valueStr = std::to_string(inst.evaluatedValues[valueIndex]);
+                    typeMap[param.name] = valueStr;
+                    typeArgsAsStrings.push_back(valueStr);
+                    valueIndex++;
+                }
+            }
+        }
+
+        // Substitute types throughout the method
+        substituteTypesInMethod(instantiatedMethod.get(), typeMap);
+
+        // Generate mangled name
+        std::string mangledName = mangleTemplateName(inst.methodName, typeArgsAsStrings);
+        instantiatedMethod->name = mangledName;
+
+        // Clear template parameters (it's no longer a template)
+        instantiatedMethod->templateParams.clear();
+
+        // Generate code for this instantiated method
+        writeLine("// Method Instantiation: " + inst.className + "::" + inst.methodName + "<" +
+                  [&typeArgsAsStrings]() {
+                      std::string result;
+                      for (size_t i = 0; i < typeArgsAsStrings.size(); ++i) {
+                          if (i > 0) result += ", ";
+                          result += typeArgsAsStrings[i];
+                      }
+                      return result;
+                  }() + ">");
+
+        // Save state and generate as a standalone method
+        std::string savedClass = currentClassName;
+        currentClassName = inst.className;
+        instantiatedMethod->accept(*this);
+        currentClassName = savedClass;
+        writeLine("");
+    }
+}
+
+std::unique_ptr<Parser::MethodDecl> CodeGenerator::cloneMethodDecl(Parser::MethodDecl* original) {
+    // Use the proper clone() method for safe deep copying
+    return std::unique_ptr<Parser::MethodDecl>(
+        static_cast<Parser::MethodDecl*>(original->cloneDecl().release())
+    );
+}
+
+void CodeGenerator::substituteTypesInMethod(Parser::MethodDecl* methodDecl, const std::unordered_map<std::string, std::string>& typeMap) {
+    // Substitute return type
+    substituteTypesInTypeRef(methodDecl->returnType.get(), typeMap);
+
+    // Substitute parameter types
+    for (auto& param : methodDecl->parameters) {
+        substituteTypesInTypeRef(param->type.get(), typeMap);
+    }
+
+    // Substitute types in method body
+    for (auto& stmt : methodDecl->body) {
+        substituteTypesInStatement(stmt.get(), typeMap);
     }
 }
 

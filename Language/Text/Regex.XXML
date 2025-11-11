@@ -16,15 +16,6 @@
 			Constructor = default;
 
 			// Static factory method
-			[ Static <>
-				Method <compile> Returns Pattern^ Parameters (
-					Parameter <patternString> Types String^
-				) Do {
-					// Compile a regex pattern
-					// Backed by C++ runtime: RegexLib::Pattern constructor
-					Return Pattern::Constructor();
-				}
-			]
 
 			// Validation
 			Method <isValid> Returns Bool^ Parameters () Do {
@@ -70,19 +61,14 @@
 			}
 
 			// Split Operation
-			Method <split> Returns StringArray^ Parameters (
+			Method <split> Returns Collections::List<String>^ Parameters (
 				Parameter <text> Types String^
 			) Do {
 				// Split text by pattern matches
 				// Backed by C++ runtime (requires implementation)
-				// Returns array of substrings
+				// Returns list of substrings
 			}
 
-			[ Static <>
-				Method <Constructor> Returns Pattern^ Parameters () Do {
-					// Creates and returns a new Pattern instance
-				}
-			]
 		]
 	]
 
@@ -93,38 +79,6 @@
 			Constructor = default;
 
 			// Common Pattern Matching
-			[ Static <>
-				Method <isEmail> Returns Bool^ Parameters (
-					Parameter <text> Types String^
-				) Do {
-					// Check if text is valid email format
-					// Uses pattern: ^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$
-					Return Bool::Constructor(false);
-				}
-
-				Method <isURL> Returns Bool^ Parameters (
-					Parameter <text> Types String^
-				) Do {
-					// Check if text is valid URL format
-					Return Bool::Constructor(false);
-				}
-
-				Method <isNumeric> Returns Bool^ Parameters (
-					Parameter <text> Types String^
-				) Do {
-					// Check if text contains only digits
-					// Uses pattern: ^\d+$
-					Return Bool::Constructor(false);
-				}
-
-				Method <isAlphabetic> Returns Bool^ Parameters (
-					Parameter <text> Types String^
-				) Do {
-					// Check if text contains only letters
-					// Uses pattern: ^[a-zA-Z]+$
-					Return Bool::Constructor(false);
-				}
-			]
 		]
 	]
 ]
