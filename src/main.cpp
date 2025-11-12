@@ -489,6 +489,9 @@ int main(int argc, char* argv[]) {
         fullOutput << "    T* operator->() { return &get(); }\n";
         fullOutput << "    const T* operator->() const { return &get(); }\n";
         fullOutput << "    bool isMovedFrom() const { return movedFrom_; }\n";
+        fullOutput << "    \n";
+        fullOutput << "    // Equality operator - must be specialized for each type\n";
+        fullOutput << "    bool operator==(const Owned& other) const;\n";
         fullOutput << "};\n\n";
         fullOutput << "} // namespace Runtime\n";
         fullOutput << "} // namespace Language\n\n";
@@ -673,7 +676,9 @@ int main(int argc, char* argv[]) {
         fullOutput << "namespace Runtime {\n";
         fullOutput << "template<>\n";
         fullOutput << "inline bool Owned<Language::Core::String>::operator==(const Owned<Language::Core::String>& other) const {\n";
-        fullOutput << "    return this->get().equals(const_cast<Language::Core::String&>(other.get()))->toBoolean();\n";
+        fullOutput << "    Language::Core::String& lhs = const_cast<Language::Core::String&>(this->get());\n";
+        fullOutput << "    Language::Core::String& rhs = const_cast<Language::Core::String&>(other.get());\n";
+        fullOutput << "    return lhs.equals(rhs)->toBool();\n";
         fullOutput << "}\n";
         fullOutput << "} // namespace Runtime\n";
         fullOutput << "} // namespace Language\n\n";

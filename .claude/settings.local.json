@@ -127,7 +127,10 @@
       "Bash(else cmake --build build --config Release)",
       "Bash(if [ -f output.exe ])",
       "Bash(then echo \"✓ SUCCESS: Compilation completed! output.exe created\")",
-      "Bash(else echo \"Compilation failed - no output.exe\")"
+      "Bash(else echo \"Compilation failed - no output.exe\")",
+      "Bash(then echo \"✅ SUCCESS! Compilation completed!\")",
+      "Bash(else echo \"No exe found, checking errors...\")",
+      "Bash(powershell:*)"
     ],
     "deny": [],
     "ask": []
