@@ -111,6 +111,7 @@ private:
     // ✅ REMOVED STATIC STATE - now instance-based in context
     std::unordered_map<std::string, ClassInfo> classRegistry_;  // Qualified class name -> ClassInfo
     std::set<std::string> validNamespaces_;  // Track all valid namespaces
+    std::set<std::string> importedNamespaces_;  // Track imported namespaces for unqualified name lookup
 
     // Helper for templates
     void recordTemplateInstantiation(const std::string& templateName, const std::vector<Parser::TemplateArgument>& args);

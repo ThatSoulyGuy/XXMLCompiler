@@ -1,0 +1,23 @@
+// Test the new import system
+#import Language::Core;
+#import Language::System;
+
+[ Entrypoint {
+    // Test using String without Language::Core:: prefix
+    Instantiate String^ As <message> = String::Constructor("Import system works!");
+
+    // Test using Console without System:: prefix (it's in Language::System)
+    Run Console::printLine(message);
+
+    // Test using Integer without qualification
+    Instantiate Integer^ As <num> = Integer::Constructor(42);
+    Instantiate String^ As <numStr> = num.toString();
+    Run Console::print(String::Constructor("Number: "));
+    Run Console::printLine(numStr);
+
+    // Test using Bool
+    Instantiate Bool^ As <flag> = Bool::Constructor(true);
+    Run Console::printLine(String::Constructor("Bool test passed"));
+
+    Run Console::printLine(String::Constructor("✓ All imports working correctly!"));
+}]

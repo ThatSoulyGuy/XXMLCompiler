@@ -1,6 +1,7 @@
 #include "../../include/CodeGen/CodeGenerator.h"
 #include "../../include/Semantic/SemanticAnalyzer.h"
 #include <algorithm>
+#include <functional>
 
 namespace XXML {
 namespace CodeGen {
@@ -41,7 +42,10 @@ bool CodeGenerator::isBuiltinType(const std::string& typeName) {
 
 bool CodeGenerator::isSmartPointerType(const std::string& typeName, Parser::OwnershipType ownership) {
     // All types with Owned ownership (T^) generate Owned<T> which has smart pointer semantics
-    return ownership == Parser::OwnershipType::Owned && typeName != "None";
+    // Except for None and NativeType which are raw C++ types
+    return ownership == Parser::OwnershipType::Owned &&
+           typeName != "None" &&
+           typeName.find("NativeType<") != 0;
 }
 
 std::string CodeGenerator::getOwnershipType(Parser::OwnershipType ownership, const std::string& typeName) {
@@ -50,6 +54,18 @@ std::string CodeGenerator::getOwnershipType(Parser::OwnershipType ownership, con
     // Special case: None/void
     if (typeName == "None") {
         return "void";
+    }
+
+    // Special case: NativeType should never be wrapped in Owned<>, they're raw C++ types
+    if (typeName.find("NativeType<") == 0) {
+        switch (ownership) {
+            case Parser::OwnershipType::Reference:
+                // NativeType& - Reference
+                return cppType + "&";
+            default:
+                // NativeType^ or NativeType% - Keep as raw type
+                return cppType;
+        }
     }
 
     switch (ownership) {
@@ -174,11 +190,13 @@ std::string CodeGenerator::convertType(const std::string& xxmlType) {
 
             // Map XXML native types to C++ types
             if (nativeType == "ptr") {
-                return "void*";
+                return "unsigned char*";  // Use unsigned char* to allow pointer arithmetic
+            } else if (nativeType == "const_ptr") {
+                return "const unsigned char*";  // Const pointer for read-only data
             } else if (nativeType == "\"string_ptr\"" || nativeType == "string_ptr") {
                 return "void*";  // Pointer to std::string
             } else if (nativeType == "\"cstr\"" || nativeType == "cstr") {
-                return "const void*";  // C string pointer (const char*)
+                return "const unsigned char*";  // C string pointer
             } else if (nativeType == "int64" || nativeType == "\"int64\"") {
                 return "int64_t";
             } else if (nativeType == "int32") {
@@ -204,10 +222,10 @@ std::string CodeGenerator::convertType(const std::string& xxmlType) {
             } else if (nativeType == "char") {
                 return "char";
             } else {
-                return "void*"; // Default to void* for unknown types
+                return "unsigned char*"; // Default to unsigned char* for unknown types (allows pointer arithmetic)
             }
         }
-        return "void*";
+        return "unsigned char*";
     } else {
         // For user-defined types, use qualified names
         std::string cppType = xxmlType;
@@ -245,6 +263,9 @@ std::string CodeGenerator::generate(Parser::Program& program, bool includeHeader
         writeLine("#include <string>");
         writeLine("#include <memory>");
         writeLine("#include <cstdint>");
+        writeLine("#include <chrono>");
+        writeLine("#include <cstdlib>");
+        writeLine("#include \"../runtime/xxml_runtime.h\"");
         writeLine("");
     }
 
@@ -440,7 +461,7 @@ void CodeGenerator::visit(Parser::MethodDecl& node) {
             auto& param = node.parameters[i];
             std::string paramType = getParameterType(param->type->ownership, param->type->typeName);
             // String constructor should use const void* for string literals
-            if (currentClassName == "String" && paramType == "void*") {
+            if (currentClassName == "String" && (paramType == "void*" || paramType == "const unsigned char*" || paramType == "unsigned char*")) {
                 paramType = "const void*";
             }
             write(paramType + " " + sanitizeIdentifier(param->name));
@@ -497,7 +518,7 @@ void CodeGenerator::visit(Parser::MethodDecl& node) {
             if (i > 0) write(", ");
             auto& param = node.parameters[i];
             std::string paramType = getParameterType(param->type->ownership, param->type->typeName);
-            if (currentClassName == "String" && paramType == "void*") {
+            if (currentClassName == "String" && (paramType == "void*" || paramType == "const unsigned char*" || paramType == "unsigned char*")) {
                 paramType = "const void*";
             }
             write(paramType + " " + sanitizeIdentifier(param->name));
@@ -514,6 +535,8 @@ void CodeGenerator::visit(Parser::MethodDecl& node) {
         // Regular method
         // Console methods should be static since they're called as System::Console::methodName()
         bool isConsoleMethod = (currentClassName == "Console");
+        // FromCString should be static since it's a factory method
+        bool isStaticFactoryMethod = (methodName == "FromCString");
 
         // When generating implementations only, skip declarations and generate qualified names
         if (generatingImplementationsOnly) {
@@ -525,7 +548,7 @@ void CodeGenerator::visit(Parser::MethodDecl& node) {
             // Generate method signature with qualified class name
             std::string qualifiedMethodName = currentNamespace + "::" + currentClassName + "::" + methodName;
             write(returnType + " " + qualifiedMethodName + "(");
-        } else if (isConsoleMethod) {
+        } else if (isConsoleMethod || isStaticFactoryMethod) {
             write("static ");
             // Use fully qualified type names for Console methods
             std::string qualifiedReturnType = returnType;
@@ -572,14 +595,14 @@ void CodeGenerator::visit(Parser::MethodDecl& node) {
 
         indentLevel++;
 
-        // Generate actual implementations for Console methods
+        // Generate actual implementations for Console methods using runtime System namespace
         if (isConsoleMethod) {
             if (methodName == "print") {
-                writeLine("std::cout << (const char*)message.toCString();");
+                writeLine("System::Print(message);");
             } else if (methodName == "printLine") {
-                writeLine("std::cout << (const char*)message.toCString() << std::endl;");
+                writeLine("System::PrintLine(message);");
             } else if (methodName == "printError") {
-                writeLine("std::cerr << (const char*)message.toCString() << std::endl;");
+                writeLine("std::cerr << message.getData() << std::endl;");
             } else if (methodName == "clear") {
                 writeLine("#ifdef _WIN32");
                 writeLine("    system(\"cls\");");
@@ -587,25 +610,40 @@ void CodeGenerator::visit(Parser::MethodDecl& node) {
                 writeLine("    system(\"clear\");");
                 writeLine("#endif");
             } else if (methodName == "readLine") {
-                writeLine("return String::Constructor();");  // Intrinsic - actual implementation in main.cpp
+                writeLine("return System::ReadLine();");
             } else if (methodName == "readChar") {
-                writeLine("return String::Constructor();");  // Intrinsic
+                writeLine("std::string input;");
+                writeLine("std::cin >> input;");
+                writeLine("return String(input.empty() ? \"\" : input.substr(0, 1));");
             } else if (methodName == "readInt") {
-                writeLine("return Integer::Constructor(0);");  // Intrinsic
+                writeLine("int64_t value;");
+                writeLine("std::cin >> value;");
+                writeLine("return Integer(value);");
             } else if (methodName == "readFloat") {
-                writeLine("return Float::Constructor(0);");  // Intrinsic
+                writeLine("float value;");
+                writeLine("std::cin >> value;");
+                writeLine("return Float(value);");
             } else if (methodName == "readDouble") {
-                writeLine("return Double::Constructor(0);");  // Intrinsic
+                writeLine("double value;");
+                writeLine("std::cin >> value;");
+                writeLine("return Double(value);");
             } else if (methodName == "readBool") {
-                writeLine("return Bool::Constructor(false);");  // Intrinsic
+                writeLine("bool value;");
+                writeLine("std::cin >> value;");
+                writeLine("return Bool(value);");
             } else if (methodName == "getTime") {
-                writeLine("return Language::Core::Integer(0);");
+                writeLine("return System::GetTime();");
             } else if (methodName == "getTimeMillis") {
-                writeLine("return Language::Core::Integer(0);");
+                writeLine("return Integer(static_cast<int64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count()));");
             } else if (methodName == "getEnv") {
-                writeLine("return Language::Core::String();");
+                writeLine("const char* val = std::getenv(name.getData().c_str());");
+                writeLine("return val ? String(val) : String(\"\");");
             } else if (methodName == "setEnv") {
-                writeLine("return Language::Core::Bool(false);");
+                writeLine("#ifdef _WIN32");
+                writeLine("    return Bool(_putenv_s(name.getData().c_str(), value.getData().c_str()) == 0);");
+                writeLine("#else");
+                writeLine("    return Bool(setenv(name.getData().c_str(), value.getData().c_str(), 1) == 0);");
+                writeLine("#endif");
             } else {
                 // For other Console methods, use the body from XXML
                 for (auto& stmt : node.body) {
@@ -679,15 +717,98 @@ void CodeGenerator::visit(Parser::InstantiateStmt& node) {
     // Track ownership type for this variable (for copy vs reference validation)
     variableOwnership[node.variableName] = node.type->ownership;
 
-    // Special handling for Owned<T> initialization
-    // When initializing Owned<T> from a member access or identifier that might be Owned<T>,
-    // we need to call .get() to extract the underlying value
+    // Special handling for type conversions
+    // NativeType variables are raw C++ types and shouldn't have .get() called on them
+    bool isNativeType = fullTypeName.find("NativeType<") == 0;
+
+    // When initializing from an Owned property, we need .get()
+    // But NOT for NativeType (which are raw types now)
     bool needsGet = false;
-    if (node.type->ownership == Parser::OwnershipType::Owned) {
+    if (!isNativeType && node.type->ownership == Parser::OwnershipType::Owned) {
         // Check if initializer is a member access or identifier (likely accessing an Owned property)
         if (dynamic_cast<Parser::MemberAccessExpr*>(node.initializer.get()) ||
             dynamic_cast<Parser::IdentifierExpr*>(node.initializer.get())) {
             needsGet = true;
+        }
+    }
+
+    // Special case: Converting from Integer/Bool/String to NativeType
+    // Need to call conversion methods
+    // Only do this if the initializer is an IdentifierExpr (parameter or variable)
+    // and not a MemberAccessExpr or other complex expression
+    std::string conversionMethod = "";
+    bool shouldConvert = false;
+
+    if (isNativeType) {
+        // Only convert if initializer is a simple identifier (not a member access or call)
+        auto* identExpr = dynamic_cast<Parser::IdentifierExpr*>(node.initializer.get());
+        if (identExpr) {
+            std::string nativeTypeName = fullTypeName;
+            // Extract the native type parameter: NativeType<"int64"> -> int64
+            size_t start = nativeTypeName.find('<');
+            if (start != std::string::npos) {
+                std::string innerType = nativeTypeName.substr(start + 1);
+                size_t end = innerType.find('>');
+                if (end != std::string::npos) {
+                    innerType = innerType.substr(0, end);
+                    // Remove quotes if present
+                    if (!innerType.empty() && innerType.front() == '"' && innerType.back() == '"') {
+                        innerType = innerType.substr(1, innerType.length() - 2);
+                    }
+
+                    // Check if we might be converting from Integer to int64
+                    // This heuristic checks if the variable name or type suggests it's an Integer
+                    if (innerType.find("int") == 0 || innerType == "int64" || innerType == "int32") {
+                        // Heuristic: if the identifier is a known variable that's NOT a NativeType,
+                        // or doesn't end with typical NativeType variable names
+                        std::string varName = identExpr->name;
+                        // Don't convert if variable name suggests it's already a raw value
+                        // (e.g., "value", "idx", "result", "capacity", "count", or contains "Ptr")
+                        if (varName != "value" &&
+                            varName != "idx" &&
+                            varName != "result" &&
+                            varName != "v" &&
+                            varName != "v1" &&
+                            varName != "v2" &&
+                            varName != "capacity" &&
+                            varName != "count" &&
+                            varName != "currentCap" &&
+                            varName != "currentCount" &&
+                            varName != "size" &&
+                            varName != "len" &&
+                            varName != "length" &&
+                            varName.find("Ptr") == std::string::npos &&
+                            varName.find("ptr") == std::string::npos &&
+                            varName.find("Cap") == std::string::npos) {
+                            conversionMethod = ".toInt64()";
+                            shouldConvert = true;
+                        }
+                    } else if (innerType == "bool") {
+                        // Similar heuristic for bool
+                        std::string varName = identExpr->name;
+                        if (varName != "value" &&
+                            varName != "v" &&
+                            varName != "v1" &&
+                            varName != "v2") {
+                            conversionMethod = ".toBool()";
+                            shouldConvert = true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Check if we need const_cast for const -> non-const pointer conversion
+    bool needsConstCast = false;
+    if (type == "unsigned char*" && isNativeType) {
+        // Check if initializer is a method call (likely toCString which returns const unsigned char*)
+        if (auto* callExpr = dynamic_cast<Parser::CallExpr*>(node.initializer.get())) {
+            if (auto* memberExpr = dynamic_cast<Parser::MemberAccessExpr*>(callExpr->callee.get())) {
+                if (memberExpr->member == "toCString") {
+                    needsConstCast = true;
+                }
+            }
         }
     }
 
@@ -696,6 +817,16 @@ void CodeGenerator::visit(Parser::InstantiateStmt& node) {
         write(type + " " + varName + "(");
         node.initializer->accept(*this);
         write(".get())");
+    } else if (shouldConvert) {
+        // Use conversion method
+        write(type + " " + varName + " = ");
+        node.initializer->accept(*this);
+        write(conversionMethod);
+    } else if (needsConstCast) {
+        // Add const_cast for const -> non-const pointer conversion
+        write(type + " " + varName + " = const_cast<" + type + ">(");
+        node.initializer->accept(*this);
+        write(")");
     } else {
         // Regular assignment
         write(type + " " + varName + " = ");
@@ -892,8 +1023,9 @@ void CodeGenerator::visit(Parser::StringLiteralExpr& node) {
             default: escaped += c; break;
         }
     }
-    // Output raw string literal - let the context wrap it if needed
-    write("\"" + escaped + "\"");
+    // Output string literal with cast to const unsigned char* for compatibility
+    // C++ string literals are const char*, but we use const unsigned char* in our type system
+    write("reinterpret_cast<const unsigned char*>(\"" + escaped + "\")");
 }
 
 void CodeGenerator::visit(Parser::BoolLiteralExpr& node) {
@@ -913,7 +1045,21 @@ void CodeGenerator::visit(Parser::IdentifierExpr& node) {
         expressionIsSmartPointer[&node] = it->second;
     }
 
-    write(sanitizeIdentifier(node.name));
+    // Qualify core class names to avoid namespace issues
+    std::string name = node.name;
+    if (name == "String") {
+        name = "Language::Core::String";
+    } else if (name == "Integer") {
+        name = "Language::Core::Integer";
+    } else if (name == "Bool") {
+        name = "Language::Core::Bool";
+    } else if (name == "Float") {
+        name = "Language::Core::Float";
+    } else if (name == "Double") {
+        name = "Language::Core::Double";
+    }
+
+    write(sanitizeIdentifier(name));
 }
 
 void CodeGenerator::visit(Parser::ReferenceExpr& node) {
@@ -1107,6 +1253,15 @@ void CodeGenerator::visit(Parser::CallExpr& node) {
         write(")");
     } else {
         // Regular method call
+        // Check if this is ptr_write for special handling
+        bool isPtrWrite = false;
+        if (auto* memberExpr = dynamic_cast<Parser::MemberAccessExpr*>(node.callee.get())) {
+            if (memberExpr->member == "ptr_write" || memberExpr->member == "::ptr_write" ||
+                memberExpr->member.find("ptr_write") != std::string::npos) {
+                isPtrWrite = true;
+            }
+        }
+
         node.callee->accept(*this);
 
         write("(");
@@ -1125,7 +1280,26 @@ void CodeGenerator::visit(Parser::CallExpr& node) {
                 }
             }
 
-            if (needsMove) {
+            // Special handling for ptr_write second argument (index 1)
+            // The second argument should be void* but might be int64 or pointer, so cast it
+            bool needsPtrCast = false;
+            if (isPtrWrite && i == 1) {
+                // Always cast the second argument of ptr_write to void* for safety
+                // This handles both int64 values and pointer values correctly
+                needsPtrCast = true;
+            }
+
+            if (needsPtrCast) {
+                write("reinterpret_cast<void*>(");
+                if (needsMove) {
+                    write("std::move(");
+                    node.arguments[i]->accept(*this);
+                    write(")");
+                } else {
+                    node.arguments[i]->accept(*this);
+                }
+                write(")");
+            } else if (needsMove) {
                 write("std::move(");
                 node.arguments[i]->accept(*this);
                 write(")");

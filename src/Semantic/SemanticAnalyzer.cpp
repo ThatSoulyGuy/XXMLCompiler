@@ -163,6 +163,9 @@ void SemanticAnalyzer::visit(Parser::ImportDecl& node) {
     // Since modules are already parsed and in the registry, we can access them
     symbolTable_->importAllFrom(node.modulePath);
 
+    // Track this namespace as imported for unqualified name lookup
+    importedNamespaces_.insert(node.modulePath);
+
     // Note: If the module isn't found in the registry, importAllFrom will print a warning
     // This is acceptable since not all imports may be resolved at semantic analysis time
 }
@@ -173,6 +176,9 @@ void SemanticAnalyzer::visit(Parser::NamespaceDecl& node) {
 
     // Register namespace as valid
     validNamespaces_.insert(node.name);
+
+    // Track this namespace as imported (for classes in imported modules to be accessible)
+    importedNamespaces_.insert(node.name);
 
     // Create namespace scope
     symbolTable_->enterScope(node.name);
@@ -330,6 +336,28 @@ void SemanticAnalyzer::visit(Parser::ClassDecl& node) {
         }
     }
 
+    // ✅ FIX: First pass - Define all method symbols before processing bodies
+    // This ensures methods can call each other regardless of declaration order
+    for (auto& section : node.sections) {
+        for (auto& decl : section->declarations) {
+            if (auto* methodDecl = dynamic_cast<Parser::MethodDecl*>(decl.get())) {
+                // Check if method already exists
+                Symbol* existing = symbolTable_->getCurrentScope()->resolveLocal(methodDecl->name);
+                if (!existing) {
+                    // Define the method symbol (signature only)
+                    auto symbol = std::make_unique<Symbol>(
+                        methodDecl->name,
+                        SymbolKind::Method,
+                        methodDecl->returnType->typeName,
+                        methodDecl->returnType->ownership,
+                        methodDecl->location
+                    );
+                    symbolTable_->define(methodDecl->name, std::move(symbol));
+                }
+            }
+        }
+    }
+
     // Process access sections (normal visitor pattern)
     for (auto& section : node.sections) {
         section->accept(*this);
@@ -421,24 +449,18 @@ void SemanticAnalyzer::visit(Parser::ConstructorDecl& node) {
 void SemanticAnalyzer::visit(Parser::MethodDecl& node) {
     // Check if method already exists
     Symbol* existing = symbolTable_->getCurrentScope()->resolveLocal(node.name);
-    if (existing && existing->kind == SymbolKind::Method) {
-        errorReporter.reportError(
-            Common::ErrorCode::DuplicateDeclaration,
-            "Method '" + node.name + "' already declared",
+    if (!existing) {
+        // Define the method symbol if not already defined
+        // (It should already be defined from the first pass in ClassDecl)
+        auto symbol = std::make_unique<Symbol>(
+            node.name,
+            SymbolKind::Method,
+            node.returnType->typeName,
+            node.returnType->ownership,
             node.location
         );
-        return;
+        symbolTable_->define(node.name, std::move(symbol));
     }
-
-    // Define the method symbol
-    auto symbol = std::make_unique<Symbol>(
-        node.name,
-        SymbolKind::Method,
-        node.returnType->typeName,
-        node.returnType->ownership,
-        node.location
-    );
-    symbolTable_->define(node.name, std::move(symbol));
 
     // Enter method scope
     symbolTable_->enterScope(node.name);
@@ -819,9 +841,10 @@ void SemanticAnalyzer::visit(Parser::IdentifierExpr& node) {
             return;
         }
 
-        // Don't error on qualified names or constructor calls
+        // Don't error on qualified names, constructor calls, or template instantiations
         if (node.name.find("Constructor") != std::string::npos ||
-            node.name.find("::") != std::string::npos) {
+            node.name.find("::") != std::string::npos ||
+            node.name.find("<") != std::string::npos) {  // Template instantiation like List<Integer>
             expressionTypes[&node] = "Unknown";
             expressionOwnerships[&node] = Parser::OwnershipType::Owned;
             return;
@@ -1262,6 +1285,17 @@ SemanticAnalyzer::ClassInfo* SemanticAnalyzer::findClass(const std::string& clas
         }
     }
 
+    // Try each imported namespace if not qualified
+    if (className.find("::") == std::string::npos) {
+        for (const auto& importedNs : importedNamespaces_) {
+            std::string qualifiedName = importedNs + "::" + className;
+            it = classRegistry_.find(qualifiedName);
+            if (it != classRegistry_.end()) {
+                return &it->second;
+            }
+        }
+    }
+
     // Try without namespace prefix (for fully qualified lookups)
     size_t lastColon = className.rfind("::");
     if (lastColon != std::string::npos) {
@@ -1309,6 +1343,17 @@ SemanticAnalyzer::ClassInfo* SemanticAnalyzer::findClass(const std::string& clas
                 git = globalRegistry->find(qualifiedName);
                 if (git != globalRegistry->end()) {
                     return &git->second;
+                }
+            }
+
+            // Try each imported namespace in global registry
+            if (className.find("::") == std::string::npos) {
+                for (const auto& importedNs : importedNamespaces_) {
+                    std::string qualifiedName = importedNs + "::" + className;
+                    git = globalRegistry->find(qualifiedName);
+                    if (git != globalRegistry->end()) {
+                        return &git->second;
+                    }
                 }
             }
 

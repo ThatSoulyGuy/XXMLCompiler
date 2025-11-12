@@ -404,6 +404,7 @@ int main(int argc, char* argv[]) {
         fullOutput << "#include <memory>\n";
         fullOutput << "#include <cstdint>\n";
         fullOutput << "#include <cstring>\n";
+        fullOutput << "#include <cstdlib>\n";
         fullOutput << "#include <limits>\n";
         fullOutput << "#include <cassert>\n";
         fullOutput << "#include <stdexcept>\n";
@@ -499,8 +500,8 @@ int main(int argc, char* argv[]) {
         fullOutput << "    static void* string_create(const void* cstr) {\n";
         fullOutput << "        return (void*)new std::string((const char*)cstr);\n";
         fullOutput << "    }\n";
-        fullOutput << "    static const char* string_cstr(void* ptr) {\n";
-        fullOutput << "        return ((std::string*)ptr)->c_str();\n";
+        fullOutput << "    static const unsigned char* string_cstr(void* ptr) {\n";
+        fullOutput << "        return reinterpret_cast<const unsigned char*>(((std::string*)ptr)->c_str());\n";
         fullOutput << "    }\n";
         fullOutput << "    static int64_t string_length(void* ptr) {\n";
         fullOutput << "        return ((std::string*)ptr)->length();\n";
@@ -522,10 +523,48 @@ int main(int argc, char* argv[]) {
         fullOutput << "    static void memcpy(void* dest, const void* src, size_t n) {\n";
         fullOutput << "        std::memcpy(dest, src, n);\n";
         fullOutput << "    }\n";
-        fullOutput << "    static const char* int_to_string(int64_t value) {\n";
+        fullOutput << "    static const unsigned char* int_to_string(int64_t value) {\n";
         fullOutput << "        static thread_local std::string buffer;\n";
         fullOutput << "        buffer = std::to_string(value);\n";
-        fullOutput << "        return buffer.c_str();\n";
+        fullOutput << "        return reinterpret_cast<const unsigned char*>(buffer.c_str());\n";
+        fullOutput << "    }\n";
+        fullOutput << "    static unsigned char* malloc(int64_t size) {\n";
+        fullOutput << "        return static_cast<unsigned char*>(std::malloc(static_cast<size_t>(size)));\n";
+        fullOutput << "    }\n";
+        fullOutput << "    static void free(void* ptr) {\n";
+        fullOutput << "        std::free(ptr);\n";
+        fullOutput << "    }\n";
+        fullOutput << "    static void* memset(void* dest, int value, int64_t size) {\n";
+        fullOutput << "        return std::memset(dest, value, static_cast<size_t>(size));\n";
+        fullOutput << "    }\n";
+        fullOutput << "    static int64_t read_int64(const void* ptr) {\n";
+        fullOutput << "        return *static_cast<const int64_t*>(ptr);\n";
+        fullOutput << "    }\n";
+        fullOutput << "    static void write_int64(void* ptr, int64_t value) {\n";
+        fullOutput << "        *static_cast<int64_t*>(ptr) = value;\n";
+        fullOutput << "    }\n";
+        fullOutput << "    static const unsigned char* string_charAt(void* strPtr, int64_t index) {\n";
+        fullOutput << "        std::string* str = static_cast<std::string*>(strPtr);\n";
+        fullOutput << "        if (index < 0 || index >= static_cast<int64_t>(str->length())) {\n";
+        fullOutput << "            static thread_local std::string empty;\n";
+        fullOutput << "            empty = \"\";\n";
+        fullOutput << "            return reinterpret_cast<const unsigned char*>(empty.c_str());\n";
+        fullOutput << "        }\n";
+        fullOutput << "        static thread_local std::string charBuf;\n";
+        fullOutput << "        charBuf = str->substr(static_cast<size_t>(index), 1);\n";
+        fullOutput << "        return reinterpret_cast<const unsigned char*>(charBuf.c_str());\n";
+        fullOutput << "    }\n";
+        fullOutput << "    static void* ptr_add(void* ptr, int64_t offset) {\n";
+        fullOutput << "        return static_cast<void*>(static_cast<char*>(ptr) + offset);\n";
+        fullOutput << "    }\n";
+        fullOutput << "    static unsigned char* ptr_read(const void* ptr) {\n";
+        fullOutput << "        return static_cast<unsigned char*>(*static_cast<void* const*>(ptr));\n";
+        fullOutput << "    }\n";
+        fullOutput << "    static void ptr_write(void* dest, void* value) {\n";
+        fullOutput << "        *static_cast<void**>(dest) = value;\n";
+        fullOutput << "    }\n";
+        fullOutput << "    static int64_t read_byte(const void* ptr) {\n";
+        fullOutput << "        return static_cast<int64_t>(*static_cast<const unsigned char*>(ptr));\n";
         fullOutput << "    }\n";
         fullOutput << "};\n\n";
 
@@ -587,6 +626,8 @@ int main(int argc, char* argv[]) {
                 }
 
                 fullOutput << moduleCode;
+                // Mark as generated after declarations phase
+                generatedModules.insert(moduleName);
             }
         }
 
@@ -623,6 +664,19 @@ int main(int argc, char* argv[]) {
                 generatedModules.insert(moduleName);
             }
         }
+
+        // Add operator== specialization for Owned<String> after String is fully defined
+        fullOutput << "\n";
+        fullOutput << "// Equality operator specialization for Owned<String>\n";
+        fullOutput << "// String uses equals() method instead of operator==\n";
+        fullOutput << "namespace Language {\n";
+        fullOutput << "namespace Runtime {\n";
+        fullOutput << "template<>\n";
+        fullOutput << "inline bool Owned<Language::Core::String>::operator==(const Owned<Language::Core::String>& other) const {\n";
+        fullOutput << "    return this->get().equals(const_cast<Language::Core::String&>(other.get()))->toBoolean();\n";
+        fullOutput << "}\n";
+        fullOutput << "} // namespace Runtime\n";
+        fullOutput << "} // namespace Language\n\n";
 
         // PHASE 3: Generate System::Console implementation (before any code that uses it)
         fullOutput << "// ============================================\n";
@@ -714,6 +768,17 @@ int main(int argc, char* argv[]) {
                 continue; // Already generated
             }
 
+            // Skip __main__ module - it's handled separately at the end
+            if (moduleName == "__main__") {
+                continue;
+            }
+
+            // Skip namespace entries (they start with .::) - these are not real files
+            if (moduleName.find(".::") == 0) {
+                std::cout << "  Skipping: " << moduleName << " (namespace entry, not a file)\n";
+                continue;
+            }
+
             // Skip intrinsic modules - they're handled by the compiler
             if (moduleName.find("Console") != std::string::npos ||
                 moduleName.find("System") != std::string::npos ||
@@ -748,11 +813,15 @@ int main(int argc, char* argv[]) {
                 fullOutput << "// ============================================\n";
                 fullOutput << moduleCode << "\n\n";
                 module->isCompiled = true;
+                generatedModules.insert(moduleName);
             }
         }
 
         // Generate main module code if it wasn't already generated
-        if (!mainModule->isCompiled) {
+        // Skip if the main file is actually a library module that was already generated
+        bool mainFileAlreadyGenerated = generatedModules.find(inputFile) != generatedModules.end();
+
+        if (!mainModule->isCompiled && !mainFileAlreadyGenerated) {
             std::cout << "  Generating: __main__\n";
             XXML::CodeGen::CodeGenerator mainCodeGen(errorReporter);
 
@@ -774,6 +843,8 @@ int main(int argc, char* argv[]) {
             fullOutput << "// ============================================\n";
             fullOutput << mainCode << "\n";
             mainModule->isCompiled = true;
+        } else if (mainFileAlreadyGenerated) {
+            std::cout << "  Skipping __main__: already generated as module " << inputFile << "\n";
         }
 
         // Write output

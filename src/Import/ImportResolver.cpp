@@ -3,15 +3,61 @@
 #include <algorithm>
 #include <iostream>
 
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <unistd.h>
+#include <limits.h>
+#endif
+
 namespace fs = std::filesystem;
 
 namespace XXML {
 namespace Import {
 
+// Get the directory where the executable is located
+static std::string getExecutableDirectory() {
+#ifdef _WIN32
+    char buffer[MAX_PATH];
+    GetModuleFileNameA(NULL, buffer, MAX_PATH);
+    std::string fullPath(buffer);
+    size_t pos = fullPath.find_last_of("\\/");
+    return (pos != std::string::npos) ? fullPath.substr(0, pos) : ".";
+#else
+    char buffer[PATH_MAX];
+    ssize_t len = readlink("/proc/self/exe", buffer, sizeof(buffer) - 1);
+    if (len != -1) {
+        buffer[len] = '\0';
+        std::string fullPath(buffer);
+        size_t pos = fullPath.find_last_of('/');
+        return (pos != std::string::npos) ? fullPath.substr(0, pos) : ".";
+    }
+    return ".";
+#endif
+}
+
 ImportResolver::ImportResolver() {
-    // Default search paths
-    addSearchPath("Language");      // For standard library
-    addSearchPath(".");             // Current directory for user code
+    // Find Language folder relative to executable
+    std::string exeDir = getExecutableDirectory();
+    std::string languagePath = exeDir + "/Language";
+
+    // Check if Language folder exists next to executable
+    if (fs::exists(languagePath) && fs::is_directory(languagePath)) {
+        addSearchPath(languagePath);
+        std::cout << "✓ Found standard library at: " << languagePath << "\n";
+    } else {
+        // Fallback: try relative to current directory
+        if (fs::exists("Language") && fs::is_directory("Language")) {
+            addSearchPath("Language");
+            std::cout << "✓ Found standard library at: ./Language\n";
+        } else {
+            std::cerr << "Warning: Language folder not found (searched: "
+                      << languagePath << " and ./Language)\n";
+        }
+    }
+
+    // Current directory for user code
+    addSearchPath(".");
 }
 
 void ImportResolver::addSearchPath(const std::string& path) {
@@ -41,6 +87,31 @@ std::vector<std::string> ImportResolver::findXXMLFilesInDirectory(const std::str
             if (entry.is_regular_file()) {
                 std::string filename = entry.path().filename().string();
                 if (filename.length() > 5 && filename.substr(filename.length() - 5) == ".XXML") {
+                    files.push_back(entry.path().string());
+                }
+            }
+        }
+    } catch (const fs::filesystem_error& e) {
+        // Directory doesn't exist or can't be accessed
+        return files;
+    }
+
+    return files;
+}
+
+std::vector<std::string> ImportResolver::findXXMLFilesRecursive(const std::string& dirPath) const {
+    std::vector<std::string> files;
+
+    try {
+        if (!fs::exists(dirPath) || !fs::is_directory(dirPath)) {
+            return files;
+        }
+
+        for (const auto& entry : fs::recursive_directory_iterator(dirPath)) {
+            if (entry.is_regular_file()) {
+                std::string filename = entry.path().filename().string();
+                if (filename.length() > 5 && filename.substr(filename.length() - 5) == ".XXML") {
+                    // Get the full path
                     files.push_back(entry.path().string());
                 }
             }
@@ -148,6 +219,57 @@ std::vector<Module*> ImportResolver::getAllModules() const {
 
 void ImportResolver::clear() {
     moduleCache.clear();
+}
+
+std::vector<Module*> ImportResolver::discoverAllModules() {
+    std::vector<Module*> modules;
+
+    // Discover all XXML files in current directory and subdirectories
+    std::cout << "Auto-discovering XXML files in current directory...\n";
+
+    // Find all XXML files recursively from current directory
+    auto files = findXXMLFilesRecursive(".");
+
+    for (const auto& filePath : files) {
+        // Skip files in Language folder (they're handled separately)
+        if (filePath.find("Language/") != std::string::npos ||
+            filePath.find("Language\\") != std::string::npos) {
+            continue;
+        }
+
+        // Skip build directories
+        if (filePath.find("build/") != std::string::npos ||
+            filePath.find("build\\") != std::string::npos ||
+            filePath.find("x64/") != std::string::npos ||
+            filePath.find("x64\\") != std::string::npos) {
+            continue;
+        }
+
+        std::string moduleName = extractModuleName(filePath);
+
+        // Check if module is already loaded
+        if (hasModule(moduleName)) {
+            modules.push_back(moduleCache[moduleName].get());
+            continue;
+        }
+
+        // Create new module
+        auto module = std::make_unique<Module>(moduleName, filePath);
+
+        // Load source code
+        if (!module->loadFromFile()) {
+            std::cerr << "  Warning: Failed to load module file: " << filePath << "\n";
+            continue;
+        }
+
+        std::cout << "  Discovered: " << filePath << " -> " << moduleName << "\n";
+
+        Module* modulePtr = module.get();
+        moduleCache[moduleName] = std::move(module);
+        modules.push_back(modulePtr);
+    }
+
+    return modules;
 }
 
 } // namespace Import

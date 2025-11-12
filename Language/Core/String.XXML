@@ -85,6 +85,28 @@
 				Return Bool::Constructor(false);
 			}
 
+			// Create from C string pointer (for reading from memory)
+			Method <FromCString> Returns String^ Parameters (
+				Parameter <ptr> Types NativeType<"ptr">
+			) ->
+			{
+				Instantiate NativeType<"string_ptr">^ As <strPtr> = Syscall::string_create(ptr);
+				Instantiate String^ As <result> = String::Constructor("");
+				Run Syscall::memcpy(&result.data, &strPtr, 8);
+				Return result;
+			}
+
+			// Get character at index as a string
+			Method <charAt> Returns String^ Parameters (
+				Parameter <index> Types Integer&
+			) ->
+			{
+				Instantiate NativeType<"string_ptr">^ As <ptr> = data;
+				Instantiate NativeType<"int64">^ As <idx> = index;
+				Instantiate NativeType<"cstr">^ As <charCStr> = Syscall::string_charAt(ptr, idx);
+				Return String::Constructor(charCStr);
+			}
+
 			// Destructor (cleanup)
 			Method <dispose> Returns None Parameters () ->
 			{

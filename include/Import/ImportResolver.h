@@ -24,6 +24,9 @@ private:
     // Find all XXML files in a directory
     std::vector<std::string> findXXMLFilesInDirectory(const std::string& dirPath) const;
 
+    // Find all XXML files in a directory recursively
+    std::vector<std::string> findXXMLFilesRecursive(const std::string& dirPath) const;
+
     // Extract module name from file path
     // e.g., "Language/Core/String.XXML" -> "Language::Core::String"
     std::string extractModuleName(const std::string& filePath) const;
@@ -31,6 +34,9 @@ private:
 public:
     // Constructor with default search paths
     ImportResolver();
+
+    // Discover all XXML files in current directory and subdirectories
+    std::vector<Module*> discoverAllModules();
 
     // Add a search path (e.g., "Language/", "./lib/")
     void addSearchPath(const std::string& path);
