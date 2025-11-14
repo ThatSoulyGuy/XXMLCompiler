@@ -33,6 +33,7 @@ private:
     // New helper methods for comprehensive codegen
     bool isPrimitiveType(const std::string& typeName);
     bool isBuiltinType(const std::string& typeName);
+    bool isValueType(const std::string& cppType);
     std::string getParameterType(Parser::OwnershipType ownership, const std::string& typeName);
     bool isSmartPointerType(const std::string& typeName, Parser::OwnershipType ownership);
 
@@ -40,6 +41,8 @@ private:
     bool inClassDefinition;
     std::string currentClassName;
     std::string currentNamespace;
+    std::string currentMethodReturnType;  // Track current method's return type for template inference
+    std::string currentExpectedType;  // Track expected type for initializer expressions
     bool generatingDeclarationsOnly;  // True = only method signatures, False = full implementations
     bool generatingImplementationsOnly;  // True = only method implementations (outside class)
 
@@ -51,6 +54,9 @@ private:
 
     // Track ownership type of each variable (for copy vs reference parameters)
     std::unordered_map<std::string, Parser::OwnershipType> variableOwnership;
+
+    // Track type name of each variable (to check if NativeType)
+    std::unordered_map<std::string, std::string> variableTypeName;
 
     // Template code generation
     std::string mangleTemplateName(const std::string& templateName, const std::vector<std::string>& args);

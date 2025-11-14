@@ -149,6 +149,20 @@ public:
         return templateMethods;
     }
 
+    // Register template classes and instantiations from other modules
+    void registerTemplateClass(const std::string& name, Parser::ClassDecl* classDecl) {
+        templateClasses[name] = classDecl;
+    }
+
+    void mergeTemplateInstantiation(const TemplateInstantiation& inst) {
+        templateInstantiations.insert(inst);
+    }
+
+    // Public accessor for expression types (used by code generator)
+    std::string getExpressionTypePublic(Parser::Expression* expr) {
+        return getExpressionType(expr);
+    }
+
 public:
     // ✅ NEW: Accept CompilationContext for registry access
     SemanticAnalyzer(Core::CompilationContext& context, Common::ErrorReporter& reporter);

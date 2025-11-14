@@ -130,7 +130,20 @@
       "Bash(else echo \"Compilation failed - no output.exe\")",
       "Bash(then echo \"✅ SUCCESS! Compilation completed!\")",
       "Bash(else echo \"No exe found, checking errors...\")",
-      "Bash(powershell:*)"
+      "Bash(powershell:*)",
+      "Bash(\"build/bin/Release/xxml.exe\" SimpleTemplateTest.XXML test_template.cpp)",
+      "Bash(./hello.exe)",
+      "Bash(\"build/bin/Release/xxml.exe\" ListTest.XXML list_output.cpp)",
+      "Bash(\"build/bin/Release/xxml.exe\" TemplateDemo.XXML template_demo.cpp)",
+      "Bash(\"build/bin/Release/xxml.exe\" BoxTest.XXML box_test.cpp)",
+      "Bash(\"build/bin/Release/xxml.exe\" \"Language/Collections/List.XXML\" \"list_output.cpp\")",
+      "Bash(\"build/bin/Release/xxml.exe\" \"build/bin/Release/Hello.XXML\" \"hello_final.cpp\")",
+      "Bash(\"build/bin/Release/xxml.exe\" \"build/bin/Release/Hello.XXML\" \"hello_test.cpp\")",
+      "Bash(\"build/bin/Release/xxml.exe\" \"build/bin/Release/Hello.XXML\" \"hello_fixed.cpp\")",
+      "Bash(\"build/bin/Release/xxml.exe\" \"build/bin/Release/Hello.XXML\" \"hello_final2.cpp\")",
+      "Bash(\"build/bin/Release/xxml.exe\" \"build/bin/Release/Hello.XXML\" \"output.cpp\")",
+      "Bash(then echo \"✓ output.exe created successfully\")",
+      "Bash(else echo \"❌ output.exe not found\")"
     ],
     "deny": [],
     "ask": []

@@ -1,0 +1,36 @@
+#import System;
+
+[ Namespace <Demo>
+    [ Class <Box> <T> Final Extends None
+        [ Private <>
+            Property <value> Types T^;
+        ]
+
+        [ Public <>
+            Constructor = default;
+
+            Method <setValue> Returns None Parameters (Parameter <v> Types T^) ->
+            {
+                Set value = v;
+            }
+
+            Method <getValue> Returns T^ Parameters () ->
+            {
+                Return value;
+            }
+        ]
+    ]
+]
+
+[ Entrypoint
+{
+    // Create Box<Integer>
+    Instantiate Box<Integer>^ As <intBox> = Box<Integer>::Constructor();
+    Run intBox.setValue(Integer::Constructor(42));
+    
+    // Test method chaining with template type substitution
+    Run Console::printLine(String::Constructor("Value: ").append(intBox.getValue().toString()));
+    
+    Run Console::printLine(String::Constructor("Template type resolution working!"));
+}
+]

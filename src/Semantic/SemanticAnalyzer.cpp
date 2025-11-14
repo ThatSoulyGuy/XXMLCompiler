@@ -381,6 +381,9 @@ void SemanticAnalyzer::visit(Parser::AccessSection& node) {
 }
 
 void SemanticAnalyzer::visit(Parser::PropertyDecl& node) {
+    // Visit type to record template instantiations
+    node.type->accept(*this);
+
     // Check if property already exists
     Symbol* existing = symbolTable_->getCurrentScope()->resolveLocal(node.name);
     if (existing) {
@@ -447,6 +450,9 @@ void SemanticAnalyzer::visit(Parser::ConstructorDecl& node) {
 }
 
 void SemanticAnalyzer::visit(Parser::MethodDecl& node) {
+    // Visit return type to record template instantiations
+    node.returnType->accept(*this);
+
     // Check if method already exists
     Symbol* existing = symbolTable_->getCurrentScope()->resolveLocal(node.name);
     if (!existing) {
@@ -505,6 +511,9 @@ void SemanticAnalyzer::visit(Parser::MethodDecl& node) {
 }
 
 void SemanticAnalyzer::visit(Parser::ParameterDecl& node) {
+    // Visit type to record template instantiations
+    node.type->accept(*this);
+
     // Check if parameter already exists
     Symbol* existing = symbolTable_->getCurrentScope()->resolveLocal(node.name);
     if (existing) {
@@ -588,6 +597,9 @@ void SemanticAnalyzer::visit(Parser::InstantiateStmt& node) {
         return;
     }
 
+    // Visit the type to record template instantiations
+    node.type->accept(*this);
+
     // Analyze initializer first to check if it's a temporary
     node.initializer->accept(*this);
 
@@ -612,11 +624,22 @@ void SemanticAnalyzer::visit(Parser::InstantiateStmt& node) {
         // This allows method calls and constructor calls to work
     }
 
+    // Build full type name including template arguments
+    std::string fullTypeName = node.type->typeName;
+    if (!node.type->templateArgs.empty()) {
+        fullTypeName += "<";
+        for (size_t i = 0; i < node.type->templateArgs.size(); ++i) {
+            if (i > 0) fullTypeName += ", ";
+            fullTypeName += node.type->templateArgs[i].typeArg;
+        }
+        fullTypeName += ">";
+    }
+
     // Define the variable symbol
     auto symbol = std::make_unique<Symbol>(
         node.variableName,
         SymbolKind::LocalVariable,
-        node.type->typeName,
+        fullTypeName,  // Use full type name with template args
         node.type->ownership,
         node.location
     );
@@ -1005,15 +1028,46 @@ void SemanticAnalyzer::visit(Parser::CallExpr& node) {
         methodName = memberExpr->member;
 
         if (objectType != "Unknown") {
-            MethodInfo* method = findMethod(objectType, methodName);
+            // Check if this is a template instantiation (e.g., "List<Integer>")
+            std::string baseType = objectType;
+            std::unordered_map<std::string, std::string> templateSubstitutions;
+            size_t angleBracketPos = objectType.find('<');
+
+            if (angleBracketPos != std::string::npos) {
+                // This is a template instantiation - extract base type and template args
+                baseType = objectType.substr(0, angleBracketPos);
+
+                // Find the template definition
+                if (templateClasses.find(baseType) != templateClasses.end()) {
+                    auto* templateClass = templateClasses[baseType];
+
+                    // Extract template arguments from the type string
+                    size_t endBracket = objectType.rfind('>');
+                    if (endBracket != std::string::npos) {
+                        std::string argsStr = objectType.substr(angleBracketPos + 1, endBracket - angleBracketPos - 1);
+
+                        // Simple parsing: split by comma (assuming single argument for now)
+                        std::vector<std::string> args;
+                        args.push_back(argsStr); // For now, handle single template arg
+
+                        // Build substitution map (T -> Integer, etc.)
+                        for (size_t i = 0; i < templateClass->templateParams.size() && i < args.size(); ++i) {
+                            templateSubstitutions[templateClass->templateParams[i].name] = args[i];
+                        }
+                    }
+                }
+            }
+
+            MethodInfo* method = findMethod(baseType, methodName);
 
             // Only validate if validation is enabled
             if (enableValidation) {
                 // Only exempt Syscall, Mem, and Console from validation (intrinsic functions / stubs)
                 bool isIntrinsic = (objectType == "Syscall" || objectType == "Mem" ||
                                     objectType == "Console" || objectType == "System::Console");
+                bool isTemplateInstantiation = !templateSubstitutions.empty();
 
-                if (!method && !isIntrinsic) {
+                if (!method && !isIntrinsic && !isTemplateInstantiation) {
                     errorReporter.reportError(
                         Common::ErrorCode::UndeclaredIdentifier,
                         "Method '" + methodName + "' not found in class '" + objectType + "'",
@@ -1026,7 +1080,16 @@ void SemanticAnalyzer::visit(Parser::CallExpr& node) {
             }
 
             if (method) {
-                expressionTypes[&node] = method->returnType;
+                // Substitute template parameters in return type
+                std::string returnType = method->returnType;
+                for (const auto& [param, arg] : templateSubstitutions) {
+                    // Simple substitution: replace exact matches
+                    if (returnType == param) {
+                        returnType = arg;
+                    }
+                }
+
+                expressionTypes[&node] = returnType;
                 expressionOwnerships[&node] = method->returnOwnership;
             } else {
                 // Builtin type - assume valid

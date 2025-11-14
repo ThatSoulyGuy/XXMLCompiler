@@ -1,0 +1,11 @@
+#import System;
+#import Language::Collections;
+
+[ Entrypoint
+{
+    // Create a List<Integer>
+    Instantiate List<Integer>^ As <intList> = List<Integer>::Constructor();
+
+    Run Console::printLine(String::Constructor("List test complete!"));
+}
+]

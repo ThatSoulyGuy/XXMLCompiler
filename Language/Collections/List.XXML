@@ -20,7 +20,7 @@
 				If (count == capacity) -> {
 					Instantiate NativeType<"int64">^ As <newCapacity> = capacity * 2;
 					If (newCapacity == 0) -> {
-						Run Syscall::memcpy(&newCapacity, 8, 8);
+						Set newCapacity = 8;
 					}
 
 					// Allocate new memory
@@ -48,14 +48,16 @@
 			Method <get> Returns T^ Parameters (Parameter <index> Types Integer&) Do
 			{
 				Instantiate NativeType<"int64">^ As <zero> = 0;
-				Instantiate NativeType<"int64">^ As <idx> = Integer::toInt64(index);
+				Instantiate NativeType<"int64">^ As <idx> = index.toInt64();
 
 				If (idx < zero) -> {
-					Return Syscall::ptr_read(dataPtr);
+					Instantiate NativeType<"ptr">^ As <nullPtr> = 0;
+					Return Syscall::ptr_read(nullPtr);
 				}
 
 				If (idx >= count) -> {
-					Return Syscall::ptr_read(dataPtr);
+					Instantiate NativeType<"ptr">^ As <nullPtr> = 0;
+					Return Syscall::ptr_read(nullPtr);
 				}
 
 				Instantiate NativeType<"ptr">^ As <offset> = dataPtr + (idx * 8);
@@ -69,7 +71,7 @@
 			) Do
 			{
 				Instantiate NativeType<"int64">^ As <zero> = 0;
-				Instantiate NativeType<"int64">^ As <idx> = Integer::toInt64(index);
+				Instantiate NativeType<"int64">^ As <idx> = index.toInt64();
 
 				If (idx < zero) -> {
 					Return None::Constructor();
@@ -106,7 +108,7 @@
 			Method <remove> Returns None Parameters (Parameter <index> Types Integer&) Do
 			{
 				Instantiate NativeType<"int64">^ As <zero> = 0;
-				Instantiate NativeType<"int64">^ As <idx> = Integer::toInt64(index);
+				Instantiate NativeType<"int64">^ As <idx> = index.toInt64();
 
 				If (idx < zero) -> {
 					Return None::Constructor();
@@ -117,16 +119,15 @@
 				}
 
 				// Shift elements down
-				Instantiate Integer^ As <startIdx> = Integer::Constructor(idx);
-				Instantiate Integer^ As <endIdx> = Integer::Constructor(count);
-				For (Integer <i> = startIdx .. endIdx) ->
+						Instantiate NativeType<"int64">^ As <i> = idx;
+		While (i < count) ->
 				{
-					Instantiate NativeType<"int64">^ As <iVal> = i;
-					Instantiate NativeType<"ptr">^ As <destOffset> = dataPtr + (iVal * 8);
-					Instantiate NativeType<"int64">^ As <iValPlusOne> = iVal + 1;
-					Instantiate NativeType<"ptr">^ As <srcOffset> = dataPtr + (iValPlusOne * 8);
+										Instantiate NativeType<"ptr">^ As <destOffset> = dataPtr + (i * 8);
+										Instantiate NativeType<"int64">^ As <nextIdx> = i + 1;
+				Instantiate NativeType<"ptr">^ As <srcOffset> = dataPtr + (nextIdx * 8);
 					Instantiate T^ As <val> = Syscall::ptr_read(srcOffset);
 					Run Syscall::ptr_write(destOffset, val);
+				Set i = nextIdx;
 				}
 
 				Instantiate NativeType<"int64">^ As <one> = 1;

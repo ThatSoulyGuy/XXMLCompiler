@@ -5,6 +5,7 @@
 #include <memory>
 #include <cstdint>
 #include <cstring>
+#include <cstdlib>
 #include <limits>
 #include <cassert>
 #include <stdexcept>
@@ -98,6 +99,9 @@ public:
     T* operator->() { return &get(); }
     const T* operator->() const { return &get(); }
     bool isMovedFrom() const { return movedFrom_; }
+    
+    // Equality operator - must be specialized for each type
+    bool operator==(const Owned& other) const;
 };
 
 } // namespace Runtime
@@ -109,8 +113,8 @@ public:
     static void* string_create(const void* cstr) {
         return (void*)new std::string((const char*)cstr);
     }
-    static const char* string_cstr(void* ptr) {
-        return ((std::string*)ptr)->c_str();
+    static const unsigned char* string_cstr(void* ptr) {
+        return reinterpret_cast<const unsigned char*>(((std::string*)ptr)->c_str());
     }
     static int64_t string_length(void* ptr) {
         return ((std::string*)ptr)->length();
@@ -132,10 +136,83 @@ public:
     static void memcpy(void* dest, const void* src, size_t n) {
         std::memcpy(dest, src, n);
     }
-    static const char* int_to_string(int64_t value) {
+    static const unsigned char* int_to_string(int64_t value) {
         static thread_local std::string buffer;
         buffer = std::to_string(value);
-        return buffer.c_str();
+        return reinterpret_cast<const unsigned char*>(buffer.c_str());
+    }
+    static unsigned char* malloc(int64_t size) {
+        return static_cast<unsigned char*>(std::malloc(static_cast<size_t>(size)));
+    }
+    static void free(void* ptr) {
+        std::free(ptr);
+    }
+    static void* memset(void* dest, int value, int64_t size) {
+        return std::memset(dest, value, static_cast<size_t>(size));
+    }
+    static int64_t read_int64(const void* ptr) {
+        return *static_cast<const int64_t*>(ptr);
+    }
+    static void write_int64(void* ptr, int64_t value) {
+        *static_cast<int64_t*>(ptr) = value;
+    }
+    static const unsigned char* string_charAt(void* strPtr, int64_t index) {
+        std::string* str = static_cast<std::string*>(strPtr);
+        if (index < 0 || index >= static_cast<int64_t>(str->length())) {
+            static thread_local std::string empty;
+            empty = "";
+            return reinterpret_cast<const unsigned char*>(empty.c_str());
+        }
+        static thread_local std::string charBuf;
+        charBuf = str->substr(static_cast<size_t>(index), 1);
+        return reinterpret_cast<const unsigned char*>(charBuf.c_str());
+    }
+    static void* ptr_add(void* ptr, int64_t offset) {
+        return static_cast<void*>(static_cast<char*>(ptr) + offset);
+    }
+    static unsigned char* ptr_read(const void* ptr) {
+        return static_cast<unsigned char*>(*static_cast<void* const*>(ptr));
+    }
+    
+    // Specialized overload to read as Owned<T> - returns by value
+    template<typename T>
+    static Language::Runtime::Owned<T> ptr_read(const void* ptr) {
+        void* obj_ptr = *static_cast<void* const*>(ptr);
+        if (obj_ptr == nullptr) {
+            return Language::Runtime::Owned<T>(T());
+        }
+        T* obj = static_cast<T*>(obj_ptr);
+        // Copy the object (don't transfer ownership, list still owns it)
+        return Language::Runtime::Owned<T>(*obj);
+    }
+    static void ptr_write(void* dest, void* value) {
+        *static_cast<void**>(dest) = value;
+    }
+    
+    // Template overloads for Owned<T> to work with List<T>
+    template<typename T>
+    static void ptr_write(void* dest, Language::Runtime::Owned<T> value) {
+        // Allocate memory for the object and store its pointer
+        T* obj = new T(std::move(value.extract()));
+        *static_cast<void**>(dest) = static_cast<void*>(obj);
+    }
+    
+    template<typename T>
+    static Language::Runtime::Owned<T> ptr_read_owned(const void* ptr) {
+        // Read the pointer and wrap in Owned<T> (transfers ownership)
+        void* obj_ptr = *static_cast<void* const*>(ptr);
+        if (obj_ptr == nullptr) {
+            return Language::Runtime::Owned<T>(T());
+        }
+        T* obj = static_cast<T*>(obj_ptr);
+        T value = std::move(*obj);
+        // Note: We don't delete here because the object is still in the list
+        // The list owns it until removed
+        return Language::Runtime::Owned<T>(std::move(value));
+    }
+    
+    static int64_t read_byte(const void* ptr) {
+        return static_cast<int64_t>(*static_cast<const unsigned char*>(ptr));
     }
 };
 
@@ -169,20 +246,20 @@ namespace Language::Core {
             Integer() = default;
             Integer(int64_t val) : value(val) {}
             static Integer Constructor(int64_t val) { return Integer(val); }
-            int64_t toInt64();
-            Language::Runtime::Owned<Language::Core::Integer> add(Language::Core::Integer& other);
-            Language::Runtime::Owned<Language::Core::Integer> subtract(Language::Core::Integer& other);
-            Language::Runtime::Owned<Language::Core::Integer> multiply(Language::Core::Integer& other);
-            Language::Runtime::Owned<Language::Core::Integer> divide(Language::Core::Integer& other);
-            Language::Runtime::Owned<Language::Core::Integer> modulo(Language::Core::Integer& other);
-            Language::Runtime::Owned<Language::Core::Bool> equals(Language::Core::Integer& other);
-            Language::Runtime::Owned<Language::Core::Bool> lessThan(Language::Core::Integer& other);
-            Language::Runtime::Owned<Language::Core::Bool> greaterThan(Language::Core::Integer& other);
-            Language::Runtime::Owned<Language::Core::Bool> lessOrEqual(Language::Core::Integer& other);
-            Language::Runtime::Owned<Language::Core::Bool> greaterOrEqual(Language::Core::Integer& other);
-            Language::Runtime::Owned<Language::Core::Integer> negate();
-            Language::Runtime::Owned<Language::Core::Integer> abs();
-            Language::Runtime::Owned<Language::Core::String> toString();
+            int64_t toInt64() const;
+            Language::Runtime::Owned<Language::Core::Integer> add(const Language::Core::Integer& other) const;
+            Language::Runtime::Owned<Language::Core::Integer> subtract(const Language::Core::Integer& other) const;
+            Language::Runtime::Owned<Language::Core::Integer> multiply(const Language::Core::Integer& other) const;
+            Language::Runtime::Owned<Language::Core::Integer> divide(const Language::Core::Integer& other) const;
+            Language::Runtime::Owned<Language::Core::Integer> modulo(const Language::Core::Integer& other) const;
+            Language::Runtime::Owned<Language::Core::Bool> equals(const Language::Core::Integer& other) const;
+            Language::Runtime::Owned<Language::Core::Bool> lessThan(const Language::Core::Integer& other) const;
+            Language::Runtime::Owned<Language::Core::Bool> greaterThan(const Language::Core::Integer& other) const;
+            Language::Runtime::Owned<Language::Core::Bool> lessOrEqual(const Language::Core::Integer& other) const;
+            Language::Runtime::Owned<Language::Core::Bool> greaterOrEqual(const Language::Core::Integer& other) const;
+            Language::Runtime::Owned<Language::Core::Integer> negate() const;
+            Language::Runtime::Owned<Language::Core::Integer> abs() const;
+            Language::Runtime::Owned<Language::Core::String> toString() const;
     };
     
 } // namespace Language::Core
@@ -196,13 +273,13 @@ namespace Language::Core {
             Bool() = default;
             Bool(bool val) : value(val) {}
             static Bool Constructor(bool val) { return Bool(val); }
-            bool toBool();
-            Language::Runtime::Owned<Language::Core::Bool> and_(Language::Core::Bool& other);
-            Language::Runtime::Owned<Language::Core::Bool> or_(Language::Core::Bool& other);
-            Language::Runtime::Owned<Language::Core::Bool> not_();
-            Language::Runtime::Owned<Language::Core::Bool> xor_(Language::Core::Bool& other);
-            Language::Runtime::Owned<Language::Core::Bool> equals(Language::Core::Bool& other);
-            Language::Runtime::Owned<Language::Core::Integer> toInteger();
+            bool toBool() const;
+            Language::Runtime::Owned<Language::Core::Bool> and_(const Language::Core::Bool& other) const;
+            Language::Runtime::Owned<Language::Core::Bool> or_(const Language::Core::Bool& other) const;
+            Language::Runtime::Owned<Language::Core::Bool> not_() const;
+            Language::Runtime::Owned<Language::Core::Bool> xor_(const Language::Core::Bool& other) const;
+            Language::Runtime::Owned<Language::Core::Bool> equals(const Language::Core::Bool& other) const;
+            Language::Runtime::Owned<Language::Core::Integer> toInteger() const;
     };
     
 } // namespace Language::Core
@@ -216,18 +293,18 @@ namespace Language::Core {
             Float() = default;
             Float(float val) : value(val) {}
             static Float Constructor(float val) { return Float(val); }
-            float toFloat();
-            Language::Runtime::Owned<Language::Core::Float> add(Language::Core::Float& other);
-            Language::Runtime::Owned<Language::Core::Float> subtract(Language::Core::Float& other);
-            Language::Runtime::Owned<Language::Core::Float> multiply(Language::Core::Float& other);
-            Language::Runtime::Owned<Language::Core::Float> divide(Language::Core::Float& other);
-            Language::Runtime::Owned<Language::Core::Bool> equals(Language::Core::Float& other);
-            Language::Runtime::Owned<Language::Core::Bool> lessThan(Language::Core::Float& other);
-            Language::Runtime::Owned<Language::Core::Bool> greaterThan(Language::Core::Float& other);
-            Language::Runtime::Owned<Language::Core::Float> negate();
-            Language::Runtime::Owned<Language::Core::Float> abs();
-            Language::Runtime::Owned<Language::Core::Integer> toInteger();
-            Language::Core::Double toDouble();
+            float toFloat() const;
+            Language::Runtime::Owned<Language::Core::Float> add(const Language::Core::Float& other) const;
+            Language::Runtime::Owned<Language::Core::Float> subtract(const Language::Core::Float& other) const;
+            Language::Runtime::Owned<Language::Core::Float> multiply(const Language::Core::Float& other) const;
+            Language::Runtime::Owned<Language::Core::Float> divide(const Language::Core::Float& other) const;
+            Language::Runtime::Owned<Language::Core::Bool> equals(const Language::Core::Float& other) const;
+            Language::Runtime::Owned<Language::Core::Bool> lessThan(const Language::Core::Float& other) const;
+            Language::Runtime::Owned<Language::Core::Bool> greaterThan(const Language::Core::Float& other) const;
+            Language::Runtime::Owned<Language::Core::Float> negate() const;
+            Language::Runtime::Owned<Language::Core::Float> abs() const;
+            Language::Runtime::Owned<Language::Core::Integer> toInteger() const;
+            Language::Core::Double toDouble() const;
     };
     
 } // namespace Language::Core
@@ -241,20 +318,20 @@ namespace Language::Core {
             Double() = default;
             Double(double val) : value(val) {}
             static Double Constructor(double val) { return Double(val); }
-            double toDouble();
-            Language::Runtime::Owned<Language::Core::Double> add(Language::Core::Double& other);
-            Language::Runtime::Owned<Language::Core::Double> subtract(Language::Core::Double& other);
-            Language::Runtime::Owned<Language::Core::Double> multiply(Language::Core::Double& other);
-            Language::Runtime::Owned<Language::Core::Double> divide(Language::Core::Double& other);
-            Language::Runtime::Owned<Language::Core::Bool> equals(Language::Core::Double& other);
-            Language::Runtime::Owned<Language::Core::Bool> lessThan(Language::Core::Double& other);
-            Language::Runtime::Owned<Language::Core::Bool> greaterThan(Language::Core::Double& other);
-            Language::Runtime::Owned<Language::Core::Bool> lessOrEqual(Language::Core::Double& other);
-            Language::Runtime::Owned<Language::Core::Bool> greaterOrEqual(Language::Core::Double& other);
-            Language::Runtime::Owned<Language::Core::Double> negate();
-            Language::Runtime::Owned<Language::Core::Double> abs();
-            Language::Runtime::Owned<Language::Core::Integer> toInteger();
-            Language::Core::Float toFloat();
+            double toDouble() const;
+            Language::Runtime::Owned<Language::Core::Double> add(const Language::Core::Double& other) const;
+            Language::Runtime::Owned<Language::Core::Double> subtract(const Language::Core::Double& other) const;
+            Language::Runtime::Owned<Language::Core::Double> multiply(const Language::Core::Double& other) const;
+            Language::Runtime::Owned<Language::Core::Double> divide(const Language::Core::Double& other) const;
+            Language::Runtime::Owned<Language::Core::Bool> equals(const Language::Core::Double& other) const;
+            Language::Runtime::Owned<Language::Core::Bool> lessThan(const Language::Core::Double& other) const;
+            Language::Runtime::Owned<Language::Core::Bool> greaterThan(const Language::Core::Double& other) const;
+            Language::Runtime::Owned<Language::Core::Bool> lessOrEqual(const Language::Core::Double& other) const;
+            Language::Runtime::Owned<Language::Core::Bool> greaterOrEqual(const Language::Core::Double& other) const;
+            Language::Runtime::Owned<Language::Core::Double> negate() const;
+            Language::Runtime::Owned<Language::Core::Double> abs() const;
+            Language::Runtime::Owned<Language::Core::Integer> toInteger() const;
+            Language::Core::Float toFloat() const;
     };
     
 } // namespace Language::Core
@@ -271,14 +348,14 @@ namespace Language::Core {
                 Syscall::memcpy(&data, &ptr, 8);
             }
             static String Constructor(const void* cstr) { return String(cstr); }
-            const void* toCString();
-            Language::Runtime::Owned<Language::Core::Integer> length();
-            Language::Runtime::Owned<Language::Core::Bool> isEmpty();
-            Language::Runtime::Owned<Language::Core::String> append(Language::Core::String& other);
-            Language::Runtime::Owned<Language::Core::String> copy();
-            Language::Runtime::Owned<Language::Core::Bool> equals(Language::Core::String& other);
-            Language::Runtime::Owned<Language::Core::String> FromCString(void* ptr);
-            Language::Runtime::Owned<Language::Core::String> charAt(Language::Core::Integer& index);
+            const unsigned char* toCString() const;
+            Language::Runtime::Owned<Language::Core::Integer> length() const;
+            Language::Runtime::Owned<Language::Core::Bool> isEmpty() const;
+            Language::Runtime::Owned<Language::Core::String> append(const Language::Core::String& other);
+            Language::Runtime::Owned<Language::Core::String> copy() const;
+            Language::Runtime::Owned<Language::Core::Bool> equals(const Language::Core::String& other) const;
+            static Language::Runtime::Owned<Language::Core::String> FromCString(unsigned char* ptr);
+            Language::Runtime::Owned<Language::Core::String> charAt(const Language::Core::Integer& index) const;
             void dispose();
     };
     
@@ -290,139 +367,139 @@ namespace Language::Core {
 
 namespace Language::Core {
 
-        int64_t Language::Core::Integer::toInt64() {
+        int64_t Language::Core::Integer::toInt64() const {
         return value;
     }
-    Language::Runtime::Owned<Language::Core::Integer> Language::Core::Integer::add(Language::Core::Integer& other) {
-        int64_t v1(value.get());
-        int64_t v2(other.value.get());
+    Language::Runtime::Owned<Language::Core::Integer> Language::Core::Integer::add(const Language::Core::Integer& other) const {
+        int64_t v1 = value;
+        int64_t v2 = other.value;
         int64_t result = v1 + v2;
         return Language::Core::Integer(std::move(result));
     }
-    Language::Runtime::Owned<Language::Core::Integer> Language::Core::Integer::subtract(Language::Core::Integer& other) {
-        int64_t v1(value.get());
-        int64_t v2(other.value.get());
+    Language::Runtime::Owned<Language::Core::Integer> Language::Core::Integer::subtract(const Language::Core::Integer& other) const {
+        int64_t v1 = value;
+        int64_t v2 = other.value;
         int64_t result = v1 - v2;
         return Language::Core::Integer(std::move(result));
     }
-    Language::Runtime::Owned<Language::Core::Integer> Language::Core::Integer::multiply(Language::Core::Integer& other) {
-        int64_t v1(value.get());
-        int64_t v2(other.value.get());
+    Language::Runtime::Owned<Language::Core::Integer> Language::Core::Integer::multiply(const Language::Core::Integer& other) const {
+        int64_t v1 = value;
+        int64_t v2 = other.value;
         int64_t result = v1 * v2;
         return Language::Core::Integer(std::move(result));
     }
-    Language::Runtime::Owned<Language::Core::Integer> Language::Core::Integer::divide(Language::Core::Integer& other) {
-        int64_t v1(value.get());
-        int64_t v2(other.value.get());
+    Language::Runtime::Owned<Language::Core::Integer> Language::Core::Integer::divide(const Language::Core::Integer& other) const {
+        int64_t v1 = value;
+        int64_t v2 = other.value;
         int64_t result = v1 / v2;
         return Language::Core::Integer(std::move(result));
     }
-    Language::Runtime::Owned<Language::Core::Integer> Language::Core::Integer::modulo(Language::Core::Integer& other) {
-        int64_t v1(value.get());
-        int64_t v2(other.value.get());
+    Language::Runtime::Owned<Language::Core::Integer> Language::Core::Integer::modulo(const Language::Core::Integer& other) const {
+        int64_t v1 = value;
+        int64_t v2 = other.value;
         int64_t result = v1 % v2;
         return Language::Core::Integer(std::move(result));
     }
-    Language::Runtime::Owned<Language::Core::Bool> Language::Core::Integer::equals(Language::Core::Integer& other) {
-        int64_t v1(value.get());
-        int64_t v2(other.value.get());
+    Language::Runtime::Owned<Language::Core::Bool> Language::Core::Integer::equals(const Language::Core::Integer& other) const {
+        int64_t v1 = value;
+        int64_t v2 = other.value;
         if (v1 == v2) {
             return Language::Core::Bool(true);
         }
         return Language::Core::Bool(false);
     }
-    Language::Runtime::Owned<Language::Core::Bool> Language::Core::Integer::lessThan(Language::Core::Integer& other) {
-        int64_t v1(value.get());
-        int64_t v2(other.value.get());
+    Language::Runtime::Owned<Language::Core::Bool> Language::Core::Integer::lessThan(const Language::Core::Integer& other) const {
+        int64_t v1 = value;
+        int64_t v2 = other.value;
         if (v1 < v2) {
             return Language::Core::Bool(true);
         }
         return Language::Core::Bool(false);
     }
-    Language::Runtime::Owned<Language::Core::Bool> Language::Core::Integer::greaterThan(Language::Core::Integer& other) {
-        int64_t v1(value.get());
-        int64_t v2(other.value.get());
+    Language::Runtime::Owned<Language::Core::Bool> Language::Core::Integer::greaterThan(const Language::Core::Integer& other) const {
+        int64_t v1 = value;
+        int64_t v2 = other.value;
         if (v1 > v2) {
             return Language::Core::Bool(true);
         }
         return Language::Core::Bool(false);
     }
-    Language::Runtime::Owned<Language::Core::Bool> Language::Core::Integer::lessOrEqual(Language::Core::Integer& other) {
-        int64_t v1(value.get());
-        int64_t v2(other.value.get());
+    Language::Runtime::Owned<Language::Core::Bool> Language::Core::Integer::lessOrEqual(const Language::Core::Integer& other) const {
+        int64_t v1 = value;
+        int64_t v2 = other.value;
         if (v1 <= v2) {
             return Language::Core::Bool(true);
         }
         return Language::Core::Bool(false);
     }
-    Language::Runtime::Owned<Language::Core::Bool> Language::Core::Integer::greaterOrEqual(Language::Core::Integer& other) {
-        int64_t v1(value.get());
-        int64_t v2(other.value.get());
+    Language::Runtime::Owned<Language::Core::Bool> Language::Core::Integer::greaterOrEqual(const Language::Core::Integer& other) const {
+        int64_t v1 = value;
+        int64_t v2 = other.value;
         if (v1 >= v2) {
             return Language::Core::Bool(true);
         }
         return Language::Core::Bool(false);
     }
-    Language::Runtime::Owned<Language::Core::Integer> Language::Core::Integer::negate() {
-        int64_t v(value.get());
+    Language::Runtime::Owned<Language::Core::Integer> Language::Core::Integer::negate() const {
+        int64_t v = value;
         int64_t result = 0 - v;
         return Language::Core::Integer(std::move(result));
     }
-    Language::Runtime::Owned<Language::Core::Integer> Language::Core::Integer::abs() {
-        int64_t v(value.get());
+    Language::Runtime::Owned<Language::Core::Integer> Language::Core::Integer::abs() const {
+        int64_t v = value;
         if (v < 0) {
             int64_t result = 0 - v;
             return Language::Core::Integer(std::move(result));
         }
         return Language::Core::Integer(std::move(v));
     }
-    Language::Runtime::Owned<Language::Core::String> Language::Core::Integer::toString() {
-        int64_t v(value.get());
-        const void* str = Syscall::int_to_string(std::move(v));
+    Language::Runtime::Owned<Language::Core::String> Language::Core::Integer::toString() const {
+        int64_t v = value;
+        const unsigned char* str = Syscall::int_to_string(std::move(v));
         return Language::Core::String(std::move(str));
     }
 } // namespace Language::Core
 
 namespace Language::Core {
 
-        bool Language::Core::Bool::toBool() {
+        bool Language::Core::Bool::toBool() const {
         return value;
     }
-    Language::Runtime::Owned<Language::Core::Bool> Language::Core::Bool::and_(Language::Core::Bool& other) {
-        bool v1(value.get());
-        bool v2(other.value.get());
+    Language::Runtime::Owned<Language::Core::Bool> Language::Core::Bool::and_(const Language::Core::Bool& other) const {
+        bool v1 = value;
+        bool v2 = other.value;
         bool result = v1 && v2;
         return Language::Core::Bool(std::move(result));
     }
-    Language::Runtime::Owned<Language::Core::Bool> Language::Core::Bool::or_(Language::Core::Bool& other) {
-        bool v1(value.get());
-        bool v2(other.value.get());
+    Language::Runtime::Owned<Language::Core::Bool> Language::Core::Bool::or_(const Language::Core::Bool& other) const {
+        bool v1 = value;
+        bool v2 = other.value;
         bool result = v1 || v2;
         return Language::Core::Bool(std::move(result));
     }
-    Language::Runtime::Owned<Language::Core::Bool> Language::Core::Bool::not_() {
-        bool v(value.get());
+    Language::Runtime::Owned<Language::Core::Bool> Language::Core::Bool::not_() const {
+        bool v = value;
         bool result = !v;
         return Language::Core::Bool(std::move(result));
     }
-    Language::Runtime::Owned<Language::Core::Bool> Language::Core::Bool::xor_(Language::Core::Bool& other) {
-        bool v1(value.get());
-        bool v2(other.value.get());
+    Language::Runtime::Owned<Language::Core::Bool> Language::Core::Bool::xor_(const Language::Core::Bool& other) const {
+        bool v1 = value;
+        bool v2 = other.value;
         if (v1 == v2) {
             return Language::Core::Bool(false);
         }
         return Language::Core::Bool(true);
     }
-    Language::Runtime::Owned<Language::Core::Bool> Language::Core::Bool::equals(Language::Core::Bool& other) {
-        bool v1(value.get());
-        bool v2(other.value.get());
+    Language::Runtime::Owned<Language::Core::Bool> Language::Core::Bool::equals(const Language::Core::Bool& other) const {
+        bool v1 = value;
+        bool v2 = other.value;
         if (v1 == v2) {
             return Language::Core::Bool(true);
         }
         return Language::Core::Bool(false);
     }
-    Language::Runtime::Owned<Language::Core::Integer> Language::Core::Bool::toInteger() {
-        bool v(value.get());
+    Language::Runtime::Owned<Language::Core::Integer> Language::Core::Bool::toInteger() const {
+        bool v = value;
         if (v == true) {
             return Language::Core::Integer(1);
         }
@@ -432,65 +509,65 @@ namespace Language::Core {
 
 namespace Language::Core {
 
-        float Language::Core::Float::toFloat() {
+        float Language::Core::Float::toFloat() const {
         return value;
     }
-    Language::Runtime::Owned<Language::Core::Float> Language::Core::Float::add(Language::Core::Float& other) {
-        float v1(value.get());
-        float v2(other.value.get());
+    Language::Runtime::Owned<Language::Core::Float> Language::Core::Float::add(const Language::Core::Float& other) const {
+        float v1 = value;
+        float v2 = other.value;
         float result = v1 + v2;
         return Language::Core::Float(std::move(result));
     }
-    Language::Runtime::Owned<Language::Core::Float> Language::Core::Float::subtract(Language::Core::Float& other) {
-        float v1(value.get());
-        float v2(other.value.get());
+    Language::Runtime::Owned<Language::Core::Float> Language::Core::Float::subtract(const Language::Core::Float& other) const {
+        float v1 = value;
+        float v2 = other.value;
         float result = v1 - v2;
         return Language::Core::Float(std::move(result));
     }
-    Language::Runtime::Owned<Language::Core::Float> Language::Core::Float::multiply(Language::Core::Float& other) {
-        float v1(value.get());
-        float v2(other.value.get());
+    Language::Runtime::Owned<Language::Core::Float> Language::Core::Float::multiply(const Language::Core::Float& other) const {
+        float v1 = value;
+        float v2 = other.value;
         float result = v1 * v2;
         return Language::Core::Float(std::move(result));
     }
-    Language::Runtime::Owned<Language::Core::Float> Language::Core::Float::divide(Language::Core::Float& other) {
-        float v1(value.get());
-        float v2(other.value.get());
+    Language::Runtime::Owned<Language::Core::Float> Language::Core::Float::divide(const Language::Core::Float& other) const {
+        float v1 = value;
+        float v2 = other.value;
         float result = v1 / v2;
         return Language::Core::Float(std::move(result));
     }
-    Language::Runtime::Owned<Language::Core::Bool> Language::Core::Float::equals(Language::Core::Float& other) {
-        float v1(value.get());
-        float v2(other.value.get());
+    Language::Runtime::Owned<Language::Core::Bool> Language::Core::Float::equals(const Language::Core::Float& other) const {
+        float v1 = value;
+        float v2 = other.value;
         if (v1 == v2) {
             return Language::Core::Bool(true);
         }
         return Language::Core::Bool(false);
     }
-    Language::Runtime::Owned<Language::Core::Bool> Language::Core::Float::lessThan(Language::Core::Float& other) {
-        float v1(value.get());
-        float v2(other.value.get());
+    Language::Runtime::Owned<Language::Core::Bool> Language::Core::Float::lessThan(const Language::Core::Float& other) const {
+        float v1 = value;
+        float v2 = other.value;
         if (v1 < v2) {
             return Language::Core::Bool(true);
         }
         return Language::Core::Bool(false);
     }
-    Language::Runtime::Owned<Language::Core::Bool> Language::Core::Float::greaterThan(Language::Core::Float& other) {
-        float v1(value.get());
-        float v2(other.value.get());
+    Language::Runtime::Owned<Language::Core::Bool> Language::Core::Float::greaterThan(const Language::Core::Float& other) const {
+        float v1 = value;
+        float v2 = other.value;
         if (v1 > v2) {
             return Language::Core::Bool(true);
         }
         return Language::Core::Bool(false);
     }
-    Language::Runtime::Owned<Language::Core::Float> Language::Core::Float::negate() {
-        float v(value.get());
+    Language::Runtime::Owned<Language::Core::Float> Language::Core::Float::negate() const {
+        float v = value;
         float zero = 0;
         float result = zero - v;
         return Language::Core::Float(std::move(result));
     }
-    Language::Runtime::Owned<Language::Core::Float> Language::Core::Float::abs() {
-        float v(value.get());
+    Language::Runtime::Owned<Language::Core::Float> Language::Core::Float::abs() const {
+        float v = value;
         float zero = 0;
         if (v < zero) {
             float result = zero - v;
@@ -498,95 +575,95 @@ namespace Language::Core {
         }
         return Language::Core::Float(std::move(v));
     }
-    Language::Runtime::Owned<Language::Core::Integer> Language::Core::Float::toInteger() {
-        float v(value.get());
-        int64_t result(v.get());
+    Language::Runtime::Owned<Language::Core::Integer> Language::Core::Float::toInteger() const {
+        float v = value;
+        int64_t result = v;
         return Language::Core::Integer(std::move(result));
     }
-    Language::Core::Double Language::Core::Float::toDouble() {
-        float v(value.get());
-        double result(v.get());
+    Language::Core::Double Language::Core::Float::toDouble() const {
+        float v = value;
+        double result = v;
         return Language::Core::Double(std::move(result));
     }
 } // namespace Language::Core
 
 namespace Language::Core {
 
-        double Language::Core::Double::toDouble() {
+        double Language::Core::Double::toDouble() const {
         return value;
     }
-    Language::Runtime::Owned<Language::Core::Double> Language::Core::Double::add(Language::Core::Double& other) {
-        double v1(value.get());
-        double v2(other.value.get());
+    Language::Runtime::Owned<Language::Core::Double> Language::Core::Double::add(const Language::Core::Double& other) const {
+        double v1 = value;
+        double v2 = other.value;
         double result = v1 + v2;
         return Language::Core::Double(std::move(result));
     }
-    Language::Runtime::Owned<Language::Core::Double> Language::Core::Double::subtract(Language::Core::Double& other) {
-        double v1(value.get());
-        double v2(other.value.get());
+    Language::Runtime::Owned<Language::Core::Double> Language::Core::Double::subtract(const Language::Core::Double& other) const {
+        double v1 = value;
+        double v2 = other.value;
         double result = v1 - v2;
         return Language::Core::Double(std::move(result));
     }
-    Language::Runtime::Owned<Language::Core::Double> Language::Core::Double::multiply(Language::Core::Double& other) {
-        double v1(value.get());
-        double v2(other.value.get());
+    Language::Runtime::Owned<Language::Core::Double> Language::Core::Double::multiply(const Language::Core::Double& other) const {
+        double v1 = value;
+        double v2 = other.value;
         double result = v1 * v2;
         return Language::Core::Double(std::move(result));
     }
-    Language::Runtime::Owned<Language::Core::Double> Language::Core::Double::divide(Language::Core::Double& other) {
-        double v1(value.get());
-        double v2(other.value.get());
+    Language::Runtime::Owned<Language::Core::Double> Language::Core::Double::divide(const Language::Core::Double& other) const {
+        double v1 = value;
+        double v2 = other.value;
         double result = v1 / v2;
         return Language::Core::Double(std::move(result));
     }
-    Language::Runtime::Owned<Language::Core::Bool> Language::Core::Double::equals(Language::Core::Double& other) {
-        double v1(value.get());
-        double v2(other.value.get());
+    Language::Runtime::Owned<Language::Core::Bool> Language::Core::Double::equals(const Language::Core::Double& other) const {
+        double v1 = value;
+        double v2 = other.value;
         if (v1 == v2) {
             return Language::Core::Bool(true);
         }
         return Language::Core::Bool(false);
     }
-    Language::Runtime::Owned<Language::Core::Bool> Language::Core::Double::lessThan(Language::Core::Double& other) {
-        double v1(value.get());
-        double v2(other.value.get());
+    Language::Runtime::Owned<Language::Core::Bool> Language::Core::Double::lessThan(const Language::Core::Double& other) const {
+        double v1 = value;
+        double v2 = other.value;
         if (v1 < v2) {
             return Language::Core::Bool(true);
         }
         return Language::Core::Bool(false);
     }
-    Language::Runtime::Owned<Language::Core::Bool> Language::Core::Double::greaterThan(Language::Core::Double& other) {
-        double v1(value.get());
-        double v2(other.value.get());
+    Language::Runtime::Owned<Language::Core::Bool> Language::Core::Double::greaterThan(const Language::Core::Double& other) const {
+        double v1 = value;
+        double v2 = other.value;
         if (v1 > v2) {
             return Language::Core::Bool(true);
         }
         return Language::Core::Bool(false);
     }
-    Language::Runtime::Owned<Language::Core::Bool> Language::Core::Double::lessOrEqual(Language::Core::Double& other) {
-        double v1(value.get());
-        double v2(other.value.get());
+    Language::Runtime::Owned<Language::Core::Bool> Language::Core::Double::lessOrEqual(const Language::Core::Double& other) const {
+        double v1 = value;
+        double v2 = other.value;
         if (v1 <= v2) {
             return Language::Core::Bool(true);
         }
         return Language::Core::Bool(false);
     }
-    Language::Runtime::Owned<Language::Core::Bool> Language::Core::Double::greaterOrEqual(Language::Core::Double& other) {
-        double v1(value.get());
-        double v2(other.value.get());
+    Language::Runtime::Owned<Language::Core::Bool> Language::Core::Double::greaterOrEqual(const Language::Core::Double& other) const {
+        double v1 = value;
+        double v2 = other.value;
         if (v1 >= v2) {
             return Language::Core::Bool(true);
         }
         return Language::Core::Bool(false);
     }
-    Language::Runtime::Owned<Language::Core::Double> Language::Core::Double::negate() {
-        double v(value.get());
+    Language::Runtime::Owned<Language::Core::Double> Language::Core::Double::negate() const {
+        double v = value;
         double zero = 0;
         double result = zero - v;
         return Language::Core::Double(std::move(result));
     }
-    Language::Runtime::Owned<Language::Core::Double> Language::Core::Double::abs() {
-        double v(value.get());
+    Language::Runtime::Owned<Language::Core::Double> Language::Core::Double::abs() const {
+        double v = value;
         double zero = 0;
         if (v < zero) {
             double result = zero - v;
@@ -594,75 +671,75 @@ namespace Language::Core {
         }
         return Language::Core::Double(std::move(v));
     }
-    Language::Runtime::Owned<Language::Core::Integer> Language::Core::Double::toInteger() {
-        double v(value.get());
-        int64_t result(v.get());
+    Language::Runtime::Owned<Language::Core::Integer> Language::Core::Double::toInteger() const {
+        double v = value;
+        int64_t result = v;
         return Language::Core::Integer(std::move(result));
     }
-    Language::Core::Float Language::Core::Double::toFloat() {
-        double v(value.get());
-        float result(v.get());
+    Language::Core::Float Language::Core::Double::toFloat() const {
+        double v = value;
+        float result = v;
         return Language::Core::Float(std::move(result));
     }
 } // namespace Language::Core
 
 namespace Language::Core {
 
-        const void* Language::Core::String::toCString() {
-        void* ptr(data.get());
+        const unsigned char* Language::Core::String::toCString() const {
+        void* ptr = data;
         return Syscall::string_cstr(std::move(ptr));
     }
-    Language::Runtime::Owned<Language::Core::Integer> Language::Core::String::length() {
-        void* ptr(data.get());
+    Language::Runtime::Owned<Language::Core::Integer> Language::Core::String::length() const {
+        void* ptr = data;
         int64_t len = Syscall::string_length(std::move(ptr));
         return Language::Core::Integer(std::move(len));
     }
-    Language::Runtime::Owned<Language::Core::Bool> Language::Core::String::isEmpty() {
-        void* ptr(data.get());
+    Language::Runtime::Owned<Language::Core::Bool> Language::Core::String::isEmpty() const {
+        void* ptr = data;
         int64_t len = Syscall::string_length(std::move(ptr));
         if (len == 0) {
             return Language::Core::Bool(true);
         }
         return Language::Core::Bool(false);
     }
-    Language::Runtime::Owned<Language::Core::String> Language::Core::String::append(Language::Core::String& other) {
-        void* ptr1(data.get());
-        void* ptr2(other.data.get());
+    Language::Runtime::Owned<Language::Core::String> Language::Core::String::append(const Language::Core::String& other) {
+        void* ptr1 = data;
+        void* ptr2 = other.data;
         void* newPtr = Syscall::string_concat(std::move(ptr1), std::move(ptr2));
         Syscall::memcpy(&data, &newPtr, 8);
         return std::move(*this);
     }
-    Language::Runtime::Owned<Language::Core::String> Language::Core::String::copy() {
-        const void* empty = "";
+    Language::Runtime::Owned<Language::Core::String> Language::Core::String::copy() const {
+        const unsigned char* empty = reinterpret_cast<const unsigned char*>("");
         Language::Runtime::Owned<Language::Core::String> result = Language::Core::String(std::move(empty));
-        void* ptr(data.get());
+        void* ptr = data;
         void* newPtr = Syscall::string_copy(std::move(ptr));
         Syscall::memcpy(&result->data, &newPtr, 8);
         return std::move(result);
     }
-    Language::Runtime::Owned<Language::Core::Bool> Language::Core::String::equals(Language::Core::String& other) {
-        void* ptr1(data.get());
-        void* ptr2(other.data.get());
+    Language::Runtime::Owned<Language::Core::Bool> Language::Core::String::equals(const Language::Core::String& other) const {
+        void* ptr1 = data;
+        void* ptr2 = other.data;
         int64_t result = Syscall::string_equals(std::move(ptr1), std::move(ptr2));
         if (result == 1) {
             return Language::Core::Bool(true);
         }
         return Language::Core::Bool(false);
     }
-    Language::Runtime::Owned<Language::Core::String> Language::Core::String::FromCString(void* ptr) {
+    Language::Runtime::Owned<Language::Core::String> Language::Core::String::FromCString(unsigned char* ptr) {
         void* strPtr = Syscall::string_create(ptr);
-        Language::Runtime::Owned<Language::Core::String> result = Language::Core::String("");
+        Language::Runtime::Owned<Language::Core::String> result = Language::Core::String(reinterpret_cast<const unsigned char*>(""));
         Syscall::memcpy(&result->data, &strPtr, 8);
         return std::move(result);
     }
-    Language::Runtime::Owned<Language::Core::String> Language::Core::String::charAt(Language::Core::Integer& index) {
-        void* ptr(data.get());
-        int64_t idx(index.get());
-        const void* charCStr = Syscall::string_charAt(std::move(ptr), std::move(idx));
+    Language::Runtime::Owned<Language::Core::String> Language::Core::String::charAt(const Language::Core::Integer& index) const {
+        void* ptr = data;
+        int64_t idx = index.toInt64();
+        const unsigned char* charCStr = Syscall::string_charAt(std::move(ptr), std::move(idx));
         return Language::Core::String(std::move(charCStr));
     }
     void Language::Core::String::dispose() {
-        void* ptr(data.get());
+        void* ptr = data;
         if (ptr != 0) {
             Syscall::string_destroy(std::move(ptr));
             void* zero = 0;
@@ -670,6 +747,20 @@ namespace Language::Core {
         }
     }
 } // namespace Language::Core
+
+
+// Equality operator specialization for Owned<String>
+// String uses equals() method instead of operator==
+namespace Language {
+namespace Runtime {
+template<>
+inline bool Owned<Language::Core::String>::operator==(const Owned<Language::Core::String>& other) const {
+    Language::Core::String& lhs = const_cast<Language::Core::String&>(this->get());
+    Language::Core::String& rhs = const_cast<Language::Core::String&>(other.get());
+    return lhs.equals(rhs)->toBool();
+}
+} // namespace Runtime
+} // namespace Language
 
 // ============================================
 // System::Console Implementation (C++ intrinsic)
@@ -763,975 +854,111 @@ namespace Mem {
 } // namespace Language
 
 // ============================================
-// Module: .::Language::Collections::Array
-// ============================================
-namespace Collections {
-
-} // namespace Collections
-
-
-
-// ============================================
-// Module: .::Language::Collections::HashMap
-// ============================================
-namespace Collections {
-
-    class HashMap {
-        private:
-            void* bucketsPtr;
-            void* capacity;
-            void* count;
-        public:
-            HashMap() = default;
-            void init() {
-                int64_t initialCap = 16;
-                int64_t size = initialCap * 8;
-                void* ptr = Syscall::malloc(std::move(size));
-                Syscall::memset(std::move(ptr), 0, std::move(size));
-                Syscall::memcpy(&bucketsPtr, &ptr, 8);
-                Syscall::memcpy(&capacity, &initialCap, 8);
-                int64_t zero = 0;
-                Syscall::memcpy(&count, &zero, 8);
-            }
-            void put(Language::Runtime::Owned<Language::Core::String> key, Language::Runtime::Owned<Language::Core::String> value) {
-                int64_t currentCap(capacity.get());
-                int64_t hashVal = hashString(std::move(key));
-                int64_t bucketIndex = hashVal % currentCap;
-                void* currentBucketsPtr(bucketsPtr.get());
-                int64_t offset = bucketIndex * 8;
-                void* bucketPos = currentBucketsPtr + offset;
-                void* headPtr = Syscall::read_int64(std::move(bucketPos));
-                if (headPtr == 0) {
-                    createNode(std::move(bucketPos), std::move(key), std::move(value));
-                    int64_t currentCount(count.get());
-                    int64_t newCount = currentCount + 1;
-                    Syscall::memcpy(&count, &newCount, 8);
-                } else {
-                    putInChain(std::move(headPtr), std::move(bucketPos), std::move(key), std::move(value));
-                }
-            }
-            Language::Runtime::Owned<Language::Core::String> get(Language::Runtime::Owned<Language::Core::String> key) {
-                int64_t currentCap(capacity.get());
-                int64_t hashVal = hashString(std::move(key));
-                int64_t bucketIndex = hashVal % currentCap;
-                void* currentBucketsPtr(bucketsPtr.get());
-                int64_t offset = bucketIndex * 8;
-                void* bucketPos = currentBucketsPtr + offset;
-                void* headPtr = Syscall::read_int64(std::move(bucketPos));
-                if (headPtr == 0) {
-                    return Language::Core::String("");
-                } else {
-                    return findValueInChain(std::move(headPtr), std::move(key));
-                }
-            }
-            Language::Runtime::Owned<Language::Core::Bool> containsKey(Language::Runtime::Owned<Language::Core::String> key) {
-                Language::Runtime::Owned<Language::Core::String> result = get(std::move(key));
-                int64_t len = result->length();
-                if (len == 0) {
-                    return Language::Core::Bool(false);
-                } else {
-                    return Language::Core::Bool(true);
-                }
-            }
-            Language::Runtime::Owned<Language::Core::Integer> size() {
-                int64_t currentCount(count.get());
-                return Language::Core::Integer(std::move(currentCount));
-            }
-            Language::Runtime::Owned<Language::Core::Bool> isEmpty() {
-                int64_t currentCount(count.get());
-                if (currentCount == 0) {
-                    return Language::Core::Bool(true);
-                } else {
-                    return Language::Core::Bool(false);
-                }
-            }
-            void print() {
-                Console::printLine(Language::Core::String("{"));
-                printBuckets(Language::Core::Integer(0));
-                Console::printLine(Language::Core::String("}"));
-            }
-            void dispose() {
-                disposeBuckets(Language::Core::Integer(0));
-                void* currentBucketsPtr(bucketsPtr.get());
-                if (currentBucketsPtr != 0) {
-                    Syscall::free(std::move(currentBucketsPtr));
-                    void* zero = 0;
-                    Syscall::memcpy(&bucketsPtr, &zero, 8);
-                }
-            }
-        private:
-            int64_t hashString(Language::Runtime::Owned<Language::Core::String> str) {
-                int64_t len = str->length();
-                return hashHelper(std::move(str), Language::Core::Integer(0), Language::Core::Integer(5381), Language::Core::Integer(std::move(len)));
-            }
-            int64_t hashHelper(Language::Runtime::Owned<Language::Core::String> str, Language::Core::Integer& index, Language::Runtime::Owned<Language::Core::Integer> hash, Language::Runtime::Owned<Language::Core::Integer> len) {
-                int64_t idx(index.get());
-                int64_t length(len.get());
-                if (idx >= length) {
-                    int64_t result(hash.get());
-                    if (result < 0) {
-                        int64_t negOne = 0 - 1;
-                        return result * negOne;
-                    } else {
-                        return std::move(result);
-                    }
-                }
-                Language::Runtime::Owned<Language::Core::String> charStr = str->charAt(index);
-                void* charCStr = charStr->toCString();
-                int64_t charVal = Syscall::read_int64(std::move(charCStr));
-                int64_t currentHash(hash.get());
-                int64_t newHash = currentHash * 33 + charVal;
-                Language::Runtime::Owned<Language::Core::Integer> nextIndex = index.add(Language::Core::Integer(1));
-                return hashHelper(std::move(str), std::move(nextIndex), Language::Core::Integer(std::move(newHash)), std::move(len));
-            }
-            void createNode(void* bucketPos, Language::Runtime::Owned<Language::Core::String> key, Language::Runtime::Owned<Language::Core::String> value) {
-                int64_t nodeSize = 24;
-                void* nodePtr = Syscall::malloc(std::move(nodeSize));
-                int64_t keyLen = key->length();
-                int64_t keyAllocSize = keyLen + 1;
-                void* keyCopy = Syscall::malloc(std::move(keyAllocSize));
-                void* keySrc = key->toCString();
-                Syscall::memcpy(std::move(keyCopy), std::move(keySrc), std::move(keyLen));
-                void* keyNullPos = keyCopy + keyLen;
-                int64_t zero = 0;
-                Syscall::write_int64(std::move(keyNullPos), std::move(zero));
-                int64_t valueLen = value->length();
-                int64_t valueAllocSize = valueLen + 1;
-                void* valueCopy = Syscall::malloc(std::move(valueAllocSize));
-                void* valueSrc = value->toCString();
-                Syscall::memcpy(std::move(valueCopy), std::move(valueSrc), std::move(valueLen));
-                void* valueNullPos = valueCopy + valueLen;
-                Syscall::write_int64(std::move(valueNullPos), std::move(zero));
-                Syscall::write_int64(std::move(nodePtr), std::move(keyCopy));
-                void* valuePos = nodePtr + 8;
-                Syscall::write_int64(std::move(valuePos), std::move(valueCopy));
-                void* nextPos = nodePtr + 16;
-                Syscall::write_int64(std::move(nextPos), std::move(zero));
-                Syscall::write_int64(bucketPos, std::move(nodePtr));
-            }
-            void putInChain(void* nodePtr, void* bucketPos, Language::Runtime::Owned<Language::Core::String> key, Language::Runtime::Owned<Language::Core::String> value) {
-                void* keyPtr = Syscall::read_int64(nodePtr);
-                Language::Runtime::Owned<Language::Core::String> nodeKey = String::FromCString(std::move(keyPtr));
-                if (nodeKey == key) {
-                    void* valuePos = nodePtr + 8;
-                    void* oldValuePtr = Syscall::read_int64(std::move(valuePos));
-                    Syscall::free(std::move(oldValuePtr));
-                    int64_t valueLen = value->length();
-                    int64_t valueAllocSize = valueLen + 1;
-                    void* valueCopy = Syscall::malloc(std::move(valueAllocSize));
-                    void* valueSrc = value->toCString();
-                    Syscall::memcpy(std::move(valueCopy), std::move(valueSrc), std::move(valueLen));
-                    void* valueNullPos = valueCopy + valueLen;
-                    int64_t zero = 0;
-                    Syscall::write_int64(std::move(valueNullPos), std::move(zero));
-                    Syscall::write_int64(std::move(valuePos), std::move(valueCopy));
-                } else {
-                    void* nextPos = nodePtr + 16;
-                    void* nextPtr = Syscall::read_int64(std::move(nextPos));
-                    if (nextPtr == 0) {
-                        createNodeInChain(std::move(nextPos), std::move(key), std::move(value));
-                        int64_t currentCount(count.get());
-                        int64_t newCount = currentCount + 1;
-                        Syscall::memcpy(&count, &newCount, 8);
-                    } else {
-                        putInChain(std::move(nextPtr), bucketPos, std::move(key), std::move(value));
-                    }
-                }
-            }
-            void createNodeInChain(void* nextPos, Language::Runtime::Owned<Language::Core::String> key, Language::Runtime::Owned<Language::Core::String> value) {
-                int64_t nodeSize = 24;
-                void* nodePtr = Syscall::malloc(std::move(nodeSize));
-                int64_t keyLen = key->length();
-                int64_t keyAllocSize = keyLen + 1;
-                void* keyCopy = Syscall::malloc(std::move(keyAllocSize));
-                void* keySrc = key->toCString();
-                Syscall::memcpy(std::move(keyCopy), std::move(keySrc), std::move(keyLen));
-                void* keyNullPos = keyCopy + keyLen;
-                int64_t zero = 0;
-                Syscall::write_int64(std::move(keyNullPos), std::move(zero));
-                int64_t valueLen = value->length();
-                int64_t valueAllocSize = valueLen + 1;
-                void* valueCopy = Syscall::malloc(std::move(valueAllocSize));
-                void* valueSrc = value->toCString();
-                Syscall::memcpy(std::move(valueCopy), std::move(valueSrc), std::move(valueLen));
-                void* valueNullPos = valueCopy + valueLen;
-                Syscall::write_int64(std::move(valueNullPos), std::move(zero));
-                Syscall::write_int64(std::move(nodePtr), std::move(keyCopy));
-                void* valuePos = nodePtr + 8;
-                Syscall::write_int64(std::move(valuePos), std::move(valueCopy));
-                void* nextPtrPos = nodePtr + 16;
-                Syscall::write_int64(std::move(nextPtrPos), std::move(zero));
-                Syscall::write_int64(nextPos, std::move(nodePtr));
-            }
-            Language::Runtime::Owned<Language::Core::String> findValueInChain(void* nodePtr, Language::Runtime::Owned<Language::Core::String> key) {
-                void* keyPtr = Syscall::read_int64(nodePtr);
-                Language::Runtime::Owned<Language::Core::String> nodeKey = String::FromCString(std::move(keyPtr));
-                if (nodeKey == key) {
-                    void* valuePos = nodePtr + 8;
-                    void* valuePtr = Syscall::read_int64(std::move(valuePos));
-                    return String::FromCString(std::move(valuePtr));
-                } else {
-                    void* nextPos = nodePtr + 16;
-                    void* nextPtr = Syscall::read_int64(std::move(nextPos));
-                    if (nextPtr == 0) {
-                        return Language::Core::String("");
-                    } else {
-                        return findValueInChain(std::move(nextPtr), std::move(key));
-                    }
-                }
-            }
-            void disposeChain(void* nodePtr) {
-                if (nodePtr == 0) {
-                    return;
-                }
-                void* nextPos = nodePtr + 16;
-                void* nextPtr = Syscall::read_int64(std::move(nextPos));
-                void* keyPtr = Syscall::read_int64(nodePtr);
-                if (keyPtr != 0) {
-                    Syscall::free(std::move(keyPtr));
-                }
-                void* valuePos = nodePtr + 8;
-                void* valuePtr = Syscall::read_int64(std::move(valuePos));
-                if (valuePtr != 0) {
-                    Syscall::free(std::move(valuePtr));
-                }
-                Syscall::free(nodePtr);
-                disposeChain(std::move(nextPtr));
-            }
-            void disposeBuckets(Language::Core::Integer& index) {
-                int64_t currentCap(capacity.get());
-                int64_t idx(index.get());
-                if (idx >= currentCap) {
-                    return;
-                }
-                void* currentBucketsPtr(bucketsPtr.get());
-                int64_t offset = idx * 8;
-                void* bucketPos = currentBucketsPtr + offset;
-                void* headPtr = Syscall::read_int64(std::move(bucketPos));
-                if (headPtr != 0) {
-                    disposeChain(std::move(headPtr));
-                }
-                Language::Runtime::Owned<Language::Core::Integer> nextIndex = index.add(Language::Core::Integer(1));
-                disposeBuckets(std::move(nextIndex));
-            }
-            void printChain(void* nodePtr) {
-                if (nodePtr == 0) {
-                    return;
-                }
-                void* keyPtr = Syscall::read_int64(nodePtr);
-                Language::Runtime::Owned<Language::Core::String> nodeKey = String::FromCString(std::move(keyPtr));
-                void* valuePos = nodePtr + 8;
-                void* valuePtr = Syscall::read_int64(std::move(valuePos));
-                Language::Runtime::Owned<Language::Core::String> nodeValue = String::FromCString(std::move(valuePtr));
-                Console::print(Language::Core::String("  \""));
-                Console::print(std::move(nodeKey));
-                Console::print(Language::Core::String("\": \""));
-                Console::print(std::move(nodeValue));
-                Console::printLine(Language::Core::String("\""));
-                void* nextPos = nodePtr + 16;
-                void* nextPtr = Syscall::read_int64(std::move(nextPos));
-                printChain(std::move(nextPtr));
-            }
-            void printBuckets(Language::Core::Integer& index) {
-                int64_t currentCap(capacity.get());
-                int64_t idx(index.get());
-                if (idx >= currentCap) {
-                    return;
-                }
-                void* currentBucketsPtr(bucketsPtr.get());
-                int64_t offset = idx * 8;
-                void* bucketPos = currentBucketsPtr + offset;
-                void* headPtr = Syscall::read_int64(std::move(bucketPos));
-                if (headPtr != 0) {
-                    printChain(std::move(headPtr));
-                }
-                Language::Runtime::Owned<Language::Core::Integer> nextIndex = index.add(Language::Core::Integer(1));
-                printBuckets(std::move(nextIndex));
-            }
-    };
-    
-} // namespace Collections
-
-
-
-// ============================================
-// Module: .::Language::Collections::List
-// ============================================
-namespace Collections {
-
-} // namespace Collections
-
-
-
-// ============================================
-// Module: .::Language::Collections::Queue
-// ============================================
-namespace Language::Collections {
-
-    class IntegerQueue {
-        private:
-        public:
-            IntegerQueue() = default;
-            void enqueue(Language::Runtime::Owned<Language::Core::Integer> value) {
-            }
-            Language::Runtime::Owned<Language::Core::Integer> dequeue() {
-                return Language::Core::Integer(0);
-            }
-            Language::Runtime::Owned<Language::Core::Integer> peek() {
-                return Language::Core::Integer(0);
-            }
-            Language::Runtime::Owned<Language::Core::Integer> size() {
-                return Language::Core::Integer(0);
-            }
-            Language::Runtime::Owned<Language::Core::Bool> isEmpty() {
-                return Language::Core::Bool(true);
-            }
-            void clear() {
-            }
-    };
-    
-    class StringQueue {
-        private:
-        public:
-            StringQueue() = default;
-            void enqueue(Language::Runtime::Owned<Language::Core::String> value) {
-            }
-            Language::Runtime::Owned<Language::Core::String> dequeue() {
-                return Language::Core::String();
-            }
-            Language::Runtime::Owned<Language::Core::String> peek() {
-                return Language::Core::String();
-            }
-            Language::Runtime::Owned<Language::Core::Integer> size() {
-                return Language::Core::Integer(0);
-            }
-            Language::Runtime::Owned<Language::Core::Bool> isEmpty() {
-                return Language::Core::Bool(true);
-            }
-            void clear() {
-            }
-    };
-    
-} // namespace Language::Collections
-
-
-
-// ============================================
-// Module: .::Language::Collections::Set
-// ============================================
-namespace Language::Collections {
-
-    class IntegerSet {
-        private:
-        public:
-            IntegerSet() = default;
-            Language::Runtime::Owned<Language::Core::Bool> add(Language::Runtime::Owned<Language::Core::Integer> value) {
-                return Language::Core::Bool(false);
-            }
-            Language::Runtime::Owned<Language::Core::Bool> remove(Language::Runtime::Owned<Language::Core::Integer> value) {
-                return Language::Core::Bool(false);
-            }
-            Language::Runtime::Owned<Language::Core::Bool> contains(Language::Runtime::Owned<Language::Core::Integer> value) {
-                return Language::Core::Bool(false);
-            }
-            Language::Runtime::Owned<Language::Core::Integer> size() {
-                return Language::Core::Integer(0);
-            }
-            Language::Runtime::Owned<Language::Core::Bool> isEmpty() {
-                return Language::Core::Bool(true);
-            }
-            void clear() {
-            }
-            Language::Runtime::Owned<IntegerSet> union(Language::Runtime::Owned<IntegerSet> other) {
-                return IntegerSet();
-            }
-            Language::Runtime::Owned<IntegerSet> intersection(Language::Runtime::Owned<IntegerSet> other) {
-                return IntegerSet();
-            }
-            Language::Runtime::Owned<IntegerSet> difference(Language::Runtime::Owned<IntegerSet> other) {
-                return IntegerSet();
-            }
-    };
-    
-    class StringSet {
-        private:
-        public:
-            StringSet() = default;
-            Language::Runtime::Owned<Language::Core::Bool> add(Language::Runtime::Owned<Language::Core::String> value) {
-                return Language::Core::Bool(false);
-            }
-            Language::Runtime::Owned<Language::Core::Bool> remove(Language::Runtime::Owned<Language::Core::String> value) {
-                return Language::Core::Bool(false);
-            }
-            Language::Runtime::Owned<Language::Core::Bool> contains(Language::Runtime::Owned<Language::Core::String> value) {
-                return Language::Core::Bool(false);
-            }
-            Language::Runtime::Owned<Language::Core::Integer> size() {
-                return Language::Core::Integer(0);
-            }
-            Language::Runtime::Owned<Language::Core::Bool> isEmpty() {
-                return Language::Core::Bool(true);
-            }
-            void clear() {
-            }
-            Language::Runtime::Owned<StringSet> union(Language::Runtime::Owned<StringSet> other) {
-                return StringSet();
-            }
-            Language::Runtime::Owned<StringSet> intersection(Language::Runtime::Owned<StringSet> other) {
-                return StringSet();
-            }
-            Language::Runtime::Owned<StringSet> difference(Language::Runtime::Owned<StringSet> other) {
-                return StringSet();
-            }
-    };
-    
-} // namespace Language::Collections
-
-
-
-// ============================================
-// Module: .::Language::Collections::Stack
-// ============================================
-namespace Language::Collections {
-
-    class IntegerStack {
-        private:
-        public:
-            IntegerStack() = default;
-            void push(Language::Runtime::Owned<Language::Core::Integer> value) {
-            }
-            Language::Runtime::Owned<Language::Core::Integer> pop() {
-                return Language::Core::Integer(0);
-            }
-            Language::Runtime::Owned<Language::Core::Integer> peek() {
-                return Language::Core::Integer(0);
-            }
-            Language::Runtime::Owned<Language::Core::Integer> size() {
-                return Language::Core::Integer(0);
-            }
-            Language::Runtime::Owned<Language::Core::Bool> isEmpty() {
-                return Language::Core::Bool(true);
-            }
-            void clear() {
-            }
-    };
-    
-    class StringStack {
-        private:
-        public:
-            StringStack() = default;
-            void push(Language::Runtime::Owned<Language::Core::String> value) {
-            }
-            Language::Runtime::Owned<Language::Core::String> pop() {
-                return Language::Core::String();
-            }
-            Language::Runtime::Owned<Language::Core::String> peek() {
-                return Language::Core::String();
-            }
-            Language::Runtime::Owned<Language::Core::Integer> size() {
-                return Language::Core::Integer(0);
-            }
-            Language::Runtime::Owned<Language::Core::Bool> isEmpty() {
-                return Language::Core::Bool(true);
-            }
-            void clear() {
-            }
-    };
-    
-} // namespace Language::Collections
-
-
-
-// ============================================
-// Module: .::Language::Core::Bool
-// ============================================
-namespace Language::Core {
-
-    class Bool {
-        private:
-            bool value;
-        public:
-            Bool() = default;
-            Bool(bool val) : value(val) {}
-            static Bool Constructor(bool val) { return Bool(val); }
-            bool toBool() {
-                return value;
-            }
-            Language::Runtime::Owned<Language::Core::Bool> and_(Language::Core::Bool& other) {
-                bool v1(value.get());
-                bool v2(other.value.get());
-                bool result = v1 && v2;
-                return Language::Core::Bool(std::move(result));
-            }
-            Language::Runtime::Owned<Language::Core::Bool> or_(Language::Core::Bool& other) {
-                bool v1(value.get());
-                bool v2(other.value.get());
-                bool result = v1 || v2;
-                return Language::Core::Bool(std::move(result));
-            }
-            Language::Runtime::Owned<Language::Core::Bool> not_() {
-                bool v(value.get());
-                bool result = !v;
-                return Language::Core::Bool(std::move(result));
-            }
-            Language::Runtime::Owned<Language::Core::Bool> xor_(Language::Core::Bool& other) {
-                bool v1(value.get());
-                bool v2(other.value.get());
-                if (v1 == v2) {
-                    return Language::Core::Bool(false);
-                }
-                return Language::Core::Bool(true);
-            }
-            Language::Runtime::Owned<Language::Core::Bool> equals(Language::Core::Bool& other) {
-                bool v1(value.get());
-                bool v2(other.value.get());
-                if (v1 == v2) {
-                    return Language::Core::Bool(true);
-                }
-                return Language::Core::Bool(false);
-            }
-            Language::Runtime::Owned<Language::Core::Integer> toInteger() {
-                bool v(value.get());
-                if (v == true) {
-                    return Language::Core::Integer(1);
-                }
-                return Language::Core::Integer(0);
-            }
-    };
-    
-} // namespace Language::Core
-
-
-
-// ============================================
-// Module: .::Language::Core::Double
-// ============================================
-namespace Language::Core {
-
-    class Double {
-        private:
-            double value;
-        public:
-            Double() = default;
-            Double(double val) : value(val) {}
-            static Double Constructor(double val) { return Double(val); }
-            double toDouble() {
-                return value;
-            }
-            Language::Runtime::Owned<Language::Core::Double> add(Language::Core::Double& other) {
-                double v1(value.get());
-                double v2(other.value.get());
-                double result = v1 + v2;
-                return Language::Core::Double(std::move(result));
-            }
-            Language::Runtime::Owned<Language::Core::Double> subtract(Language::Core::Double& other) {
-                double v1(value.get());
-                double v2(other.value.get());
-                double result = v1 - v2;
-                return Language::Core::Double(std::move(result));
-            }
-            Language::Runtime::Owned<Language::Core::Double> multiply(Language::Core::Double& other) {
-                double v1(value.get());
-                double v2(other.value.get());
-                double result = v1 * v2;
-                return Language::Core::Double(std::move(result));
-            }
-            Language::Runtime::Owned<Language::Core::Double> divide(Language::Core::Double& other) {
-                double v1(value.get());
-                double v2(other.value.get());
-                double result = v1 / v2;
-                return Language::Core::Double(std::move(result));
-            }
-            Language::Runtime::Owned<Language::Core::Bool> equals(Language::Core::Double& other) {
-                double v1(value.get());
-                double v2(other.value.get());
-                if (v1 == v2) {
-                    return Language::Core::Bool(true);
-                }
-                return Language::Core::Bool(false);
-            }
-            Language::Runtime::Owned<Language::Core::Bool> lessThan(Language::Core::Double& other) {
-                double v1(value.get());
-                double v2(other.value.get());
-                if (v1 < v2) {
-                    return Language::Core::Bool(true);
-                }
-                return Language::Core::Bool(false);
-            }
-            Language::Runtime::Owned<Language::Core::Bool> greaterThan(Language::Core::Double& other) {
-                double v1(value.get());
-                double v2(other.value.get());
-                if (v1 > v2) {
-                    return Language::Core::Bool(true);
-                }
-                return Language::Core::Bool(false);
-            }
-            Language::Runtime::Owned<Language::Core::Bool> lessOrEqual(Language::Core::Double& other) {
-                double v1(value.get());
-                double v2(other.value.get());
-                if (v1 <= v2) {
-                    return Language::Core::Bool(true);
-                }
-                return Language::Core::Bool(false);
-            }
-            Language::Runtime::Owned<Language::Core::Bool> greaterOrEqual(Language::Core::Double& other) {
-                double v1(value.get());
-                double v2(other.value.get());
-                if (v1 >= v2) {
-                    return Language::Core::Bool(true);
-                }
-                return Language::Core::Bool(false);
-            }
-            Language::Runtime::Owned<Language::Core::Double> negate() {
-                double v(value.get());
-                double zero = 0;
-                double result = zero - v;
-                return Language::Core::Double(std::move(result));
-            }
-            Language::Runtime::Owned<Language::Core::Double> abs() {
-                double v(value.get());
-                double zero = 0;
-                if (v < zero) {
-                    double result = zero - v;
-                    return Language::Core::Double(std::move(result));
-                }
-                return Language::Core::Double(std::move(v));
-            }
-            Language::Runtime::Owned<Language::Core::Integer> toInteger() {
-                double v(value.get());
-                int64_t result(v.get());
-                return Language::Core::Integer(std::move(result));
-            }
-            Language::Core::Float toFloat() {
-                double v(value.get());
-                float result(v.get());
-                return Language::Core::Float(std::move(result));
-            }
-    };
-    
-} // namespace Language::Core
-
-
-
-// ============================================
-// Module: .::Language::Core::Float
-// ============================================
-namespace Language::Core {
-
-    class Float {
-        private:
-            float value;
-        public:
-            Float() = default;
-            Float(float val) : value(val) {}
-            static Float Constructor(float val) { return Float(val); }
-            float toFloat() {
-                return value;
-            }
-            Language::Runtime::Owned<Language::Core::Float> add(Language::Core::Float& other) {
-                float v1(value.get());
-                float v2(other.value.get());
-                float result = v1 + v2;
-                return Language::Core::Float(std::move(result));
-            }
-            Language::Runtime::Owned<Language::Core::Float> subtract(Language::Core::Float& other) {
-                float v1(value.get());
-                float v2(other.value.get());
-                float result = v1 - v2;
-                return Language::Core::Float(std::move(result));
-            }
-            Language::Runtime::Owned<Language::Core::Float> multiply(Language::Core::Float& other) {
-                float v1(value.get());
-                float v2(other.value.get());
-                float result = v1 * v2;
-                return Language::Core::Float(std::move(result));
-            }
-            Language::Runtime::Owned<Language::Core::Float> divide(Language::Core::Float& other) {
-                float v1(value.get());
-                float v2(other.value.get());
-                float result = v1 / v2;
-                return Language::Core::Float(std::move(result));
-            }
-            Language::Runtime::Owned<Language::Core::Bool> equals(Language::Core::Float& other) {
-                float v1(value.get());
-                float v2(other.value.get());
-                if (v1 == v2) {
-                    return Language::Core::Bool(true);
-                }
-                return Language::Core::Bool(false);
-            }
-            Language::Runtime::Owned<Language::Core::Bool> lessThan(Language::Core::Float& other) {
-                float v1(value.get());
-                float v2(other.value.get());
-                if (v1 < v2) {
-                    return Language::Core::Bool(true);
-                }
-                return Language::Core::Bool(false);
-            }
-            Language::Runtime::Owned<Language::Core::Bool> greaterThan(Language::Core::Float& other) {
-                float v1(value.get());
-                float v2(other.value.get());
-                if (v1 > v2) {
-                    return Language::Core::Bool(true);
-                }
-                return Language::Core::Bool(false);
-            }
-            Language::Runtime::Owned<Language::Core::Float> negate() {
-                float v(value.get());
-                float zero = 0;
-                float result = zero - v;
-                return Language::Core::Float(std::move(result));
-            }
-            Language::Runtime::Owned<Language::Core::Float> abs() {
-                float v(value.get());
-                float zero = 0;
-                if (v < zero) {
-                    float result = zero - v;
-                    return Language::Core::Float(std::move(result));
-                }
-                return Language::Core::Float(std::move(v));
-            }
-            Language::Runtime::Owned<Language::Core::Integer> toInteger() {
-                float v(value.get());
-                int64_t result(v.get());
-                return Language::Core::Integer(std::move(result));
-            }
-            Language::Core::Double toDouble() {
-                float v(value.get());
-                double result(v.get());
-                return Language::Core::Double(std::move(result));
-            }
-    };
-    
-} // namespace Language::Core
-
-
-
-// ============================================
-// Module: .::Language::Core::Integer
-// ============================================
-namespace Language::Core {
-
-    class Integer {
-        private:
-            int64_t value;
-        public:
-            Integer() = default;
-            Integer(int64_t val) : value(val) {}
-            static Integer Constructor(int64_t val) { return Integer(val); }
-            int64_t toInt64() {
-                return value;
-            }
-            Language::Runtime::Owned<Language::Core::Integer> add(Language::Core::Integer& other) {
-                int64_t v1(value.get());
-                int64_t v2(other.value.get());
-                int64_t result = v1 + v2;
-                return Language::Core::Integer(std::move(result));
-            }
-            Language::Runtime::Owned<Language::Core::Integer> subtract(Language::Core::Integer& other) {
-                int64_t v1(value.get());
-                int64_t v2(other.value.get());
-                int64_t result = v1 - v2;
-                return Language::Core::Integer(std::move(result));
-            }
-            Language::Runtime::Owned<Language::Core::Integer> multiply(Language::Core::Integer& other) {
-                int64_t v1(value.get());
-                int64_t v2(other.value.get());
-                int64_t result = v1 * v2;
-                return Language::Core::Integer(std::move(result));
-            }
-            Language::Runtime::Owned<Language::Core::Integer> divide(Language::Core::Integer& other) {
-                int64_t v1(value.get());
-                int64_t v2(other.value.get());
-                int64_t result = v1 / v2;
-                return Language::Core::Integer(std::move(result));
-            }
-            Language::Runtime::Owned<Language::Core::Integer> modulo(Language::Core::Integer& other) {
-                int64_t v1(value.get());
-                int64_t v2(other.value.get());
-                int64_t result = v1 % v2;
-                return Language::Core::Integer(std::move(result));
-            }
-            Language::Runtime::Owned<Language::Core::Bool> equals(Language::Core::Integer& other) {
-                int64_t v1(value.get());
-                int64_t v2(other.value.get());
-                if (v1 == v2) {
-                    return Language::Core::Bool(true);
-                }
-                return Language::Core::Bool(false);
-            }
-            Language::Runtime::Owned<Language::Core::Bool> lessThan(Language::Core::Integer& other) {
-                int64_t v1(value.get());
-                int64_t v2(other.value.get());
-                if (v1 < v2) {
-                    return Language::Core::Bool(true);
-                }
-                return Language::Core::Bool(false);
-            }
-            Language::Runtime::Owned<Language::Core::Bool> greaterThan(Language::Core::Integer& other) {
-                int64_t v1(value.get());
-                int64_t v2(other.value.get());
-                if (v1 > v2) {
-                    return Language::Core::Bool(true);
-                }
-                return Language::Core::Bool(false);
-            }
-            Language::Runtime::Owned<Language::Core::Bool> lessOrEqual(Language::Core::Integer& other) {
-                int64_t v1(value.get());
-                int64_t v2(other.value.get());
-                if (v1 <= v2) {
-                    return Language::Core::Bool(true);
-                }
-                return Language::Core::Bool(false);
-            }
-            Language::Runtime::Owned<Language::Core::Bool> greaterOrEqual(Language::Core::Integer& other) {
-                int64_t v1(value.get());
-                int64_t v2(other.value.get());
-                if (v1 >= v2) {
-                    return Language::Core::Bool(true);
-                }
-                return Language::Core::Bool(false);
-            }
-            Language::Runtime::Owned<Language::Core::Integer> negate() {
-                int64_t v(value.get());
-                int64_t result = 0 - v;
-                return Language::Core::Integer(std::move(result));
-            }
-            Language::Runtime::Owned<Language::Core::Integer> abs() {
-                int64_t v(value.get());
-                if (v < 0) {
-                    int64_t result = 0 - v;
-                    return Language::Core::Integer(std::move(result));
-                }
-                return Language::Core::Integer(std::move(v));
-            }
-            Language::Runtime::Owned<Language::Core::String> toString() {
-                int64_t v(value.get());
-                const void* str = Syscall::int_to_string(std::move(v));
-                return Language::Core::String(std::move(str));
-            }
-    };
-    
-} // namespace Language::Core
-
-
-
-// ============================================
-// Module: .::Language::Core::Mem
-// ============================================
-namespace Language::Core {
-
-    class Mem {
-        public:
-            void move(void value) {
-            }
-    };
-    
-} // namespace Language::Core
-
-
-
-// ============================================
-// Module: .::Language::Core::None
-// ============================================
-namespace Language::Core {
-
-    class None {
-        public:
-            None() {
-            }
-            static None Constructor() { return None(); }
-    };
-    
-} // namespace Language::Core
-
-
-
-// ============================================
-// Module: .::Language::Core::String
-// ============================================
-namespace Language::Core {
-
-    class String {
-        private:
-            void* data;
-        public:
-            String() = default;
-            String(const void* cstr) {
-                void* ptr = Syscall::string_create(cstr);
-                Syscall::memcpy(&data, &ptr, 8);
-            }
-            static String Constructor(const void* cstr) { return String(cstr); }
-            const void* toCString() {
-                void* ptr(data.get());
-                return Syscall::string_cstr(std::move(ptr));
-            }
-            Language::Runtime::Owned<Language::Core::Integer> length() {
-                void* ptr(data.get());
-                int64_t len = Syscall::string_length(std::move(ptr));
-                return Language::Core::Integer(std::move(len));
-            }
-            Language::Runtime::Owned<Language::Core::Bool> isEmpty() {
-                void* ptr(data.get());
-                int64_t len = Syscall::string_length(std::move(ptr));
-                if (len == 0) {
-                    return Language::Core::Bool(true);
-                }
-                return Language::Core::Bool(false);
-            }
-            Language::Runtime::Owned<Language::Core::String> append(Language::Core::String& other) {
-                void* ptr1(data.get());
-                void* ptr2(other.data.get());
-                void* newPtr = Syscall::string_concat(std::move(ptr1), std::move(ptr2));
-                Syscall::memcpy(&data, &newPtr, 8);
-                return std::move(*this);
-            }
-            Language::Runtime::Owned<Language::Core::String> copy() {
-                const void* empty = "";
-                Language::Runtime::Owned<Language::Core::String> result = Language::Core::String(std::move(empty));
-                void* ptr(data.get());
-                void* newPtr = Syscall::string_copy(std::move(ptr));
-                Syscall::memcpy(&result->data, &newPtr, 8);
-                return std::move(result);
-            }
-            Language::Runtime::Owned<Language::Core::Bool> equals(Language::Core::String& other) {
-                void* ptr1(data.get());
-                void* ptr2(other.data.get());
-                int64_t result = Syscall::string_equals(std::move(ptr1), std::move(ptr2));
-                if (result == 1) {
-                    return Language::Core::Bool(true);
-                }
-                return Language::Core::Bool(false);
-            }
-            Language::Runtime::Owned<Language::Core::String> FromCString(void* ptr) {
-                void* strPtr = Syscall::string_create(ptr);
-                Language::Runtime::Owned<Language::Core::String> result = Language::Core::String("");
-                Syscall::memcpy(&result->data, &strPtr, 8);
-                return std::move(result);
-            }
-            Language::Runtime::Owned<Language::Core::String> charAt(Language::Core::Integer& index) {
-                void* ptr(data.get());
-                int64_t idx(index.get());
-                const void* charCStr = Syscall::string_charAt(std::move(ptr), std::move(idx));
-                return Language::Core::String(std::move(charCStr));
-            }
-            void dispose() {
-                void* ptr(data.get());
-                if (ptr != 0) {
-                    Syscall::string_destroy(std::move(ptr));
-                    void* zero = 0;
-                    Syscall::memcpy(&data, &zero, 8);
-                }
-            }
-    };
-    
-} // namespace Language::Core
-
-
-
-// ============================================
 // Module: Language/Collections/Array.XXML
 // ============================================
+// ============================================================================
+// Template Instantiations
+// ============================================================================
+
+// Instantiation: List<Integer>
+class List_Integer {
+    private:
+        unsigned char* dataPtr;
+        int64_t capacity;
+        int64_t count;
+    public:
+        List_Integer() = default;
+        void add(Language::Runtime::Owned<Language::Core::Integer> value) {
+            if (count == capacity) {
+                int64_t newCapacity = capacity * 2;
+                if (newCapacity == 0) {
+                    newCapacity = 8;
+                }
+                unsigned char* newData = Syscall::malloc(newCapacity * 8);
+                if (dataPtr != 0) {
+                    Syscall::memcpy(std::move(newData), dataPtr, count * 8);
+                    Syscall::free(dataPtr);
+                }
+                Syscall::memcpy(&dataPtr, &newData, 8);
+                Syscall::memcpy(&capacity, &newCapacity, 8);
+            }
+            unsigned char* offset = dataPtr + count * 8;
+            Syscall::ptr_write(std::move(offset), std::move(value));
+            int64_t newCount = count + 1;
+            Syscall::memcpy(&count, &newCount, 8);
+        }
+        Language::Runtime::Owned<Language::Core::Integer> get(const Language::Core::Integer& index) {
+            int64_t zero = 0;
+            int64_t idx = index.toInt64();
+            if (idx < zero) {
+                unsigned char* nullPtr = 0;
+                return Syscall::ptr_read<Language::Core::Integer>(std::move(nullPtr));
+            }
+            if (idx >= count) {
+                unsigned char* nullPtr = 0;
+                return Syscall::ptr_read<Language::Core::Integer>(std::move(nullPtr));
+            }
+            unsigned char* offset = dataPtr + idx * 8;
+            return Syscall::ptr_read<Language::Core::Integer>(std::move(offset));
+        }
+        void set(const Language::Core::Integer& index, Language::Runtime::Owned<Language::Core::Integer> value) {
+            int64_t zero = 0;
+            int64_t idx = index.toInt64();
+            if (idx < zero) {
+                return void();
+            }
+            if (idx >= count) {
+                return void();
+            }
+            unsigned char* offset = dataPtr + idx * 8;
+            Syscall::ptr_write(std::move(offset), std::move(value));
+        }
+        Language::Runtime::Owned<Language::Core::Integer> size() {
+            return Language::Core::Integer(count);
+        }
+        Language::Runtime::Owned<Language::Core::Bool> isEmpty() {
+            return Language::Core::Bool(count == 0);
+        }
+        void clear() {
+            int64_t zero = 0;
+            Syscall::memcpy(&count, &zero, 8);
+        }
+        void remove(const Language::Core::Integer& index) {
+            int64_t zero = 0;
+            int64_t idx = index.toInt64();
+            if (idx < zero) {
+                return void();
+            }
+            if (idx >= count) {
+                return void();
+            }
+            Language::Runtime::Owned<Language::Core::Integer> startIdx = Language::Core::Integer(std::move(idx));
+            Language::Runtime::Owned<Language::Core::Integer> endIdx = Language::Core::Integer(count);
+            for (Language::Core::Integer i = startIdx; i < endIdx; i++) {
+                int64_t iVal = i.toInt64();
+                unsigned char* destOffset = dataPtr + iVal * 8;
+                int64_t iValPlusOne = iVal + 1;
+                unsigned char* srcOffset = dataPtr + iValPlusOne * 8;
+                Language::Runtime::Owned<T> val = Syscall::ptr_read(std::move(srcOffset));
+                Syscall::ptr_write(std::move(destOffset), std::move(val));
+            }
+            int64_t one = 1;
+            int64_t newCount = count - one;
+            Syscall::memcpy(&count, &newCount, 8);
+        }
+        void dispose() {
+            if (dataPtr != 0) {
+                Syscall::free(dataPtr);
+                unsigned char* zero = 0;
+                Syscall::memcpy(&dataPtr, &zero, 8);
+            }
+            int64_t zero64 = 0;
+            Syscall::memcpy(&count, &zero64, 8);
+            Syscall::memcpy(&capacity, &zero64, 8);
+        }
+};
+
+
 namespace Collections {
 
 } // namespace Collections
@@ -1741,19 +968,23 @@ namespace Collections {
 // ============================================
 // Module: Language/Collections/HashMap.XXML
 // ============================================
+// ============================================================================
+// Template Instantiations
+// ============================================================================
+
 namespace Collections {
 
     class HashMap {
         private:
-            void* bucketsPtr;
-            void* capacity;
-            void* count;
+            unsigned char* bucketsPtr;
+            int64_t capacity;
+            int64_t count;
         public:
             HashMap() = default;
             void init() {
                 int64_t initialCap = 16;
                 int64_t size = initialCap * 8;
-                void* ptr = Syscall::malloc(std::move(size));
+                unsigned char* ptr = Syscall::malloc(std::move(size));
                 Syscall::memset(std::move(ptr), 0, std::move(size));
                 Syscall::memcpy(&bucketsPtr, &ptr, 8);
                 Syscall::memcpy(&capacity, &initialCap, 8);
@@ -1761,16 +992,16 @@ namespace Collections {
                 Syscall::memcpy(&count, &zero, 8);
             }
             void put(Language::Runtime::Owned<Language::Core::String> key, Language::Runtime::Owned<Language::Core::String> value) {
-                int64_t currentCap(capacity.get());
+                int64_t currentCap = capacity;
                 int64_t hashVal = hashString(std::move(key));
                 int64_t bucketIndex = hashVal % currentCap;
-                void* currentBucketsPtr(bucketsPtr.get());
+                unsigned char* currentBucketsPtr = bucketsPtr;
                 int64_t offset = bucketIndex * 8;
-                void* bucketPos = currentBucketsPtr + offset;
-                void* headPtr = Syscall::read_int64(std::move(bucketPos));
+                unsigned char* bucketPos = currentBucketsPtr + offset;
+                unsigned char* headPtr = Syscall::ptr_read(std::move(bucketPos));
                 if (headPtr == 0) {
                     createNode(std::move(bucketPos), std::move(key), std::move(value));
-                    int64_t currentCount(count.get());
+                    int64_t currentCount = count;
                     int64_t newCount = currentCount + 1;
                     Syscall::memcpy(&count, &newCount, 8);
                 } else {
@@ -1778,22 +1009,23 @@ namespace Collections {
                 }
             }
             Language::Runtime::Owned<Language::Core::String> get(Language::Runtime::Owned<Language::Core::String> key) {
-                int64_t currentCap(capacity.get());
+                int64_t currentCap = capacity;
                 int64_t hashVal = hashString(std::move(key));
                 int64_t bucketIndex = hashVal % currentCap;
-                void* currentBucketsPtr(bucketsPtr.get());
+                unsigned char* currentBucketsPtr = bucketsPtr;
                 int64_t offset = bucketIndex * 8;
-                void* bucketPos = currentBucketsPtr + offset;
-                void* headPtr = Syscall::read_int64(std::move(bucketPos));
+                unsigned char* bucketPos = currentBucketsPtr + offset;
+                unsigned char* headPtr = Syscall::ptr_read<Language::Core::String>(std::move(bucketPos));
                 if (headPtr == 0) {
-                    return Language::Core::String("");
+                    return Language::Core::String(reinterpret_cast<const unsigned char*>(""));
                 } else {
                     return findValueInChain(std::move(headPtr), std::move(key));
                 }
             }
             Language::Runtime::Owned<Language::Core::Bool> containsKey(Language::Runtime::Owned<Language::Core::String> key) {
                 Language::Runtime::Owned<Language::Core::String> result = get(std::move(key));
-                int64_t len = result->length();
+                Language::Runtime::Owned<Language::Core::Integer> lenInt = result->length();
+                int64_t len = lenInt->toInt64();
                 if (len == 0) {
                     return Language::Core::Bool(false);
                 } else {
@@ -1801,11 +1033,11 @@ namespace Collections {
                 }
             }
             Language::Runtime::Owned<Language::Core::Integer> size() {
-                int64_t currentCount(count.get());
+                int64_t currentCount = count;
                 return Language::Core::Integer(std::move(currentCount));
             }
             Language::Runtime::Owned<Language::Core::Bool> isEmpty() {
-                int64_t currentCount(count.get());
+                int64_t currentCount = count;
                 if (currentCount == 0) {
                     return Language::Core::Bool(true);
                 } else {
@@ -1813,29 +1045,30 @@ namespace Collections {
                 }
             }
             void print() {
-                Console::printLine(Language::Core::String("{"));
+                System::Console::printLine(Language::Core::String(reinterpret_cast<const unsigned char*>("{")));
                 printBuckets(Language::Core::Integer(0));
-                Console::printLine(Language::Core::String("}"));
+                System::Console::printLine(Language::Core::String(reinterpret_cast<const unsigned char*>("}")));
             }
             void dispose() {
                 disposeBuckets(Language::Core::Integer(0));
-                void* currentBucketsPtr(bucketsPtr.get());
+                unsigned char* currentBucketsPtr = bucketsPtr;
                 if (currentBucketsPtr != 0) {
                     Syscall::free(std::move(currentBucketsPtr));
-                    void* zero = 0;
+                    unsigned char* zero = 0;
                     Syscall::memcpy(&bucketsPtr, &zero, 8);
                 }
             }
         private:
             int64_t hashString(Language::Runtime::Owned<Language::Core::String> str) {
-                int64_t len = str->length();
+                Language::Runtime::Owned<Language::Core::Integer> lenInt = str->length();
+                int64_t len = lenInt->toInt64();
                 return hashHelper(std::move(str), Language::Core::Integer(0), Language::Core::Integer(5381), Language::Core::Integer(std::move(len)));
             }
-            int64_t hashHelper(Language::Runtime::Owned<Language::Core::String> str, Language::Core::Integer& index, Language::Runtime::Owned<Language::Core::Integer> hash, Language::Runtime::Owned<Language::Core::Integer> len) {
-                int64_t idx(index.get());
-                int64_t length(len.get());
+            int64_t hashHelper(Language::Runtime::Owned<Language::Core::String> str, const Language::Core::Integer& index, Language::Runtime::Owned<Language::Core::Integer> hash, Language::Runtime::Owned<Language::Core::Integer> len) {
+                int64_t idx = index.toInt64();
+                int64_t length = len->toInt64();
                 if (idx >= length) {
-                    int64_t result(hash.get());
+                    int64_t result = hash->toInt64();
                     if (result < 0) {
                         int64_t negOne = 0 - 1;
                         return result * negOne;
@@ -1844,60 +1077,63 @@ namespace Collections {
                     }
                 }
                 Language::Runtime::Owned<Language::Core::String> charStr = str->charAt(index);
-                void* charCStr = charStr->toCString();
-                int64_t charVal = Syscall::read_int64(std::move(charCStr));
-                int64_t currentHash(hash.get());
+                unsigned char* charCStr = const_cast<unsigned char*>(charStr->toCString());
+                int64_t charVal = Syscall::read_byte(std::move(charCStr));
+                int64_t currentHash = hash->toInt64();
                 int64_t newHash = currentHash * 33 + charVal;
                 Language::Runtime::Owned<Language::Core::Integer> nextIndex = index.add(Language::Core::Integer(1));
                 return hashHelper(std::move(str), std::move(nextIndex), Language::Core::Integer(std::move(newHash)), std::move(len));
             }
-            void createNode(void* bucketPos, Language::Runtime::Owned<Language::Core::String> key, Language::Runtime::Owned<Language::Core::String> value) {
+            void createNode(unsigned char* bucketPos, Language::Runtime::Owned<Language::Core::String> key, Language::Runtime::Owned<Language::Core::String> value) {
                 int64_t nodeSize = 24;
-                void* nodePtr = Syscall::malloc(std::move(nodeSize));
-                int64_t keyLen = key->length();
+                unsigned char* nodePtr = Syscall::malloc(std::move(nodeSize));
+                Language::Runtime::Owned<Language::Core::Integer> keyLenInt = key->length();
+                int64_t keyLen = keyLenInt->toInt64();
                 int64_t keyAllocSize = keyLen + 1;
-                void* keyCopy = Syscall::malloc(std::move(keyAllocSize));
-                void* keySrc = key->toCString();
+                unsigned char* keyCopy = Syscall::malloc(std::move(keyAllocSize));
+                unsigned char* keySrc = const_cast<unsigned char*>(key->toCString());
                 Syscall::memcpy(std::move(keyCopy), std::move(keySrc), std::move(keyLen));
-                void* keyNullPos = keyCopy + keyLen;
+                unsigned char* keyNullPos = keyCopy + keyLen;
                 int64_t zero = 0;
-                Syscall::write_int64(std::move(keyNullPos), std::move(zero));
-                int64_t valueLen = value->length();
+                Syscall::ptr_write(std::move(keyNullPos), std::move(zero));
+                Language::Runtime::Owned<Language::Core::Integer> valueLenInt = value->length();
+                int64_t valueLen = valueLenInt->toInt64();
                 int64_t valueAllocSize = valueLen + 1;
-                void* valueCopy = Syscall::malloc(std::move(valueAllocSize));
-                void* valueSrc = value->toCString();
+                unsigned char* valueCopy = Syscall::malloc(std::move(valueAllocSize));
+                unsigned char* valueSrc = const_cast<unsigned char*>(value->toCString());
                 Syscall::memcpy(std::move(valueCopy), std::move(valueSrc), std::move(valueLen));
-                void* valueNullPos = valueCopy + valueLen;
-                Syscall::write_int64(std::move(valueNullPos), std::move(zero));
-                Syscall::write_int64(std::move(nodePtr), std::move(keyCopy));
-                void* valuePos = nodePtr + 8;
-                Syscall::write_int64(std::move(valuePos), std::move(valueCopy));
-                void* nextPos = nodePtr + 16;
-                Syscall::write_int64(std::move(nextPos), std::move(zero));
-                Syscall::write_int64(bucketPos, std::move(nodePtr));
+                unsigned char* valueNullPos = valueCopy + valueLen;
+                Syscall::ptr_write(std::move(valueNullPos), std::move(zero));
+                Syscall::ptr_write(std::move(nodePtr), std::move(keyCopy));
+                unsigned char* valuePos = nodePtr + 8;
+                Syscall::ptr_write(std::move(valuePos), std::move(valueCopy));
+                unsigned char* nextPos = nodePtr + 16;
+                Syscall::ptr_write(std::move(nextPos), std::move(zero));
+                Syscall::ptr_write(bucketPos, std::move(nodePtr));
             }
-            void putInChain(void* nodePtr, void* bucketPos, Language::Runtime::Owned<Language::Core::String> key, Language::Runtime::Owned<Language::Core::String> value) {
-                void* keyPtr = Syscall::read_int64(nodePtr);
-                Language::Runtime::Owned<Language::Core::String> nodeKey = String::FromCString(std::move(keyPtr));
+            void putInChain(unsigned char* nodePtr, unsigned char* bucketPos, Language::Runtime::Owned<Language::Core::String> key, Language::Runtime::Owned<Language::Core::String> value) {
+                unsigned char* keyPtr = Syscall::ptr_read(nodePtr);
+                Language::Runtime::Owned<Language::Core::String> nodeKey = Language::Core::String::FromCString(std::move(keyPtr));
                 if (nodeKey == key) {
-                    void* valuePos = nodePtr + 8;
-                    void* oldValuePtr = Syscall::read_int64(std::move(valuePos));
+                    unsigned char* valuePos = nodePtr + 8;
+                    unsigned char* oldValuePtr = Syscall::ptr_read(std::move(valuePos));
                     Syscall::free(std::move(oldValuePtr));
-                    int64_t valueLen = value->length();
+                    Language::Runtime::Owned<Language::Core::Integer> valueLenInt = value->length();
+                    int64_t valueLen = valueLenInt->toInt64();
                     int64_t valueAllocSize = valueLen + 1;
-                    void* valueCopy = Syscall::malloc(std::move(valueAllocSize));
-                    void* valueSrc = value->toCString();
+                    unsigned char* valueCopy = Syscall::malloc(std::move(valueAllocSize));
+                    unsigned char* valueSrc = const_cast<unsigned char*>(value->toCString());
                     Syscall::memcpy(std::move(valueCopy), std::move(valueSrc), std::move(valueLen));
-                    void* valueNullPos = valueCopy + valueLen;
+                    unsigned char* valueNullPos = valueCopy + valueLen;
                     int64_t zero = 0;
-                    Syscall::write_int64(std::move(valueNullPos), std::move(zero));
-                    Syscall::write_int64(std::move(valuePos), std::move(valueCopy));
+                    Syscall::ptr_write(std::move(valueNullPos), std::move(zero));
+                    Syscall::ptr_write(std::move(valuePos), std::move(valueCopy));
                 } else {
-                    void* nextPos = nodePtr + 16;
-                    void* nextPtr = Syscall::read_int64(std::move(nextPos));
+                    unsigned char* nextPos = nodePtr + 16;
+                    unsigned char* nextPtr = Syscall::ptr_read(std::move(nextPos));
                     if (nextPtr == 0) {
                         createNodeInChain(std::move(nextPos), std::move(key), std::move(value));
-                        int64_t currentCount(count.get());
+                        int64_t currentCount = count;
                         int64_t newCount = currentCount + 1;
                         Syscall::memcpy(&count, &newCount, 8);
                     } else {
@@ -1905,110 +1141,112 @@ namespace Collections {
                     }
                 }
             }
-            void createNodeInChain(void* nextPos, Language::Runtime::Owned<Language::Core::String> key, Language::Runtime::Owned<Language::Core::String> value) {
+            void createNodeInChain(unsigned char* nextPos, Language::Runtime::Owned<Language::Core::String> key, Language::Runtime::Owned<Language::Core::String> value) {
                 int64_t nodeSize = 24;
-                void* nodePtr = Syscall::malloc(std::move(nodeSize));
-                int64_t keyLen = key->length();
+                unsigned char* nodePtr = Syscall::malloc(std::move(nodeSize));
+                Language::Runtime::Owned<Language::Core::Integer> keyLenInt = key->length();
+                int64_t keyLen = keyLenInt->toInt64();
                 int64_t keyAllocSize = keyLen + 1;
-                void* keyCopy = Syscall::malloc(std::move(keyAllocSize));
-                void* keySrc = key->toCString();
+                unsigned char* keyCopy = Syscall::malloc(std::move(keyAllocSize));
+                unsigned char* keySrc = const_cast<unsigned char*>(key->toCString());
                 Syscall::memcpy(std::move(keyCopy), std::move(keySrc), std::move(keyLen));
-                void* keyNullPos = keyCopy + keyLen;
+                unsigned char* keyNullPos = keyCopy + keyLen;
                 int64_t zero = 0;
-                Syscall::write_int64(std::move(keyNullPos), std::move(zero));
-                int64_t valueLen = value->length();
+                Syscall::ptr_write(std::move(keyNullPos), std::move(zero));
+                Language::Runtime::Owned<Language::Core::Integer> valueLenInt = value->length();
+                int64_t valueLen = valueLenInt->toInt64();
                 int64_t valueAllocSize = valueLen + 1;
-                void* valueCopy = Syscall::malloc(std::move(valueAllocSize));
-                void* valueSrc = value->toCString();
+                unsigned char* valueCopy = Syscall::malloc(std::move(valueAllocSize));
+                unsigned char* valueSrc = const_cast<unsigned char*>(value->toCString());
                 Syscall::memcpy(std::move(valueCopy), std::move(valueSrc), std::move(valueLen));
-                void* valueNullPos = valueCopy + valueLen;
-                Syscall::write_int64(std::move(valueNullPos), std::move(zero));
-                Syscall::write_int64(std::move(nodePtr), std::move(keyCopy));
-                void* valuePos = nodePtr + 8;
-                Syscall::write_int64(std::move(valuePos), std::move(valueCopy));
-                void* nextPtrPos = nodePtr + 16;
-                Syscall::write_int64(std::move(nextPtrPos), std::move(zero));
-                Syscall::write_int64(nextPos, std::move(nodePtr));
+                unsigned char* valueNullPos = valueCopy + valueLen;
+                Syscall::ptr_write(std::move(valueNullPos), std::move(zero));
+                Syscall::ptr_write(std::move(nodePtr), std::move(keyCopy));
+                unsigned char* valuePos = nodePtr + 8;
+                Syscall::ptr_write(std::move(valuePos), std::move(valueCopy));
+                unsigned char* nextPtrPos = nodePtr + 16;
+                Syscall::ptr_write(std::move(nextPtrPos), std::move(zero));
+                Syscall::ptr_write(nextPos, std::move(nodePtr));
             }
-            Language::Runtime::Owned<Language::Core::String> findValueInChain(void* nodePtr, Language::Runtime::Owned<Language::Core::String> key) {
-                void* keyPtr = Syscall::read_int64(nodePtr);
-                Language::Runtime::Owned<Language::Core::String> nodeKey = String::FromCString(std::move(keyPtr));
+            Language::Runtime::Owned<Language::Core::String> findValueInChain(unsigned char* nodePtr, Language::Runtime::Owned<Language::Core::String> key) {
+                unsigned char* keyPtr = Syscall::ptr_read<Language::Core::String>(nodePtr);
+                Language::Runtime::Owned<Language::Core::String> nodeKey = Language::Core::String::FromCString(std::move(keyPtr));
                 if (nodeKey == key) {
-                    void* valuePos = nodePtr + 8;
-                    void* valuePtr = Syscall::read_int64(std::move(valuePos));
-                    return String::FromCString(std::move(valuePtr));
+                    unsigned char* valuePos = nodePtr + 8;
+                    unsigned char* valuePtr = Syscall::ptr_read<Language::Core::String>(std::move(valuePos));
+                    return Language::Core::String::FromCString(std::move(valuePtr));
                 } else {
-                    void* nextPos = nodePtr + 16;
-                    void* nextPtr = Syscall::read_int64(std::move(nextPos));
+                    unsigned char* nextPos = nodePtr + 16;
+                    unsigned char* nextPtr = Syscall::ptr_read<Language::Core::String>(std::move(nextPos));
                     if (nextPtr == 0) {
-                        return Language::Core::String("");
+                        return Language::Core::String(reinterpret_cast<const unsigned char*>(""));
                     } else {
                         return findValueInChain(std::move(nextPtr), std::move(key));
                     }
                 }
             }
-            void disposeChain(void* nodePtr) {
+            void disposeChain(unsigned char* nodePtr) {
                 if (nodePtr == 0) {
                     return;
                 }
-                void* nextPos = nodePtr + 16;
-                void* nextPtr = Syscall::read_int64(std::move(nextPos));
-                void* keyPtr = Syscall::read_int64(nodePtr);
+                unsigned char* nextPos = nodePtr + 16;
+                unsigned char* nextPtr = Syscall::ptr_read(std::move(nextPos));
+                unsigned char* keyPtr = Syscall::ptr_read(nodePtr);
                 if (keyPtr != 0) {
                     Syscall::free(std::move(keyPtr));
                 }
-                void* valuePos = nodePtr + 8;
-                void* valuePtr = Syscall::read_int64(std::move(valuePos));
+                unsigned char* valuePos = nodePtr + 8;
+                unsigned char* valuePtr = Syscall::ptr_read(std::move(valuePos));
                 if (valuePtr != 0) {
                     Syscall::free(std::move(valuePtr));
                 }
                 Syscall::free(nodePtr);
                 disposeChain(std::move(nextPtr));
             }
-            void disposeBuckets(Language::Core::Integer& index) {
-                int64_t currentCap(capacity.get());
-                int64_t idx(index.get());
+            void disposeBuckets(const Language::Core::Integer& index) {
+                int64_t currentCap = capacity;
+                int64_t idx = index.toInt64();
                 if (idx >= currentCap) {
                     return;
                 }
-                void* currentBucketsPtr(bucketsPtr.get());
+                unsigned char* currentBucketsPtr = bucketsPtr;
                 int64_t offset = idx * 8;
-                void* bucketPos = currentBucketsPtr + offset;
-                void* headPtr = Syscall::read_int64(std::move(bucketPos));
+                unsigned char* bucketPos = currentBucketsPtr + offset;
+                unsigned char* headPtr = Syscall::ptr_read(std::move(bucketPos));
                 if (headPtr != 0) {
                     disposeChain(std::move(headPtr));
                 }
                 Language::Runtime::Owned<Language::Core::Integer> nextIndex = index.add(Language::Core::Integer(1));
                 disposeBuckets(std::move(nextIndex));
             }
-            void printChain(void* nodePtr) {
+            void printChain(unsigned char* nodePtr) {
                 if (nodePtr == 0) {
                     return;
                 }
-                void* keyPtr = Syscall::read_int64(nodePtr);
-                Language::Runtime::Owned<Language::Core::String> nodeKey = String::FromCString(std::move(keyPtr));
-                void* valuePos = nodePtr + 8;
-                void* valuePtr = Syscall::read_int64(std::move(valuePos));
-                Language::Runtime::Owned<Language::Core::String> nodeValue = String::FromCString(std::move(valuePtr));
-                Console::print(Language::Core::String("  \""));
-                Console::print(std::move(nodeKey));
-                Console::print(Language::Core::String("\": \""));
-                Console::print(std::move(nodeValue));
-                Console::printLine(Language::Core::String("\""));
-                void* nextPos = nodePtr + 16;
-                void* nextPtr = Syscall::read_int64(std::move(nextPos));
+                unsigned char* keyPtr = Syscall::ptr_read(nodePtr);
+                Language::Runtime::Owned<Language::Core::String> nodeKey = Language::Core::String::FromCString(std::move(keyPtr));
+                unsigned char* valuePos = nodePtr + 8;
+                unsigned char* valuePtr = Syscall::ptr_read(std::move(valuePos));
+                Language::Runtime::Owned<Language::Core::String> nodeValue = Language::Core::String::FromCString(std::move(valuePtr));
+                System::Console::print(Language::Core::String(reinterpret_cast<const unsigned char*>("  \"")));
+                System::Console::print(std::move(nodeKey));
+                System::Console::print(Language::Core::String(reinterpret_cast<const unsigned char*>("\": \"")));
+                System::Console::print(std::move(nodeValue));
+                System::Console::printLine(Language::Core::String(reinterpret_cast<const unsigned char*>("\"")));
+                unsigned char* nextPos = nodePtr + 16;
+                unsigned char* nextPtr = Syscall::ptr_read(std::move(nextPos));
                 printChain(std::move(nextPtr));
             }
-            void printBuckets(Language::Core::Integer& index) {
-                int64_t currentCap(capacity.get());
-                int64_t idx(index.get());
+            void printBuckets(const Language::Core::Integer& index) {
+                int64_t currentCap = capacity;
+                int64_t idx = index.toInt64();
                 if (idx >= currentCap) {
                     return;
                 }
-                void* currentBucketsPtr(bucketsPtr.get());
+                unsigned char* currentBucketsPtr = bucketsPtr;
                 int64_t offset = idx * 8;
-                void* bucketPos = currentBucketsPtr + offset;
-                void* headPtr = Syscall::read_int64(std::move(bucketPos));
+                unsigned char* bucketPos = currentBucketsPtr + offset;
+                unsigned char* headPtr = Syscall::ptr_read(std::move(bucketPos));
                 if (headPtr != 0) {
                     printChain(std::move(headPtr));
                 }
@@ -2024,6 +1262,10 @@ namespace Collections {
 // ============================================
 // Module: Language/Collections/List.XXML
 // ============================================
+// ============================================================================
+// Template Instantiations
+// ============================================================================
+
 namespace Collections {
 
 } // namespace Collections
@@ -2033,6 +1275,10 @@ namespace Collections {
 // ============================================
 // Module: Language/Core/None.XXML
 // ============================================
+// ============================================================================
+// Template Instantiations
+// ============================================================================
+
 namespace Language::Core {
 
     class None {
@@ -2049,6 +1295,10 @@ namespace Language::Core {
 // ============================================
 // Module: __main__
 // ============================================
+// ============================================================================
+// Template Instantiations
+// ============================================================================
+
 // Import: Language::Core
 // Import: Language::Collections
 // Import: Language::System
@@ -2057,8 +1307,8 @@ namespace MyNamespace {
     class MyClass {
         public:
             MyClass() = default;
-            Language::Runtime::Owned<Language::Core::Integer> getValue() {
-                return this.myInt;
+            Language::Core::Integer getValue() {
+                return this->myInt;
             }
         private:
             Language::Runtime::Owned<Language::Core::Integer> myInt;
@@ -2068,23 +1318,21 @@ namespace MyNamespace {
 
 int main() {
     using namespace Language::Core;
+    using namespace System;
     
-    Language::Runtime::Owned<MyNamespace::MyClass> myClass = MyNamespace::MyClass(Language::Core::Integer(100));
-    Language::Runtime::Owned<List_Integer> intList = List_Integer();
-    intList->add(Language::Core::Integer(42));
-    intList->add(Language::Core::Integer(100));
-    intList->add(Language::Core::Integer(200));
-    Language::Runtime::Owned<Language::Core::Integer> firstElement = intList->get(Language::Core::Integer(0));
-    Language::Runtime::Owned<Language::Core::String> firstStr = firstElement->toString();
-    Language::Runtime::Owned<Language::Core::Integer> myValue = myClass->getValue();
-    Language::Runtime::Owned<Language::Core::String> myValueStr = myValue->toString();
-    Console::printLine(Language::Core::String("First element: ").append(std::move(firstStr)));
-    Console::printLine(Language::Core::String("MyClass value: ").append(std::move(myValueStr)));
-    Language::Runtime::Owned<Language::Core::Integer> listSize = intList->size();
-    Language::Runtime::Owned<Language::Core::String> sizeStr = listSize->toString();
-    Console::printLine(Language::Core::String("List size: ").append(std::move(sizeStr)));
-    Console::printLine(Language::Core::String("Hello world!"));
+    Language::Runtime::Owned<MyNamespace::MyClass> myClass = MyNamespace::MyClass();
+    Language::Runtime::Owned<Language::Core::Integer> testValue = Language::Core::Integer(42);
+    Language::Runtime::Owned<Language::Core::String> testStr = testValue->toString();
+    Language::Runtime::Owned<List_Integer> deez = List_Integer();
+    deez->add(Language::Core::Integer(5));
+    Console::printLine(Language::Core::String(reinterpret_cast<const unsigned char*>("Test value: ")).append(std::move(testStr)));
+    Language::Runtime::Owned<Language::Core::Integer> num1 = Language::Core::Integer(10);
+    Language::Runtime::Owned<Language::Core::Integer> num2 = Language::Core::Integer(32);
+    Language::Runtime::Owned<Language::Core::Integer> sum = num1->add(std::move(num2));
+    Language::Runtime::Owned<Language::Core::String> sumStr = sum->toString();
+    Console::printLine(Language::Core::String(reinterpret_cast<const unsigned char*>("Sum: ")).append(std::move(sumStr)));
+    Console::printLine(Language::Core::String(reinterpret_cast<const unsigned char*>("Hello world from XXML!")).append(deez->get(Language::Core::Integer(0)).toString()));
+    Console::printLine(Language::Core::String(reinterpret_cast<const unsigned char*>("Hello world from XXML!")));
 }
-
 
 

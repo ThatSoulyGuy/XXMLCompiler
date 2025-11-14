@@ -353,6 +353,15 @@ int main(int argc, char* argv[]) {
             return 1;
         }
 
+        // Collect all template classes from Phase 1 analyzers
+        std::unordered_map<std::string, XXML::Parser::ClassDecl*> allTemplateClasses;
+        for (const auto& [moduleName, analyzer] : analyzerMap) {
+            const auto& moduleTemplateClasses = analyzer->getTemplateClasses();
+            for (const auto& [name, classDecl] : moduleTemplateClasses) {
+                allTemplateClasses[name] = classDecl;
+            }
+        }
+
         // PHASE 2: Validation phase - Run semantic analysis with validation enabled
         std::cout << "Phase 2: Running semantic analysis with validation...\n";
         for (const auto& moduleName : compilationOrder) {
@@ -364,6 +373,12 @@ int main(int argc, char* argv[]) {
                 // Create a new analyzer for validation
                 auto validator = std::make_unique<XXML::Semantic::SemanticAnalyzer>(compilationContext, errorReporter);
                 validator->setValidationEnabled(true);  // Enable validation
+
+                // Register all template classes from Phase 1
+                for (const auto& [name, classDecl] : allTemplateClasses) {
+                    validator->registerTemplateClass(name, classDecl);
+                }
+
                 validator->analyze(*module->ast);
 
                 if (errorReporter.hasErrors()) {
@@ -382,6 +397,12 @@ int main(int argc, char* argv[]) {
         std::cout << "  Analyzing: __main__\n";
         mainAnalyzer = std::make_unique<XXML::Semantic::SemanticAnalyzer>(compilationContext, errorReporter);
         mainAnalyzer->setValidationEnabled(true);  // Enable validation
+
+        // Register all template classes from Phase 1
+        for (const auto& [name, classDecl] : allTemplateClasses) {
+            mainAnalyzer->registerTemplateClass(name, classDecl);
+        }
+
         mainAnalyzer->analyze(*mainModule->ast);
 
         if (errorReporter.hasErrors()) {
@@ -392,6 +413,37 @@ int main(int argc, char* argv[]) {
         mainModule->isAnalyzed = true;
 
         std::cout << "  Semantic analysis passed\n";
+
+        // Collect all template classes and instantiations from all modules
+        // and merge them into the main analyzer so template instantiation works
+        std::cout << "Collecting template information from all modules...\n";
+        for (const auto& [moduleName, analyzer] : analyzerMap) {
+            const auto& moduleTemplateClasses = analyzer->getTemplateClasses();
+            const auto& moduleTemplateInsts = analyzer->getTemplateInstantiations();
+
+            // Merge template classes into main analyzer
+            for (const auto& [name, classDecl] : moduleTemplateClasses) {
+                mainAnalyzer->registerTemplateClass(name, classDecl);
+            }
+
+            // Merge template instantiations into main analyzer
+            for (const auto& inst : moduleTemplateInsts) {
+                mainAnalyzer->mergeTemplateInstantiation(inst);
+            }
+        }
+
+        // Also merge main analyzer's templates back to all module analyzers
+        // so they can generate code properly
+        const auto& mainTemplateClasses = mainAnalyzer->getTemplateClasses();
+        const auto& mainTemplateInsts = mainAnalyzer->getTemplateInstantiations();
+        for (const auto& [moduleName, analyzer] : analyzerMap) {
+            for (const auto& [name, classDecl] : mainTemplateClasses) {
+                analyzer->registerTemplateClass(name, classDecl);
+            }
+            for (const auto& inst : mainTemplateInsts) {
+                analyzer->mergeTemplateInstantiation(inst);
+            }
+        }
 
         // Code generation for all modules
         std::cout << "Generating C++ code...\n";
@@ -563,9 +615,48 @@ int main(int argc, char* argv[]) {
         fullOutput << "    static unsigned char* ptr_read(const void* ptr) {\n";
         fullOutput << "        return static_cast<unsigned char*>(*static_cast<void* const*>(ptr));\n";
         fullOutput << "    }\n";
+        fullOutput << "    \n";
+        fullOutput << "    // Specialized overload to read as Owned<T> - returns by value\n";
+        fullOutput << "    template<typename T>\n";
+        fullOutput << "    static Language::Runtime::Owned<T> ptr_read(const void* ptr) {\n";
+        fullOutput << "        void* obj_ptr = *static_cast<void* const*>(ptr);\n";
+        fullOutput << "        if (obj_ptr == nullptr) {\n";
+        fullOutput << "            return Language::Runtime::Owned<T>(T());\n";
+        fullOutput << "        }\n";
+        fullOutput << "        T* obj = static_cast<T*>(obj_ptr);\n";
+        fullOutput << "        // Copy the object (don't transfer ownership, list still owns it)\n";
+        fullOutput << "        return Language::Runtime::Owned<T>(*obj);\n";
+        fullOutput << "    }\n";
         fullOutput << "    static void ptr_write(void* dest, void* value) {\n";
         fullOutput << "        *static_cast<void**>(dest) = value;\n";
         fullOutput << "    }\n";
+        fullOutput << "    // Overload for int64_t (used for writing null pointers/terminators)\n";
+        fullOutput << "    static void ptr_write(void* dest, int64_t value) {\n";
+        fullOutput << "        *static_cast<void**>(dest) = reinterpret_cast<void*>(value);\n";
+        fullOutput << "    }\n";
+        fullOutput << "    \n";
+        fullOutput << "    // Template overloads for Owned<T> to work with List<T>\n";
+        fullOutput << "    template<typename T>\n";
+        fullOutput << "    static void ptr_write(void* dest, Language::Runtime::Owned<T> value) {\n";
+        fullOutput << "        // Allocate memory for the object and store its pointer\n";
+        fullOutput << "        T* obj = new T(std::move(value.extract()));\n";
+        fullOutput << "        *static_cast<void**>(dest) = static_cast<void*>(obj);\n";
+        fullOutput << "    }\n";
+        fullOutput << "    \n";
+        fullOutput << "    template<typename T>\n";
+        fullOutput << "    static Language::Runtime::Owned<T> ptr_read_owned(const void* ptr) {\n";
+        fullOutput << "        // Read the pointer and wrap in Owned<T> (transfers ownership)\n";
+        fullOutput << "        void* obj_ptr = *static_cast<void* const*>(ptr);\n";
+        fullOutput << "        if (obj_ptr == nullptr) {\n";
+        fullOutput << "            return Language::Runtime::Owned<T>(T());\n";
+        fullOutput << "        }\n";
+        fullOutput << "        T* obj = static_cast<T*>(obj_ptr);\n";
+        fullOutput << "        T value = std::move(*obj);\n";
+        fullOutput << "        // Note: We don't delete here because the object is still in the list\n";
+        fullOutput << "        // The list owns it until removed\n";
+        fullOutput << "        return Language::Runtime::Owned<T>(std::move(value));\n";
+        fullOutput << "    }\n";
+        fullOutput << "    \n";
         fullOutput << "    static int64_t read_byte(const void* ptr) {\n";
         fullOutput << "        return static_cast<int64_t>(*static_cast<const unsigned char*>(ptr));\n";
         fullOutput << "    }\n";
@@ -851,6 +942,10 @@ int main(int argc, char* argv[]) {
         } else if (mainFileAlreadyGenerated) {
             std::cout << "  Skipping __main__: already generated as module " << inputFile << "\n";
         }
+
+        // Template instantiations are now generated by the main module generation above
+        // No need for separate template generation since mainAnalyzer has all the templates
+        // and they will be generated when generating the main module
 
         // Write output
         std::string finalCode = fullOutput.str();

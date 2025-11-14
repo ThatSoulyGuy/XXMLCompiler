@@ -856,109 +856,6 @@ namespace Mem {
 // ============================================
 // Module: Language/Collections/Array.XXML
 // ============================================
-// ============================================================================
-// Template Instantiations
-// ============================================================================
-
-// Instantiation: List<Integer>
-class List_Integer {
-    private:
-        unsigned char* dataPtr;
-        int64_t capacity;
-        int64_t count;
-    public:
-        List_Integer() = default;
-        void add(Language::Runtime::Owned<Language::Core::Integer> value) {
-            if (count == capacity) {
-                int64_t newCapacity = capacity * 2;
-                if (newCapacity == 0) {
-                    newCapacity = 8;
-                }
-                unsigned char* newData = Syscall::malloc(newCapacity * 8);
-                if (dataPtr != 0) {
-                    Syscall::memcpy(std::move(newData), dataPtr, count * 8);
-                    Syscall::free(dataPtr);
-                }
-                Syscall::memcpy(&dataPtr, &newData, 8);
-                Syscall::memcpy(&capacity, &newCapacity, 8);
-            }
-            unsigned char* offset = dataPtr + count * 8;
-            Syscall::ptr_write(std::move(offset), std::move(value));
-            int64_t newCount = count + 1;
-            Syscall::memcpy(&count, &newCount, 8);
-        }
-        Language::Runtime::Owned<Language::Core::Integer> get(const Language::Core::Integer& index) {
-            int64_t zero = 0;
-            int64_t idx = index.toInt64();
-            if (idx < zero) {
-                unsigned char* nullPtr = 0;
-                return Syscall::ptr_read(std::move(nullPtr));
-            }
-            if (idx >= count) {
-                unsigned char* nullPtr = 0;
-                return Syscall::ptr_read(std::move(nullPtr));
-            }
-            unsigned char* offset = dataPtr + idx * 8;
-            return Syscall::ptr_read(std::move(offset));
-        }
-        void set(const Language::Core::Integer& index, Language::Runtime::Owned<Language::Core::Integer> value) {
-            int64_t zero = 0;
-            int64_t idx = index.toInt64();
-            if (idx < zero) {
-                return void();
-            }
-            if (idx >= count) {
-                return void();
-            }
-            unsigned char* offset = dataPtr + idx * 8;
-            Syscall::ptr_write(std::move(offset), std::move(value));
-        }
-        Language::Runtime::Owned<Language::Core::Integer> size() {
-            return Language::Core::Integer(count);
-        }
-        Language::Runtime::Owned<Language::Core::Bool> isEmpty() {
-            return Language::Core::Bool(count == 0);
-        }
-        void clear() {
-            int64_t zero = 0;
-            Syscall::memcpy(&count, &zero, 8);
-        }
-        void remove(const Language::Core::Integer& index) {
-            int64_t zero = 0;
-            int64_t idx = index.toInt64();
-            if (idx < zero) {
-                return void();
-            }
-            if (idx >= count) {
-                return void();
-            }
-            Language::Runtime::Owned<Language::Core::Integer> startIdx = Language::Core::Integer(std::move(idx));
-            Language::Runtime::Owned<Language::Core::Integer> endIdx = Language::Core::Integer(count);
-            for (Language::Core::Integer i = startIdx; i < endIdx; i++) {
-                int64_t iVal = i.toInt64();
-                unsigned char* destOffset = dataPtr + iVal * 8;
-                int64_t iValPlusOne = iVal + 1;
-                unsigned char* srcOffset = dataPtr + iValPlusOne * 8;
-                Language::Runtime::Owned<T> val = Syscall::ptr_read(std::move(srcOffset));
-                Syscall::ptr_write(std::move(destOffset), std::move(val));
-            }
-            int64_t one = 1;
-            int64_t newCount = count - one;
-            Syscall::memcpy(&count, &newCount, 8);
-        }
-        void dispose() {
-            if (dataPtr != 0) {
-                Syscall::free(dataPtr);
-                unsigned char* zero = 0;
-                Syscall::memcpy(&dataPtr, &zero, 8);
-            }
-            int64_t zero64 = 0;
-            Syscall::memcpy(&count, &zero64, 8);
-            Syscall::memcpy(&capacity, &zero64, 8);
-        }
-};
-
-
 namespace Collections {
 
 } // namespace Collections
@@ -968,10 +865,6 @@ namespace Collections {
 // ============================================
 // Module: Language/Collections/HashMap.XXML
 // ============================================
-// ============================================================================
-// Template Instantiations
-// ============================================================================
-
 namespace Collections {
 
     class HashMap {
@@ -1262,10 +1155,6 @@ namespace Collections {
 // ============================================
 // Module: Language/Collections/List.XXML
 // ============================================
-// ============================================================================
-// Template Instantiations
-// ============================================================================
-
 namespace Collections {
 
 } // namespace Collections
@@ -1275,10 +1164,6 @@ namespace Collections {
 // ============================================
 // Module: Language/Core/None.XXML
 // ============================================
-// ============================================================================
-// Template Instantiations
-// ============================================================================
-
 namespace Language::Core {
 
     class None {
@@ -1290,49 +1175,5 @@ namespace Language::Core {
     
 } // namespace Language::Core
 
-
-
-// ============================================
-// Module: __main__
-// ============================================
-// ============================================================================
-// Template Instantiations
-// ============================================================================
-
-// Import: Language::Core
-// Import: Language::Collections
-// Import: Language::System
-namespace MyNamespace {
-
-    class MyClass {
-        public:
-            MyClass() = default;
-            Language::Core::Integer getValue() {
-                return this->myInt;
-            }
-        private:
-            Language::Runtime::Owned<Language::Core::Integer> myInt;
-    };
-    
-} // namespace MyNamespace
-
-int main() {
-    using namespace Language::Core;
-    using namespace System;
-    
-    Language::Runtime::Owned<MyNamespace::MyClass> myClass = MyNamespace::MyClass();
-    Language::Runtime::Owned<Language::Core::Integer> testValue = Language::Core::Integer(42);
-    Language::Runtime::Owned<Language::Core::String> testStr = testValue->toString();
-    Language::Runtime::Owned<List_Integer> deez = List_Integer();
-    deez->add(Language::Core::Integer(5));
-    Console::printLine(Language::Core::String(reinterpret_cast<const unsigned char*>("Test value: ")).append(std::move(testStr)));
-    Language::Runtime::Owned<Language::Core::Integer> num1 = Language::Core::Integer(10);
-    Language::Runtime::Owned<Language::Core::Integer> num2 = Language::Core::Integer(32);
-    Language::Runtime::Owned<Language::Core::Integer> sum = num1->add(std::move(num2));
-    Language::Runtime::Owned<Language::Core::String> sumStr = sum->toString();
-    Console::printLine(Language::Core::String(reinterpret_cast<const unsigned char*>("Sum: ")).append(std::move(sumStr)));
-    Console::printLine(Language::Core::String(reinterpret_cast<const unsigned char*>("Hello world from XXML!")).append(deez->get(Language::Core::Integer(0)).toString()));
-    Console::printLine(Language::Core::String(reinterpret_cast<const unsigned char*>("Hello world from XXML!")));
-}
 
 

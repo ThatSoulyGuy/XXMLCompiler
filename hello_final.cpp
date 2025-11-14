@@ -892,14 +892,14 @@ class List_Integer {
             int64_t idx = index.toInt64();
             if (idx < zero) {
                 unsigned char* nullPtr = 0;
-                return Syscall::ptr_read(std::move(nullPtr));
+                return Syscall::ptr_read<Language::Core::Integer>(std::move(nullPtr));
             }
             if (idx >= count) {
                 unsigned char* nullPtr = 0;
-                return Syscall::ptr_read(std::move(nullPtr));
+                return Syscall::ptr_read<Language::Core::Integer>(std::move(nullPtr));
             }
             unsigned char* offset = dataPtr + idx * 8;
-            return Syscall::ptr_read(std::move(offset));
+            return Syscall::ptr_read<Language::Core::Integer>(std::move(offset));
         }
         void set(const Language::Core::Integer& index, Language::Runtime::Owned<Language::Core::Integer> value) {
             int64_t zero = 0;
@@ -939,7 +939,7 @@ class List_Integer {
                 unsigned char* destOffset = dataPtr + iVal * 8;
                 int64_t iValPlusOne = iVal + 1;
                 unsigned char* srcOffset = dataPtr + iValPlusOne * 8;
-                Language::Runtime::Owned<T> val = Syscall::ptr_read(std::move(srcOffset));
+                Language::Runtime::Owned<Language::Core::Integer> val = Syscall::ptr_read(std::move(srcOffset));
                 Syscall::ptr_write(std::move(destOffset), std::move(val));
             }
             int64_t one = 1;
@@ -1015,7 +1015,7 @@ namespace Collections {
                 unsigned char* currentBucketsPtr = bucketsPtr;
                 int64_t offset = bucketIndex * 8;
                 unsigned char* bucketPos = currentBucketsPtr + offset;
-                unsigned char* headPtr = Syscall::ptr_read(std::move(bucketPos));
+                unsigned char* headPtr = Syscall::ptr_read<Language::Core::String>(std::move(bucketPos));
                 if (headPtr == 0) {
                     return Language::Core::String(reinterpret_cast<const unsigned char*>(""));
                 } else {
@@ -1169,15 +1169,15 @@ namespace Collections {
                 Syscall::ptr_write(nextPos, std::move(nodePtr));
             }
             Language::Runtime::Owned<Language::Core::String> findValueInChain(unsigned char* nodePtr, Language::Runtime::Owned<Language::Core::String> key) {
-                unsigned char* keyPtr = Syscall::ptr_read(nodePtr);
+                unsigned char* keyPtr = Syscall::ptr_read<Language::Core::String>(nodePtr);
                 Language::Runtime::Owned<Language::Core::String> nodeKey = Language::Core::String::FromCString(std::move(keyPtr));
                 if (nodeKey == key) {
                     unsigned char* valuePos = nodePtr + 8;
-                    unsigned char* valuePtr = Syscall::ptr_read(std::move(valuePos));
+                    unsigned char* valuePtr = Syscall::ptr_read<Language::Core::String>(std::move(valuePos));
                     return Language::Core::String::FromCString(std::move(valuePtr));
                 } else {
                     unsigned char* nextPos = nodePtr + 16;
-                    unsigned char* nextPtr = Syscall::ptr_read(std::move(nextPos));
+                    unsigned char* nextPtr = Syscall::ptr_read<Language::Core::String>(std::move(nextPos));
                     if (nextPtr == 0) {
                         return Language::Core::String(reinterpret_cast<const unsigned char*>(""));
                     } else {

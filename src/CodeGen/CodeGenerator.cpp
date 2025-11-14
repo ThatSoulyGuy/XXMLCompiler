@@ -90,6 +90,16 @@ std::string CodeGenerator::getOwnershipType(Parser::OwnershipType ownership, con
     }
 }
 
+// Helper function to check if a C++ type is a value type
+// Value types should use const& for reference parameters to allow binding temporaries (g++ requirement)
+bool CodeGenerator::isValueType(const std::string& cppType) {
+    return cppType == "Language::Core::Integer" ||
+           cppType == "Language::Core::String" ||
+           cppType == "Language::Core::Bool" ||
+           cppType == "Language::Core::Float" ||
+           cppType == "Language::Core::Double";
+}
+
 std::string CodeGenerator::getParameterType(Parser::OwnershipType ownership, const std::string& typeName) {
     std::string cppType = convertType(typeName);
 
@@ -104,6 +114,10 @@ std::string CodeGenerator::getParameterType(Parser::OwnershipType ownership, con
 
         case Parser::OwnershipType::Reference:
             // T& - Borrows (reference parameter)
+            // For value types, use const& to allow binding to temporaries (g++ requirement)
+            if (isValueType(cppType)) {
+                return "const " + cppType + "&";
+            }
             return cppType + "&";
 
         case Parser::OwnershipType::Copy:
@@ -269,8 +283,11 @@ std::string CodeGenerator::generate(Parser::Program& program, bool includeHeader
         writeLine("");
     }
 
-    // Generate template instantiations first
-    generateTemplateInstantiations();
+    // Generate template instantiations only when NOT generating declarations/implementations separately
+    // Templates should be generated once at the end, not during phase-based generation
+    if (!generatingDeclarationsOnly && !generatingImplementationsOnly) {
+        generateTemplateInstantiations();
+    }
 
     // Then generate user code
     program.accept(*this);
@@ -474,6 +491,7 @@ void CodeGenerator::visit(Parser::MethodDecl& node) {
             bool isSmartPtr = isSmartPointerType(param->type->typeName, param->type->ownership);
             variableIsSmartPointer[param->name] = isSmartPtr;
             variableOwnership[param->name] = param->type->ownership;
+            variableTypeName[param->name] = param->type->typeName;
         }
 
         // For primitive wrappers with one parameter, use initialization list
@@ -574,16 +592,34 @@ void CodeGenerator::visit(Parser::MethodDecl& node) {
             write(paramType + " " + sanitizeIdentifier(param->name));
         }
 
+        // Add const qualifier for value type methods (they don't modify the object)
+        // Value types: Integer, Bool, String, Float, Double
+        bool isValueTypeMethod = (currentClassName == "Integer" || currentClassName == "Bool" ||
+                                 currentClassName == "String" || currentClassName == "Float" ||
+                                 currentClassName == "Double");
+
+        // Don't add const for methods that modify the object:
+        // - dispose() - cleans up resources
+        // - append() - modifies string in place
+        // Most other methods create new objects and should be const
+        bool isMutatingMethod = (methodName == "dispose" || methodName == "append");
+
+        if (isValueTypeMethod && !isStaticFactoryMethod && !isMutatingMethod) {
+            write(") const");
+        } else {
+            write(")");
+        }
+
         // If generating declarations only (and not Console which we keep inline), end with semicolon
         bool shouldGenerateInline = isConsoleMethod || !generatingDeclarationsOnly || generatingImplementationsOnly;
 
         if (!shouldGenerateInline) {
-            write(");");
+            write(";");
             output << "\n";
             return;  // Don't generate body
         }
 
-        write(") {");
+        write(" {");
         output << "\n";
 
         // Track parameters as smart pointers and ownership type
@@ -591,6 +627,7 @@ void CodeGenerator::visit(Parser::MethodDecl& node) {
             bool isSmartPtr = isSmartPointerType(param->type->typeName, param->type->ownership);
             variableIsSmartPointer[param->name] = isSmartPtr;
             variableOwnership[param->name] = param->type->ownership;
+            variableTypeName[param->name] = param->type->typeName;
         }
 
         indentLevel++;
@@ -652,9 +689,12 @@ void CodeGenerator::visit(Parser::MethodDecl& node) {
             }
         } else {
             // For non-Console methods, use the body from XXML
+            // Set current method return type for template inference in Syscall methods
+            currentMethodReturnType = returnType;
             for (auto& stmt : node.body) {
                 stmt->accept(*this);
             }
+            currentMethodReturnType = "";  // Clear after processing
         }
 
         indentLevel--;
@@ -671,8 +711,9 @@ void CodeGenerator::visit(Parser::EntrypointDecl& node) {
     writeLine("int main() {");
     indentLevel++;
 
-    // Add using directive for standard library
+    // Add using directives for standard library
     writeLine("using namespace Language::Core;");
+    writeLine("using namespace System;");
     writeLine("");
 
     for (auto& stmt : node.body) {
@@ -716,6 +757,9 @@ void CodeGenerator::visit(Parser::InstantiateStmt& node) {
 
     // Track ownership type for this variable (for copy vs reference validation)
     variableOwnership[node.variableName] = node.type->ownership;
+
+    // Track type name to check if NativeType later
+    variableTypeName[node.variableName] = fullTypeName;
 
     // Special handling for type conversions
     // NativeType variables are raw C++ types and shouldn't have .get() called on them
@@ -812,6 +856,9 @@ void CodeGenerator::visit(Parser::InstantiateStmt& node) {
         }
     }
 
+    // Set expected type context for ptr_read template inference
+    currentExpectedType = type;
+
     if (needsGet) {
         // Use constructor syntax with .get() call
         write(type + " " + varName + "(");
@@ -832,6 +879,8 @@ void CodeGenerator::visit(Parser::InstantiateStmt& node) {
         write(type + " " + varName + " = ");
         node.initializer->accept(*this);
     }
+
+    currentExpectedType = "";  // Clear context
 
     write(";");
     output << "\n";
@@ -898,11 +947,35 @@ void CodeGenerator::visit(Parser::ForStmt& node) {
     std::string iteratorType = convertType(node.iteratorType->typeName);
     std::string iteratorName = sanitizeIdentifier(node.iteratorName);
 
+    // Check if iterator is a value type (Integer, Bool, etc.) that needs .get() extraction from Owned
+    bool isValueTypeIterator = (iteratorType == "Language::Core::Integer" ||
+                                iteratorType == "Language::Core::Bool" ||
+                                iteratorType == "Language::Core::String" ||
+                                iteratorType == "Language::Core::Float" ||
+                                iteratorType == "Language::Core::Double");
+
     // Use the proper XXML type for the iterator
     write(iteratorType + " " + iteratorName + " = ");
-    node.rangeStart->accept(*this);
+
+    // If range expressions might be Owned<T>, extract with .get()
+    if (isValueTypeIterator) {
+        write("(");
+        node.rangeStart->accept(*this);
+        write(").get()");
+    } else {
+        node.rangeStart->accept(*this);
+    }
+
     write("; " + iteratorName + " < ");
-    node.rangeEnd->accept(*this);
+
+    if (isValueTypeIterator) {
+        write("(");
+        node.rangeEnd->accept(*this);
+        write(").get()");
+    } else {
+        node.rangeEnd->accept(*this);
+    }
+
     write("; " + iteratorName + "++) {");
     output << "\n";
 
@@ -1078,45 +1151,77 @@ void CodeGenerator::visit(Parser::MemberAccessExpr& node) {
         // Determine if we need -> or . based on whether object is a smart pointer
         bool isSmartPtr = false;
 
-        // If object is an IdentifierExpr, check if it's a user-defined type variable
-        if (auto* identExpr = dynamic_cast<Parser::IdentifierExpr*>(node.object.get())) {
-            isSmartPtr = expressionIsSmartPointer[node.object.get()];
+        // If object is 'this', always use -> because this is always a pointer in C++
+        if (dynamic_cast<Parser::ThisExpr*>(node.object.get())) {
+            isSmartPtr = true;
         }
-        // If object is a CallExpr, check if it's a constructor call that returns a smart pointer
+        // If object is an IdentifierExpr, check if it's a user-defined type variable
+        else if (auto* identExpr = dynamic_cast<Parser::IdentifierExpr*>(node.object.get())) {
+            // Check if the variable is a smart pointer (including Owned<Integer>)
+            auto varIt = variableIsSmartPointer.find(identExpr->name);
+            if (varIt != variableIsSmartPointer.end()) {
+                isSmartPtr = varIt->second;
+            } else {
+                isSmartPtr = expressionIsSmartPointer[node.object.get()];
+            }
+        }
+        // If object is a CallExpr, check if it returns a smart pointer type
         else if (auto* callExpr = dynamic_cast<Parser::CallExpr*>(node.object.get())) {
-            // Check if this is a constructor call
-            if (auto* memberExpr = dynamic_cast<Parser::MemberAccessExpr*>(callExpr->callee.get())) {
-                if (memberExpr->member == "Constructor") {
-                    // Constructor calls for user-defined types return smart pointers
-                    if (auto* identExpr = dynamic_cast<Parser::IdentifierExpr*>(memberExpr->object.get())) {
-                        std::string className = identExpr->name;
-                        std::string baseType = className;
-                        size_t lastColon = className.rfind("::");
-                        if (lastColon != std::string::npos) {
-                            baseType = className.substr(lastColon + 2);
-                        }
-                        // Value types: String, Integer, Bool
-                        // Smart pointer types: Float, Double, and all user-defined types
-                        if (baseType != "String" && baseType != "Integer" && baseType != "Bool") {
+            // Try to get the return type from semantic analyzer
+            if (semanticAnalyzer) {
+                std::string returnType = semanticAnalyzer->getExpressionTypePublic(callExpr);
+                // Check if return type indicates Owned ownership (ends with ^ or contains Owned)
+                // Owned types need -> operator for member access in C++
+                if (!returnType.empty()) {
+                    if (returnType.back() == '^') {
+                        isSmartPtr = true;
+                    }
+                    // Also check if we're looking at a method that returns Owned<T>
+                    // by checking if the call is to a known method like get()
+                    if (auto* memberExpr = dynamic_cast<Parser::MemberAccessExpr*>(callExpr->callee.get())) {
+                        if (memberExpr->member == "get") {
+                            // List.get() returns T^ which becomes Owned<T>
                             isSmartPtr = true;
                         }
                     }
                 }
             }
-            // Also check for IdentifierExpr pattern
-            else if (auto* identExpr = dynamic_cast<Parser::IdentifierExpr*>(callExpr->callee.get())) {
-                std::string fullName = identExpr->name;
-                if (fullName.find("::Constructor") != std::string::npos) {
-                    size_t constructorPos = fullName.rfind("::Constructor");
-                    if (constructorPos != std::string::npos) {
-                        std::string className = fullName.substr(0, constructorPos);
-                        std::string baseType = className;
-                        size_t lastColon = className.rfind("::");
-                        if (lastColon != std::string::npos) {
-                            baseType = className.substr(lastColon + 2);
+
+            // Fallback: Check if this is a constructor call
+            if (!isSmartPtr) {
+                if (auto* memberExpr = dynamic_cast<Parser::MemberAccessExpr*>(callExpr->callee.get())) {
+                    if (memberExpr->member == "Constructor") {
+                        // Constructor calls for user-defined types return smart pointers
+                        if (auto* identExpr = dynamic_cast<Parser::IdentifierExpr*>(memberExpr->object.get())) {
+                            std::string className = identExpr->name;
+                            std::string baseType = className;
+                            size_t lastColon = className.rfind("::");
+                            if (lastColon != std::string::npos) {
+                                baseType = className.substr(lastColon + 2);
+                            }
+                            // Value types: String, Integer, Bool
+                            // Smart pointer types: Float, Double, and all user-defined types
+                            if (baseType != "String" && baseType != "Integer" && baseType != "Bool") {
+                                isSmartPtr = true;
+                            }
                         }
-                        if (baseType != "String" && baseType != "Integer" && baseType != "Bool") {
-                            isSmartPtr = true;
+                    }
+                }
+                // Also check for IdentifierExpr pattern
+                else if (auto* identExpr = dynamic_cast<Parser::IdentifierExpr*>(callExpr->callee.get())) {
+                    std::string fullName = identExpr->name;
+                    if (fullName.find("::Constructor") != std::string::npos) {
+                        size_t constructorPos = fullName.rfind("::Constructor");
+                        if (constructorPos != std::string::npos) {
+                            std::string className = fullName.substr(0, constructorPos);
+                            std::string baseType = className;
+                            size_t lastColon = className.rfind("::");
+                            if (lastColon != std::string::npos) {
+                                baseType = className.substr(lastColon + 2);
+                            }
+                            if (baseType != "String" && baseType != "Integer" && baseType != "Bool") {
+                                isSmartPtr = true;
+                            }
                         }
                     }
                 }
@@ -1237,7 +1342,14 @@ void CodeGenerator::visit(Parser::CallExpr& node) {
                 auto ownershipIt = variableOwnership.find(identExpr->name);
                 if (ownershipIt != variableOwnership.end() &&
                     ownershipIt->second == Parser::OwnershipType::Owned) {
-                    needsMove = true;
+                    // Don't move NativeType variables (they're primitives)
+                    auto typeIt = variableTypeName.find(identExpr->name);
+                    if (typeIt != variableTypeName.end() &&
+                        typeIt->second.find("NativeType<") == 0) {
+                        needsMove = false;  // Primitives don't use std::move
+                    } else {
+                        needsMove = true;
+                    }
                 }
             }
 
@@ -1253,16 +1365,39 @@ void CodeGenerator::visit(Parser::CallExpr& node) {
         write(")");
     } else {
         // Regular method call
-        // Check if this is ptr_write for special handling
+        // Check if this is Syscall::ptr_read or ptr_write for special handling
+        bool isPtrRead = false;
         bool isPtrWrite = false;
+        std::string templateArg;
+
         if (auto* memberExpr = dynamic_cast<Parser::MemberAccessExpr*>(node.callee.get())) {
-            if (memberExpr->member == "ptr_write" || memberExpr->member == "::ptr_write" ||
-                memberExpr->member.find("ptr_write") != std::string::npos) {
+            if (memberExpr->member == "ptr_read" || memberExpr->member == "::ptr_read" ||
+                memberExpr->member.find("ptr_read") != std::string::npos) {
+                isPtrRead = true;
+
+                // Check expected type from either method return or variable initialization
+                std::string expectedType = !currentExpectedType.empty() ? currentExpectedType : currentMethodReturnType;
+
+                if (!expectedType.empty() && expectedType.find("Owned<") != std::string::npos) {
+                    // Extract T from Owned<T>
+                    size_t start = expectedType.find("<") + 1;
+                    size_t end = expectedType.rfind(">");
+                    if (start < end) {
+                        templateArg = expectedType.substr(start, end - start);
+                    }
+                }
+            } else if (memberExpr->member == "ptr_write" || memberExpr->member == "::ptr_write" ||
+                       memberExpr->member.find("ptr_write") != std::string::npos) {
                 isPtrWrite = true;
             }
         }
 
         node.callee->accept(*this);
+
+        // Add template argument for ptr_read if needed
+        if (isPtrRead && !templateArg.empty()) {
+            write("<" + templateArg + ">");
+        }
 
         write("(");
 
@@ -1276,30 +1411,20 @@ void CodeGenerator::visit(Parser::CallExpr& node) {
                 auto ownershipIt = variableOwnership.find(identExpr->name);
                 if (ownershipIt != variableOwnership.end() &&
                     ownershipIt->second == Parser::OwnershipType::Owned) {
-                    needsMove = true;
+                    // Don't move NativeType variables (they're primitives)
+                    auto typeIt = variableTypeName.find(identExpr->name);
+                    if (typeIt != variableTypeName.end() &&
+                        typeIt->second.find("NativeType<") == 0) {
+                        needsMove = false;  // Primitives don't use std::move
+                    } else {
+                        needsMove = true;
+                    }
                 }
             }
 
-            // Special handling for ptr_write second argument (index 1)
-            // The second argument should be void* but might be int64 or pointer, so cast it
-            bool needsPtrCast = false;
-            if (isPtrWrite && i == 1) {
-                // Always cast the second argument of ptr_write to void* for safety
-                // This handles both int64 values and pointer values correctly
-                needsPtrCast = true;
-            }
-
-            if (needsPtrCast) {
-                write("reinterpret_cast<void*>(");
-                if (needsMove) {
-                    write("std::move(");
-                    node.arguments[i]->accept(*this);
-                    write(")");
-                } else {
-                    node.arguments[i]->accept(*this);
-                }
-                write(")");
-            } else if (needsMove) {
+            // For ptr_write, don't cast the second argument if it's an Owned type
+            // The template overload will handle it
+            if (needsMove) {
                 write("std::move(");
                 node.arguments[i]->accept(*this);
                 write(")");
@@ -1444,6 +1569,23 @@ void CodeGenerator::substituteTypesInStatement(Parser::Statement* stmt, const st
             substituteTypesInStatement(s.get(), typeMap);
         }
     }
+    else if (auto* forStmt = dynamic_cast<Parser::ForStmt*>(stmt)) {
+        // Substitute in loop variable type
+        if (forStmt->iteratorType) {
+            substituteTypesInTypeRef(forStmt->iteratorType.get(), typeMap);
+        }
+        // Substitute in range expressions
+        if (forStmt->rangeStart) {
+            substituteTypesInExpression(forStmt->rangeStart.get(), typeMap);
+        }
+        if (forStmt->rangeEnd) {
+            substituteTypesInExpression(forStmt->rangeEnd.get(), typeMap);
+        }
+        // Substitute in loop body
+        for (auto& s : forStmt->body) {
+            substituteTypesInStatement(s.get(), typeMap);
+        }
+    }
     // Add more statement types as needed
 }
 
@@ -1548,6 +1690,9 @@ void CodeGenerator::generateAnyWrapperClass() {
 }
 
 void CodeGenerator::generateTemplateInstantiations() {
+    // Static flag to ensure templates are generated only once across all code generators
+    static std::set<std::string> generatedTemplates;
+
     if (!semanticAnalyzer) {
         return;  // No semantic analyzer, skip template generation
     }
@@ -1637,6 +1782,13 @@ void CodeGenerator::generateTemplateInstantiations() {
 
         // Generate mangled name
         std::string mangledName = mangleTemplateName(inst.templateName, typeArgsAsStrings);
+
+        // Skip if already generated
+        if (generatedTemplates.find(mangledName) != generatedTemplates.end()) {
+            continue;
+        }
+        generatedTemplates.insert(mangledName);
+
         instantiatedClass->name = mangledName;
 
         // Clear template parameters (it's no longer a template)
