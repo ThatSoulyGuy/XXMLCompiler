@@ -75,7 +75,12 @@ public:
     void visit(Parser::MemberAccessExpr& node) override;
     void visit(Parser::CallExpr& node) override;
     void visit(Parser::BinaryExpr& node) override;
+    void visit(Parser::TypeOfExpr& node) override;
     void visit(Parser::TypeRef& node) override;
+
+    // Constraint-related visitor methods
+    void visit(Parser::ConstraintDecl& node) override;
+    void visit(Parser::RequireStmt& node) override;
 
     std::string getOutput() const { return output_.str(); }
 

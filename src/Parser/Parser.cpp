@@ -119,6 +119,8 @@ std::unique_ptr<Declaration> Parser::parseDeclaration() {
             return parseNamespace();
         } else if (check(Lexer::TokenType::Class)) {
             return parseClass();
+        } else if (check(Lexer::TokenType::Constraint)) {
+            return parseConstraint();
         } else if (check(Lexer::TokenType::Entrypoint)) {
             return parseEntrypoint();
         } else if (check(Lexer::TokenType::Public) || check(Lexer::TokenType::Private) ||
@@ -349,6 +351,178 @@ std::unique_ptr<EntrypointDecl> Parser::parseEntrypoint() {
     consume(Lexer::TokenType::RightBracket, "Expected ']' after entrypoint");
 
     return std::make_unique<EntrypointDecl>(std::move(body), loc);
+}
+
+std::unique_ptr<ConstraintDecl> Parser::parseConstraint() {
+    auto loc = peek().location;
+    consume(Lexer::TokenType::Constraint, "Expected 'Constraint'");
+
+    // Parse constraint name: <MyConstraint>
+    std::string constraintName = parseAngleBracketIdentifier();
+
+    // Parse template parameters if present: <T Constrains None>
+    std::vector<TemplateParameter> templateParams;
+    if (check(Lexer::TokenType::LeftAngle)) {
+        templateParams = parseTemplateParameters();
+    }
+
+    // Parse parameter bindings: (T a, U b)
+    std::vector<ConstraintParamBinding> paramBindings;
+    if (match(Lexer::TokenType::LeftParen)) {
+        do {
+            auto bindingLoc = peek().location;
+
+            // Parse template parameter name (e.g., "T")
+            if (!check(Lexer::TokenType::Identifier)) {
+                error("Expected template parameter name in binding");
+                break;
+            }
+            std::string templateParamName = advance().lexeme;
+
+            // Parse binding name (e.g., "a")
+            if (!check(Lexer::TokenType::Identifier)) {
+                error("Expected binding name after template parameter");
+                break;
+            }
+            std::string bindingName = advance().lexeme;
+
+            paramBindings.emplace_back(templateParamName, bindingName, bindingLoc);
+
+            // Check for more bindings
+            if (!match(Lexer::TokenType::Comma)) {
+                break;
+            }
+        } while (true);
+
+        consume(Lexer::TokenType::RightParen, "Expected ')' after parameter bindings");
+    }
+
+    auto constraintDecl = std::make_unique<ConstraintDecl>(
+        constraintName, templateParams, paramBindings, loc
+    );
+
+    // Parse Require statements until ]
+    while (!check(Lexer::TokenType::RightBracket) && !isAtEnd()) {
+        if (check(Lexer::TokenType::Require)) {
+            auto requireStmt = parseRequireStatement();
+            if (requireStmt) {
+                constraintDecl->requirements.push_back(std::move(requireStmt));
+            }
+        } else {
+            error("Expected 'Require' statement in constraint");
+            synchronize();
+            break;
+        }
+    }
+
+    consume(Lexer::TokenType::RightBracket, "Expected ']' after constraint");
+
+    return constraintDecl;
+}
+
+std::unique_ptr<RequireStmt> Parser::parseRequireStatement() {
+    auto loc = peek().location;
+    consume(Lexer::TokenType::Require, "Expected 'Require'");
+
+    consume(Lexer::TokenType::LeftParen, "Expected '(' after 'Require'");
+
+    // Check what kind of requirement this is
+    if (check(Lexer::TokenType::Identifier) && peek().lexeme == "F") {
+        // Method requirement: F(ReturnType)(methodName)(*) On param
+        advance(); // consume 'F'
+
+        auto requireStmt = std::make_unique<RequireStmt>(RequirementKind::Method, loc);
+
+        // Parse (ReturnType)
+        consume(Lexer::TokenType::LeftParen, "Expected '(' after 'F'");
+        requireStmt->methodReturnType = parseTypeRef();
+        consume(Lexer::TokenType::RightParen, "Expected ')' after return type");
+
+        // Parse (methodName)
+        consume(Lexer::TokenType::LeftParen, "Expected '(' for method name");
+        if (!check(Lexer::TokenType::Identifier)) {
+            error("Expected method name");
+        }
+        requireStmt->methodName = advance().lexeme;
+        consume(Lexer::TokenType::RightParen, "Expected ')' after method name");
+
+        // Parse parameters: either (*) for wildcard or (Type1, Type2, ...) for specific types
+        consume(Lexer::TokenType::LeftParen, "Expected '(' for parameters");
+
+        if (check(Lexer::TokenType::Star)) {
+            // Wildcard - accept any parameters
+            advance(); // consume '*'
+        } else if (!check(Lexer::TokenType::RightParen)) {
+            // Specific parameter types - parse them but we'll ignore for now (just validate method exists)
+            // This allows syntax like (None), (Integer^, String^), etc.
+            do {
+                parseTypeRef(); // Parse and discard parameter type
+            } while (match(Lexer::TokenType::Comma));
+        }
+        // Empty () is also allowed - no parameters
+
+        consume(Lexer::TokenType::RightParen, "Expected ')' after parameters");
+
+        // Parse On param
+        consume(Lexer::TokenType::On, "Expected 'On' after method signature");
+        if (!check(Lexer::TokenType::Identifier)) {
+            error("Expected parameter name after 'On'");
+        }
+        requireStmt->targetParam = advance().lexeme;
+
+        consume(Lexer::TokenType::RightParen, "Expected ')' after method requirement");
+
+        return requireStmt;
+
+    } else if (check(Lexer::TokenType::Identifier) && peek().lexeme == "C") {
+        // Constructor requirement: C(ParamTypes...) On param
+        advance(); // consume 'C'
+
+        auto requireStmt = std::make_unique<RequireStmt>(RequirementKind::Constructor, loc);
+
+        // Parse (ParamTypes...)
+        consume(Lexer::TokenType::LeftParen, "Expected '(' after 'C'");
+
+        // Parse parameter types (could be None or actual types)
+        if (!check(Lexer::TokenType::None) && !check(Lexer::TokenType::RightParen)) {
+            do {
+                requireStmt->constructorParamTypes.push_back(parseTypeRef());
+            } while (match(Lexer::TokenType::Comma));
+        } else if (match(Lexer::TokenType::None)) {
+            // No parameters - leave constructorParamTypes empty
+        }
+
+        consume(Lexer::TokenType::RightParen, "Expected ')' after constructor parameters");
+
+        // Parse On param
+        consume(Lexer::TokenType::On, "Expected 'On' after constructor signature");
+        if (!check(Lexer::TokenType::Identifier)) {
+            error("Expected parameter name after 'On'");
+        }
+        requireStmt->targetParam = advance().lexeme;
+
+        consume(Lexer::TokenType::RightParen, "Expected ')' after constructor requirement");
+
+        return requireStmt;
+
+    } else if (check(Lexer::TokenType::Truth)) {
+        // Truth requirement: Truth(expression)
+        advance(); // consume 'Truth'
+
+        auto requireStmt = std::make_unique<RequireStmt>(RequirementKind::Truth, loc);
+
+        consume(Lexer::TokenType::LeftParen, "Expected '(' after 'Truth'");
+        requireStmt->truthCondition = parseExpression();
+        consume(Lexer::TokenType::RightParen, "Expected ')' after truth condition");
+
+        consume(Lexer::TokenType::RightParen, "Expected ')' after truth requirement");
+
+        return requireStmt;
+
+    } else {
+        error("Expected 'F', 'C', or 'Truth' in Require statement");
+        return nullptr;
+    }
 }
 
 std::vector<std::unique_ptr<Statement>> Parser::parseBlock() {
@@ -702,6 +876,13 @@ std::unique_ptr<Expression> Parser::parseCallOrMemberAccess(std::unique_ptr<Expr
                     bool looksLikeTemplate = false;
                     if (check(Lexer::TokenType::Identifier) || check(Lexer::TokenType::Question)) {
                         advance();
+                        // Handle qualified names like Namespace::Type
+                        while (check(Lexer::TokenType::DoubleColon)) {
+                            advance(); // consume ::
+                            if (check(Lexer::TokenType::Identifier)) {
+                                advance(); // consume identifier
+                            }
+                        }
                         if (check(Lexer::TokenType::RightAngle) || check(Lexer::TokenType::Comma)) {
                             looksLikeTemplate = true;
                         }
@@ -731,9 +912,14 @@ std::unique_ptr<Expression> Parser::parseCallOrMemberAccess(std::unique_ptr<Expr
                             if (match(Lexer::TokenType::Question)) {
                                 member += "?";
                             }
-                            // Parse type or value argument
+                            // Parse type or value argument (could be qualified like MyNs::Item)
                             else if (check(Lexer::TokenType::Identifier) || check(Lexer::TokenType::Constructor)) {
-                                member += advance().lexeme;
+                                // Use parseQualifiedIdentifier to handle :: properly
+                                std::string argName = (check(Lexer::TokenType::Constructor)) ?
+                                    advance().lexeme : parseQualifiedIdentifier();
+                                std::cerr << "DEBUG parseCall: template arg parsed as '" << argName << "'" << std::endl;
+                                std::cerr << "DEBUG parseCall: next token is " << peek().lexeme << " (type " << static_cast<int>(peek().type) << ")" << std::endl;
+                                member += argName;
                             } else if (check(Lexer::TokenType::IntegerLiteral)) {
                                 member += std::to_string(advance().intValue);
                             } else {
@@ -805,6 +991,11 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
         return std::make_unique<ThisExpr>(previous().location);
     }
 
+    // ✅ Handle TypeOf<T>() expressions
+    if (match(Lexer::TokenType::TypeOf)) {
+        return parseTypeOfExpression();
+    }
+
     // ✅ Handle None keyword as identifier for None::Constructor() calls
     if (match(Lexer::TokenType::None)) {
         std::string name = "None";
@@ -861,9 +1052,10 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
                     if (match(Lexer::TokenType::Question)) {
                         name += "?";
                     }
-                    // Parse type or value argument
+                    // Parse type or value argument (could be qualified name like Namespace::Type)
                     else if (check(Lexer::TokenType::Identifier)) {
-                        std::string argName = advance().lexeme;
+                        // Use parseQualifiedIdentifier to handle :: properly
+                        std::string argName = parseQualifiedIdentifier();
                         std::cerr << "DEBUG Parser parsePrimary: template arg identifier = '" << argName << "'" << std::endl;
                         name += argName;
                     } else if (check(Lexer::TokenType::IntegerLiteral)) {
@@ -1062,6 +1254,41 @@ std::vector<TemplateParameter> Parser::parseTemplateParameters() {
             // Parse constraint list separated by |
             do {
                 std::string constraint = parseQualifiedIdentifier();
+
+                // Check if constraint has template arguments like MyConstraint<T>
+                if (check(Lexer::TokenType::LeftAngle) || check(Lexer::TokenType::AngleBracketId)) {
+                    // Parse template arguments
+                    if (check(Lexer::TokenType::AngleBracketId)) {
+                        // Lexer already tokenized <T> as AngleBracketId
+                        constraint += "<" + advance().stringValue + ">";
+                    } else {
+                        // Parse <T> manually
+                        consume(Lexer::TokenType::LeftAngle, "Expected '<'");
+                        constraint += "<";
+
+                        // Parse template argument(s)
+                        do {
+                            if (check(Lexer::TokenType::Identifier)) {
+                                constraint += advance().lexeme;
+                            } else if (check(Lexer::TokenType::AngleBracketId)) {
+                                constraint += "<" + advance().stringValue + ">";
+                            } else {
+                                error("Expected template argument");
+                                break;
+                            }
+
+                            if (match(Lexer::TokenType::Comma)) {
+                                constraint += ",";
+                            } else {
+                                break;
+                            }
+                        } while (true);
+
+                        consume(Lexer::TokenType::RightAngle, "Expected '>' after template arguments");
+                        constraint += ">";
+                    }
+                }
+
                 constraints.push_back(constraint);
 
                 if (!match(Lexer::TokenType::Pipe)) {
@@ -1118,6 +1345,31 @@ std::string Parser::parseAngleBracketIdentifier() {
         error("Expected angle bracket identifier");
         return "";
     }
+}
+
+std::unique_ptr<Expression> Parser::parseTypeOfExpression() {
+    auto loc = previous().location; // TypeOf token
+
+    // Parse <Type> - the lexer treats <Type> as a single AngleBracketId token
+    if (!check(Lexer::TokenType::AngleBracketId)) {
+        error("Expected angle bracket identifier after 'TypeOf'");
+        // Create a dummy type ref to avoid crash
+        return std::make_unique<TypeOfExpr>(
+            std::make_unique<TypeRef>("", OwnershipType::None, loc),
+            loc
+        );
+    }
+
+    std::string typeName = advance().stringValue; // Get the type name from angle bracket id
+
+    // Create a type reference without ownership modifier (just the type name)
+    auto typeRef = std::make_unique<TypeRef>(typeName, OwnershipType::None, loc);
+
+    // Parse () - function call syntax
+    consume(Lexer::TokenType::LeftParen, "Expected '(' after TypeOf<T>");
+    consume(Lexer::TokenType::RightParen, "Expected ')' after '(' in TypeOf");
+
+    return std::make_unique<TypeOfExpr>(std::move(typeRef), loc);
 }
 
 } // namespace Parser

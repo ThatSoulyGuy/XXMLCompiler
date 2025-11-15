@@ -7,6 +7,7 @@
 #include <vector>
 #include "../Parser/AST.h"
 #include "../Common/Error.h"
+#include "../Core/TypeContext.h"
 
 namespace XXML {
 namespace Semantic {
@@ -21,6 +22,7 @@ private:
     int indentLevel;
     Common::ErrorReporter& errorReporter;
     Semantic::SemanticAnalyzer* semanticAnalyzer;  // For template data
+    Core::TypeContext* typeContext;  // Type information populated by SemanticAnalyzer
 
     // Helper methods
     void indent();
@@ -45,6 +47,7 @@ private:
     std::string currentExpectedType;  // Track expected type for initializer expressions
     bool generatingDeclarationsOnly;  // True = only method signatures, False = full implementations
     bool generatingImplementationsOnly;  // True = only method implementations (outside class)
+    bool shouldGenerateTemplates;  // True = generate template instantiations (only for main module)
 
     // Track which expressions result in smart pointers
     std::unordered_map<Parser::Expression*, bool> expressionIsSmartPointer;
@@ -78,8 +81,10 @@ private:
 public:
     CodeGenerator(Common::ErrorReporter& reporter);
     void setSemanticAnalyzer(Semantic::SemanticAnalyzer* analyzer);
+    void setTypeContext(Core::TypeContext* context);
     void setGeneratingDeclarationsOnly(bool declarationsOnly) { generatingDeclarationsOnly = declarationsOnly; }
     void setGeneratingImplementationsOnly(bool implementationsOnly) { generatingImplementationsOnly = implementationsOnly; }
+    void setShouldGenerateTemplates(bool generate) { shouldGenerateTemplates = generate; }
 
     std::string generate(Parser::Program& program, bool includeHeaders = true);
     std::string getOutput() const;
@@ -95,8 +100,10 @@ public:
     void visit(Parser::MethodDecl& node) override;
     void visit(Parser::ParameterDecl& node) override;
     void visit(Parser::EntrypointDecl& node) override;
+    void visit(Parser::ConstraintDecl& node) override;
 
     void visit(Parser::InstantiateStmt& node) override;
+    void visit(Parser::RequireStmt& node) override;
     void visit(Parser::AssignmentStmt& node) override;
     void visit(Parser::RunStmt& node) override;
     void visit(Parser::ForStmt& node) override;
@@ -116,6 +123,7 @@ public:
     void visit(Parser::MemberAccessExpr& node) override;
     void visit(Parser::CallExpr& node) override;
     void visit(Parser::BinaryExpr& node) override;
+    void visit(Parser::TypeOfExpr& node) override;
 
     void visit(Parser::TypeRef& node) override;
 };

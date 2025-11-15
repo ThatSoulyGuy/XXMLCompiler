@@ -1184,133 +1184,35 @@ namespace Language::Core {
 // ============================================
 // Module: __main__
 // ============================================
-// Import: Language::Core
-// Import: Language::Collections
-// Import: Language::System
-namespace MyNamespace {
+class Runner {
+    public:
+        Runner() = default;
+        Language::Runtime::Owned<Language::Core::Integer> run() {
+            return Language::Core::Integer(42);
+        }
+};
 
-    class MyClass {
-        public:
-            MyClass() = default;
-            Language::Core::Integer getValue() {
-                return Language::Core::Integer(42);
-            }
-        private:
-            Language::Runtime::Owned<Language::Core::Integer> myInt;
-    };
-    
-} // namespace MyNamespace
+class NonRunner {
+    public:
+        NonRunner() = default;
+        void doSomething() {
+            return void();
+        }
+};
 
 // ============================================================================
 // Template Instantiations
 // ============================================================================
 
-// Instantiation: List<Integer>
-class List_Integer {
+// Instantiation: Executor<Runner>
+class Executor_Runner {
     private:
-        unsigned char* dataPtr;
-        int64_t capacity;
-        int64_t count;
+        Language::Runtime::Owned<Runner> task;
     public:
-        List_Integer() = default;
-        void add(Language::Runtime::Owned<Language::Core::Integer> value) {
-            if (count == capacity) {
-                int64_t newCapacity = capacity * 2;
-                if (newCapacity == 0) {
-                    newCapacity = 8;
-                }
-                unsigned char* newData = Syscall::malloc(newCapacity * 8);
-                if (dataPtr != 0) {
-                    Syscall::memcpy(newData, dataPtr, count * 8);
-                    Syscall::free(dataPtr);
-                }
-                Syscall::memcpy(&dataPtr, &newData, 8);
-                Syscall::memcpy(&capacity, &newCapacity, 8);
-            }
-            unsigned char* offset = dataPtr + count * 8;
-            Syscall::ptr_write(offset, std::move(value));
-            int64_t newCount = count + 1;
-            Syscall::memcpy(&count, &newCount, 8);
+        Executor_Runner() = default;
+        Language::Runtime::Owned<Language::Core::Integer> execute() {
+            return task.run();
         }
-        Language::Runtime::Owned<Language::Core::Integer> get(const Language::Core::Integer& index) {
-            int64_t zero = 0;
-            int64_t idx = index.toInt64();
-            if (idx < zero) {
-                unsigned char* nullPtr = 0;
-                return Syscall::ptr_read<Language::Core::Integer>(nullPtr);
-            }
-            if (idx >= count) {
-                unsigned char* nullPtr = 0;
-                return Syscall::ptr_read<Language::Core::Integer>(nullPtr);
-            }
-            unsigned char* offset = dataPtr + idx * 8;
-            return Syscall::ptr_read<Language::Core::Integer>(offset);
-        }
-        void set(const Language::Core::Integer& index, Language::Runtime::Owned<Language::Core::Integer> value) {
-            int64_t zero = 0;
-            int64_t idx = index.toInt64();
-            if (idx < zero) {
-                return void();
-            }
-            if (idx >= count) {
-                return void();
-            }
-            unsigned char* offset = dataPtr + idx * 8;
-            Syscall::ptr_write(offset, std::move(value));
-        }
-        Language::Runtime::Owned<Language::Core::Integer> size() {
-            return Language::Core::Integer(count);
-        }
-        Language::Runtime::Owned<Language::Core::Bool> isEmpty() {
-            return Language::Core::Bool(count == 0);
-        }
-        void clear() {
-            int64_t zero = 0;
-            Syscall::memcpy(&count, &zero, 8);
-        }
-        void remove(const Language::Core::Integer& index) {
-            int64_t zero = 0;
-            int64_t idx = index.toInt64();
-            if (idx < zero) {
-                return void();
-            }
-            if (idx >= count) {
-                return void();
-            }
-            int64_t i = idx;
-            while (i < count) {
-                unsigned char* destOffset = dataPtr + i * 8;
-                int64_t nextIdx = i + 1;
-                unsigned char* srcOffset = dataPtr + nextIdx * 8;
-                Language::Runtime::Owned<Language::Core::Integer> val = Syscall::ptr_read<Language::Core::Integer>(srcOffset);
-                Syscall::ptr_write(destOffset, std::move(val));
-                i = nextIdx;
-            }
-            int64_t one = 1;
-            int64_t newCount = count - one;
-            Syscall::memcpy(&count, &newCount, 8);
-        }
-        void dispose() {
-            if (dataPtr != 0) {
-                Syscall::free(dataPtr);
-                unsigned char* zero = 0;
-                Syscall::memcpy(&dataPtr, &zero, 8);
-            }
-            int64_t zero64 = 0;
-            Syscall::memcpy(&count, &zero64, 8);
-            Syscall::memcpy(&capacity, &zero64, 8);
-        }
-};
-
-
-// Instantiation: MyNamespace::SomeClass<MyNamespace::MyClass>
-class MyNamespace__SomeClass_MyNamespace__MyClass {
-    public:
-        void run() {
-            Language::Runtime::Owned<MyNamespace::MyClass> myT = T();
-            Console::printLine(myT->getValue().toString());
-        }
-    private:
 };
 
 
@@ -1318,21 +1220,7 @@ int main() {
     using namespace Language::Core;
     using namespace System;
     
-    Language::Runtime::Owned<MyNamespace::MyClass> myClass = MyNamespace::MyClass();
-    Language::Runtime::Owned<Language::Core::Integer> testValue = Language::Core::Integer(42);
-    Language::Runtime::Owned<Language::Core::String> testStr = testValue->toString();
-    Language::Runtime::Owned<List_Integer> deez = List_Integer();
-    Language::Runtime::Owned<MyNamespace__SomeClass_MyNamespace__MyClass> nutz = MyNamespace__SomeClass_MyNamespace__MyClass();
-    deez->add(Language::Core::Integer(5));
-    nutz->run();
-    Console::printLine(Language::Core::String(reinterpret_cast<const unsigned char*>("Test value: ")).append(std::move(testStr)));
-    Language::Runtime::Owned<Language::Core::Integer> num1 = Language::Core::Integer(10);
-    Language::Runtime::Owned<Language::Core::Integer> num2 = Language::Core::Integer(32);
-    Language::Runtime::Owned<Language::Core::Integer> sum = num1->add(std::move(num2));
-    Language::Runtime::Owned<Language::Core::String> sumStr = sum->toString();
-    Console::printLine(Language::Core::String(reinterpret_cast<const unsigned char*>("Sum: ")).append(std::move(sumStr)));
-    Console::printLine(Language::Core::String(reinterpret_cast<const unsigned char*>("Hello world from XXML!")).append(deez->get(Language::Core::Integer(0))->toString()));
-    Console::printLine(Language::Core::String(reinterpret_cast<const unsigned char*>("Hello world from XXML!")));
+    Language::Runtime::Owned<Executor_Runner> goodExecutor = Executor_Runner();
 }
 
 

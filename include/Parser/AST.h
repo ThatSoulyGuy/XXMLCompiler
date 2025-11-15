@@ -218,6 +218,18 @@ public:
     std::unique_ptr<Expression> cloneExpr() const override;
 };
 
+class TypeOfExpr : public Expression {
+public:
+    std::unique_ptr<TypeRef> type;  // TypeOf<T>()
+
+    TypeOfExpr(std::unique_ptr<TypeRef> t, const Common::SourceLocation& loc)
+        : Expression(loc), type(std::move(t)) {}
+
+    void accept(ASTVisitor& visitor) override;
+    std::unique_ptr<ASTNode> clone() const override;
+    std::unique_ptr<Expression> cloneExpr() const override;
+};
+
 // Statements
 class Statement : public ASTNode {
 public:
@@ -499,6 +511,67 @@ public:
     void accept(ASTVisitor& visitor) override;    std::unique_ptr<ASTNode> clone() const override;    std::unique_ptr<Declaration> cloneDecl() const override;
 };
 
+// Constraint requirement types
+enum class RequirementKind {
+    Method,       // Method requirement: F(Integer^)(run)(*) On a
+    Constructor,  // Constructor requirement: C(None) On a
+    Truth         // Truth assertion: Truth(expr)
+};
+
+class RequireStmt : public Statement {
+public:
+    RequirementKind kind;
+
+    // For Method requirements: F(ReturnType)(methodName)(*) On targetParam
+    std::unique_ptr<TypeRef> methodReturnType;     // Return type (e.g., Integer^)
+    std::string methodName;                        // Method name (e.g., "run")
+    std::string targetParam;                       // Target parameter name (e.g., "a")
+
+    // For Constructor requirements: C(ParamType1, ParamType2) On targetParam
+    std::vector<std::unique_ptr<TypeRef>> constructorParamTypes;  // Parameter types
+
+    // For Truth requirements: Truth(expression)
+    std::unique_ptr<Expression> truthCondition;    // TypeOf<T>() == TypeOf<SomeClass>()
+
+    Common::SourceLocation location;
+
+    RequireStmt(RequirementKind k, const Common::SourceLocation& loc)
+        : Statement(loc), kind(k), location(loc) {}
+
+    void accept(ASTVisitor& visitor) override;
+    std::unique_ptr<ASTNode> clone() const override;
+    std::unique_ptr<Statement> cloneStmt() const override;
+};
+
+// Parameter binding for constraints (e.g., (T a) means "a" binds to template param T)
+struct ConstraintParamBinding {
+    std::string templateParamName;  // e.g., "T"
+    std::string bindingName;        // e.g., "a"
+    Common::SourceLocation location;
+
+    ConstraintParamBinding(const std::string& tpn, const std::string& bn,
+                          const Common::SourceLocation& loc)
+        : templateParamName(tpn), bindingName(bn), location(loc) {}
+};
+
+class ConstraintDecl : public Declaration {
+public:
+    std::string name;                                      // "MyConstraint"
+    std::vector<TemplateParameter> templateParams;         // <T Constrains None>
+    std::vector<ConstraintParamBinding> paramBindings;     // (T a)
+    std::vector<std::unique_ptr<RequireStmt>> requirements; // List of Require statements
+
+    ConstraintDecl(const std::string& n,
+                   const std::vector<TemplateParameter>& tparams,
+                   const std::vector<ConstraintParamBinding>& bindings,
+                   const Common::SourceLocation& loc)
+        : Declaration(loc), name(n), templateParams(tparams), paramBindings(bindings) {}
+
+    void accept(ASTVisitor& visitor) override;
+    std::unique_ptr<ASTNode> clone() const override;
+    std::unique_ptr<Declaration> cloneDecl() const override;
+};
+
 // Root node
 class Program : public ASTNode {
 public:
@@ -525,8 +598,10 @@ public:
     virtual void visit(MethodDecl& node) = 0;
     virtual void visit(ParameterDecl& node) = 0;
     virtual void visit(EntrypointDecl& node) = 0;
+    virtual void visit(ConstraintDecl& node) = 0;
 
     virtual void visit(InstantiateStmt& node) = 0;
+    virtual void visit(RequireStmt& node) = 0;
     virtual void visit(RunStmt& node) = 0;
     virtual void visit(ForStmt& node) = 0;
     virtual void visit(ExitStmt& node) = 0;
@@ -546,6 +621,7 @@ public:
     virtual void visit(MemberAccessExpr& node) = 0;
     virtual void visit(CallExpr& node) = 0;
     virtual void visit(BinaryExpr& node) = 0;
+    virtual void visit(TypeOfExpr& node) = 0;
 
     virtual void visit(TypeRef& node) = 0;
 };

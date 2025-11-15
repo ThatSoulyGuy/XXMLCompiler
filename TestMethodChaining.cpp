@@ -921,8 +921,8 @@ namespace Collections {
             }
             Language::Runtime::Owned<Language::Core::Bool> containsKey(Language::Runtime::Owned<Language::Core::String> key) {
                 Language::Runtime::Owned<Language::Core::String> result = get(std::move(key));
-                Language::Runtime::Owned<Language::Core::Integer> lenInt = result->length();
-                int64_t len = lenInt->toInt64();
+                Language::Runtime::Owned<Language::Core::Integer> lenInt = result.get().length();
+                int64_t len = lenInt.get().toInt64();
                 if (len == 0) {
                     return Language::Core::Bool(false);
                 } else {
@@ -957,15 +957,15 @@ namespace Collections {
             }
         private:
             int64_t hashString(Language::Runtime::Owned<Language::Core::String> str) {
-                Language::Runtime::Owned<Language::Core::Integer> lenInt = str->length();
-                int64_t len = lenInt->toInt64();
+                Language::Runtime::Owned<Language::Core::Integer> lenInt = str.get().length();
+                int64_t len = lenInt.get().toInt64();
                 return hashHelper(std::move(str), Language::Core::Integer(0), Language::Core::Integer(5381), Language::Core::Integer(len));
             }
             int64_t hashHelper(Language::Runtime::Owned<Language::Core::String> str, const Language::Core::Integer& index, Language::Runtime::Owned<Language::Core::Integer> hash, Language::Runtime::Owned<Language::Core::Integer> len) {
                 int64_t idx = index.toInt64();
-                int64_t length = len->toInt64();
+                int64_t length = len.get().toInt64();
                 if (idx >= length) {
-                    int64_t result = hash->toInt64();
+                    int64_t result = hash.get().toInt64();
                     if (result < 0) {
                         int64_t negOne = 0 - 1;
                         return result * negOne;
@@ -973,10 +973,10 @@ namespace Collections {
                         return std::move(result);
                     }
                 }
-                Language::Runtime::Owned<Language::Core::String> charStr = str->charAt(index);
-                unsigned char* charCStr = const_cast<unsigned char*>(charStr->toCString());
+                Language::Runtime::Owned<Language::Core::String> charStr = str.get().charAt(index);
+                unsigned char* charCStr = const_cast<unsigned char*>(charStr.get().toCString());
                 int64_t charVal = Syscall::read_byte(charCStr);
-                int64_t currentHash = hash->toInt64();
+                int64_t currentHash = hash.get().toInt64();
                 int64_t newHash = currentHash * 33 + charVal;
                 Language::Runtime::Owned<Language::Core::Integer> nextIndex = index.add(Language::Core::Integer(1));
                 return hashHelper(std::move(str), std::move(nextIndex), Language::Core::Integer(newHash), std::move(len));
@@ -984,20 +984,20 @@ namespace Collections {
             void createNode(unsigned char* bucketPos, Language::Runtime::Owned<Language::Core::String> key, Language::Runtime::Owned<Language::Core::String> value) {
                 int64_t nodeSize = 24;
                 unsigned char* nodePtr = Syscall::malloc(nodeSize);
-                Language::Runtime::Owned<Language::Core::Integer> keyLenInt = key->length();
-                int64_t keyLen = keyLenInt->toInt64();
+                Language::Runtime::Owned<Language::Core::Integer> keyLenInt = key.get().length();
+                int64_t keyLen = keyLenInt.get().toInt64();
                 int64_t keyAllocSize = keyLen + 1;
                 unsigned char* keyCopy = Syscall::malloc(keyAllocSize);
-                unsigned char* keySrc = const_cast<unsigned char*>(key->toCString());
+                unsigned char* keySrc = const_cast<unsigned char*>(key.get().toCString());
                 Syscall::memcpy(keyCopy, keySrc, keyLen);
                 unsigned char* keyNullPos = keyCopy + keyLen;
                 int64_t zero = 0;
                 Syscall::ptr_write(keyNullPos, zero);
-                Language::Runtime::Owned<Language::Core::Integer> valueLenInt = value->length();
-                int64_t valueLen = valueLenInt->toInt64();
+                Language::Runtime::Owned<Language::Core::Integer> valueLenInt = value.get().length();
+                int64_t valueLen = valueLenInt.get().toInt64();
                 int64_t valueAllocSize = valueLen + 1;
                 unsigned char* valueCopy = Syscall::malloc(valueAllocSize);
-                unsigned char* valueSrc = const_cast<unsigned char*>(value->toCString());
+                unsigned char* valueSrc = const_cast<unsigned char*>(value.get().toCString());
                 Syscall::memcpy(valueCopy, valueSrc, valueLen);
                 unsigned char* valueNullPos = valueCopy + valueLen;
                 Syscall::ptr_write(valueNullPos, zero);
@@ -1015,11 +1015,11 @@ namespace Collections {
                     unsigned char* valuePos = nodePtr + 8;
                     unsigned char* oldValuePtr = Syscall::ptr_read(valuePos);
                     Syscall::free(oldValuePtr);
-                    Language::Runtime::Owned<Language::Core::Integer> valueLenInt = value->length();
-                    int64_t valueLen = valueLenInt->toInt64();
+                    Language::Runtime::Owned<Language::Core::Integer> valueLenInt = value.get().length();
+                    int64_t valueLen = valueLenInt.get().toInt64();
                     int64_t valueAllocSize = valueLen + 1;
                     unsigned char* valueCopy = Syscall::malloc(valueAllocSize);
-                    unsigned char* valueSrc = const_cast<unsigned char*>(value->toCString());
+                    unsigned char* valueSrc = const_cast<unsigned char*>(value.get().toCString());
                     Syscall::memcpy(valueCopy, valueSrc, valueLen);
                     unsigned char* valueNullPos = valueCopy + valueLen;
                     int64_t zero = 0;
@@ -1041,20 +1041,20 @@ namespace Collections {
             void createNodeInChain(unsigned char* nextPos, Language::Runtime::Owned<Language::Core::String> key, Language::Runtime::Owned<Language::Core::String> value) {
                 int64_t nodeSize = 24;
                 unsigned char* nodePtr = Syscall::malloc(nodeSize);
-                Language::Runtime::Owned<Language::Core::Integer> keyLenInt = key->length();
-                int64_t keyLen = keyLenInt->toInt64();
+                Language::Runtime::Owned<Language::Core::Integer> keyLenInt = key.get().length();
+                int64_t keyLen = keyLenInt.get().toInt64();
                 int64_t keyAllocSize = keyLen + 1;
                 unsigned char* keyCopy = Syscall::malloc(keyAllocSize);
-                unsigned char* keySrc = const_cast<unsigned char*>(key->toCString());
+                unsigned char* keySrc = const_cast<unsigned char*>(key.get().toCString());
                 Syscall::memcpy(keyCopy, keySrc, keyLen);
                 unsigned char* keyNullPos = keyCopy + keyLen;
                 int64_t zero = 0;
                 Syscall::ptr_write(keyNullPos, zero);
-                Language::Runtime::Owned<Language::Core::Integer> valueLenInt = value->length();
-                int64_t valueLen = valueLenInt->toInt64();
+                Language::Runtime::Owned<Language::Core::Integer> valueLenInt = value.get().length();
+                int64_t valueLen = valueLenInt.get().toInt64();
                 int64_t valueAllocSize = valueLen + 1;
                 unsigned char* valueCopy = Syscall::malloc(valueAllocSize);
-                unsigned char* valueSrc = const_cast<unsigned char*>(value->toCString());
+                unsigned char* valueSrc = const_cast<unsigned char*>(value.get().toCString());
                 Syscall::memcpy(valueCopy, valueSrc, valueLen);
                 unsigned char* valueNullPos = valueCopy + valueLen;
                 Syscall::ptr_write(valueNullPos, zero);
@@ -1184,155 +1184,17 @@ namespace Language::Core {
 // ============================================
 // Module: __main__
 // ============================================
-// Import: Language::Core
-// Import: Language::Collections
-// Import: Language::System
-namespace MyNamespace {
-
-    class MyClass {
-        public:
-            MyClass() = default;
-            Language::Core::Integer getValue() {
-                return Language::Core::Integer(42);
-            }
-        private:
-            Language::Runtime::Owned<Language::Core::Integer> myInt;
-    };
-    
-} // namespace MyNamespace
-
-// ============================================================================
-// Template Instantiations
-// ============================================================================
-
-// Instantiation: List<Integer>
-class List_Integer {
-    private:
-        unsigned char* dataPtr;
-        int64_t capacity;
-        int64_t count;
-    public:
-        List_Integer() = default;
-        void add(Language::Runtime::Owned<Language::Core::Integer> value) {
-            if (count == capacity) {
-                int64_t newCapacity = capacity * 2;
-                if (newCapacity == 0) {
-                    newCapacity = 8;
-                }
-                unsigned char* newData = Syscall::malloc(newCapacity * 8);
-                if (dataPtr != 0) {
-                    Syscall::memcpy(newData, dataPtr, count * 8);
-                    Syscall::free(dataPtr);
-                }
-                Syscall::memcpy(&dataPtr, &newData, 8);
-                Syscall::memcpy(&capacity, &newCapacity, 8);
-            }
-            unsigned char* offset = dataPtr + count * 8;
-            Syscall::ptr_write(offset, std::move(value));
-            int64_t newCount = count + 1;
-            Syscall::memcpy(&count, &newCount, 8);
-        }
-        Language::Runtime::Owned<Language::Core::Integer> get(const Language::Core::Integer& index) {
-            int64_t zero = 0;
-            int64_t idx = index.toInt64();
-            if (idx < zero) {
-                unsigned char* nullPtr = 0;
-                return Syscall::ptr_read<Language::Core::Integer>(nullPtr);
-            }
-            if (idx >= count) {
-                unsigned char* nullPtr = 0;
-                return Syscall::ptr_read<Language::Core::Integer>(nullPtr);
-            }
-            unsigned char* offset = dataPtr + idx * 8;
-            return Syscall::ptr_read<Language::Core::Integer>(offset);
-        }
-        void set(const Language::Core::Integer& index, Language::Runtime::Owned<Language::Core::Integer> value) {
-            int64_t zero = 0;
-            int64_t idx = index.toInt64();
-            if (idx < zero) {
-                return void();
-            }
-            if (idx >= count) {
-                return void();
-            }
-            unsigned char* offset = dataPtr + idx * 8;
-            Syscall::ptr_write(offset, std::move(value));
-        }
-        Language::Runtime::Owned<Language::Core::Integer> size() {
-            return Language::Core::Integer(count);
-        }
-        Language::Runtime::Owned<Language::Core::Bool> isEmpty() {
-            return Language::Core::Bool(count == 0);
-        }
-        void clear() {
-            int64_t zero = 0;
-            Syscall::memcpy(&count, &zero, 8);
-        }
-        void remove(const Language::Core::Integer& index) {
-            int64_t zero = 0;
-            int64_t idx = index.toInt64();
-            if (idx < zero) {
-                return void();
-            }
-            if (idx >= count) {
-                return void();
-            }
-            int64_t i = idx;
-            while (i < count) {
-                unsigned char* destOffset = dataPtr + i * 8;
-                int64_t nextIdx = i + 1;
-                unsigned char* srcOffset = dataPtr + nextIdx * 8;
-                Language::Runtime::Owned<Language::Core::Integer> val = Syscall::ptr_read<Language::Core::Integer>(srcOffset);
-                Syscall::ptr_write(destOffset, std::move(val));
-                i = nextIdx;
-            }
-            int64_t one = 1;
-            int64_t newCount = count - one;
-            Syscall::memcpy(&count, &newCount, 8);
-        }
-        void dispose() {
-            if (dataPtr != 0) {
-                Syscall::free(dataPtr);
-                unsigned char* zero = 0;
-                Syscall::memcpy(&dataPtr, &zero, 8);
-            }
-            int64_t zero64 = 0;
-            Syscall::memcpy(&count, &zero64, 8);
-            Syscall::memcpy(&capacity, &zero64, 8);
-        }
-};
-
-
-// Instantiation: MyNamespace::SomeClass<MyNamespace::MyClass>
-class MyNamespace__SomeClass_MyNamespace__MyClass {
-    public:
-        void run() {
-            Language::Runtime::Owned<MyNamespace::MyClass> myT = T();
-            Console::printLine(myT->getValue().toString());
-        }
-    private:
-};
-
-
+// Import: System
 int main() {
     using namespace Language::Core;
     using namespace System;
     
-    Language::Runtime::Owned<MyNamespace::MyClass> myClass = MyNamespace::MyClass();
-    Language::Runtime::Owned<Language::Core::Integer> testValue = Language::Core::Integer(42);
-    Language::Runtime::Owned<Language::Core::String> testStr = testValue->toString();
-    Language::Runtime::Owned<List_Integer> deez = List_Integer();
-    Language::Runtime::Owned<MyNamespace__SomeClass_MyNamespace__MyClass> nutz = MyNamespace__SomeClass_MyNamespace__MyClass();
-    deez->add(Language::Core::Integer(5));
-    nutz->run();
-    Console::printLine(Language::Core::String(reinterpret_cast<const unsigned char*>("Test value: ")).append(std::move(testStr)));
-    Language::Runtime::Owned<Language::Core::Integer> num1 = Language::Core::Integer(10);
-    Language::Runtime::Owned<Language::Core::Integer> num2 = Language::Core::Integer(32);
-    Language::Runtime::Owned<Language::Core::Integer> sum = num1->add(std::move(num2));
-    Language::Runtime::Owned<Language::Core::String> sumStr = sum->toString();
-    Console::printLine(Language::Core::String(reinterpret_cast<const unsigned char*>("Sum: ")).append(std::move(sumStr)));
-    Console::printLine(Language::Core::String(reinterpret_cast<const unsigned char*>("Hello world from XXML!")).append(deez->get(Language::Core::Integer(0))->toString()));
-    Console::printLine(Language::Core::String(reinterpret_cast<const unsigned char*>("Hello world from XXML!")));
+    Language::Runtime::Owned<Language::Core::Integer> num = Language::Core::Integer(10);
+    Language::Runtime::Owned<Language::Core::String> result = num.get().add(Language::Core::Integer(53)).get().toString();
+    System::Console::printLine(Language::Core::String(reinterpret_cast<const unsigned char*>("Result: ")).append(std::move(result)));
+    Language::Runtime::Owned<Language::Core::String> result2 = num.get().add(Language::Core::Integer(5)).get().multiply(Language::Core::Integer(2)).get().toString();
+    System::Console::printLine(Language::Core::String(reinterpret_cast<const unsigned char*>("Result2: ")).append(std::move(result2)));
+    System::Console::printLine(Language::Core::String(reinterpret_cast<const unsigned char*>("Method chaining test complete!")));
 }
 
 

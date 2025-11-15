@@ -132,6 +132,14 @@ std::unique_ptr<Expression> BinaryExpr::cloneExpr() const {
     );
 }
 
+std::unique_ptr<ASTNode> TypeOfExpr::clone() const {
+    return cloneExpr();
+}
+
+std::unique_ptr<Expression> TypeOfExpr::cloneExpr() const {
+    return std::make_unique<TypeOfExpr>(type->cloneType(), location);
+}
+
 // ============================================================================
 // Statement Clones
 // ============================================================================
@@ -147,6 +155,30 @@ std::unique_ptr<Statement> InstantiateStmt::cloneStmt() const {
         initializer->cloneExpr(),
         location
     );
+}
+
+std::unique_ptr<ASTNode> RequireStmt::clone() const {
+    return cloneStmt();
+}
+
+std::unique_ptr<Statement> RequireStmt::cloneStmt() const {
+    auto cloned = std::make_unique<RequireStmt>(kind, location);
+
+    // Clone based on kind
+    if (kind == RequirementKind::Method) {
+        cloned->methodReturnType = methodReturnType->cloneType();
+        cloned->methodName = methodName;
+        cloned->targetParam = targetParam;
+    } else if (kind == RequirementKind::Constructor) {
+        for (const auto& paramType : constructorParamTypes) {
+            cloned->constructorParamTypes.push_back(paramType->cloneType());
+        }
+        cloned->targetParam = targetParam;
+    } else if (kind == RequirementKind::Truth) {
+        cloned->truthCondition = truthCondition->cloneExpr();
+    }
+
+    return cloned;
 }
 
 std::unique_ptr<ASTNode> RunStmt::clone() const {
@@ -413,6 +445,23 @@ std::unique_ptr<Declaration> EntrypointDecl::cloneDecl() const {
     }
 
     return std::make_unique<EntrypointDecl>(std::move(clonedBody), location);
+}
+
+std::unique_ptr<ASTNode> ConstraintDecl::clone() const {
+    return cloneDecl();
+}
+
+std::unique_ptr<Declaration> ConstraintDecl::cloneDecl() const {
+    auto cloned = std::make_unique<ConstraintDecl>(name, templateParams, paramBindings, location);
+
+    // Clone all requirements
+    for (const auto& req : requirements) {
+        cloned->requirements.push_back(
+            std::unique_ptr<RequireStmt>(static_cast<RequireStmt*>(req->cloneStmt().release()))
+        );
+    }
+
+    return cloned;
 }
 
 // ============================================================================

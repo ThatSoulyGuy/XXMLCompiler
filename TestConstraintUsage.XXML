@@ -1,0 +1,64 @@
+// Test file for constraint usage and validation
+
+// Define a constraint that requires a run() method
+[ Constraint <Runnable> <T Constrains None> (T a)
+	Require (F(Integer^)(run)(*) On a)
+]
+
+// Define a constraint that requires a default constructor
+[ Constraint <Constructible> <T Constrains None> (T a)
+	Require (C(None) On a)
+]
+
+// A class that satisfies Runnable
+[ Namespace <TestConstraints>
+	[ Class <Runner> Final Extends None
+		[ Public <>
+			Constructor = default;
+
+			Method <run> Returns Integer^ Parameters () Do
+			{
+				Return Integer::Constructor(42);
+			}
+		]
+	]
+
+	// A class that does NOT have a run() method (violates Runnable)
+	[ Class <NonRunner> Final Extends None
+		[ Public <>
+			Constructor = default;
+
+			Method <doSomething> Returns None Parameters () Do
+			{
+				Return None::Constructor();
+			}
+		]
+	]
+
+	// A template class that uses the Runnable constraint
+	[ Class <Executor> <T Constrains Runnable> Final Extends None
+		[ Private <>
+			Property <task> Types T^;
+		]
+
+		[ Public <>
+			Constructor = default;
+
+			Method <execute> Returns Integer^ Parameters () Do
+			{
+				Return task.run();
+			}
+		]
+	]
+]
+
+[ Entrypoint
+{
+	// This should work - Runner satisfies Runnable
+	Instantiate TestConstraints::Executor<TestConstraints::Runner>^ As <goodExecutor> = TestConstraints::Executor<TestConstraints::Runner>::Constructor();
+
+	// This should FAIL validation - NonRunner doesn't have run()
+	// Uncomment to test constraint violation:
+	// Instantiate TestConstraints::Executor<TestConstraints::NonRunner>^ As <badExecutor> = TestConstraints::Executor<TestConstraints::NonRunner>::Constructor();
+}
+]

@@ -35,6 +35,7 @@ private:
     std::unique_ptr<NamespaceDecl> parseNamespace();
     std::unique_ptr<ClassDecl> parseClass();
     std::unique_ptr<EntrypointDecl> parseEntrypoint();
+    std::unique_ptr<ConstraintDecl> parseConstraint();
     std::unique_ptr<AccessSection> parseAccessSection();
     std::unique_ptr<PropertyDecl> parseProperty();
     std::unique_ptr<ConstructorDecl> parseConstructor();
@@ -42,6 +43,7 @@ private:
     std::unique_ptr<ParameterDecl> parseParameter();
 
     std::unique_ptr<Statement> parseStatement();
+    std::unique_ptr<RequireStmt> parseRequireStatement();
     std::unique_ptr<InstantiateStmt> parseInstantiate();
     std::unique_ptr<AssignmentStmt> parseAssignment();
     std::unique_ptr<RunStmt> parseRun();
@@ -65,6 +67,7 @@ private:
     std::unique_ptr<Expression> parsePostfix();
     std::unique_ptr<Expression> parsePrimary();
     std::unique_ptr<Expression> parseCallOrMemberAccess(std::unique_ptr<Expression> expr);
+    std::unique_ptr<Expression> parseTypeOfExpression();
 
     std::unique_ptr<TypeRef> parseTypeRef();
     OwnershipType parseOwnershipType();

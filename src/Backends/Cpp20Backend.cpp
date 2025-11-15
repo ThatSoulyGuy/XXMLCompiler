@@ -1037,4 +1037,18 @@ void Cpp20Backend::visit(Parser::TypeRef& node) {
     output_ << convertType(node.typeName);
 }
 
+// Constraint-related visitor methods (compile-time only, no code generation)
+void Cpp20Backend::visit(Parser::ConstraintDecl& node) {
+    // No code generation - constraints are compile-time only
+}
+
+void Cpp20Backend::visit(Parser::RequireStmt& node) {
+    // No code generation - requirements are compile-time only
+}
+
+void Cpp20Backend::visit(Parser::TypeOfExpr& node) {
+    // This should not appear in generated code
+    // TypeOf is only used in constraint Truth conditions
+}
+
 } // namespace XXML::Backends

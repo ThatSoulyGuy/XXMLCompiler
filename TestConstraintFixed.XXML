@@ -1,0 +1,45 @@
+// Test file for constraint validation with proper initialization
+
+// Define a constraint that requires a run() method
+[ Constraint <Runnable> <T Constrains None> (T a)
+	Require (F(Integer^)(run)(*) On a)
+]
+
+// A class that satisfies Runnable
+[ Class <Runner> Final Extends None
+	[ Private <>
+		Property <value> Types Integer^;
+	]
+
+	[ Public <>
+		Constructor = default;
+
+		Method <run> Returns Integer^ Parameters () Do
+		{
+			Return Integer::Constructor(42);
+		}
+	]
+]
+
+// A template class that uses the Runnable constraint
+[ Class <Executor> <T Constrains Runnable> Final Extends None
+	[ Public <>
+		Constructor = default;
+
+		Method <executeWith> Returns Integer^ Parameters (Parameter <runner> Types T^) Do
+		{
+			Return runner.run();
+		}
+	]
+]
+
+[ Entrypoint
+{
+	// This should work - Runner satisfies Runnable
+	Instantiate Executor<Runner>^ As <executor> = Executor<Runner>::Constructor();
+	Instantiate Runner^ As <runner> = Runner::Constructor();
+
+	// Call the method - this tests that the constraint is satisfied
+	Instantiate Integer^ As <result> = executor.executeWith(runner);
+}
+]

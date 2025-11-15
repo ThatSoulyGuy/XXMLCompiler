@@ -88,6 +88,101 @@ Parser::OwnershipType SemanticAnalyzer::getExpressionOwnership(Parser::Expressio
     return Parser::OwnershipType::Owned;
 }
 
+// ============================================================================
+// TypeContext Population - Bridge XXML types to C++ understanding
+// ============================================================================
+
+std::string SemanticAnalyzer::convertXXMLTypeToCpp(const std::string& xxmlType,
+                                                   Parser::OwnershipType ownership) {
+    // Convert XXML type names to fully qualified C++ types
+    std::string cppType;
+
+    // Handle core types
+    if (xxmlType == "Integer" || xxmlType == "Language::Core::Integer") {
+        cppType = "Language::Core::Integer";
+    } else if (xxmlType == "String" || xxmlType == "Language::Core::String") {
+        cppType = "Language::Core::String";
+    } else if (xxmlType == "Bool" || xxmlType == "Language::Core::Bool") {
+        cppType = "Language::Core::Bool";
+    } else if (xxmlType == "Float" || xxmlType == "Language::Core::Float") {
+        cppType = "Language::Core::Float";
+    } else if (xxmlType == "Double" || xxmlType == "Language::Core::Double") {
+        cppType = "Language::Core::Double";
+    } else if (xxmlType == "None" || xxmlType == "Language::Core::None") {
+        cppType = "void";
+    } else {
+        // User-defined types or already qualified
+        cppType = xxmlType;
+    }
+
+    // Wrap in Owned<T> if ownership is Owned (^)
+    // IMPORTANT: Must match what CodeGenerator does in getOwnershipType()
+    // ALL types are wrapped in Owned<T> when ownership is Owned, including value types
+    if (ownership == Parser::OwnershipType::Owned) {
+        cppType = "Language::Runtime::Owned<" + cppType + ">";
+    } else if (ownership == Parser::OwnershipType::Reference) {
+        cppType += "&";
+    } else if (ownership == Parser::OwnershipType::Copy) {
+        // Copy is just the value type
+    }
+
+    return cppType;
+}
+
+void SemanticAnalyzer::registerExpressionType(Parser::Expression* expr,
+                                              const std::string& xxmlType,
+                                              Parser::OwnershipType ownership) {
+    // Store in legacy maps for backward compatibility
+    expressionTypes[expr] = xxmlType;
+    expressionOwnerships[expr] = ownership;
+
+    // Create C++-aware ResolvedType and store in TypeContext
+    Core::ResolvedType resolved;
+    resolved.xxmlTypeName = xxmlType;
+    resolved.ownership = ownership;
+
+    // Convert to C++ type
+    std::string cppType = convertXXMLTypeToCpp(xxmlType, ownership);
+    resolved.cppTypeName = cppType;
+
+    // Analyze C++ type semantics
+    resolved.cppTypeInfo = typeContext_.getCppAnalyzer().analyze(cppType);
+
+    // Set flags
+    resolved.isBuiltin = (xxmlType == "Integer" || xxmlType == "String" ||
+                         xxmlType == "Bool" || xxmlType == "Float" ||
+                         xxmlType == "Double" || xxmlType == "None");
+    resolved.isPrimitive = resolved.isBuiltin && xxmlType != "None";
+
+    // Store in TypeContext
+    typeContext_.setExpressionType(expr, resolved);
+}
+
+void SemanticAnalyzer::registerVariableType(const std::string& varName,
+                                           const std::string& xxmlType,
+                                           Parser::OwnershipType ownership) {
+    // Create C++-aware ResolvedType
+    Core::ResolvedType resolved;
+    resolved.xxmlTypeName = xxmlType;
+    resolved.ownership = ownership;
+
+    // Convert to C++ type
+    std::string cppType = convertXXMLTypeToCpp(xxmlType, ownership);
+    resolved.cppTypeName = cppType;
+
+    // Analyze C++ type semantics
+    resolved.cppTypeInfo = typeContext_.getCppAnalyzer().analyze(cppType);
+
+    // Set flags
+    resolved.isBuiltin = (xxmlType == "Integer" || xxmlType == "String" ||
+                         xxmlType == "Bool" || xxmlType == "Float" ||
+                         xxmlType == "Double" || xxmlType == "None");
+    resolved.isPrimitive = resolved.isBuiltin && xxmlType != "None";
+
+    // Store in TypeContext
+    typeContext_.setVariableType(varName, resolved);
+}
+
 void SemanticAnalyzer::validateOwnershipSemantics(Parser::TypeRef* type, const Common::SourceLocation& loc) {
     // Validate ownership rules
     // This is where we'd check things like:
@@ -644,6 +739,9 @@ void SemanticAnalyzer::visit(Parser::InstantiateStmt& node) {
         node.location
     );
     symbolTable_->define(node.variableName, std::move(symbol));
+
+    // Register variable type in TypeContext for code generation
+    registerVariableType(node.variableName, fullTypeName, node.type->ownership);
 }
 
 void SemanticAnalyzer::visit(Parser::AssignmentStmt& node) {
@@ -802,18 +900,15 @@ void SemanticAnalyzer::visit(Parser::ContinueStmt& node) {
 
 // Expression visitors
 void SemanticAnalyzer::visit(Parser::IntegerLiteralExpr& node) {
-    expressionTypes[&node] = "Integer";
-    expressionOwnerships[&node] = Parser::OwnershipType::Owned;
+    registerExpressionType(&node, "Integer", Parser::OwnershipType::Owned);
 }
 
 void SemanticAnalyzer::visit(Parser::StringLiteralExpr& node) {
-    expressionTypes[&node] = "String";
-    expressionOwnerships[&node] = Parser::OwnershipType::Owned;
+    registerExpressionType(&node, "String", Parser::OwnershipType::Owned);
 }
 
 void SemanticAnalyzer::visit(Parser::BoolLiteralExpr& node) {
-    expressionTypes[&node] = "Bool";
-    expressionOwnerships[&node] = Parser::OwnershipType::Owned;
+    registerExpressionType(&node, "Bool", Parser::OwnershipType::Owned);
 }
 
 void SemanticAnalyzer::visit(Parser::ThisExpr& node) {
@@ -886,8 +981,8 @@ void SemanticAnalyzer::visit(Parser::IdentifierExpr& node) {
         return;
     }
 
-    expressionTypes[&node] = sym->typeName;
-    expressionOwnerships[&node] = sym->ownership;
+    // Register in TypeContext for C++ type understanding
+    registerExpressionType(&node, sym->typeName, sym->ownership);
 }
 
 void SemanticAnalyzer::visit(Parser::ReferenceExpr& node) {
@@ -1000,25 +1095,25 @@ void SemanticAnalyzer::visit(Parser::CallExpr& node) {
                 bool isIntrinsic = (className == "Syscall" || className == "Mem" ||
                                     className == "Console" || className == "System::Console");
 
-                if (!method && !isIntrinsic && !isTemplateInstantiation) {
+                // Skip validation if the class is a template parameter (will be validated at instantiation)
+                bool isTemplateParameter = (templateTypeParameters.find(className) != templateTypeParameters.end());
+
+                if (!method && !isIntrinsic && !isTemplateInstantiation && !isTemplateParameter) {
                     errorReporter.reportError(
                         Common::ErrorCode::UndeclaredIdentifier,
                         "Method '" + methodName + "' not found in class '" + className + "'",
                         node.location
                     );
-                    expressionTypes[&node] = "Unknown";
-                    expressionOwnerships[&node] = Parser::OwnershipType::Owned;
+                    registerExpressionType(&node, "Unknown", Parser::OwnershipType::Owned);
                     return;
                 }
             }
 
             if (method) {
-                expressionTypes[&node] = method->returnType;
-                expressionOwnerships[&node] = method->returnOwnership;
+                registerExpressionType(&node, method->returnType, method->returnOwnership);
             } else {
                 // Builtin type - assume valid
-                expressionTypes[&node] = "Unknown";
-                expressionOwnerships[&node] = Parser::OwnershipType::Owned;
+                registerExpressionType(&node, "Unknown", Parser::OwnershipType::Owned);
             }
             return;
         }
@@ -1066,15 +1161,16 @@ void SemanticAnalyzer::visit(Parser::CallExpr& node) {
                 bool isIntrinsic = (objectType == "Syscall" || objectType == "Mem" ||
                                     objectType == "Console" || objectType == "System::Console");
                 bool isTemplateInstantiation = !templateSubstitutions.empty();
+                // Skip validation if the object is a template parameter (will be validated at instantiation)
+                bool isTemplateParameter = (templateTypeParameters.find(baseType) != templateTypeParameters.end());
 
-                if (!method && !isIntrinsic && !isTemplateInstantiation) {
+                if (!method && !isIntrinsic && !isTemplateInstantiation && !isTemplateParameter) {
                     errorReporter.reportError(
                         Common::ErrorCode::UndeclaredIdentifier,
                         "Method '" + methodName + "' not found in class '" + objectType + "'",
                         node.location
                     );
-                    expressionTypes[&node] = "Unknown";
-                    expressionOwnerships[&node] = Parser::OwnershipType::Owned;
+                    registerExpressionType(&node, "Unknown", Parser::OwnershipType::Owned);
                     return;
                 }
             }
@@ -1089,20 +1185,17 @@ void SemanticAnalyzer::visit(Parser::CallExpr& node) {
                     }
                 }
 
-                expressionTypes[&node] = returnType;
-                expressionOwnerships[&node] = method->returnOwnership;
+                registerExpressionType(&node, returnType, method->returnOwnership);
             } else {
                 // Builtin type - assume valid
-                expressionTypes[&node] = "Unknown";
-                expressionOwnerships[&node] = Parser::OwnershipType::Owned;
+                registerExpressionType(&node, "Unknown", Parser::OwnershipType::Owned);
             }
             return;
         }
     }
 
     // Default fallback
-    expressionTypes[&node] = "Unknown";
-    expressionOwnerships[&node] = Parser::OwnershipType::Owned;
+    registerExpressionType(&node, "Unknown", Parser::OwnershipType::Owned);
 }
 
 void SemanticAnalyzer::visit(Parser::BinaryExpr& node) {
@@ -1468,14 +1561,25 @@ SemanticAnalyzer::MethodInfo* SemanticAnalyzer::findMethod(const std::string& cl
 }
 
 bool SemanticAnalyzer::validateQualifiedIdentifier(const std::string& qualifiedName, const Common::SourceLocation& loc) {
-    // Split by :: to get components
+    // Split by :: to get components, but don't split inside template arguments < >
     std::vector<std::string> components;
     size_t start = 0;
-    size_t pos = 0;
-    while ((pos = qualifiedName.find("::", start)) != std::string::npos) {
-        components.push_back(qualifiedName.substr(start, pos - start));
-        start = pos + 2;
+    int angleBracketDepth = 0;
+
+    for (size_t i = 0; i < qualifiedName.length(); ++i) {
+        if (qualifiedName[i] == '<') {
+            angleBracketDepth++;
+        } else if (qualifiedName[i] == '>') {
+            angleBracketDepth--;
+        } else if (angleBracketDepth == 0 && i + 1 < qualifiedName.length() &&
+                   qualifiedName[i] == ':' && qualifiedName[i + 1] == ':') {
+            // Found :: outside of template arguments
+            components.push_back(qualifiedName.substr(start, i - start));
+            start = i + 2;
+            i++; // Skip the second ':'
+        }
     }
+    // Add the last component
     if (start < qualifiedName.length()) {
         components.push_back(qualifiedName.substr(start));
     }
@@ -1728,13 +1832,311 @@ bool SemanticAnalyzer::validateConstraint(const std::string& typeName, const std
 
     // Check if the type satisfies at least one constraint (union semantics: Type1 | Type2 | ...)
     for (const auto& constraint : constraints) {
-        if (isTypeCompatible(typeName, constraint)) {
-            return true;
+        // Parse constraint to extract base name and template arguments
+        // e.g., "MyConstraint<T>" -> baseName="MyConstraint", args=["T"]
+        std::string baseName = constraint;
+        std::vector<std::string> templateArgs;
+        std::unordered_map<std::string, std::string> typeSubstitutions;
+
+        size_t angleBracketPos = constraint.find('<');
+        if (angleBracketPos != std::string::npos) {
+            // This is a parameterized constraint
+            baseName = constraint.substr(0, angleBracketPos);
+
+            // Extract template arguments
+            size_t endBracket = constraint.rfind('>');
+            if (endBracket != std::string::npos) {
+                std::string argsStr = constraint.substr(angleBracketPos + 1, endBracket - angleBracketPos - 1);
+
+                // Simple parsing: split by comma (handle single arg for now)
+                templateArgs.push_back(argsStr);
+            }
+        }
+
+        // First, check if this is a constraint definition (has requirements)
+        auto constraintIt = constraintRegistry_.find(baseName);
+        if (constraintIt != constraintRegistry_.end()) {
+            // Build type substitution map for parameterized constraints
+            const ConstraintInfo& constraintInfo = constraintIt->second;
+
+            // Map constraint's template parameters to actual type arguments
+            for (size_t i = 0; i < constraintInfo.templateParams.size() && i < templateArgs.size(); ++i) {
+                const std::string& paramName = constraintInfo.templateParams[i].name;
+                const std::string& argValue = templateArgs[i];
+
+                // The argument might be a reference to the type being validated
+                // e.g., MyConstraint<T> where T should be substituted with the actual type
+                if (argValue == "T" || argValue == paramName) {
+                    // Simple case: substitute with the type being validated
+                    typeSubstitutions[paramName] = typeName;
+                } else {
+                    typeSubstitutions[paramName] = argValue;
+                }
+            }
+
+            // This is a full constraint with requirements - validate them
+            if (validateConstraintRequirements(typeName, constraintInfo, Common::SourceLocation(), typeSubstitutions)) {
+                return true;  // Constraint satisfied
+            }
+            // Continue checking other constraints
+        } else {
+            // This is a simple type constraint (old behavior)
+            if (isTypeCompatible(typeName, constraint)) {
+                return true;
+            }
         }
     }
 
     // Type doesn't satisfy any constraint
     return false;
+}
+
+// Constraint validation helpers
+bool SemanticAnalyzer::hasMethod(const std::string& className,
+                                 const std::string& methodName,
+                                 Parser::TypeRef* returnType) {
+    // Find the class in the registry
+    ClassInfo* classInfo = findClass(className);
+    if (!classInfo) {
+        return false;
+    }
+
+    // Look for a method with the given name
+    auto methodIt = classInfo->methods.find(methodName);
+    if (methodIt == classInfo->methods.end()) {
+        return false;
+    }
+
+    // If return type is specified, validate it matches
+    if (returnType) {
+        const MethodInfo& method = methodIt->second;
+        std::string expectedReturnType = returnType->typeName;
+
+        // Check if return types are compatible
+        if (!isTypeCompatible(method.returnType, expectedReturnType)) {
+            return false;
+        }
+    }
+
+    // Method exists with compatible return type (or no return type check requested)
+    return true;
+}
+
+bool SemanticAnalyzer::hasConstructor(const std::string& className,
+                                     const std::vector<std::unique_ptr<Parser::TypeRef>>& paramTypes) {
+    // Find the class in the registry
+    ClassInfo* classInfo = findClass(className);
+    if (!classInfo) {
+        return false;
+    }
+
+    // Look for a constructor with matching parameter types
+    // Constructor name is the class name
+    auto methodIt = classInfo->methods.find(className);
+    if (methodIt == classInfo->methods.end()) {
+        // No constructor found - check if it's a default constructor request
+        return paramTypes.empty();  // Classes have implicit default constructor if no params requested
+    }
+
+    const MethodInfo& constructor = methodIt->second;
+
+    // If we're checking for a parameterless constructor (None)
+    if (paramTypes.empty()) {
+        return constructor.parameters.empty();
+    }
+
+    // Check if parameter counts match
+    if (constructor.parameters.size() != paramTypes.size()) {
+        return false;
+    }
+
+    // Check if parameter types are compatible
+    for (size_t i = 0; i < paramTypes.size(); ++i) {
+        const auto& expectedParam = paramTypes[i];
+        const auto& actualParam = constructor.parameters[i];
+
+        if (!isTypeCompatible(actualParam.first, expectedParam->typeName)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool SemanticAnalyzer::evaluateTruthCondition(Parser::Expression* expr,
+                                              const std::unordered_map<std::string, std::string>& typeSubstitutions) {
+    // Evaluate compile-time truth conditions like TypeOf<T>() == TypeOf<Integer>()
+
+    // Check if it's a binary expression (most truth conditions are comparisons)
+    if (auto* binaryExpr = dynamic_cast<Parser::BinaryExpr*>(expr)) {
+        if (binaryExpr->op == "==") {
+            // Both sides should be TypeOf expressions
+            auto* leftTypeOf = dynamic_cast<Parser::TypeOfExpr*>(binaryExpr->left.get());
+            auto* rightTypeOf = dynamic_cast<Parser::TypeOfExpr*>(binaryExpr->right.get());
+
+            if (leftTypeOf && rightTypeOf) {
+                // Get the type names
+                std::string leftType = leftTypeOf->type->typeName;
+                std::string rightType = rightTypeOf->type->typeName;
+
+                // Apply type substitutions (e.g., T -> Integer)
+                if (typeSubstitutions.find(leftType) != typeSubstitutions.end()) {
+                    leftType = typeSubstitutions.at(leftType);
+                }
+                if (typeSubstitutions.find(rightType) != typeSubstitutions.end()) {
+                    rightType = typeSubstitutions.at(rightType);
+                }
+
+                // Check if types are equal
+                return leftType == rightType;
+            }
+        } else if (binaryExpr->op == "!=") {
+            // Handle inequality
+            auto* leftTypeOf = dynamic_cast<Parser::TypeOfExpr*>(binaryExpr->left.get());
+            auto* rightTypeOf = dynamic_cast<Parser::TypeOfExpr*>(binaryExpr->right.get());
+
+            if (leftTypeOf && rightTypeOf) {
+                std::string leftType = leftTypeOf->type->typeName;
+                std::string rightType = rightTypeOf->type->typeName;
+
+                if (typeSubstitutions.find(leftType) != typeSubstitutions.end()) {
+                    leftType = typeSubstitutions.at(leftType);
+                }
+                if (typeSubstitutions.find(rightType) != typeSubstitutions.end()) {
+                    rightType = typeSubstitutions.at(rightType);
+                }
+
+                return leftType != rightType;
+            }
+        }
+    }
+
+    // If we can't evaluate the expression, return false (constraint not satisfied)
+    return false;
+}
+
+bool SemanticAnalyzer::validateConstraintRequirements(const std::string& typeName,
+                                                      const ConstraintInfo& constraint,
+                                                      const Common::SourceLocation& loc,
+                                                      const std::unordered_map<std::string, std::string>& providedSubstitutions) {
+    // Use provided substitutions if available, otherwise build default ones
+    std::unordered_map<std::string, std::string> typeSubstitutions = providedSubstitutions;
+
+    // If no substitutions provided and constraint has template parameters, build defaults
+    if (typeSubstitutions.empty() && !constraint.templateParams.empty()) {
+        // Map the first template parameter to the actual type
+        typeSubstitutions[constraint.templateParams[0].name] = typeName;
+    }
+
+    // Validate each requirement
+    for (const auto* requirement : constraint.requirements) {
+        if (requirement->kind == Parser::RequirementKind::Method) {
+            // Check if the type has the required method
+            if (!hasMethod(typeName, requirement->methodName, requirement->methodReturnType.get())) {
+                errorReporter.reportError(
+                    Common::ErrorCode::ConstraintViolation,
+                    "Type '" + typeName + "' does not have required method '" +
+                    requirement->methodName + "'",
+                    loc
+                );
+                return false;
+            }
+        } else if (requirement->kind == Parser::RequirementKind::Constructor) {
+            // Check if the type has the required constructor
+            if (!hasConstructor(typeName, requirement->constructorParamTypes)) {
+                errorReporter.reportError(
+                    Common::ErrorCode::ConstraintViolation,
+                    "Type '" + typeName + "' does not have required constructor",
+                    loc
+                );
+                return false;
+            }
+        } else if (requirement->kind == Parser::RequirementKind::Truth) {
+            // Evaluate the truth condition
+            if (!evaluateTruthCondition(requirement->truthCondition.get(), typeSubstitutions)) {
+                errorReporter.reportError(
+                    Common::ErrorCode::ConstraintViolation,
+                    "Type '" + typeName + "' does not satisfy truth condition",
+                    loc
+                );
+                return false;
+            }
+        }
+    }
+
+    return true;
+}
+
+// Constraint-related visitor methods
+void SemanticAnalyzer::visit(Parser::ConstraintDecl& node) {
+    // Register the constraint in the registry
+    ConstraintInfo info;
+    info.name = node.name;
+    info.templateParams = node.templateParams;
+    info.paramBindings = node.paramBindings;
+    info.astNode = &node;
+
+    // Store raw pointers to requirements (owned by AST)
+    for (const auto& req : node.requirements) {
+        info.requirements.push_back(req.get());
+    }
+
+    // Check for duplicate constraint names
+    if (constraintRegistry_.find(node.name) != constraintRegistry_.end()) {
+        errorReporter.reportError(
+            Common::ErrorCode::DuplicateSymbol,
+            "Constraint '" + node.name + "' is already defined",
+            node.location
+        );
+        return;
+    }
+
+    constraintRegistry_[node.name] = info;
+
+    // Visit requirements to validate their syntax
+    for (auto& req : node.requirements) {
+        req->accept(*this);
+    }
+}
+
+void SemanticAnalyzer::visit(Parser::RequireStmt& node) {
+    // Validate requirement syntax (basic checks)
+    if (node.kind == Parser::RequirementKind::Method) {
+        // Validate method requirement has all necessary fields
+        if (node.methodName.empty()) {
+            errorReporter.reportError(
+                Common::ErrorCode::InvalidSyntax,
+                "Method requirement must specify method name",
+                node.location
+            );
+        }
+        if (!node.methodReturnType) {
+            errorReporter.reportError(
+                Common::ErrorCode::InvalidSyntax,
+                "Method requirement must specify return type",
+                node.location
+            );
+        }
+    } else if (node.kind == Parser::RequirementKind::Constructor) {
+        // Constructor requirements are always valid (can have any number of params)
+    } else if (node.kind == Parser::RequirementKind::Truth) {
+        // Validate truth condition exists
+        if (!node.truthCondition) {
+            errorReporter.reportError(
+                Common::ErrorCode::InvalidSyntax,
+                "Truth requirement must have a condition",
+                node.location
+            );
+        }
+    }
+}
+
+void SemanticAnalyzer::visit(Parser::TypeOfExpr& node) {
+    // TypeOf expressions are evaluated at compile-time in truth conditions
+    // Store type information for later evaluation
+    if (node.type) {
+        expressionTypes[&node] = node.type->typeName;
+    }
 }
 
 } // namespace Semantic

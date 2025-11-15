@@ -1,0 +1,22 @@
+#import System;
+
+[ Entrypoint
+{
+    // Test simple method chaining with Integer^
+    Instantiate Integer^ As <num> = Integer::Constructor(10);
+
+    // This should generate: num->add(...).get().toString()
+    // The add() method returns Integer^, which is Owned<Integer> in C++
+    // Then we need to call toString() on the Integer, not the Owned<Integer>
+    Instantiate String^ As <result> = num.add(Integer::Constructor(53)).toString();
+
+    Run Console::printLine(String::Constructor("Result: ").append(result));
+
+    // Test deeper chaining
+    Instantiate String^ As <result2> = num.add(Integer::Constructor(5)).multiply(Integer::Constructor(2)).toString();
+
+    Run Console::printLine(String::Constructor("Result2: ").append(result2));
+
+    Run Console::printLine(String::Constructor("Method chaining test complete!"));
+}
+]

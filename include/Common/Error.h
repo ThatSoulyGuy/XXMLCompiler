@@ -33,10 +33,12 @@ enum class ErrorCode {
     TypeMismatch,
     InvalidOwnership,
     DuplicateDeclaration,
+    DuplicateSymbol,
     UndefinedType,
     InvalidMethodCall,
     ConstructorError,
     InvalidReference,
+    ConstraintViolation,
 
     // CodeGen errors (4000-4999)
     CodeGenError = 4000,

@@ -7,12 +7,16 @@ namespace XXML {
 namespace CodeGen {
 
 CodeGenerator::CodeGenerator(Common::ErrorReporter& reporter)
-    : indentLevel(0), errorReporter(reporter), semanticAnalyzer(nullptr), inClassDefinition(false),
-      currentNamespace(""), generatingDeclarationsOnly(false), generatingImplementationsOnly(false),
-      needsAnyWrapper(false) {}
+    : indentLevel(0), errorReporter(reporter), semanticAnalyzer(nullptr), typeContext(nullptr),
+      inClassDefinition(false), currentNamespace(""), generatingDeclarationsOnly(false),
+      generatingImplementationsOnly(false), shouldGenerateTemplates(false), needsAnyWrapper(false) {}
 
 void CodeGenerator::setSemanticAnalyzer(Semantic::SemanticAnalyzer* analyzer) {
     semanticAnalyzer = analyzer;
+}
+
+void CodeGenerator::setTypeContext(Core::TypeContext* context) {
+    typeContext = context;
 }
 
 void CodeGenerator::indent() {
@@ -283,13 +287,7 @@ std::string CodeGenerator::generate(Parser::Program& program, bool includeHeader
         writeLine("");
     }
 
-    // Generate template instantiations only when NOT generating declarations/implementations separately
-    // Templates should be generated once at the end, not during phase-based generation
-    if (!generatingDeclarationsOnly && !generatingImplementationsOnly) {
-        generateTemplateInstantiations();
-    }
-
-    // Then generate user code
+    // Generate user code (templates and entrypoints are handled within the visitor)
     program.accept(*this);
 
     return output.str();
@@ -301,8 +299,25 @@ std::string CodeGenerator::getOutput() const {
 
 // Visitor implementations
 void CodeGenerator::visit(Parser::Program& node) {
+    // Generate all declarations except entrypoints first
+    // Entrypoints will be generated after template instantiations
     for (auto& decl : node.declarations) {
+        if (dynamic_cast<Parser::EntrypointDecl*>(decl.get())) {
+            continue;  // Skip entrypoints for now
+        }
         decl->accept(*this);
+    }
+
+    // If we're generating templates, do it now before entrypoints
+    if (shouldGenerateTemplates && !generatingDeclarationsOnly && !generatingImplementationsOnly) {
+        generateTemplateInstantiations();
+    }
+
+    // Now generate entrypoints (after templates)
+    for (auto& decl : node.declarations) {
+        if (auto* entrypoint = dynamic_cast<Parser::EntrypointDecl*>(decl.get())) {
+            entrypoint->accept(*this);
+        }
     }
 }
 
@@ -1130,6 +1145,8 @@ void CodeGenerator::visit(Parser::IdentifierExpr& node) {
         name = "Language::Core::Float";
     } else if (name == "Double") {
         name = "Language::Core::Double";
+    } else if (name == "Console") {
+        name = "System::Console";
     }
 
     write(sanitizeIdentifier(name));
@@ -1142,98 +1159,92 @@ void CodeGenerator::visit(Parser::ReferenceExpr& node) {
 }
 
 void CodeGenerator::visit(Parser::MemberAccessExpr& node) {
+    // Generate code for the object expression
     node.object->accept(*this);
 
     // Check if this is a namespace/class member access (::)
     if (node.member.rfind("::", 0) == 0) {
         write(node.member); // Already has ::
-    } else {
-        // Determine if we need -> or . based on whether object is a smart pointer
-        bool isSmartPtr = false;
+        return;
+    }
 
-        // If object is 'this', always use -> because this is always a pointer in C++
-        if (dynamic_cast<Parser::ThisExpr*>(node.object.get())) {
-            isSmartPtr = true;
-        }
-        // If object is an IdentifierExpr, check if it's a user-defined type variable
-        else if (auto* identExpr = dynamic_cast<Parser::IdentifierExpr*>(node.object.get())) {
-            // Check if the variable is a smart pointer (including Owned<Integer>)
-            auto varIt = variableIsSmartPointer.find(identExpr->name);
-            if (varIt != variableIsSmartPointer.end()) {
-                isSmartPtr = varIt->second;
-            } else {
-                isSmartPtr = expressionIsSmartPointer[node.object.get()];
-            }
-        }
-        // If object is a CallExpr, check if it returns a smart pointer type
-        else if (auto* callExpr = dynamic_cast<Parser::CallExpr*>(node.object.get())) {
-            // Try to get the return type from semantic analyzer
-            if (semanticAnalyzer) {
-                std::string returnType = semanticAnalyzer->getExpressionTypePublic(callExpr);
-                // Check if return type indicates Owned ownership (ends with ^ or contains Owned)
-                // Owned types need -> operator for member access in C++
-                if (!returnType.empty()) {
-                    if (returnType.back() == '^') {
-                        isSmartPtr = true;
-                    }
-                    // Also check if we're looking at a method that returns Owned<T>
-                    // by checking if the call is to a known method like get()
-                    if (auto* memberExpr = dynamic_cast<Parser::MemberAccessExpr*>(callExpr->callee.get())) {
-                        if (memberExpr->member == "get") {
-                            // List.get() returns T^ which becomes Owned<T>
-                            isSmartPtr = true;
-                        }
-                    }
-                }
-            }
+    // ========================================================================
+    // NEW: Use C++ Type Understanding from TypeContext
+    // ========================================================================
 
-            // Fallback: Check if this is a constructor call
-            if (!isSmartPtr) {
+    std::string memberOp = ".";  // Default to value semantics
+    bool needsUnwrap = false;
+    std::string unwrapExpr;
+
+    // Query TypeContext for C++ semantic understanding
+    if (typeContext) {
+        const Core::ResolvedType* objType = typeContext->getExpressionType(node.object.get());
+
+        if (objType) {
+            // Ask the C++ type model what operator to use
+            memberOp = objType->getMemberOperator();
+
+            // Check if we need to unwrap Owned<T> to access T's methods
+            // Example: Owned<Integer> needs .get() to call Integer::add()
+            // IMPORTANT: Constructor calls return bare types, not Owned<T>, so skip unwrapping
+            bool isConstructorCall = false;
+            if (auto* callExpr = dynamic_cast<Parser::CallExpr*>(node.object.get())) {
                 if (auto* memberExpr = dynamic_cast<Parser::MemberAccessExpr*>(callExpr->callee.get())) {
-                    if (memberExpr->member == "Constructor") {
-                        // Constructor calls for user-defined types return smart pointers
-                        if (auto* identExpr = dynamic_cast<Parser::IdentifierExpr*>(memberExpr->object.get())) {
-                            std::string className = identExpr->name;
-                            std::string baseType = className;
-                            size_t lastColon = className.rfind("::");
-                            if (lastColon != std::string::npos) {
-                                baseType = className.substr(lastColon + 2);
-                            }
-                            // Value types: String, Integer, Bool
-                            // Smart pointer types: Float, Double, and all user-defined types
-                            if (baseType != "String" && baseType != "Integer" && baseType != "Bool") {
-                                isSmartPtr = true;
-                            }
-                        }
-                    }
-                }
-                // Also check for IdentifierExpr pattern
-                else if (auto* identExpr = dynamic_cast<Parser::IdentifierExpr*>(callExpr->callee.get())) {
-                    std::string fullName = identExpr->name;
-                    if (fullName.find("::Constructor") != std::string::npos) {
-                        size_t constructorPos = fullName.rfind("::Constructor");
-                        if (constructorPos != std::string::npos) {
-                            std::string className = fullName.substr(0, constructorPos);
-                            std::string baseType = className;
-                            size_t lastColon = className.rfind("::");
-                            if (lastColon != std::string::npos) {
-                                baseType = className.substr(lastColon + 2);
-                            }
-                            if (baseType != "String" && baseType != "Integer" && baseType != "Bool") {
-                                isSmartPtr = true;
-                            }
-                        }
+                    if (memberExpr->member == "Constructor" || memberExpr->member == "::Constructor") {
+                        isConstructorCall = true;
+                        // Constructor calls return bare values, use . operator
+                        memberOp = ".";
                     }
                 }
             }
-        }
 
-        // Use -> for smart pointers, . for values
-        if (isSmartPtr) {
-            write("->" + sanitizeIdentifier(node.member));
-        } else {
-            write("." + sanitizeIdentifier(node.member));
+            if (objType->isOwnedWrapper() && !isConstructorCall) {
+                std::string wrappedType = objType->getWrappedType();
+
+                // Check if the member being accessed exists on the wrapped type
+                // (not on the Owned wrapper itself)
+                Core::CppTypeAnalyzer& analyzer = typeContext->getCppAnalyzer();
+
+                if (analyzer.hasMethod(wrappedType, node.member)) {
+                    // This method exists on the wrapped type, need to unwrap
+                    needsUnwrap = true;
+                    unwrapExpr = objType->getUnwrapExpression();  // Returns ".get()"
+                }
+            }
         }
+    }
+
+    // Fallback to legacy heuristics if TypeContext not available
+    if (!typeContext) {
+        // Legacy: Check if object is 'this' (always pointer in C++)
+        if (dynamic_cast<Parser::ThisExpr*>(node.object.get())) {
+            memberOp = "->";
+        }
+        // Legacy: Check variable smart pointer map
+        else if (auto* identExpr = dynamic_cast<Parser::IdentifierExpr*>(node.object.get())) {
+            auto varIt = variableIsSmartPointer.find(identExpr->name);
+            if (varIt != variableIsSmartPointer.end() && varIt->second) {
+                memberOp = "->";
+            }
+        }
+        // Legacy: Check expression smart pointer map
+        else {
+            auto exprIt = expressionIsSmartPointer.find(node.object.get());
+            if (exprIt != expressionIsSmartPointer.end() && exprIt->second) {
+                memberOp = "->";
+            }
+        }
+    }
+
+    // Generate the member access
+    if (needsUnwrap) {
+        // Unwrap smart pointer: obj.get().member()
+        write(unwrapExpr);  // ".get()"
+        write(".");         // Always . after unwrapping (get() returns reference)
+        write(sanitizeIdentifier(node.member));
+    } else {
+        // Direct member access: obj.member or obj->member
+        write(memberOp + sanitizeIdentifier(node.member));
     }
 }
 
@@ -1606,6 +1617,14 @@ void CodeGenerator::substituteTypesInExpression(Parser::Expression* expr, const 
     else if (auto* ref = dynamic_cast<Parser::ReferenceExpr*>(expr)) {
         substituteTypesInExpression(ref->expr.get(), typeMap);
     }
+    else if (auto* ident = dynamic_cast<Parser::IdentifierExpr*>(expr)) {
+        // Check if this identifier is a template parameter
+        auto it = typeMap.find(ident->name);
+        if (it != typeMap.end()) {
+            // Replace template parameter with concrete type
+            ident->name = it->second;
+        }
+    }
     // Literals don't need substitution
 }
 
@@ -1901,6 +1920,21 @@ void CodeGenerator::substituteTypesInMethod(Parser::MethodDecl* methodDecl, cons
     for (auto& stmt : methodDecl->body) {
         substituteTypesInStatement(stmt.get(), typeMap);
     }
+}
+
+// Constraint-related visitor methods (compile-time only, no code generation)
+void CodeGenerator::visit(Parser::ConstraintDecl& node) {
+    // No code generation - constraints are compile-time only
+}
+
+void CodeGenerator::visit(Parser::RequireStmt& node) {
+    // No code generation - requirements are compile-time only
+}
+
+void CodeGenerator::visit(Parser::TypeOfExpr& node) {
+    // This should not appear in generated code
+    // TypeOf is only used in constraint Truth conditions
+    errorReporter.reportError(Common::ErrorCode::CodeGenError, "TypeOf should not appear in runtime code", node.location);
 }
 
 } // namespace CodeGen

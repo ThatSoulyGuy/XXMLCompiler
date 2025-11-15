@@ -42,6 +42,11 @@ enum class TokenType {
     Break,            // Break
     Continue,         // Continue
     Constrains,       // Constrains
+    Constraint,       // Constraint
+    Require,          // Require
+    Truth,            // Truth
+    TypeOf,           // TypeOf
+    On,               // On
     Static,           // Static
     Do,               // Do
     This,             // this

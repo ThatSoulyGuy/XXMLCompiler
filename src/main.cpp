@@ -705,10 +705,11 @@ int main(int argc, char* argv[]) {
                 XXML::CodeGen::CodeGenerator codeGen(errorReporter);
                 codeGen.setGeneratingDeclarationsOnly(true);  // Declarations only
 
-                // Pass semantic analyzer for template support
+                // Pass semantic analyzer for template support and type context
                 auto analyzerIt = analyzerMap.find(moduleName);
                 if (analyzerIt != analyzerMap.end()) {
                     codeGen.setSemanticAnalyzer(analyzerIt->second.get());
+                    codeGen.setTypeContext(&analyzerIt->second->getTypeContext());
                 }
 
                 std::string moduleCode = codeGen.generate(*module->ast, false);
@@ -739,10 +740,11 @@ int main(int argc, char* argv[]) {
                 XXML::CodeGen::CodeGenerator codeGen(errorReporter);
                 codeGen.setGeneratingImplementationsOnly(true);  // Implementations only
 
-                // Pass semantic analyzer for template support
+                // Pass semantic analyzer for template support and type context
                 auto analyzerIt = analyzerMap.find(moduleName);
                 if (analyzerIt != analyzerMap.end()) {
                     codeGen.setSemanticAnalyzer(analyzerIt->second.get());
+                    codeGen.setTypeContext(&analyzerIt->second->getTypeContext());
                 }
 
                 std::string moduleCode = codeGen.generate(*module->ast, false);
@@ -890,10 +892,11 @@ int main(int argc, char* argv[]) {
 
                 XXML::CodeGen::CodeGenerator codeGen(errorReporter);
 
-                // Pass semantic analyzer for template support
+                // Pass semantic analyzer for template support and type context
                 auto analyzerIt = analyzerMap.find(moduleName);
                 if (analyzerIt != analyzerMap.end()) {
                     codeGen.setSemanticAnalyzer(analyzerIt->second.get());
+                    codeGen.setTypeContext(&analyzerIt->second->getTypeContext());
                 }
 
                 std::string moduleCode = codeGen.generate(*module->ast, false); // Don't include headers
@@ -921,10 +924,14 @@ int main(int argc, char* argv[]) {
             std::cout << "  Generating: __main__\n";
             XXML::CodeGen::CodeGenerator mainCodeGen(errorReporter);
 
-            // Pass semantic analyzer for template support
+            // Pass semantic analyzer for template support and type context
             if (mainAnalyzer) {
                 mainCodeGen.setSemanticAnalyzer(mainAnalyzer.get());
+                mainCodeGen.setTypeContext(&mainAnalyzer->getTypeContext());
             }
+
+            // Enable template generation for main module only
+            mainCodeGen.setShouldGenerateTemplates(true);
 
             std::string mainCode = mainCodeGen.generate(*mainModule->ast, false); // Don't include headers
 

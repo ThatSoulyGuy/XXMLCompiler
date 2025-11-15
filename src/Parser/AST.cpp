@@ -16,9 +16,11 @@ void ReferenceExpr::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void MemberAccessExpr::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void CallExpr::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void BinaryExpr::accept(ASTVisitor& visitor) { visitor.visit(*this); }
+void TypeOfExpr::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 
 // Statements
 void InstantiateStmt::accept(ASTVisitor& visitor) { visitor.visit(*this); }
+void RequireStmt::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void RunStmt::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void ForStmt::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void ExitStmt::accept(ASTVisitor& visitor) { visitor.visit(*this); }
@@ -39,6 +41,7 @@ void ClassDecl::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void NamespaceDecl::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void ImportDecl::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void EntrypointDecl::accept(ASTVisitor& visitor) { visitor.visit(*this); }
+void ConstraintDecl::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void Program::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 
 } // namespace Parser

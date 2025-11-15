@@ -3,6 +3,7 @@
 #include "../Parser/AST.h"
 #include "SymbolTable.h"
 #include "../Common/Error.h"
+#include "../Core/TypeContext.h"
 
 namespace XXML {
 
@@ -16,6 +17,7 @@ private:
     SymbolTable* symbolTable_;  // Now points to context's symbol table
     Core::CompilationContext* context_;  // ✅ Use context instead of static state
     Common::ErrorReporter& errorReporter;
+    Core::TypeContext typeContext_;  // Type information for code generation
     std::string currentClass;
     std::string currentNamespace;
     bool enableValidation;  // Controls whether to do full validation
@@ -27,6 +29,16 @@ private:
     bool isCompatibleOwnership(Parser::OwnershipType expected, Parser::OwnershipType actual);
     std::string getExpressionType(Parser::Expression* expr);
     Parser::OwnershipType getExpressionOwnership(Parser::Expression* expr);
+
+    // TypeContext population helpers
+    void registerExpressionType(Parser::Expression* expr,
+                                const std::string& xxmlType,
+                                Parser::OwnershipType ownership);
+    void registerVariableType(const std::string& varName,
+                             const std::string& xxmlType,
+                             Parser::OwnershipType ownership);
+    std::string convertXXMLTypeToCpp(const std::string& xxmlType,
+                                    Parser::OwnershipType ownership);
 
     // Validation helpers
     void validateOwnershipSemantics(Parser::TypeRef* type, const Common::SourceLocation& loc);
@@ -120,8 +132,29 @@ private:
     bool isTemplateClass(const std::string& className);
     bool isTemplateMethod(const std::string& className, const std::string& methodName);
 
-    // Constraint validation
+    // Constraint registry and validation
+    struct ConstraintInfo {
+        std::string name;
+        std::vector<Parser::TemplateParameter> templateParams;
+        std::vector<Parser::ConstraintParamBinding> paramBindings;
+        std::vector<Parser::RequireStmt*> requirements;
+        Parser::ConstraintDecl* astNode;
+    };
+
+    std::unordered_map<std::string, ConstraintInfo> constraintRegistry_;  // Constraint name -> info
+
     bool validateConstraint(const std::string& typeName, const std::vector<std::string>& constraints);
+    bool validateConstraintRequirements(const std::string& typeName,
+                                       const ConstraintInfo& constraint,
+                                       const Common::SourceLocation& loc,
+                                       const std::unordered_map<std::string, std::string>& providedSubstitutions = {});
+    bool hasMethod(const std::string& className,
+                  const std::string& methodName,
+                  Parser::TypeRef* returnType);
+    bool hasConstructor(const std::string& className,
+                       const std::vector<std::unique_ptr<Parser::TypeRef>>& paramTypes);
+    bool evaluateTruthCondition(Parser::Expression* expr,
+                               const std::unordered_map<std::string, std::string>& typeSubstitutions);
     bool isTypeCompatible(const std::string& actualType, const std::string& constraintType);
 
     // Helper for class member lookup
@@ -144,6 +177,14 @@ public:
     }
     const std::set<MethodTemplateInstantiation>& getMethodTemplateInstantiations() const {
         return methodTemplateInstantiations;
+    }
+
+    // Get type context for code generation
+    Core::TypeContext& getTypeContext() {
+        return typeContext_;
+    }
+    const Core::TypeContext& getTypeContext() const {
+        return typeContext_;
     }
     const std::unordered_map<std::string, Parser::MethodDecl*>& getTemplateMethods() const {
         return templateMethods;
@@ -187,8 +228,10 @@ public:
     void visit(Parser::MethodDecl& node) override;
     void visit(Parser::ParameterDecl& node) override;
     void visit(Parser::EntrypointDecl& node) override;
+    void visit(Parser::ConstraintDecl& node) override;
 
     void visit(Parser::InstantiateStmt& node) override;
+    void visit(Parser::RequireStmt& node) override;
     void visit(Parser::AssignmentStmt& node) override;
     void visit(Parser::RunStmt& node) override;
     void visit(Parser::ForStmt& node) override;
@@ -208,6 +251,7 @@ public:
     void visit(Parser::MemberAccessExpr& node) override;
     void visit(Parser::CallExpr& node) override;
     void visit(Parser::BinaryExpr& node) override;
+    void visit(Parser::TypeOfExpr& node) override;
 
     void visit(Parser::TypeRef& node) override;
 };

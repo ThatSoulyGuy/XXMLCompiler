@@ -1,0 +1,25 @@
+// Test file for constraint parsing
+
+[ Constraint <Runnable> <T Constrains None> (T a)
+	Require (F(Integer^)(run)(*) On a)
+]
+
+[ Constraint <Constructible> <T Constrains None> (T a)
+	Require (C(None) On a)
+]
+
+[ Constraint <SameAsInteger> <T Constrains None> (T a)
+	Require (Truth(TypeOf<T>() == TypeOf<Integer>()))
+]
+
+[ Constraint <MultiRequirement> <T Constrains None, U Constrains None> (T a, U b)
+	Require (F(Integer^)(getValue)(*) On a)
+	Require (C(None) On b)
+	Require (Truth(TypeOf<T>() == TypeOf<U>()))
+]
+
+[ Entrypoint
+{
+	// Just a simple test to make sure the file can be parsed
+}
+]

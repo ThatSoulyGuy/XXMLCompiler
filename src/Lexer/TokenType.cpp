@@ -36,6 +36,11 @@ static const std::unordered_map<std::string, TokenType> keywords = {
     {"Break", TokenType::Break},
     {"Continue", TokenType::Continue},
     {"Constrains", TokenType::Constrains},
+    {"Constraint", TokenType::Constraint},
+    {"Require", TokenType::Require},
+    {"Truth", TokenType::Truth},
+    {"TypeOf", TokenType::TypeOf},
+    {"On", TokenType::On},
     {"Static", TokenType::Static},
     {"Do", TokenType::Do},
     {"this", TokenType::This},
@@ -79,6 +84,11 @@ std::string tokenTypeToString(TokenType type) {
         case TokenType::Break: return "Break";
         case TokenType::Continue: return "Continue";
         case TokenType::Constrains: return "Constrains";
+        case TokenType::Constraint: return "Constraint";
+        case TokenType::Require: return "Require";
+        case TokenType::Truth: return "Truth";
+        case TokenType::TypeOf: return "TypeOf";
+        case TokenType::On: return "On";
         case TokenType::Static: return "Static";
         case TokenType::Do: return "Do";
         case TokenType::This: return "This";

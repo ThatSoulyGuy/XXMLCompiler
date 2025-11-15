@@ -32,6 +32,8 @@ set(CORE_SOURCES
     src/Core/OperatorRegistry.cpp
     src/Core/BackendRegistry.cpp
     src/Core/CompilationContext.cpp
+    src/Core/TypeContext.cpp
+    src/Core/CppTypeModel.cpp
 )
 
 add_library(XXMLCore STATIC ${CORE_SOURCES})
