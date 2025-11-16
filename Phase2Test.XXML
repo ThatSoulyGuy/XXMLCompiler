@@ -1,0 +1,10 @@
+[ Entrypoint
+{
+    // Test literals and arithmetic
+    Instantiate Integer^ As <x> = Integer::Constructor(10);
+    Instantiate Integer^ As <y> = Integer::Constructor(5);
+
+    // Simple exit
+    Exit(0);
+}
+]

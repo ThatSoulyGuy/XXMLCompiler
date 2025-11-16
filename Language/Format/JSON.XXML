@@ -21,7 +21,7 @@
 			Method <stringify> Returns String^ Parameters () Do {
 				// Convert JSONObject to JSON string
 				// Backed by C++ runtime
-				Return String::Constructor();
+				Return String::Constructor("");
 			}
 
 			// Object Operations
@@ -30,7 +30,7 @@
 			) Do {
 				// Get value for key (returns empty string if not found)
 				// Backed by C++ runtime
-				Return String::Constructor();
+				Return String::Constructor("");
 			}
 
 			Method <set> Returns None Parameters (
@@ -97,7 +97,7 @@
 			Method <stringify> Returns String^ Parameters () Do {
 				// Convert JSONArray to JSON string
 				// Backed by C++ runtime
-				Return String::Constructor();
+				Return String::Constructor("");
 			}
 
 			// Array Operations
@@ -106,7 +106,7 @@
 			) Do {
 				// Get value at index
 				// Backed by C++ runtime
-				Return String::Constructor();
+				Return String::Constructor("");
 			}
 
 			Method <add> Returns None Parameters (

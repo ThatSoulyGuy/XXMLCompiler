@@ -39,7 +39,7 @@
 			Method <get> Returns T^ Parameters (Parameter <index> Types Integer&) Do
 			{
 				Instantiate NativeType<"int64">^ As <zero> = 0;
-				Instantiate NativeType<"int64">^ As <idx> = Integer::toInt64(index);
+				Instantiate NativeType<"int64">^ As <idx> = index.toInt64();
 
 				If (idx < zero) -> {
 					Return Syscall::ptr_read(dataPtr);
@@ -60,7 +60,7 @@
 			) Do
 			{
 				Instantiate NativeType<"int64">^ As <zero> = 0;
-				Instantiate NativeType<"int64">^ As <idx> = Integer::toInt64(index);
+				Instantiate NativeType<"int64">^ As <idx> = index.toInt64();
 
 				If (idx < zero) -> {
 					Return None::Constructor();
@@ -97,7 +97,7 @@
 			Method <isValidIndex> Returns Bool^ Parameters (Parameter <index> Types Integer&) Do
 			{
 				Instantiate NativeType<"int64">^ As <zero> = 0;
-				Instantiate NativeType<"int64">^ As <idx> = Integer::toInt64(index);
+				Instantiate NativeType<"int64">^ As <idx> = index.toInt64();
 				Return Bool::Constructor(idx >= zero && idx < arraySize);
 			}
 

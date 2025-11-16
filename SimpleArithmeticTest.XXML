@@ -1,0 +1,10 @@
+[ Entrypoint
+{
+    Instantiate Integer^ As <x> = Integer::Constructor(10);
+    Instantiate Integer^ As <y> = Integer::Constructor(53);
+
+    Run Console::printLine(String::Constructor("Simple arithmetic test"));
+
+    Exit(0);
+}
+]

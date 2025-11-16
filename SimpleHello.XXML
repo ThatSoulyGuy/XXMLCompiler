@@ -1,0 +1,13 @@
+Module SimpleHello Provides
+[
+    Uses [
+        Language::Core
+        Language::System
+    ]
+
+    Executable EntryPoint <main> Returns Integer^ Parameters () ->
+    {
+        Run Console::printLine(String::Constructor("Hello from XXML LLVM!"));
+        Return Integer::Constructor(0);
+    }
+]

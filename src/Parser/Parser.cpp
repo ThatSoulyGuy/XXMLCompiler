@@ -281,8 +281,27 @@ std::unique_ptr<ConstructorDecl> Parser::parseConstructor() {
         consume(Lexer::TokenType::Default, "Expected 'default' after '='");
         isDefault = true;
         consume(Lexer::TokenType::Semicolon, "Expected ';' after default constructor");
+    } else if (match(Lexer::TokenType::LeftParen)) {
+        // Parse explicit constructor with parameters: Constructor (params) -> { body }
+
+        // Parse parameters
+        if (!check(Lexer::TokenType::RightParen)) {
+            do {
+                params.push_back(parseParameter());
+            } while (match(Lexer::TokenType::Comma));
+        }
+
+        consume(Lexer::TokenType::RightParen, "Expected ')' after constructor parameters");
+        consume(Lexer::TokenType::Arrow, "Expected '->' before constructor body");
+        consume(Lexer::TokenType::LeftBrace, "Expected '{' to start constructor body");
+
+        // Parse constructor body
+        while (!check(Lexer::TokenType::RightBrace) && !isAtEnd()) {
+            body.push_back(parseStatement());
+        }
+
+        consume(Lexer::TokenType::RightBrace, "Expected '}' after constructor body");
     } else {
-        // TODO: Handle explicit constructors with parameters and body
         consume(Lexer::TokenType::Semicolon, "Expected ';' after constructor");
     }
 

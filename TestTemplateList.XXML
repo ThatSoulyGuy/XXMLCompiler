@@ -1,0 +1,16 @@
+#import Language::Core;
+#import Language::Collections;
+#import Language::System;
+
+[ Entrypoint
+{
+    // Test simple non-template compilation first
+    Instantiate Integer^ As <num1> = Integer::Constructor(10);
+    Instantiate Integer^ As <num2> = Integer::Constructor(20);
+
+    // Print success message
+    Run Console::printLine(String::Constructor("Basic test successful!"));
+
+    Exit(0);
+}
+]

@@ -22,7 +22,7 @@
 
 			// Read a line from input
 			Method <readLine> Returns String^ Parameters () Do {
-				Return String::Constructor();
+				Return String::Constructor("");
 			}
 
 			// Get current time

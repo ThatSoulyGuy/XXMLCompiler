@@ -1,0 +1,22 @@
+import Language::Core;
+import Language::System;
+
+// Template class that uses template parameter methods
+class TemplateCalculator<T> {
+    public:
+        method calculate(value: T^) -> T^ {
+            // This would previously try to call @T_add which doesn't exist
+            var result: T^ = value::add(value);
+            return result;
+        }
+}
+
+entrypoint {
+    // Instantiate template with Integer
+    var calc: TemplateCalculator<Integer>^ = TemplateCalculator<Integer>::Constructor();
+
+    var num: Integer^ = Integer::Constructor(42);
+    var result: Integer^ = calc::calculate(num);
+
+    Console::printLine(String::Constructor("Template instantiation successful!"));
+}

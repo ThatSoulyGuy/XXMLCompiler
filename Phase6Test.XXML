@@ -1,0 +1,34 @@
+// Test template monomorphization for LLVM backend
+
+[ Class <Box> <T Constrains None> Final Extends None
+
+    [ Private <>
+        Property <value> Types T^;
+    ]
+
+    [ Public <>
+        Constructor = default;
+
+        Method <setValue> Returns None Parameters (Parameter <val> Types T^) Do
+        {
+            Set <value> = val;
+        }
+
+        Method <getValue> Returns T^ Parameters () Do
+        {
+            Return value;
+        }
+    ]
+]
+
+[ Entrypoint
+{
+    // Test template instantiation - should generate Box_Integer struct
+    Instantiate Box<Integer>^ As <myBox> = Box<Integer>::Constructor();
+
+    Instantiate Integer^ As <num> = Integer::Constructor(42);
+    Run myBox.setValue(num);
+
+    Exit(0);
+}
+]

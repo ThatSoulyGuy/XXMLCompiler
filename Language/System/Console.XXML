@@ -31,11 +31,11 @@
 
 			// Input Operations
 			Method <readLine> Returns String^ Parameters () Do {
-				Return String::Constructor();
+				Return String::Constructor("");
 			}
 
 			Method <readChar> Returns String^ Parameters () Do {
-				Return String::Constructor();
+				Return String::Constructor("");
 			}
 
 			Method <readInt> Returns Integer^ Parameters () Do {
@@ -81,7 +81,7 @@
 			Method <getEnv> Returns String^ Parameters (
 				Parameter <varName> Types String^
 			) Do {
-				Return String::Constructor();
+				Return String::Constructor("");
 			}
 
 			Method <setEnv> Returns Bool^ Parameters (

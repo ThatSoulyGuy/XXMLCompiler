@@ -73,12 +73,12 @@
 
 			Method <dequeue> Returns String^ Parameters () Do {
 				// Backed by C++ runtime
-				Return String::Constructor();
+				Return String::Constructor("");
 			}
 
 			Method <peek> Returns String^ Parameters () Do {
 				// Backed by C++ runtime
-				Return String::Constructor();
+				Return String::Constructor("");
 			}
 
 			Method <size> Returns Integer^ Parameters () Do {

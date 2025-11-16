@@ -1,0 +1,15 @@
+#import Language::Core;
+#import Language::System;
+
+[ Entrypoint
+    {
+        Instantiate Integer^ As <num1> = Integer::Constructor(10);
+        Instantiate Integer^ As <num2> = Integer::Constructor(32);
+        Instantiate Integer^ As <sum> = num1.add(num2);
+        Instantiate String^ As <sumStr> = sum.toString();
+        
+        Run Console::printLine(String::Constructor("Testing XXML LLVM Compiler"));
+        Run Console::printLine(sumStr);
+        Run Console::printLine(String::Constructor("Addition test complete!"));
+    }
+]

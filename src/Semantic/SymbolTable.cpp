@@ -144,17 +144,41 @@ void SymbolTable::importSymbol(const std::string& fromModule, const std::string&
 }
 
 void SymbolTable::importAllFrom(const std::string& fromModule) {
+    // First try exact module match
     SymbolTable* otherModule = getModuleTable(fromModule);
-    if (!otherModule) {
-        std::cerr << "Warning: Module '" << fromModule << "' not found in registry" << std::endl;
+    if (otherModule) {
+        for (const auto& symbolName : otherModule->exportedSymbolNames) {
+            Symbol* sym = otherModule->getGlobalScope()->resolveLocal(symbolName);
+            if (sym && sym->isExported) {
+                importedSymbols[symbolName] = sym;
+            }
+        }
         return;
     }
 
-    for (const auto& symbolName : otherModule->exportedSymbolNames) {
-        Symbol* sym = otherModule->getGlobalScope()->resolveLocal(symbolName);
-        if (sym && sym->isExported) {
-            importedSymbols[symbolName] = sym;
+    // If exact match not found, try importing from all modules that match the namespace
+    // For example, "Language::Core" should import from "Language::Core::Integer", "Language::Core::String", etc.
+    bool foundAnyModule = false;
+    for (const auto& [moduleName, moduleTable] : moduleRegistry) {
+        // Check if this module is in the requested namespace
+        // Module is in namespace if it starts with "namespace::" or equals the namespace
+        if (moduleName == fromModule ||
+            (moduleName.size() > fromModule.size() &&
+             moduleName.substr(0, fromModule.size()) == fromModule &&
+             moduleName[fromModule.size()] == ':')) {
+
+            foundAnyModule = true;
+            for (const auto& symbolName : moduleTable->exportedSymbolNames) {
+                Symbol* sym = moduleTable->getGlobalScope()->resolveLocal(symbolName);
+                if (sym && sym->isExported) {
+                    importedSymbols[symbolName] = sym;
+                }
+            }
         }
+    }
+
+    if (!foundAnyModule) {
+        std::cerr << "Warning: Module '" << fromModule << "' not found in registry" << std::endl;
     }
 }
 

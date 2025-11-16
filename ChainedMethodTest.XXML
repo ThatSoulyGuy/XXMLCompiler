@@ -1,0 +1,14 @@
+#import Language::Core;
+
+[Entrypoint
+{
+    Instantiate Integer^ As <x> = Integer::Constructor(42);
+    Instantiate Integer^ As <y> = Integer::Constructor(10);
+
+    // Test chained method call
+    Instantiate String^ As <result> = x.add(y).toString();
+
+    Run Console::printLine(String::Constructor("Result: ").append(result));
+    Exit(0);
+}
+]

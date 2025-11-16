@@ -9,25 +9,24 @@ namespace XXML::Core {
 // Compatibility layer for std::format until widely available
 // Simple string formatting using stringstream
 
+// Forward declarations
+template<typename T>
+inline std::string format(std::string_view fmt, const T& arg);
+
+template<typename T1, typename T2>
+inline std::string format(std::string_view fmt, const T1& arg1, const T2& arg2);
+
+template<typename T1, typename T2, typename T3>
+inline std::string format(std::string_view fmt, const T1& arg1, const T2& arg2, const T3& arg3);
+
+// Variadic template - fallback for more than 3 args
+// This should only be used when the specialized templates don't match
 template<typename... Args>
-inline std::string format(std::string_view fmt, Args&&... args) {
-    // For simple cases, just concatenate
-    // This is a simplified version - production code would use a proper format library
-    std::ostringstream oss;
-
-    // Helper lambda to process each argument
-    auto process = [&oss](auto&& arg) {
-        if constexpr (std::is_convertible_v<decltype(arg), std::string_view>) {
-            oss << arg;
-        } else {
-            oss << arg;
-        }
-    };
-
-    // Process all arguments
-    (process(std::forward<Args>(args)), ...);
-
-    return oss.str();
+inline std::string format(std::string_view fmt, Args&&... args)
+requires (sizeof...(Args) > 3) {
+    // For many arguments, just return the format string for now
+    // Real implementation would parse format string properly
+    return std::string(fmt);
 }
 
 // Specialized overloads for common patterns

@@ -1,0 +1,13 @@
+// Test ownership semantics for LLVM backend
+
+[ Entrypoint
+{
+    // Test owned value instantiation
+    Instantiate Integer^ As <a> = Integer::Constructor(10);
+
+    // Test move semantics
+    Instantiate Integer^ As <b> = Integer::Constructor(20);
+
+    Exit(0);
+}
+]

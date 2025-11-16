@@ -1,28 +1,19 @@
-#import System;
-
-[ Namespace <Test>
-    [ Class <Box> Final Extends None
-
-    [ Private<>
-        Property <value> Types Integer%;
+Module SimpleTest Provides
+[
+    Uses [
+        Language::Core
+        Language::System
     ]
 
-    [ Public<>
-        Constructor = default;
-
-        Method <getValue> Returns Integer^ Parameters () ->
-        {
-            Return Integer::Constructor(42);
-        }
-    ]
-
-    ]
-]
-
-[ Entrypoint
+    Executable EntryPoint <main> Returns Integer^ Parameters () ->
     {
-        Instantiate Test::Box^ As <box> = Test::Box::Constructor();
+        Instantiate Integer^ As <num1> = Integer::Constructor(10);
+        Instantiate Integer^ As <num2> = Integer::Constructor(20);
+        Instantiate Integer^ As <sum> = num1.add(num2);
 
-        Run System::Console::printLine(String::Constructor("Test complete!"));
+        Instantiate String^ As <sumStr> = sum.toString();
+        Run Console::printLine(sumStr);
+
+        Return Integer::Constructor(0);
     }
 ]

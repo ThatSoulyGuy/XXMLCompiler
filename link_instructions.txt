@@ -1,0 +1,15 @@
+Use this complete link command in x64 Native Tools Command Prompt:
+
+link goodbye.obj build\lib\Release\XXMLLLVMRuntime.lib ^
+     kernel32.lib user32.lib ^
+     libcmt.lib libvcruntime.lib libucrt.lib ^
+     /OUT:goodbye.exe /SUBSYSTEM:CONSOLE /MACHINE:X64
+
+Or with full paths to ensure x64 libraries:
+
+link goodbye.obj build\lib\Release\XXMLLLVMRuntime.lib ^
+     /LIBPATH:"D:\VisualStudio\Installs\2022\Community\VC\Tools\MSVC\14.44.35207\lib\x64" ^
+     /LIBPATH:"C:\Program Files (x86)\Windows Kits\10\Lib\10.0.26100.0\ucrt\x64" ^
+     /LIBPATH:"C:\Program Files (x86)\Windows Kits\10\Lib\10.0.26100.0\um\x64" ^
+     kernel32.lib user32.lib libcmt.lib libvcruntime.lib libucrt.lib ^
+     /OUT:goodbye.exe /SUBSYSTEM:CONSOLE /MACHINE:X64

@@ -18,7 +18,7 @@
 			Constructor() {
 				isOpen = Bool::Constructor(false);
 				fileHandle = Integer::Constructor(0);
-				filePath = String::Constructor();
+				filePath = String::Constructor("");
 			}
 
 			// Open file for reading/writing
@@ -70,7 +70,7 @@
 				// 5. Free buffer
 
 				// If (!isOpen) {
-				//     Return String::Constructor();
+				//     Return String::Constructor("");
 				// }
 
 				// Step 1: Get file size
@@ -93,7 +93,7 @@
 
 				// Return result;
 
-				Return String::Constructor();
+				Return String::Constructor("");
 			}
 
 			// Read one line from file
@@ -105,7 +105,7 @@
 				// 4. Free buffer
 
 				// If (!isOpen) {
-				//     Return String::Constructor();
+				//     Return String::Constructor("");
 				// }
 
 				Let <bufferSize> Types Integer^ Equals Integer::Constructor(1024);
@@ -136,7 +136,7 @@
 
 				// Return result;
 
-				Return String::Constructor();
+				Return String::Constructor("");
 			}
 
 			// Read single character
@@ -144,7 +144,7 @@
 				// ALGORITHM: Read 1 byte and return as single-char string
 
 				// If (!isOpen) {
-				//     Return String::Constructor();
+				//     Return String::Constructor("");
 				// }
 
 				// Let <buffer> Types NativeType<"ptr"> Equals Syscall::malloc(2);  // 1 char + null
@@ -152,7 +152,7 @@
 
 				// If (bytesRead == 0) {
 				//     Run Syscall::free(buffer);
-				//     Return String::Constructor();
+				//     Return String::Constructor("");
 				// }
 
 				// Run Syscall::write_int64(buffer + 1, 0);  // Null terminate
@@ -161,7 +161,7 @@
 
 				// Return result;
 
-				Return String::Constructor();
+				Return String::Constructor("");
 			}
 
 			// Check if more content available

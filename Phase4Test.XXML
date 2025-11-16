@@ -1,0 +1,23 @@
+// Test custom class with methods for LLVM backend
+
+[ Class <Point> Final Extends None
+    [ Private <>
+        Property <x> Types Integer^;
+        Property <y> Types Integer^;
+    ]
+
+    [ Public <>
+        // Simple method that returns a value
+        Method <getValue> Returns Integer^ Parameters () ->
+        {
+            Return x;
+        }
+    ]
+]
+
+[ Entrypoint
+{
+    // Test simple exit
+    Exit(0);
+}
+]

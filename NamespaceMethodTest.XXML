@@ -1,0 +1,30 @@
+[ Namespace <Hello>
+    [ Class <MyClass> Final Extends None
+        [ Private <>
+            Property <value> Types Integer^;
+        ]
+
+        [ Public <>
+            Constructor = default;
+
+            Method <add> Returns Integer^ Parameters (Parameter <other> Types Integer^) ->
+            {
+                Instantiate Integer^ As <val1> = Integer::Constructor(10);
+                Instantiate Integer^ As <val2> = Integer::Constructor(20);
+                Instantiate Integer^ As <sum> = val1.add(val2);
+                Return sum;
+            }
+        ]
+    ]
+]
+
+[ Entrypoint
+{
+    Instantiate Hello::MyClass^ As <obj> = Hello::MyClass::Constructor();
+    Instantiate Integer^ As <num> = Integer::Constructor(5);
+    Instantiate Integer^ As <result> = obj.add(num);
+
+    Run Console::printLine(String::Constructor("Test passed!"));
+    Exit(0);
+}
+]

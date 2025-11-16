@@ -1,0 +1,35 @@
+#import Language::Core;
+#import Language::System;
+
+// Simple template class that uses template parameter
+[ Namespace <Test>
+    [ Class <SomeClass> <T> Final Extends None
+        [ Private <>
+            Property <value> Types T^;
+        ]
+
+        [ Public <>
+            Constructor = default;
+
+            Method <run> Returns Integer^ Parameters (Parameter <amount> Types Integer&) ->
+            {
+                // Use the template parameter T
+                Instantiate T^ As <temp> = value;
+                Return amount;
+            }
+        ]
+    ]
+]
+
+[ Entrypoint
+{
+    // Instantiate template with Integer
+    Instantiate Test::SomeClass<Integer>^ As <obj> = Test::SomeClass<Integer>::Constructor();
+
+    Instantiate Integer^ As <num> = Integer::Constructor(53);
+    Instantiate Integer^ As <result> = obj.run(num);
+
+    Run Console::printLine(String::Constructor("Goodbye test!"));
+    Exit(0);
+}
+]

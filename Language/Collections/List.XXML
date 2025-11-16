@@ -11,7 +11,14 @@
 		]
 
 		[ Public <>
-			Constructor = default;
+			Constructor () ->
+			{
+				Instantiate NativeType<"ptr">^ As <nullPtr> = 0;
+				Instantiate NativeType<"int64">^ As <zero> = 0;
+				Run Syscall::memcpy(&dataPtr, &nullPtr, 8);
+				Run Syscall::memcpy(&capacity, &zero, 8);
+				Run Syscall::memcpy(&count, &zero, 8);
+			}
 
 			// Add an element to the list
 			Method <add> Returns None Parameters (Parameter <value> Types T^) Do

@@ -52,9 +52,33 @@ void SemanticAnalyzer::analyze(Parser::Program& program) {
 
 // Type checking helpers
 bool SemanticAnalyzer::isCompatibleType(const std::string& expected, const std::string& actual) {
-    // For now, exact match required
+    // Exact match
+    if (expected == actual) return true;
+
+    // None is compatible with everything (void/null)
+    if (expected == "None" || actual == "None") return true;
+
+    // NativeType compatibility with wrapper types
+    // NativeType<int64> accepts Integer
+    if (expected.find("NativeType<int64>") != std::string::npos && actual == "Integer") return true;
+    if (expected.find("NativeType<bool>") != std::string::npos && actual == "Bool") return true;
+    if (expected.find("NativeType<float>") != std::string::npos && actual == "Float") return true;
+    if (expected.find("NativeType<double>") != std::string::npos && actual == "Double") return true;
+    if (expected.find("NativeType<string_ptr>") != std::string::npos && actual == "String") return true;
+    if (expected.find("NativeType<cstr>") != std::string::npos && actual == "String") return true;
+    if (expected.find("NativeType<ptr>") != std::string::npos) return true; // NativeType<ptr> accepts any pointer
+
+    // Allow implicit conversions for NativeType<float> and NativeType<double>
+    if (expected.find("NativeType<float>") != std::string::npos && actual == "Integer") return true; // int to float conversion
+    if (expected.find("NativeType<double>") != std::string::npos && actual == "Integer") return true; // int to double conversion
+
+    // Reverse: wrapper types can be used where NativeType is expected (implicit conversion)
+    if (actual.find("NativeType<int64>") != std::string::npos && expected == "Integer") return true;
+    if (actual.find("NativeType<bool>") != std::string::npos && expected == "Bool") return true;
+    if (actual.find("NativeType<ptr>") != std::string::npos) return true; // NativeType<ptr> is compatible with any pointer
+
     // Future: implement inheritance checking
-    return expected == actual || expected == "None" || actual == "None";
+    return false;
 }
 
 bool SemanticAnalyzer::isCompatibleOwnership(Parser::OwnershipType expected, Parser::OwnershipType actual) {
@@ -247,6 +271,11 @@ void SemanticAnalyzer::visit(Parser::Program& node) {
     for (auto& decl : node.declarations) {
         decl->accept(*this);
     }
+
+    // Register this module in the symbol table registry after processing all declarations
+    if (symbolTable_) {
+        symbolTable_->registerModule();
+    }
 }
 
 void SemanticAnalyzer::visit(Parser::ImportDecl& node) {
@@ -291,6 +320,16 @@ void SemanticAnalyzer::visit(Parser::NamespaceDecl& node) {
     // Process declarations within the namespace
     for (auto& decl : node.declarations) {
         decl->accept(*this);
+    }
+
+    // Also register this module with the namespace name so imports can find it
+    // This allows "#import Language::Core;" to import from files in that namespace
+    if (symbolTable_) {
+        std::string oldModuleName = symbolTable_->getModuleName();
+        symbolTable_->setModuleName(node.name);
+        symbolTable_->registerModule();
+        // Restore original module name
+        symbolTable_->setModuleName(oldModuleName);
     }
 
     symbolTable_->exitScope();
@@ -1110,6 +1149,74 @@ void SemanticAnalyzer::visit(Parser::CallExpr& node) {
             }
 
             if (method) {
+                // CRITICAL: Validate argument types match parameter types
+                if (enableValidation) {
+                    if (node.arguments.size() != method->parameters.size()) {
+                        errorReporter.reportError(
+                            Common::ErrorCode::InvalidMethodCall,
+                            "Method '" + className + "::" + methodName + "' expects " +
+                            std::to_string(method->parameters.size()) + " argument(s), but " +
+                            std::to_string(node.arguments.size()) + " provided",
+                            node.location
+                        );
+                    } else {
+                        // Check each argument type
+                        for (size_t i = 0; i < node.arguments.size(); ++i) {
+                            std::string argType = getExpressionType(node.arguments[i].get());
+                            const auto& [expectedType, expectedOwnership] = method->parameters[i];
+
+                            // Check if this is a literal being passed where an object is expected
+                            bool isLiteral = (dynamic_cast<Parser::IntegerLiteralExpr*>(node.arguments[i].get()) != nullptr ||
+                                            dynamic_cast<Parser::StringLiteralExpr*>(node.arguments[i].get()) != nullptr ||
+                                            dynamic_cast<Parser::BoolLiteralExpr*>(node.arguments[i].get()) != nullptr);
+
+                            // CRITICAL: Check for literals being passed to pointer/reference types FIRST
+                            // The ownership modifier is stored separately, so check expectedOwnership
+                            bool expectsPointerType = (expectedOwnership == Parser::OwnershipType::Owned ||
+                                                      expectedOwnership == Parser::OwnershipType::Reference);
+
+                            // Allow integer literals for NativeType<float> and NativeType<double> (implicit conversion)
+                            bool isIntegerLiteral = (dynamic_cast<Parser::IntegerLiteralExpr*>(node.arguments[i].get()) != nullptr);
+                            bool expectsFloat = (expectedType.find("NativeType<\"float\">") != std::string::npos);
+                            bool expectsDouble = (expectedType.find("NativeType<\"double\">") != std::string::npos);
+
+                            if (isLiteral && expectsPointerType && !(isIntegerLiteral && (expectsFloat || expectsDouble))) {
+                                errorReporter.reportError(
+                                    Common::ErrorCode::TypeMismatch,
+                                    "Argument " + std::to_string(i + 1) + " to method '" + methodName +
+                                    "': Cannot pass literal value where '" + expectedType + "' is expected. " +
+                                    "Did you mean to use '" + argType + "::Constructor(...)'?",
+                                    node.arguments[i]->location
+                                );
+                                continue; // Skip further checks for this argument
+                            }
+
+                            // Strip ownership indicators from expected type for comparison
+                            std::string baseExpectedType = expectedType;
+                            if (!baseExpectedType.empty() && (baseExpectedType.back() == '^' ||
+                                                              baseExpectedType.back() == '&' ||
+                                                              baseExpectedType.back() == '%')) {
+                                baseExpectedType = baseExpectedType.substr(0, baseExpectedType.length() - 1);
+                            }
+
+                            // Skip type checking if argument type is Unknown (template-dependent code)
+                            if (argType == "Unknown") {
+                                continue; // Can't validate template-dependent types until instantiation
+                            }
+
+                            // Check type compatibility
+                            if (!isCompatibleType(baseExpectedType, argType)) {
+                                errorReporter.reportError(
+                                    Common::ErrorCode::TypeMismatch,
+                                    "Argument " + std::to_string(i + 1) + " to method '" + methodName +
+                                    "': Expected type '" + expectedType + "', but got '" + argType + "'",
+                                    node.arguments[i]->location
+                                );
+                            }
+                        }
+                    }
+                }
+
                 registerExpressionType(&node, method->returnType, method->returnOwnership);
             } else {
                 // Builtin type - assume valid
@@ -1176,6 +1283,82 @@ void SemanticAnalyzer::visit(Parser::CallExpr& node) {
             }
 
             if (method) {
+                // CRITICAL: Validate argument types match parameter types
+                if (enableValidation) {
+                    if (node.arguments.size() != method->parameters.size()) {
+                        errorReporter.reportError(
+                            Common::ErrorCode::InvalidMethodCall,
+                            "Method '" + methodName + "' on type '" + objectType + "' expects " +
+                            std::to_string(method->parameters.size()) + " argument(s), but " +
+                            std::to_string(node.arguments.size()) + " provided",
+                            node.location
+                        );
+                    } else {
+                        // Check each argument type
+                        for (size_t i = 0; i < node.arguments.size(); ++i) {
+                            std::string argType = getExpressionType(node.arguments[i].get());
+                            const auto& [expectedType, expectedOwnership] = method->parameters[i];
+
+                            // Substitute template parameters in expected type
+                            std::string substitutedExpectedType = expectedType;
+                            for (const auto& [param, arg] : templateSubstitutions) {
+                                if (substitutedExpectedType == param) {
+                                    substitutedExpectedType = arg;
+                                }
+                            }
+
+                            // Check if this is a literal being passed where an object is expected
+                            bool isLiteral = (dynamic_cast<Parser::IntegerLiteralExpr*>(node.arguments[i].get()) != nullptr ||
+                                            dynamic_cast<Parser::StringLiteralExpr*>(node.arguments[i].get()) != nullptr ||
+                                            dynamic_cast<Parser::BoolLiteralExpr*>(node.arguments[i].get()) != nullptr);
+
+                            // CRITICAL: Check for literals being passed to pointer/reference types FIRST
+                            // The ownership modifier is stored separately, so check expectedOwnership
+                            bool expectsPointerType = (expectedOwnership == Parser::OwnershipType::Owned ||
+                                                      expectedOwnership == Parser::OwnershipType::Reference);
+
+                            // Allow integer literals for NativeType<float> and NativeType<double> (implicit conversion)
+                            bool isIntegerLiteral = (dynamic_cast<Parser::IntegerLiteralExpr*>(node.arguments[i].get()) != nullptr);
+                            bool expectsFloat = (substitutedExpectedType.find("NativeType<\"float\">") != std::string::npos);
+                            bool expectsDouble = (substitutedExpectedType.find("NativeType<\"double\">") != std::string::npos);
+
+                            if (isLiteral && expectsPointerType && !(isIntegerLiteral && (expectsFloat || expectsDouble))) {
+                                errorReporter.reportError(
+                                    Common::ErrorCode::TypeMismatch,
+                                    "Argument " + std::to_string(i + 1) + " to method '" + objectType + "." + methodName +
+                                    "': Cannot pass literal value where '" + substitutedExpectedType + "' is expected. " +
+                                    "Did you mean to use '" + argType + "::Constructor(...)'?",
+                                    node.arguments[i]->location
+                                );
+                                continue; // Skip further checks for this argument
+                            }
+
+                            // Strip ownership indicators from expected type for comparison
+                            std::string baseExpectedType = substitutedExpectedType;
+                            if (!baseExpectedType.empty() && (baseExpectedType.back() == '^' ||
+                                                              baseExpectedType.back() == '&' ||
+                                                              baseExpectedType.back() == '%')) {
+                                baseExpectedType = baseExpectedType.substr(0, baseExpectedType.length() - 1);
+                            }
+
+                            // Skip type checking if argument type is Unknown (template-dependent code)
+                            if (argType == "Unknown") {
+                                continue; // Can't validate template-dependent types until instantiation
+                            }
+
+                            // Check type compatibility
+                            if (!isCompatibleType(baseExpectedType, argType)) {
+                                errorReporter.reportError(
+                                    Common::ErrorCode::TypeMismatch,
+                                    "Argument " + std::to_string(i + 1) + " to method '" + objectType + "." + methodName +
+                                    "': Expected type '" + substitutedExpectedType + "', but got '" + argType + "'",
+                                    node.arguments[i]->location
+                                );
+                            }
+                        }
+                    }
+                }
+
                 // Substitute template parameters in return type
                 std::string returnType = method->returnType;
                 for (const auto& [param, arg] : templateSubstitutions) {

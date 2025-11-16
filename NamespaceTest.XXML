@@ -1,0 +1,25 @@
+#import Language::Core;
+#import Language::System;
+
+// Test namespace with class
+[Namespace <TestNS>
+    [Class <TestClass> Extends None
+        [Public <>
+            Constructor = default;
+
+            Method <getValue> Returns Integer^ Parameters () ->
+            {
+                Return Integer::Constructor(42);
+            }
+        ]
+    ]
+]
+
+[Entrypoint
+{
+    Instantiate TestNS::TestClass^ As <obj> = TestNS::TestClass::Constructor();
+    Instantiate Integer^ As <val> = obj.getValue();
+    Run Console::printLine(String::Constructor("Namespace test complete!"));
+    Exit(0);
+}
+]

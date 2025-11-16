@@ -1,0 +1,35 @@
+[ Namespace <MyNamespace>
+    [ Namespace <Nested>
+        [ Class <MyClass> Final Extends None
+            [ Private <>
+                Property <data> Types Integer^;
+            ]
+
+            [ Public <>
+                Constructor = default;
+
+                Method <add> Returns Integer^ Parameters (Parameter <x> Types Integer^, Parameter <y> Types Integer^) ->
+                {
+                    Return x.add(y);
+                }
+
+                Method <getValue> Returns Integer^ Parameters () ->
+                {
+                    Return Integer::Constructor(42);
+                }
+            ]
+        ]
+    ]
+]
+
+[ Entrypoint
+{
+    Instantiate MyNamespace::Nested::MyClass^ As <obj> = MyNamespace::Nested::MyClass::Constructor();
+    Instantiate Integer^ As <a> = Integer::Constructor(10);
+    Instantiate Integer^ As <b> = Integer::Constructor(32);
+    Instantiate Integer^ As <sum> = obj.add(a, b);
+
+    Run Console::printLine(String::Constructor("Success!"));
+    Exit(0);
+}
+]

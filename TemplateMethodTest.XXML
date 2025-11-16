@@ -1,0 +1,27 @@
+// Test that template method calls use mangled names correctly
+[ Namespace <Test>
+    [ Class <Calculator> <T> Final Extends None
+        [ Public <>
+            Constructor = default;
+
+            Method <compute> Returns Integer^ Parameters (Parameter <val> Types Integer&) ->
+            {
+                Return Integer::Constructor(42);
+            }
+        ]
+    ]
+]
+
+[ Entrypoint
+{
+    // Static method call: Calculator<Integer>::Constructor()
+    Instantiate Test::Calculator<Integer>^ As <calc> = Test::Calculator<Integer>::Constructor();
+
+    // Instance method call: calc.compute()
+    Instantiate Integer^ As <input> = Integer::Constructor(10);
+    Instantiate Integer^ As <result> = calc.compute(input);
+
+    Run Console::printLine(String::Constructor("Template method test passed!"));
+    Exit(0);
+}
+]

@@ -159,7 +159,6 @@ private:
 
     // Helper for class member lookup
     ClassInfo* findClass(const std::string& className);
-    MethodInfo* findMethod(const std::string& className, const std::string& methodName);
     bool validateQualifiedIdentifier(const std::string& qualifiedName, const Common::SourceLocation& loc);
 
     // Template-aware qualified name parsing
@@ -168,6 +167,8 @@ private:
     std::string buildQualifiedName(Parser::Expression* expr);
 
 public:
+    // Method lookup for code generation (needed by backends)
+    MethodInfo* findMethod(const std::string& className, const std::string& methodName);
     // Get template instantiations for code generation
     const std::set<TemplateInstantiation>& getTemplateInstantiations() const {
         return templateInstantiations;
@@ -216,6 +217,13 @@ public:
     // Control validation (for two-phase analysis)
     void setValidationEnabled(bool enabled) { enableValidation = enabled; }
     bool isValidationEnabled() const { return enableValidation; }
+
+    // Set module name for symbol table registration
+    void setModuleName(const std::string& moduleName) {
+        if (symbolTable_) {
+            symbolTable_->setModuleName(moduleName);
+        }
+    }
 
     // Visitor methods
     void visit(Parser::Program& node) override;

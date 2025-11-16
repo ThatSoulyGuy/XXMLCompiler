@@ -5,6 +5,7 @@
 #include "Semantic/SymbolTable.h"
 #include "Common/Error.h"
 #include "Backends/Cpp20Backend.h"
+#include "Backends/LLVMBackend.h"
 #include "Core/FormatCompat.h"  // Compatibility layer for std::format
 #include <sstream>
 
@@ -136,6 +137,9 @@ void CompilationContext::initializeBuiltins() {
     // Register built-in backends
     backendRegistry_->emplaceBackend<Backends::Cpp20Backend>(
         BackendTarget::Cpp20, this);
+
+    backendRegistry_->emplaceBackend<Backends::LLVMBackend>(
+        BackendTarget::LLVM_IR, this);
 
     // Set default backend
     setActiveBackend(config_.defaultBackend);

@@ -1,0 +1,6 @@
+[ Entrypoint
+{
+    Run Console::printLine(String::Constructor("Hello from XXML!"));
+    Exit(0);
+}
+]

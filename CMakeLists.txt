@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(XXMLCompiler VERSION 2.0 LANGUAGES CXX)
+project(XXMLCompiler VERSION 2.0 LANGUAGES CXX C)
 
 # Set C++20 standard for modern features
 set(CMAKE_CXX_STANDARD 20)
@@ -7,7 +7,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 # Options for optional features
-option(XXML_ENABLE_LLVM_BACKEND "Enable LLVM IR backend" OFF)
+option(XXML_ENABLE_LLVM_BACKEND "Enable LLVM IR backend" ON)  # Changed to ON for complete toolchain
 option(XXML_USE_MODULES "Use C++20 modules (experimental)" OFF)
 
 # Output directories
@@ -83,6 +83,34 @@ add_library(XXMLImport STATIC ${IMPORT_SOURCES})
 target_link_libraries(XXMLImport PUBLIC XXMLParser XXMLSemantic XXMLCommon)
 target_include_directories(XXMLImport PUBLIC ${CMAKE_SOURCE_DIR}/include)
 
+# Utils library (process execution, file operations)
+set(UTILS_SOURCES
+    src/Utils/ProcessUtils.cpp
+)
+
+add_library(XXMLUtils STATIC ${UTILS_SOURCES})
+target_include_directories(XXMLUtils PUBLIC ${CMAKE_SOURCE_DIR}/include)
+
+# Linker library (platform-specific linkers)
+set(LINKER_SOURCES
+    src/Linker/MSVCLinker.cpp
+    src/Linker/GNULinker.cpp
+    src/Linker/LinkerFactory.cpp
+)
+
+add_library(XXMLLinker STATIC ${LINKER_SOURCES})
+target_link_libraries(XXMLLinker PUBLIC XXMLUtils)
+target_include_directories(XXMLLinker PUBLIC ${CMAKE_SOURCE_DIR}/include)
+
+# Driver library (compilation orchestration)
+set(DRIVER_SOURCES
+    src/Driver/CompilationDriver.cpp
+)
+
+add_library(XXMLDriver STATIC ${DRIVER_SOURCES})
+target_link_libraries(XXMLDriver PUBLIC XXMLCore XXMLLinker XXMLUtils)
+target_include_directories(XXMLDriver PUBLIC ${CMAKE_SOURCE_DIR}/include)
+
 # CodeGen library
 set(CODEGEN_SOURCES
     src/CodeGen/CodeGenerator.cpp
@@ -96,20 +124,20 @@ target_include_directories(XXMLCodeGen PUBLIC ${CMAKE_SOURCE_DIR}/include)
 set(BACKENDS_SOURCES
     src/Backends/BackendBase.cpp
     src/Backends/Cpp20Backend.cpp
+    src/Backends/LLVMBackend.cpp
 )
 
-# Add LLVM backend if enabled
+# Add LLVM backend libraries if enabled
 if(XXML_ENABLE_LLVM_BACKEND)
     find_package(LLVM REQUIRED CONFIG)
     message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
     message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
 
-    list(APPEND BACKENDS_SOURCES src/Backends/LLVMBackend.cpp)
     add_definitions(-DXXML_LLVM_ENABLED)
 endif()
 
 add_library(XXMLBackends STATIC ${BACKENDS_SOURCES})
-target_link_libraries(XXMLBackends PUBLIC XXMLCodeGen XXMLCore XXMLParser XXMLCommon)
+target_link_libraries(XXMLBackends PUBLIC XXMLCodeGen XXMLCore XXMLParser XXMLCommon XXMLUtils)
 target_include_directories(XXMLBackends PUBLIC ${CMAKE_SOURCE_DIR}/include)
 
 if(XXML_ENABLE_LLVM_BACKEND)
@@ -117,9 +145,19 @@ if(XXML_ENABLE_LLVM_BACKEND)
     target_link_libraries(XXMLBackends PUBLIC LLVM)
 endif()
 
+# XXML LLVM Runtime library (C runtime for LLVM IR generated code)
+add_library(XXMLLLVMRuntime STATIC runtime/xxml_llvm_runtime.c)
+target_include_directories(XXMLLLVMRuntime PUBLIC ${CMAKE_SOURCE_DIR}/runtime)
+set_target_properties(XXMLLLVMRuntime PROPERTIES
+    C_STANDARD 11
+    C_STANDARD_REQUIRED ON
+)
+
 # Main compiler executable
 add_executable(xxml src/main.cpp)
 target_link_libraries(xxml
+    XXMLDriver
+    XXMLLinker
     XXMLBackends
     XXMLCodeGen
     XXMLSemantic
@@ -127,6 +165,7 @@ target_link_libraries(xxml
     XXMLCore
     XXMLParser
     XXMLLexer
+    XXMLUtils
     XXMLCommon
 )
 
