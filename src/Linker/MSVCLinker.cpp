@@ -17,9 +17,77 @@ public:
 
     bool isAvailable() const override {
         using namespace Utils;
-        std::string linkerPath = ProcessUtils::findInPath("link.exe");
+        std::string linkerPath = findMSVCLinker();
         return !linkerPath.empty();
     }
+
+private:
+    // Find MSVC link.exe, avoiding Unix /usr/bin/link
+    static std::string findMSVCLinker() {
+        using namespace Utils;
+
+        // First try finding link.exe in PATH
+        std::string linkerPath = ProcessUtils::findInPath("link.exe");
+
+        // Check if it's actually MSVC link.exe and not Unix link
+        // Unix link is usually /usr/bin/link, MSVC is usually in "Microsoft Visual Studio"
+        if (!linkerPath.empty()) {
+            // On Windows with Git Bash, /usr/bin/link might be found first
+            // Check if it contains "Microsoft Visual Studio" or ends with link.exe
+            if (linkerPath.find("Microsoft Visual Studio") != std::string::npos ||
+                linkerPath.find("\\link.exe") != std::string::npos ||
+                linkerPath.find("/link.exe") != std::string::npos) {
+                // Looks like MSVC link
+                return linkerPath;
+            }
+
+            // Found Unix link, not what we want - continue searching
+        }
+
+        // Try common specific paths that we know exist
+        std::vector<std::string> fullPaths = {
+            "D:\\VisualStudio\\Installs\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\Hostx64\\x64\\link.exe",
+            "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\Hostx64\\x64\\link.exe",
+            "C:\\Program Files\\Microsoft Visual Studio\\2022\\Professional\\VC\\Tools\\MSVC\\14.44.35207\\bin\\Hostx64\\x64\\link.exe",
+            "C:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\MSVC\\14.44.35207\\bin\\Hostx64\\x64\\link.exe"
+        };
+
+        for (const auto& fullPath : fullPaths) {
+            if (ProcessUtils::fileExists(fullPath)) {
+                return fullPath;
+            }
+        }
+
+        // Try common Visual Studio installation base paths
+        std::vector<std::string> vsPaths = {
+            "D:\\VisualStudio\\Installs\\2022\\Community\\VC\\Tools\\MSVC",
+            "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC",
+            "C:\\Program Files\\Microsoft Visual Studio\\2022\\Professional\\VC\\Tools\\MSVC",
+            "C:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\MSVC",
+            "C:\\Program Files (x86)\\Microsoft Visual Studio\\2019\\Community\\VC\\Tools\\MSVC",
+            "C:\\Program Files (x86)\\Microsoft Visual Studio\\2019\\Professional\\VC\\Tools\\MSVC",
+            "C:\\Program Files (x86)\\Microsoft Visual Studio\\2019\\Enterprise\\VC\\Tools\\MSVC"
+        };
+
+        for (const auto& vsPath : vsPaths) {
+            if (!ProcessUtils::fileExists(vsPath)) {
+                continue;
+            }
+
+            // Try common version numbers
+            std::vector<std::string> versions = {"14.44.35207", "14.44.35219", "14.43", "14.42", "14.41", "14.40"};
+            for (const auto& ver : versions) {
+                std::string linkPath = vsPath + "\\" + ver + "\\bin\\Hostx64\\x64\\link.exe";
+                if (ProcessUtils::fileExists(linkPath)) {
+                    return linkPath;
+                }
+            }
+        }
+
+        return "";
+    }
+
+public:
 
     std::string objectFileExtension() const override {
         return ".obj";
@@ -33,10 +101,10 @@ public:
         using namespace Utils;
         LinkResult result;
 
-        // Find link.exe
-        std::string linkerPath = ProcessUtils::findInPath("link.exe");
+        // Find link.exe (use our custom finder to avoid Unix link)
+        std::string linkerPath = findMSVCLinker();
         if (linkerPath.empty()) {
-            result.error = "Error: link.exe not found in PATH. Please run from Visual Studio Developer Command Prompt.";
+            result.error = "Error: MSVC link.exe not found. Please install Visual Studio or run from Developer Command Prompt.";
             return result;
         }
 

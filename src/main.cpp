@@ -1057,37 +1057,88 @@ int main(int argc, char* argv[]) {
 
                     std::cout << "✓ Object file generated: " << objPath << "\n";
 
-                    // Link the object file to create executable using clang
+                    // Link the object file to create executable
                     std::cout << "Linking executable...\n";
 
                     // Find runtime library
                     std::string exeDir = XXML::Utils::ProcessUtils::getExecutableDirectory();
-                    std::string runtimeLibPath = exeDir + "/../lib/Release/XXMLLLVMRuntime.lib";
+                    std::string runtimeLibPath;
 
-                    // Fallback paths
-                    if (!XXML::Utils::ProcessUtils::fileExists(runtimeLibPath)) {
-                        runtimeLibPath = exeDir + "/../../lib/Release/XXMLLLVMRuntime.lib";
+                    // Try different paths for runtime library based on platform
+#ifdef _WIN32
+                    std::vector<std::string> tryPaths = {
+                        exeDir + "\\..\\lib\\Release\\XXMLLLVMRuntime.lib",
+                        exeDir + "\\..\\..\\lib\\Release\\XXMLLLVMRuntime.lib",
+                        "build\\lib\\Release\\XXMLLLVMRuntime.lib",
+                        "..\\..\\lib\\Release\\XXMLLLVMRuntime.lib"
+                    };
+#else
+                    std::vector<std::string> tryPaths = {
+                        exeDir + "/../lib/Release/libXXMLLLVMRuntime.a",
+                        exeDir + "/../../lib/Release/libXXMLLLVMRuntime.a",
+                        "build/lib/Release/libXXMLLLVMRuntime.a",
+                        "../../lib/Release/libXXMLLLVMRuntime.a"
+                    };
+#endif
+
+                    for (const auto& path : tryPaths) {
+                        if (XXML::Utils::ProcessUtils::fileExists(path)) {
+                            runtimeLibPath = path;
+                            break;
+                        }
                     }
-                    if (!XXML::Utils::ProcessUtils::fileExists(runtimeLibPath)) {
-                        runtimeLibPath = "build/lib/Release/XXMLLLVMRuntime.lib";
+
+                    if (runtimeLibPath.empty()) {
+                        std::cerr << "⚠ Warning: Could not find XXML runtime library\n";
+                        std::cerr << "  Tried paths:\n";
+                        for (const auto& path : tryPaths) {
+                            std::cerr << "    - " << path << "\n";
+                        }
+                        runtimeLibPath = tryPaths[0]; // Use first path anyway
                     }
 
-                    // Use clang for linking (simpler and cross-platform)
-                    // On Windows, compile the LLVM IR directly instead of linking the .obj
-                    std::ostringstream linkCmd;
+                    // Create linker using factory
+                    auto linker = XXML::Linker::LinkerFactory::createLinker();
+                    if (!linker) {
+                        std::cerr << "✗ No suitable linker found on this system\n";
+                        std::cerr << "  On Windows: Requires Visual Studio Developer Command Prompt\n";
+                        std::cerr << "  On macOS/Linux: Requires gcc or clang\n";
+                        std::cerr << "\nObject file generated: " << objPath << "\n";
+                        std::cerr << "You can link manually with:\n";
+#ifdef _WIN32
+                        std::cerr << "  link \"" << objPath << "\" \"" << runtimeLibPath << "\" /OUT:\"" << executablePath << "\" /SUBSYSTEM:CONSOLE\n";
+#else
+                        std::cerr << "  gcc " << objPath << " " << runtimeLibPath << " -o " << executablePath << "\n";
+#endif
+                        return 1;
+                    }
 
-                    // Write LLVM IR to a temp file for linking
-                    std::string tempIRForLink = outputPath.stem().string() + "_link.ll";
-                    writeFile(tempIRForLink, finalCode);
+                    std::cout << "Using linker: " << linker->name() << "\n";
 
-                    // For now, provide the object file and instructions for manual linking
-                    // Full automatic linking requires proper Windows SDK setup which varies by system
-                    std::cout << "✓ Object file generated: " << objPath << "\n";
-                    std::cout << "✓ LLVM IR saved: " << tempIRForLink << "\n\n";
-                    std::cout << "⚠ Note: Automatic linking requires manual setup.\n";
-                    std::cout << "  The compiler has generated object files that can be linked manually.\n\n";
-                    std::cout << "  To create the executable from a Visual Studio x64 Developer Command Prompt:\n";
-                    std::cout << "    link \"" << objPath << "\" \"" << runtimeLibPath << "\" /OUT:\"" << executablePath << "\" /SUBSYSTEM:CONSOLE\n";
+                    // Configure linking
+                    XXML::Linker::LinkConfig linkConfig;
+                    linkConfig.objectFiles.push_back(objPath);
+                    linkConfig.libraries.push_back(runtimeLibPath);
+                    linkConfig.outputPath = executablePath;
+                    linkConfig.createConsoleApp = true;
+                    linkConfig.verbose = false;
+                    linkConfig.optimizationLevel = 0;
+
+                    // Perform linking
+                    XXML::Linker::LinkResult linkResult = linker->link(linkConfig);
+
+                    if (!linkResult.success) {
+                        std::cerr << "✗ Linking failed\n";
+                        if (!linkResult.error.empty()) {
+                            std::cerr << linkResult.error << "\n";
+                        }
+                        if (!linkResult.output.empty()) {
+                            std::cerr << linkResult.output << "\n";
+                        }
+                        return 1;
+                    }
+
+                    std::cout << "✓ Linking successful: " << executablePath << "\n";
                 }
 
                 std::cout << "\n✅ Compilation successful!\n";
