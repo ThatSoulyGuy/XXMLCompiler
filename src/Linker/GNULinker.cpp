@@ -70,19 +70,26 @@ public:
 
         // Libraries
         for (const auto& lib : config.libraries) {
-            // Remove "lib" prefix and ".a" extension if present
-            std::string libName = lib;
-            if (libName.find("lib") == 0) {
-                libName = libName.substr(3);
+            // Check if this is a full path to a library file
+            if (lib.find('/') != std::string::npos || lib.find('\\') != std::string::npos) {
+                // Full path - use it directly
+                args.push_back(lib);
+            } else {
+                // Library name only - convert to -l flag
+                std::string libName = lib;
+                // Remove "lib" prefix if present
+                if (libName.find("lib") == 0) {
+                    libName = libName.substr(3);
+                }
+                // Remove extensions if present
+                if (libName.find(".a") != std::string::npos) {
+                    libName = libName.substr(0, libName.find(".a"));
+                }
+                if (libName.find(".so") != std::string::npos) {
+                    libName = libName.substr(0, libName.find(".so"));
+                }
+                args.push_back("-l" + libName);
             }
-            if (libName.find(".a") != std::string::npos) {
-                libName = libName.substr(0, libName.find(".a"));
-            }
-            if (libName.find(".so") != std::string::npos) {
-                libName = libName.substr(0, libName.find(".so"));
-            }
-
-            args.push_back("-l" + libName);
         }
 
         // Standard C library (always needed)

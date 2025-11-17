@@ -1,13 +1,15 @@
 #include "Core/TypeRegistry.h"
+#include "Core/FormatCompat.h"
 #include <algorithm>
-#include <format>
 #include <ranges>
 
 namespace XXML::Core {
 
+using XXML::Core::format;
+
 // TypeInfo debug string
 std::string TypeInfo::toDebugString() const {
-    return std::format("TypeInfo(xxml='{}', cpp='{}', category={}, ownership={}, builtin={})",
+    return format("TypeInfo(xxml='{}', cpp='{}', category={}, ownership={}, builtin={})",
                       xxmlName, cppType, static_cast<int>(category),
                       static_cast<int>(ownership), isBuiltin);
 }

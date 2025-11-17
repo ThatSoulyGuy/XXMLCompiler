@@ -1074,7 +1074,15 @@ int main(int argc, char* argv[]) {
                     };
 #else
                     std::vector<std::string> tryPaths = {
+                        // Try without Release subdirectory first (default CMake build on Unix)
+                        exeDir + "/../lib/libXXMLLLVMRuntime.a",
+                        "../lib/libXXMLLLVMRuntime.a",  // From build/bin to build/lib
+                        exeDir + "/../../lib/libXXMLLLVMRuntime.a",
+                        "build/lib/libXXMLLLVMRuntime.a",
+                        "../../lib/libXXMLLLVMRuntime.a",
+                        // Also try with Release subdirectory (multi-config builds)
                         exeDir + "/../lib/Release/libXXMLLLVMRuntime.a",
+                        "../lib/Release/libXXMLLLVMRuntime.a",  // From build/bin to build/lib/Release
                         exeDir + "/../../lib/Release/libXXMLLLVMRuntime.a",
                         "build/lib/Release/libXXMLLLVMRuntime.a",
                         "../../lib/Release/libXXMLLLVMRuntime.a"

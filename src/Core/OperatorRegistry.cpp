@@ -1,8 +1,10 @@
 #include "Core/OperatorRegistry.h"
+#include "Core/FormatCompat.h"
 #include <algorithm>
-#include <format>
 
 namespace XXML::Core {
+
+using XXML::Core::format;
 
 OperatorRegistry::OperatorRegistry() {
     // Constructor - operators will be registered via registerBuiltinOperators()
@@ -94,7 +96,7 @@ std::string OperatorRegistry::generateBinaryCpp(std::string_view op,
         }
     }
     // Fallback: simple infix notation
-    return std::format("({} {} {})", lhs, op, rhs);
+    return format("({} {} {})", lhs, op, rhs);
 }
 
 std::string OperatorRegistry::generateUnaryCpp(std::string_view op,
@@ -107,9 +109,9 @@ std::string OperatorRegistry::generateUnaryCpp(std::string_view op,
     }
     // Fallback
     if (isPrefix) {
-        return std::format("({}{})", op, operand);
+        return format("({}{})", op, operand);
     } else {
-        return std::format("({}{})", operand, op);
+        return format("({}{})", operand, op);
     }
 }
 
@@ -122,7 +124,7 @@ std::string OperatorRegistry::generateBinaryLLVM(std::string_view op,
         }
     }
     // LLVM fallback (would need proper LLVM IR generation)
-    return std::format("; LLVM: {} {} {}", lhs, op, rhs);
+    return format("; LLVM: {} {} {}", lhs, op, rhs);
 }
 
 std::string OperatorRegistry::generateUnaryLLVM(std::string_view op,
@@ -134,7 +136,7 @@ std::string OperatorRegistry::generateUnaryLLVM(std::string_view op,
         }
     }
     // LLVM fallback
-    return std::format("; LLVM: {}{}", op, operand);
+    return format("; LLVM: {}{}", op, operand);
 }
 
 void OperatorRegistry::registerBuiltinOperators() {
@@ -151,32 +153,32 @@ void OperatorRegistry::registerArithmeticOperators() {
     // Multiplicative - register with LLVM generators
     BinaryOperatorInfo mulOp{"*", Multiplicative, Associativity::Left};
     mulOp.llvmGenerator = [](std::string_view lhs, std::string_view rhs) {
-        return std::format("mul i64 {}, {}", lhs, rhs);
+        return format("mul i64 {}, {}", lhs, rhs);
     };
     registerBinaryOperator(mulOp);
 
     BinaryOperatorInfo divOp{"/", Multiplicative, Associativity::Left};
     divOp.llvmGenerator = [](std::string_view lhs, std::string_view rhs) {
-        return std::format("sdiv i64 {}, {}", lhs, rhs);
+        return format("sdiv i64 {}, {}", lhs, rhs);
     };
     registerBinaryOperator(divOp);
 
     BinaryOperatorInfo modOp{"%", Multiplicative, Associativity::Left};
     modOp.llvmGenerator = [](std::string_view lhs, std::string_view rhs) {
-        return std::format("srem i64 {}, {}", lhs, rhs);
+        return format("srem i64 {}, {}", lhs, rhs);
     };
     registerBinaryOperator(modOp);
 
     // Additive - register with LLVM generators
     BinaryOperatorInfo addOp{"+", Additive, Associativity::Left};
     addOp.llvmGenerator = [](std::string_view lhs, std::string_view rhs) {
-        return std::format("add i64 {}, {}", lhs, rhs);
+        return format("add i64 {}, {}", lhs, rhs);
     };
     registerBinaryOperator(addOp);
 
     BinaryOperatorInfo subOp{"-", Additive, Associativity::Left};
     subOp.llvmGenerator = [](std::string_view lhs, std::string_view rhs) {
-        return std::format("sub i64 {}, {}", lhs, rhs);
+        return format("sub i64 {}, {}", lhs, rhs);
     };
     registerBinaryOperator(subOp);
 
@@ -194,37 +196,37 @@ void OperatorRegistry::registerComparisonOperators() {
 
     BinaryOperatorInfo eqOp{"==", Equality, Associativity::Left};
     eqOp.llvmGenerator = [](std::string_view lhs, std::string_view rhs) {
-        return std::format("icmp eq i64 {}, {}", lhs, rhs);
+        return format("icmp eq i64 {}, {}", lhs, rhs);
     };
     registerBinaryOperator(eqOp);
 
     BinaryOperatorInfo neOp{"!=", Equality, Associativity::Left};
     neOp.llvmGenerator = [](std::string_view lhs, std::string_view rhs) {
-        return std::format("icmp ne i64 {}, {}", lhs, rhs);
+        return format("icmp ne i64 {}, {}", lhs, rhs);
     };
     registerBinaryOperator(neOp);
 
     BinaryOperatorInfo ltOp{"<", Relational, Associativity::Left};
     ltOp.llvmGenerator = [](std::string_view lhs, std::string_view rhs) {
-        return std::format("icmp slt i64 {}, {}", lhs, rhs);
+        return format("icmp slt i64 {}, {}", lhs, rhs);
     };
     registerBinaryOperator(ltOp);
 
     BinaryOperatorInfo gtOp{">", Relational, Associativity::Left};
     gtOp.llvmGenerator = [](std::string_view lhs, std::string_view rhs) {
-        return std::format("icmp sgt i64 {}, {}", lhs, rhs);
+        return format("icmp sgt i64 {}, {}", lhs, rhs);
     };
     registerBinaryOperator(gtOp);
 
     BinaryOperatorInfo leOp{"<=", Relational, Associativity::Left};
     leOp.llvmGenerator = [](std::string_view lhs, std::string_view rhs) {
-        return std::format("icmp sle i64 {}, {}", lhs, rhs);
+        return format("icmp sle i64 {}, {}", lhs, rhs);
     };
     registerBinaryOperator(leOp);
 
     BinaryOperatorInfo geOp{">=", Relational, Associativity::Left};
     geOp.llvmGenerator = [](std::string_view lhs, std::string_view rhs) {
-        return std::format("icmp sge i64 {}, {}", lhs, rhs);
+        return format("icmp sge i64 {}, {}", lhs, rhs);
     };
     registerBinaryOperator(geOp);
 }

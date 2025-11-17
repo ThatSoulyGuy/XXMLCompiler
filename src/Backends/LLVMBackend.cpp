@@ -2,7 +2,7 @@
 #include "Core/CompilationContext.h"
 #include "Core/TypeRegistry.h"
 #include "Core/OperatorRegistry.h"
-#include "Core/FormatCompat.h"  // Compatibility layer for std::format
+#include "Core/FormatCompat.h"  // Compatibility layer for format
 #include "Utils/ProcessUtils.h"
 #include "Semantic/SemanticAnalyzer.h"  // For template instantiation
 #include <sstream>
@@ -15,6 +15,8 @@
 #endif
 
 namespace XXML::Backends {
+
+using XXML::Core::format;
 
 LLVMBackend::LLVMBackend(Core::CompilationContext* context)
     : BackendBase() {
@@ -346,11 +348,11 @@ std::string LLVMBackend::convertOwnership(std::string_view type,
     // In LLVM IR, all objects are pointers by default
     // Ownership is handled by the runtime
     if (ownershipIndicator == "&") {
-        return std::format("ptr");  // Reference
+        return format("ptr");  // Reference
     } else if (ownershipIndicator == "%") {
         return getLLVMType(std::string(type));  // Value
     } else {
-        return std::format("ptr");  // Owned (pointer)
+        return format("ptr");  // Owned (pointer)
     }
 }
 
@@ -359,7 +361,7 @@ std::string LLVMBackend::allocateRegister() {
 }
 
 std::string LLVMBackend::allocateLabel(std::string_view prefix) {
-    return std::format("{}_{}", prefix, labelCounter_++);
+    return format("{}_{}", prefix, labelCounter_++);
 }
 
 void LLVMBackend::emitLine(const std::string& line) {
@@ -490,16 +492,16 @@ std::string LLVMBackend::generateBinaryOp(const std::string& op,
     }
 
     // Fallback: basic LLVM operations
-    if (op == "+") return std::format("add {} {}, {}", type, lhs, rhs);
-    if (op == "-") return std::format("sub {} {}, {}", type, lhs, rhs);
-    if (op == "*") return std::format("mul {} {}, {}", type, lhs, rhs);
-    if (op == "/") return std::format("sdiv {} {}, {}", type, lhs, rhs);
-    if (op == "==") return std::format("icmp eq {} {}, {}", type, lhs, rhs);
-    if (op == "!=") return std::format("icmp ne {} {}, {}", type, lhs, rhs);
-    if (op == "<") return std::format("icmp slt {} {}, {}", type, lhs, rhs);
-    if (op == ">") return std::format("icmp sgt {} {}, {}", type, lhs, rhs);
+    if (op == "+") return format("add {} {}, {}", type, lhs, rhs);
+    if (op == "-") return format("sub {} {}, {}", type, lhs, rhs);
+    if (op == "*") return format("mul {} {}, {}", type, lhs, rhs);
+    if (op == "/") return format("sdiv {} {}, {}", type, lhs, rhs);
+    if (op == "==") return format("icmp eq {} {}, {}", type, lhs, rhs);
+    if (op == "!=") return format("icmp ne {} {}, {}", type, lhs, rhs);
+    if (op == "<") return format("icmp slt {} {}, {}", type, lhs, rhs);
+    if (op == ">") return format("icmp sgt {} {}, {}", type, lhs, rhs);
 
-    return std::format("; Unknown op: {} {} {}", lhs, op, rhs);
+    return format("; Unknown op: {} {} {}", lhs, op, rhs);
 }
 
 std::string LLVMBackend::getQualifiedName(const std::string& className, const std::string& methodName) const {
@@ -663,11 +665,11 @@ void LLVMBackend::visit(Parser::Program& node) {
 }
 
 void LLVMBackend::visit(Parser::ImportDecl& node) {
-    emitLine(std::format("; import {}", node.modulePath));
+    emitLine(format("; import {}", node.modulePath));
 }
 
 void LLVMBackend::visit(Parser::NamespaceDecl& node) {
-    emitLine(std::format("; namespace {}", node.name));
+    emitLine(format("; namespace {}", node.name));
 
     // Save previous namespace and set current
     std::string previousNamespace = currentNamespace_;
@@ -855,19 +857,19 @@ void LLVMBackend::visit(Parser::ConstructorDecl& node) {
 
                 // Get pointer to field
                 std::string fieldPtrReg = allocateRegister();
-                emitLine(std::format("{} = getelementptr inbounds %class.{}, ptr %this, i32 0, i32 {}",
+                emitLine(format("{} = getelementptr inbounds %class.{}, ptr %this, i32 0, i32 {}",
                                    fieldPtrReg, currentClassName_, fieldIndex));
 
                 // Initialize field based on type
                 if (baseType == "NativeType" || baseType == "Integer" || baseType == "Float" || baseType == "Double") {
                     // Initialize to zero
-                    emitLine(std::format("store i64 0, ptr {}", fieldPtrReg));
+                    emitLine(format("store i64 0, ptr {}", fieldPtrReg));
                 } else if (baseType == "Bool") {
                     // Initialize to false
-                    emitLine(std::format("store i1 false, ptr {}", fieldPtrReg));
+                    emitLine(format("store i1 false, ptr {}", fieldPtrReg));
                 } else {
                     // Initialize pointer to null
-                    emitLine(std::format("store ptr null, ptr {}", fieldPtrReg));
+                    emitLine(format("store ptr null, ptr {}", fieldPtrReg));
                 }
 
                 fieldIndex++;
@@ -1059,59 +1061,82 @@ void LLVMBackend::visit(Parser::ForStmt& node) {
     // Allocate iterator variable
     std::string iteratorReg = allocateRegister();
     std::string iteratorType = getLLVMType(node.iteratorType->typeName);
-    emitLine(std::format("{} = alloca {}", iteratorReg, iteratorType));
+    emitLine(format("{} = alloca {}", iteratorReg, iteratorType));
     valueMap_[node.iteratorName] = iteratorReg;
+
+    // Track type for later (needed for Integer^ handling)
+    std::string xxmlIteratorType = node.iteratorType->typeName;
+    registerTypes_[iteratorReg] = "ptr_to<" + xxmlIteratorType + ">";
 
     // Initialize iterator with range start
     node.rangeStart->accept(*this);
     std::string startValue = valueMap_["__last_expr"];
-    emitLine(std::format("store {} {}, ptr {}", iteratorType, startValue, iteratorReg));
+    emitLine(format("store {} {}, ptr {}", iteratorType, startValue, iteratorReg));
 
     // Evaluate range end once
     node.rangeEnd->accept(*this);
     std::string endValue = valueMap_["__last_expr"];
     std::string endReg = allocateRegister();
-    emitLine(std::format("{} = alloca {}", endReg, iteratorType));
-    emitLine(std::format("store {} {}, ptr {}", iteratorType, endValue, endReg));
+    emitLine(format("{} = alloca {}", endReg, iteratorType));
+    emitLine(format("store {} {}, ptr {}", iteratorType, endValue, endReg));
 
     // Jump to condition
-    emitLine(std::format("br label %{}", condLabel));
+    emitLine(format("br label %{}", condLabel));
 
     // Condition: check if iterator < end
-    emitLine(std::format("{}:", condLabel));
+    emitLine(format("{}:", condLabel));
     indent();
     std::string currentVal = allocateRegister();
     std::string endVal = allocateRegister();
-    emitLine(std::format("{} = load {}, ptr {}", currentVal, iteratorType, iteratorReg));
-    emitLine(std::format("{} = load {}, ptr {}", endVal, iteratorType, endReg));
+    emitLine(format("{} = load {}, ptr {}", currentVal, iteratorType, iteratorReg));
+    emitLine(format("{} = load {}, ptr {}", endVal, iteratorType, endReg));
 
     std::string condReg = allocateRegister();
-    emitLine(std::format("{} = icmp slt {} {}, {}", condReg, iteratorType, currentVal, endVal));
-    emitLine(std::format("br i1 {}, label %{}, label %{}", condReg, bodyLabel, endLabel));
+
+    // For Integer^ types, we need to compare the objects, not pointers
+    if (xxmlIteratorType == "Integer" || xxmlIteratorType == "Integer^") {
+        // Call Integer comparison: Integer_lt(currentVal, endVal)
+        emitLine(format("{} = call i1 @Integer_lt(ptr {}, ptr {})", condReg, currentVal, endVal));
+    } else {
+        // For primitive types, use direct comparison
+        emitLine(format("{} = icmp slt {} {}, {}", condReg, iteratorType, currentVal, endVal));
+    }
+    emitLine(format("br i1 {}, label %{}, label %{}", condReg, bodyLabel, endLabel));
     dedent();
 
     // Body
-    emitLine(std::format("{}:", bodyLabel));
+    emitLine(format("{}:", bodyLabel));
     indent();
     for (auto& stmt : node.body) {
         stmt->accept(*this);
     }
-    emitLine(std::format("br label %{}", incrLabel));
+    emitLine(format("br label %{}", incrLabel));
     dedent();
 
     // Increment iterator
-    emitLine(std::format("{}:", incrLabel));
+    emitLine(format("{}:", incrLabel));
     indent();
     std::string iterVal = allocateRegister();
-    emitLine(std::format("{} = load {}, ptr {}", iterVal, iteratorType, iteratorReg));
+    emitLine(format("{} = load {}, ptr {}", iterVal, iteratorType, iteratorReg));
     std::string nextVal = allocateRegister();
-    emitLine(std::format("{} = add {} {}, 1", nextVal, iteratorType, iterVal));
-    emitLine(std::format("store {} {}, ptr {}", iteratorType, nextVal, iteratorReg));
-    emitLine(std::format("br label %{}", condLabel));
+
+    // For Integer^ types, we need to call add method
+    if (xxmlIteratorType == "Integer" || xxmlIteratorType == "Integer^") {
+        // Create Integer(1) for increment
+        std::string oneReg = allocateRegister();
+        emitLine(format("{} = call ptr @Integer_Constructor(i64 1)", oneReg));
+        // Call Integer_add(iterVal, oneReg) to get new Integer
+        emitLine(format("{} = call ptr @Integer_add(ptr {}, ptr {})", nextVal, iterVal, oneReg));
+    } else {
+        // For primitive types, use direct add
+        emitLine(format("{} = add {} {}, 1", nextVal, iteratorType, iterVal));
+    }
+    emitLine(format("store {} {}, ptr {}", iteratorType, nextVal, iteratorReg));
+    emitLine(format("br label %{}", condLabel));
     dedent();
 
     // End
-    emitLine(std::format("{}:", endLabel));
+    emitLine(format("{}:", endLabel));
 
     // Pop loop labels
     loopStack_.pop_back();
@@ -1132,7 +1157,7 @@ void LLVMBackend::visit(Parser::ReturnStmt& node) {
             emitLine("ret void");
         } else {
             // Use the tracked return type from the current function
-            emitLine(std::format("ret {} {}", currentFunctionReturnType_, returnValue));
+            emitLine(format("ret {} {}", currentFunctionReturnType_, returnValue));
         }
     } else {
         emitLine("ret void");
@@ -1149,20 +1174,20 @@ void LLVMBackend::visit(Parser::IfStmt& node) {
     std::string condValue = valueMap_["__last_expr"];
 
     // Branch based on condition
-    emitLine(std::format("br i1 {}, label %{}, label %{}",
+    emitLine(format("br i1 {}, label %{}, label %{}",
                         condValue, thenLabel, elseLabel));
 
     // Then branch
-    emitLine(std::format("{}:", thenLabel));
+    emitLine(format("{}:", thenLabel));
     indent();
     for (auto& stmt : node.thenBranch) {
         stmt->accept(*this);
     }
     dedent();
-    emitLine(std::format("br label %{}", endLabel));
+    emitLine(format("br label %{}", endLabel));
 
     // Else branch
-    emitLine(std::format("{}:", elseLabel));
+    emitLine(format("{}:", elseLabel));
     indent();
     if (!node.elseBranch.empty()) {
         for (auto& stmt : node.elseBranch) {
@@ -1170,10 +1195,10 @@ void LLVMBackend::visit(Parser::IfStmt& node) {
         }
     }
     dedent();
-    emitLine(std::format("br label %{}", endLabel));
+    emitLine(format("br label %{}", endLabel));
 
     // End label
-    emitLine(std::format("{}:", endLabel));
+    emitLine(format("{}:", endLabel));
 }
 
 void LLVMBackend::visit(Parser::WhileStmt& node) {
@@ -1185,10 +1210,10 @@ void LLVMBackend::visit(Parser::WhileStmt& node) {
     loopStack_.push_back({condLabel, endLabel});
 
     // Jump to condition check
-    emitLine(std::format("br label %{}", condLabel));
+    emitLine(format("br label %{}", condLabel));
 
     // Condition label
-    emitLine(std::format("{}:", condLabel));
+    emitLine(format("{}:", condLabel));
     indent();
 
     // Evaluate condition
@@ -1196,22 +1221,22 @@ void LLVMBackend::visit(Parser::WhileStmt& node) {
     std::string condValue = valueMap_["__last_expr"];
 
     // Branch based on condition
-    emitLine(std::format("br i1 {}, label %{}, label %{}",
+    emitLine(format("br i1 {}, label %{}, label %{}",
                         condValue, bodyLabel, endLabel));
     dedent();
 
     // Body label
-    emitLine(std::format("{}:", bodyLabel));
+    emitLine(format("{}:", bodyLabel));
     indent();
     for (auto& stmt : node.body) {
         stmt->accept(*this);
     }
     // Loop back to condition
-    emitLine(std::format("br label %{}", condLabel));
+    emitLine(format("br label %{}", condLabel));
     dedent();
 
     // End label
-    emitLine(std::format("{}:", endLabel));
+    emitLine(format("{}:", endLabel));
 
     // Pop loop labels
     loopStack_.pop_back();
@@ -1219,7 +1244,7 @@ void LLVMBackend::visit(Parser::WhileStmt& node) {
 
 void LLVMBackend::visit(Parser::BreakStmt& node) {
     if (!loopStack_.empty()) {
-        emitLine(std::format("br label %{}  ; break", loopStack_.back().endLabel));
+        emitLine(format("br label %{}  ; break", loopStack_.back().endLabel));
     } else {
         emitLine("; ERROR: break outside of loop");
     }
@@ -1227,7 +1252,7 @@ void LLVMBackend::visit(Parser::BreakStmt& node) {
 
 void LLVMBackend::visit(Parser::ContinueStmt& node) {
     if (!loopStack_.empty()) {
-        emitLine(std::format("br label %{}  ; continue", loopStack_.back().condLabel));
+        emitLine(format("br label %{}  ; continue", loopStack_.back().condLabel));
     } else {
         emitLine("; ERROR: continue outside of loop");
     }
@@ -1236,26 +1261,26 @@ void LLVMBackend::visit(Parser::ContinueStmt& node) {
 void LLVMBackend::visit(Parser::IntegerLiteralExpr& node) {
     // Integer literals are constants, don't need a register
     // Store the result so parent expressions can use it
-    std::string reg = std::format("{}", node.value);
+    std::string reg = format("{}", node.value);
     valueMap_["__last_expr"] = reg;
 }
 
 void LLVMBackend::visit(Parser::StringLiteralExpr& node) {
     // Create a unique label for this string literal
-    std::string strLabel = std::format("str.{}", labelCounter_++);
+    std::string strLabel = format("str.{}", labelCounter_++);
 
     // Store the string literal for later emission as a global constant
     stringLiterals_.push_back({strLabel, node.value});
 
     // Create a reference to the global string constant
     // The reference should be of type ptr, not i64
-    std::string reg = std::format("@.{}", strLabel);
+    std::string reg = format("@.{}", strLabel);
     valueMap_["__last_expr"] = reg;
 }
 
 void LLVMBackend::visit(Parser::BoolLiteralExpr& node) {
     // Boolean literals are constants
-    std::string reg = std::format("{}", node.value ? "1" : "0");
+    std::string reg = format("{}", node.value ? "1" : "0");
     valueMap_["__last_expr"] = reg;
 }
 
@@ -1272,7 +1297,7 @@ void LLVMBackend::visit(Parser::IdentifierExpr& node) {
         if (varIt != variables_.end()) {
             // Generate load instruction with the correct type
             std::string valueReg = allocateRegister();
-            emitLine(std::format("{} = load {}, ptr {}",
+            emitLine(format("{} = load {}, ptr {}",
                                valueReg, varIt->second.llvmType, it->second));
             valueMap_["__last_expr"] = valueReg;
             // Track the type of the loaded value
@@ -1296,12 +1321,12 @@ void LLVMBackend::visit(Parser::IdentifierExpr& node) {
                     while ((pos = mangledClassName.find("::")) != std::string::npos) {
                         mangledClassName.replace(pos, 2, "_");
                     }
-                    emitLine(std::format("{} = getelementptr inbounds %class.{}, ptr %this, i32 0, i32 {}",
+                    emitLine(format("{} = getelementptr inbounds %class.{}, ptr %this, i32 0, i32 {}",
                                        ptrReg, mangledClassName, i));
 
                     std::string valueReg = allocateRegister();
                     std::string llvmType = properties[i].second; // LLVM type (ptr, i64, etc.)
-                    emitLine(std::format("{} = load {}, ptr {}",
+                    emitLine(format("{} = load {}, ptr {}",
                                        valueReg, llvmType, ptrReg));
 
                     valueMap_["__last_expr"] = valueReg;
@@ -1320,10 +1345,10 @@ void LLVMBackend::visit(Parser::IdentifierExpr& node) {
         }
 
         // Not a property - must be a global identifier
-        valueMap_["__last_expr"] = std::format("@{}", node.name);
+        valueMap_["__last_expr"] = format("@{}", node.name);
     } else {
         // No current class context - must be a global identifier
-        valueMap_["__last_expr"] = std::format("@{}", node.name);
+        valueMap_["__last_expr"] = format("@{}", node.name);
     }
 }
 
@@ -1665,69 +1690,94 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
                 }
                 functionName = className + "_" + memberName;
             } else {
-                // Instance method on complex expression (e.g., obj.method1().method2())
-                // Evaluate the complex expression first
-                memberAccess->object->accept(*this);
-                std::string tempReg = valueMap_["__last_expr"];
+                // Could be either:
+                // 1. Static method on nested namespace: System::Console::printLine
+                // 2. Instance method on complex expression: obj.method1().method2()
 
-                if (tempReg == "null" || tempReg.empty()) {
-                    emitLine("; complex instance method call on null");
-                    valueMap_["__last_expr"] = "null";
-                    return;
-                }
+                // Try to extract as a static type name first
+                std::string staticClassName = extractTypeName(memberAccess->object.get());
 
-                // Look up the type of the expression result
-                auto typeIt = registerTypes_.find(tempReg);
-                if (typeIt == registerTypes_.end()) {
-                    emitLine("; instance method call on expression with unknown type");
-                    valueMap_["__last_expr"] = "null";
-                    return;
-                }
-
-                // Now we know the type! Call the method on it
-                isInstanceMethod = true;
-                instanceRegister = tempReg;
-
-                std::string className = typeIt->second;
-
-                // Strip ptr_to<> wrapper if present (from alloca types)
-                if (className.find("ptr_to<") == 0) {
-                    size_t start = 7;  // Length of "ptr_to<"
-                    size_t end = className.rfind('>');
-                    if (end != std::string::npos) {
-                        className = className.substr(start, end - start);
-                    }
-                }
-
-                // Mangle template arguments if present
-                if (className.find('<') != std::string::npos) {
-                    // Replace namespace separators
+                if (!staticClassName.empty()) {
+                    // This looks like a static method call (e.g., System::Console::printLine)
+                    // Mangle the namespace/class name
+                    std::string mangledClassName = staticClassName;
                     size_t pos = 0;
-                    while ((pos = className.find("::")) != std::string::npos) {
-                        className.replace(pos, 2, "_");
+                    while ((pos = mangledClassName.find("::")) != std::string::npos) {
+                        mangledClassName.replace(pos, 2, "_");
                     }
-                    // Replace template brackets
-                    while ((pos = className.find("<")) != std::string::npos) {
-                        className.replace(pos, 1, "_");
+
+                    // Strip :: prefix from member name if present
+                    std::string memberName = memberAccess->member;
+                    if (memberName.length() >= 2 && memberName.substr(0, 2) == "::") {
+                        memberName = memberName.substr(2);
                     }
-                    while ((pos = className.find(">")) != std::string::npos) {
-                        className.erase(pos, 1);
-                    }
-                    while ((pos = className.find(",")) != std::string::npos) {
-                        className.replace(pos, 1, "_");
-                    }
-                    while ((pos = className.find(" ")) != std::string::npos) {
-                        className.erase(pos, 1);
-                    }
+
+                    functionName = mangledClassName + "_" + memberName;
                 } else {
-                    // Mangle namespace separators (same as getQualifiedName)
-                    size_t pos = 0;
-                    while ((pos = className.find("::")) != std::string::npos) {
-                        className.replace(pos, 2, "_");
-                    }
-                }
+                    // Fallback: Instance method on complex expression (e.g., obj.method1().method2())
+                    // Evaluate the complex expression first
+                    memberAccess->object->accept(*this);
+                    std::string tempReg = valueMap_["__last_expr"];
 
-                functionName = className + "_" + memberAccess->member;
+                    if (tempReg == "null" || tempReg.empty()) {
+                        emitLine("; complex instance method call on null");
+                        valueMap_["__last_expr"] = "null";
+                        return;
+                    }
+
+                    // Look up the type of the expression result
+                    auto typeIt = registerTypes_.find(tempReg);
+                    if (typeIt == registerTypes_.end()) {
+                        emitLine("; instance method call on expression with unknown type");
+                        valueMap_["__last_expr"] = "null";
+                        return;
+                    }
+
+                    // Now we know the type! Call the method on it
+                    isInstanceMethod = true;
+                    instanceRegister = tempReg;
+
+                    std::string className = typeIt->second;
+
+                    // Strip ptr_to<> wrapper if present (from alloca types)
+                    if (className.find("ptr_to<") == 0) {
+                        size_t start = 7;  // Length of "ptr_to<"
+                        size_t end = className.rfind('>');
+                        if (end != std::string::npos) {
+                            className = className.substr(start, end - start);
+                        }
+                    }
+
+                    // Mangle template arguments if present
+                    if (className.find('<') != std::string::npos) {
+                        // Replace namespace separators
+                        size_t pos = 0;
+                        while ((pos = className.find("::")) != std::string::npos) {
+                            className.replace(pos, 2, "_");
+                        }
+                        // Replace template brackets
+                        while ((pos = className.find("<")) != std::string::npos) {
+                            className.replace(pos, 1, "_");
+                        }
+                        while ((pos = className.find(">")) != std::string::npos) {
+                            className.erase(pos, 1);
+                        }
+                        while ((pos = className.find(",")) != std::string::npos) {
+                            className.replace(pos, 1, "_");
+                        }
+                        while ((pos = className.find(" ")) != std::string::npos) {
+                            className.erase(pos, 1);
+                        }
+                    } else {
+                        // Mangle namespace separators (same as getQualifiedName)
+                        size_t pos = 0;
+                        while ((pos = className.find("::")) != std::string::npos) {
+                            className.replace(pos, 2, "_");
+                        }
+                    }
+
+                    functionName = className + "_" + memberAccess->member;
+                }
             }
         }
     } else if (auto* ident = dynamic_cast<Parser::IdentifierExpr*>(node.callee.get())) {
@@ -1848,6 +1898,13 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
         functionName = "xxml_" + syscallMethod;  // Replace with "xxml_" prefix
     }
 
+    // Map System::Console methods to Console runtime functions
+    // System_Console_printLine -> Console_printLine
+    if (functionName.find("System_Console_") == 0) {
+        std::string consoleMethod = functionName.substr(15);  // Remove "System_Console_" prefix
+        functionName = "Console_" + consoleMethod;  // Replace with "Console_" prefix
+    }
+
     // CRITICAL FIX: Detect constructor calls and allocate memory with malloc
     bool isConstructorCall = (functionName.find("_Constructor") != std::string::npos &&
                               functionName.find("_Constructor") == functionName.length() - 12);
@@ -1869,7 +1926,7 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
 
             // Generate malloc call to allocate memory
             std::string mallocReg = allocateRegister();
-            emitLine(std::format("{} = call ptr @xxml_malloc(i64 {})", mallocReg, classSize));
+            emitLine(format("{} = call ptr @xxml_malloc(i64 {})", mallocReg, classSize));
 
             // CRITICAL: Track this register as ptr type to avoid i64 conversion
             registerTypes_[mallocReg] = className;
@@ -1947,11 +2004,13 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
         if (matchesVoidPattern) {
             llvmReturnType = "void";
             isVoidReturn = true;
+        } else if (functionName == "String_length" ||  // Exact match for runtime function
+            functionName == "List_size") {  // Exact match for runtime function
+            // Only the C runtime functions return primitive types
+            // User-defined XXML methods return wrapped objects
+            llvmReturnType = "i64";
         } else if (functionName.find("toInt64") != std::string::npos ||
-            functionName.find("toInt32") != std::string::npos ||
-            functionName.find("length") != std::string::npos ||
-            functionName.find("size") != std::string::npos ||
-            functionName.find("count") != std::string::npos) {
+            functionName.find("toInt32") != std::string::npos) {
             llvmReturnType = "i64";
         } else if (functionName.find("toBool") != std::string::npos) {
             llvmReturnType = "i1";
@@ -2042,12 +2101,12 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
         // If we have i64 but need ptr, insert inttoptr conversion
         if (argType == "i64" && expectedType == "ptr") {
             std::string convertedReg = allocateRegister();
-            emitLine(std::format("{} = inttoptr i64 {} to ptr", convertedReg, argValue));
+            emitLine(format("{} = inttoptr i64 {} to ptr", convertedReg, argValue));
             argValue = convertedReg;
             argType = "ptr";
         } else if (argType == "ptr" && expectedType == "i64") {
             std::string convertedReg = allocateRegister();
-            emitLine(std::format("{} = ptrtoint ptr {} to i64", convertedReg, argValue));
+            emitLine(format("{} = ptrtoint ptr {} to i64", convertedReg, argValue));
             argValue = convertedReg;
             argType = "i64";
         }
@@ -2177,28 +2236,28 @@ void LLVMBackend::visit(Parser::BinaryExpr& node) {
 
         // Convert ptr to i64
         std::string ptrAsInt = allocateRegister();
-        emitLine(std::format("{} = ptrtoint ptr {} to i64", ptrAsInt, ptrValue));
+        emitLine(format("{} = ptrtoint ptr {} to i64", ptrAsInt, ptrValue));
 
         // Do the arithmetic
         std::string resultInt = allocateRegister();
         if (node.op == "+") {
             if (ptrOnLeft) {
-                emitLine(std::format("{} = add i64 {}, {}", resultInt, ptrAsInt, offsetValue));
+                emitLine(format("{} = add i64 {}, {}", resultInt, ptrAsInt, offsetValue));
             } else {
-                emitLine(std::format("{} = add i64 {}, {}", resultInt, offsetValue, ptrAsInt));
+                emitLine(format("{} = add i64 {}, {}", resultInt, offsetValue, ptrAsInt));
             }
         } else { // "-"
             if (ptrOnLeft) {
-                emitLine(std::format("{} = sub i64 {}, {}", resultInt, ptrAsInt, offsetValue));
+                emitLine(format("{} = sub i64 {}, {}", resultInt, ptrAsInt, offsetValue));
             } else {
                 // offset - ptr doesn't make sense, but generate it anyway
-                emitLine(std::format("{} = sub i64 {}, {}", resultInt, offsetValue, ptrAsInt));
+                emitLine(format("{} = sub i64 {}, {}", resultInt, offsetValue, ptrAsInt));
             }
         }
 
         // Convert back to ptr
         std::string resultReg = allocateRegister();
-        emitLine(std::format("{} = inttoptr i64 {} to ptr", resultReg, resultInt));
+        emitLine(format("{} = inttoptr i64 {} to ptr", resultReg, resultInt));
 
         // Result is a ptr
         valueMap_["__last_expr"] = resultReg;
@@ -2211,22 +2270,22 @@ void LLVMBackend::visit(Parser::BinaryExpr& node) {
 
         if (leftType == "ptr") {
             leftCmp = allocateRegister();
-            emitLine(std::format("{} = ptrtoint ptr {} to i64", leftCmp, leftValue));
+            emitLine(format("{} = ptrtoint ptr {} to i64", leftCmp, leftValue));
         }
         if (rightType == "ptr") {
             rightCmp = allocateRegister();
-            emitLine(std::format("{} = ptrtoint ptr {} to i64", rightCmp, rightValue));
+            emitLine(format("{} = ptrtoint ptr {} to i64", rightCmp, rightValue));
         }
 
         std::string resultReg = allocateRegister();
         std::string opCode = generateBinaryOp(node.op, leftCmp, rightCmp, "i64");
-        emitLine(std::format("{} = {}", resultReg, opCode));
+        emitLine(format("{} = {}", resultReg, opCode));
         valueMap_["__last_expr"] = resultReg;
     } else {
         // Normal arithmetic or comparison - use existing logic
         std::string resultReg = allocateRegister();
         std::string opCode = generateBinaryOp(node.op, leftValue, rightValue, "i64");
-        emitLine(std::format("{} = {}", resultReg, opCode));
+        emitLine(format("{} = {}", resultReg, opCode));
         valueMap_["__last_expr"] = resultReg;
     }
 }
@@ -2285,7 +2344,7 @@ void LLVMBackend::visit(Parser::TypeOfExpr& node) {
 
 void LLVMBackend::visit(Parser::ConstraintDecl& node) {
     // Constraints are compile-time only
-    emitLine(std::format("; constraint {}", node.name));
+    emitLine(format("; constraint {}", node.name));
 }
 
 void LLVMBackend::visit(Parser::RequireStmt& node) {

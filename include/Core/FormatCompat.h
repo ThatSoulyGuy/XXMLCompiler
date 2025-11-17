@@ -4,7 +4,18 @@
 #include <sstream>
 #include <string_view>
 
+// Check if std::format is available (C++20 with library support)
+#if __cplusplus >= 202002L && __has_include(<format>)
+    #define HAS_STD_FORMAT 1
+    #include <format>
+#else
+    #define HAS_STD_FORMAT 0
+#endif
+
 namespace XXML::Core {
+
+#if !HAS_STD_FORMAT
+// Only define compatibility layer if std::format is not available
 
 // Compatibility layer for std::format until widely available
 // Simple string formatting using stringstream
@@ -19,11 +30,17 @@ inline std::string format(std::string_view fmt, const T1& arg1, const T2& arg2);
 template<typename T1, typename T2, typename T3>
 inline std::string format(std::string_view fmt, const T1& arg1, const T2& arg2, const T3& arg3);
 
-// Variadic template - fallback for more than 3 args
+template<typename T1, typename T2, typename T3, typename T4>
+inline std::string format(std::string_view fmt, const T1& arg1, const T2& arg2, const T3& arg3, const T4& arg4);
+
+template<typename T1, typename T2, typename T3, typename T4, typename T5>
+inline std::string format(std::string_view fmt, const T1& arg1, const T2& arg2, const T3& arg3, const T4& arg4, const T5& arg5);
+
+// Variadic template - fallback for more than 5 args
 // This should only be used when the specialized templates don't match
 template<typename... Args>
 inline std::string format(std::string_view fmt, Args&&... args)
-requires (sizeof...(Args) > 3) {
+requires (sizeof...(Args) > 5) {
     // For many arguments, just return the format string for now
     // Real implementation would parse format string properly
     return std::string(fmt);
@@ -91,9 +108,66 @@ inline std::string format(std::string_view fmt, const T1& arg1, const T2& arg2, 
     return result;
 }
 
-} // namespace XXML::Core
+template<typename T1, typename T2, typename T3, typename T4>
+inline std::string format(std::string_view fmt, const T1& arg1, const T2& arg2, const T3& arg3, const T4& arg4) {
+    std::string result(fmt);
 
-// Alias for convenience
-namespace std {
-    using XXML::Core::format;
+    std::ostringstream oss1, oss2, oss3, oss4;
+    oss1 << arg1;
+    oss2 << arg2;
+    oss3 << arg3;
+    oss4 << arg4;
+
+    size_t pos = result.find("{}");
+    if (pos != std::string::npos) result.replace(pos, 2, oss1.str());
+
+    pos = result.find("{}");
+    if (pos != std::string::npos) result.replace(pos, 2, oss2.str());
+
+    pos = result.find("{}");
+    if (pos != std::string::npos) result.replace(pos, 2, oss3.str());
+
+    pos = result.find("{}");
+    if (pos != std::string::npos) result.replace(pos, 2, oss4.str());
+
+    return result;
 }
+
+template<typename T1, typename T2, typename T3, typename T4, typename T5>
+inline std::string format(std::string_view fmt, const T1& arg1, const T2& arg2, const T3& arg3, const T4& arg4, const T5& arg5) {
+    std::string result(fmt);
+
+    std::ostringstream oss1, oss2, oss3, oss4, oss5;
+    oss1 << arg1;
+    oss2 << arg2;
+    oss3 << arg3;
+    oss4 << arg4;
+    oss5 << arg5;
+
+    size_t pos = result.find("{}");
+    if (pos != std::string::npos) result.replace(pos, 2, oss1.str());
+
+    pos = result.find("{}");
+    if (pos != std::string::npos) result.replace(pos, 2, oss2.str());
+
+    pos = result.find("{}");
+    if (pos != std::string::npos) result.replace(pos, 2, oss3.str());
+
+    pos = result.find("{}");
+    if (pos != std::string::npos) result.replace(pos, 2, oss4.str());
+
+    pos = result.find("{}");
+    if (pos != std::string::npos) result.replace(pos, 2, oss5.str());
+
+    return result;
+}
+
+#endif // !HAS_STD_FORMAT
+
+// Unified format function that uses std::format if available, otherwise uses compat layer
+#if HAS_STD_FORMAT
+    // Use std::format directly
+    using std::format;
+#endif
+
+} // namespace XXML::Core

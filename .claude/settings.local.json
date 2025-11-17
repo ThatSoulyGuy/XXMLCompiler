@@ -335,7 +335,14 @@
       "Bash(if [ -f test2_fixed.exe ])",
       "Bash(then echo \"✓ test2_fixed.exe created, running...\")",
       "Bash(then echo \"✓ test2_fixed.exe found\")",
-      "Bash(else echo \"test2_fixed.exe not found yet\")"
+      "Bash(else echo \"test2_fixed.exe not found yet\")",
+      "Bash(./build.sh:*)",
+      "Bash(brew:*)",
+      "Bash(export CMAKE_PREFIX_PATH=\"/opt/homebrew/opt/llvm\")",
+      "Bash(./Hello)",
+      "Bash(./Hello_test:*)",
+      "Bash(./test_from_root)",
+      "Bash(./test_list)"
     ],
     "deny": [],
     "ask": []
