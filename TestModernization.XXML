@@ -1,0 +1,40 @@
+// Test program to verify modernized LLVM backend
+// Tests: InstantiateStmt, literals, BinaryExpr, AssignmentStmt, IfStmt, WhileStmt, ForStmt, ReturnStmt
+
+[ Entrypoint
+{
+    // Test 1: Instantiate with integers (InstantiateStmt + IntegerLiteralExpr)
+    Instantiate Integer^ As <x> = Integer::Constructor(10);
+    Instantiate Integer^ As <y> = Integer::Constructor(20);
+
+    // Test 2: Binary operations (BinaryExpr)
+    Instantiate Integer^ As <sum> = Integer::add(x, y);
+
+    // Test 3: Comparisons + If statement (IfStmt)
+    If (Integer::lt(x, y)) {
+        Run Console::printLine(String::Constructor("x is less than y"));
+    }
+
+    // Test 4: Assignment (AssignmentStmt)
+    x = Integer::Constructor(15);
+
+    // Test 5: While loop (WhileStmt, BreakStmt, ContinueStmt)
+    Instantiate Integer^ As <counter> = Integer::Constructor(0);
+    While (Integer::lt(counter, Integer::Constructor(5))) {
+        counter = Integer::add(counter, Integer::Constructor(1));
+    }
+
+    // Test 6: For loop (ForStmt)
+    For (Integer^ As <i> = 0; i < 10; i = i + 1) {
+        If (Integer::eq(i, Integer::Constructor(3))) {
+            Continue;
+        }
+        If (Integer::eq(i, Integer::Constructor(7))) {
+            Break;
+        }
+    }
+
+    // Test 7: Return (ReturnStmt)
+    Exit(0);
+}
+]
