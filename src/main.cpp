@@ -5,28 +5,25 @@
 #include <vector>
 #include <set>
 #include <filesystem>
-#include "../include/Lexer/Lexer.h"
-#include "../include/Parser/Parser.h"
-#include "../include/Semantic/SemanticAnalyzer.h"
-#include "../include/CodeGen/CodeGenerator.h"
-#include "../include/Core/CompilationContext.h"  // ✅ NEW: Use CompilationContext
-#include "../include/Core/TypeRegistry.h"        // ✅ NEW: For TypeRegistry methods
-#include "../include/Core/BackendRegistry.h"     // ✅ NEW: For BackendRegistry methods
-#include "../include/Backends/Cpp20Backend.h"    // ✅ NEW: Use new backend
-#include "../include/Backends/LLVMBackend.h"     // ✅ NEW: For LLVM backend
-#include "../include/Common/Error.h"
-#include "../include/Import/Module.h"
-#include "../include/Import/ImportResolver.h"
-#include "../include/Import/DependencyGraph.h"
-#include "../include/Linker/LinkerInterface.h"   // ✅ NEW: For linking
-#include "../include/Utils/ProcessUtils.h"       // ✅ NEW: For path utilities
+#include "Lexer/Lexer.h"
+#include "Parser/Parser.h"
+#include "Semantic/SemanticAnalyzer.h"
+#include "Core/CompilationContext.h"
+#include "Core/TypeRegistry.h"
+#include "Core/BackendRegistry.h"
+#include "Backends/LLVMBackend.h"
+#include "Common/Error.h"
+#include "Import/Module.h"
+#include "Import/ImportResolver.h"
+#include "Import/DependencyGraph.h"
+#include "Linker/LinkerInterface.h"
+#include "Utils/ProcessUtils.h"
 
 std::string readFile(const std::string& filename) {
     std::ifstream file(filename);
     if (!file.is_open()) {
         throw std::runtime_error("Could not open file: " + filename);
     }
-
     std::stringstream buffer;
     buffer << file.rdbuf();
     return buffer.str();
@@ -37,11 +34,9 @@ void writeFile(const std::string& filename, const std::string& content) {
     if (!file.is_open()) {
         throw std::runtime_error("Could not write to file: " + filename);
     }
-
     file << content;
 }
 
-// Extract import paths from an AST
 std::vector<std::string> extractImports(const XXML::Parser::Program& ast) {
     std::vector<std::string> imports;
     for (const auto& decl : ast.declarations) {
@@ -52,11 +47,9 @@ std::vector<std::string> extractImports(const XXML::Parser::Program& ast) {
     return imports;
 }
 
-// Parse a module (tokenize + parse)
 bool parseModule(XXML::Import::Module* module, XXML::Common::ErrorReporter& errorReporter) {
     if (module->isParsed) return true;
 
-    // Tokenize
     XXML::Lexer::Lexer lexer(module->fileContent, module->filePath, errorReporter);
     auto tokens = lexer.tokenize();
 
@@ -65,7 +58,6 @@ bool parseModule(XXML::Import::Module* module, XXML::Common::ErrorReporter& erro
         return false;
     }
 
-    // Parse
     XXML::Parser::Parser parser(tokens, errorReporter);
     module->ast = parser.parse();
 
@@ -75,138 +67,94 @@ bool parseModule(XXML::Import::Module* module, XXML::Common::ErrorReporter& erro
     }
 
     module->isParsed = true;
-
-    // Extract imports from this module
     module->imports = extractImports(*module->ast);
-
     return true;
 }
 
-int main(int argc, char* argv[]) {
-    std::cout << "XXML Compiler v2.0 (Multi-file, Multi-backend)\n";
-    std::cout << "================================================\n\n";
+void printUsage(const char* programName) {
+    std::cerr << "XXML Compiler v2.0\n";
+    std::cerr << "Usage: " << programName << " <input.XXML> <output> [mode]\n\n";
+    std::cerr << "Arguments:\n";
+    std::cerr << "  <input.XXML>  - XXML source file to compile\n";
+    std::cerr << "  <output>      - Output file (.ll for IR, .exe/.out for executable)\n";
+    std::cerr << "  [mode]        - Optional: 2 = LLVM IR only (default compiles to executable)\n\n";
+    std::cerr << "Examples:\n";
+    std::cerr << "  " << programName << " Hello.XXML hello.exe      # Compile to executable\n";
+    std::cerr << "  " << programName << " Hello.XXML hello.ll 2     # Generate LLVM IR only\n";
+}
 
-    if (argc < 2) {
-        std::cerr << "Usage: " << argv[0] << " <input.xxml> [output.cpp]\n";
-        std::cerr << "  <input.xxml>  - XXML source file to compile\n";
-        std::cerr << "  [output.cpp]  - Output C++ file (optional, defaults to output.cpp)\n";
+int main(int argc, char* argv[]) {
+    std::cout << "XXML Compiler v2.0 (LLVM Backend)\n";
+    std::cout << "==================================\n\n";
+
+    if (argc < 3) {
+        printUsage(argv[0]);
         return 1;
     }
 
     std::string inputFile = argv[1];
-    std::string outputFile = (argc >= 3) ? argv[2] : "output.cpp";
+    std::string outputFile = argv[2];
+    bool llvmIROnly = (argc >= 4 && std::string(argv[3]) == "2");
 
     try {
-        // ✅ NEW: Create compilation context with LLVM backend for testing
+        // Create compilation context with LLVM backend
         XXML::Core::CompilerConfig config;
         config.defaultBackend = XXML::Core::BackendTarget::LLVM_IR;
         XXML::Core::CompilationContext compilationContext(config);
-        std::cout << "✅ Initialized compilation context (LLVM IR backend)\n";
-        std::cout << "   - Types registered: " << compilationContext.types().size() << "\n";
-        std::cout << "   - Backends available: " << compilationContext.backends().size() << "\n\n";
 
-        // Error reporter
         XXML::Common::ErrorReporter errorReporter;
-
-        // Import resolver
         XXML::Import::ImportResolver resolver;
 
-        // Create main module
-        std::cout << "Reading main file: " << inputFile << "\n";
+        // Create and parse main module
+        std::cout << "Reading: " << inputFile << "\n";
         auto mainModule = std::make_unique<XXML::Import::Module>("__main__", inputFile);
         if (!mainModule->loadFromFile()) {
             std::cerr << "Error: Could not read file: " << inputFile << "\n";
             return 1;
         }
 
-        // Parse main module
-        std::cout << "Parsing main module...\n";
+        std::cout << "Parsing...\n";
         if (!parseModule(mainModule.get(), errorReporter)) {
             errorReporter.printErrors();
             return 1;
         }
-        std::cout << "  Found " << mainModule->imports.size() << " import(s)\n";
 
-        // Auto-import standard library types from Language folder
-        // Try both relative and absolute paths to support different working directories
+        // Auto-import standard library
         std::vector<std::string> stdLibBasePaths = {
             "Language/Core/", "../Language/Core/",
             "Language/System/", "../Language/System/",
             "Language/Collections/", "../Language/Collections/"
         };
-        std::vector<std::string> stdLibFileNames = {
-            "None.XXML",
-            "String.XXML",
-            "Integer.XXML",
-            "Bool.XXML",
-            "Float.XXML",
-            "Double.XXML"
-        };
+        std::vector<std::string> stdLibCoreFiles = {"None.XXML", "String.XXML", "Integer.XXML", "Bool.XXML", "Float.XXML", "Double.XXML"};
         std::vector<std::string> stdLibSystemFiles = {"Console.XXML"};
         std::vector<std::string> stdLibCollectionFiles = {"List.XXML", "Array.XXML", "HashMap.XXML"};
 
-        std::vector<std::string> stdLibFiles;
-        // Try to find core files
-        for (const auto& fileName : stdLibFileNames) {
-            for (const auto& basePath : stdLibBasePaths) {
-                if (basePath.find("/Core/") != std::string::npos) {
-                    std::string fullPath = basePath + fileName;
-                    std::ifstream check(fullPath);
-                    if (check.good()) {
-                        stdLibFiles.push_back(fullPath);
-                        break;
-                    }
-                }
-            }
-        }
-        // Try to find system files
-        for (const auto& fileName : stdLibSystemFiles) {
-            for (const auto& basePath : stdLibBasePaths) {
-                if (basePath.find("/System/") != std::string::npos) {
-                    std::string fullPath = basePath + fileName;
-                    std::ifstream check(fullPath);
-                    if (check.good()) {
-                        stdLibFiles.push_back(fullPath);
-                        break;
-                    }
-                }
-            }
-        }
-        // Try to find collection files
-        for (const auto& fileName : stdLibCollectionFiles) {
-            for (const auto& basePath : stdLibBasePaths) {
-                if (basePath.find("/Collections/") != std::string::npos) {
-                    std::string fullPath = basePath + fileName;
-                    std::ifstream check(fullPath);
-                    if (check.good()) {
-                        stdLibFiles.push_back(fullPath);
-                        break;
-                    }
-                }
-            }
-        }
-
-        std::cout << "Auto-importing standard library...\n";
         std::vector<std::string> autoImports;
-        for (const auto& stdFile : stdLibFiles) {
-            // Check if file exists
-            std::ifstream check(stdFile);
-            if (check.good()) {
-                autoImports.push_back(stdFile);
-                std::cout << "  Found: " << stdFile << "\n";
+        auto findFiles = [&](const std::vector<std::string>& fileNames, const std::string& subdir) {
+            for (const auto& fileName : fileNames) {
+                for (const auto& basePath : stdLibBasePaths) {
+                    if (basePath.find(subdir) != std::string::npos) {
+                        std::string fullPath = basePath + fileName;
+                        std::ifstream check(fullPath);
+                        if (check.good()) {
+                            autoImports.push_back(fullPath);
+                            break;
+                        }
+                    }
+                }
             }
-        }
+        };
+        findFiles(stdLibCoreFiles, "/Core/");
+        findFiles(stdLibSystemFiles, "/System/");
+        findFiles(stdLibCollectionFiles, "/Collections/");
 
-        // Collect all modules through recursive import resolution
+        // Resolve all imports
         std::set<std::string> processedImports;
         std::vector<XXML::Import::Module*> allModules;
-        std::vector<std::unique_ptr<XXML::Import::Module>> ownedModules;  // Store owned modules
+        std::vector<std::unique_ptr<XXML::Import::Module>> ownedModules;
         allModules.push_back(mainModule.get());
 
         std::vector<std::string> toProcess = mainModule->imports;
-
-        // Add auto-imported standard library files to processing queue
-        // Also add them to mainModule's imports so they're recorded as dependencies
         for (const auto& autoImport : autoImports) {
             toProcess.push_back(autoImport);
             mainModule->imports.push_back(autoImport);
@@ -217,23 +165,12 @@ int main(int argc, char* argv[]) {
             std::string importPath = toProcess.back();
             toProcess.pop_back();
 
-            if (processedImports.find(importPath) != processedImports.end()) {
-                continue;
-            }
+            if (processedImports.find(importPath) != processedImports.end()) continue;
             processedImports.insert(importPath);
 
-            std::cout << "  Resolving: " << importPath << "\n";
-
-            // Check if this is a direct file path (for Language folder files)
-            std::vector<XXML::Import::Module*> importedModules;
             if (importPath.find(".XXML") != std::string::npos || importPath.find("/") != std::string::npos) {
-                // It's a file path - load it directly
                 auto module = std::make_unique<XXML::Import::Module>(importPath, importPath);
-                if (!module->loadFromFile()) {
-                    std::cerr << "Warning: Could not load file: " << importPath << "\n";
-                    continue;
-                }
-
+                if (!module->loadFromFile()) continue;
                 if (!parseModule(module.get(), errorReporter)) {
                     errorReporter.printErrors();
                     return 1;
@@ -243,928 +180,204 @@ int main(int argc, char* argv[]) {
                 allModules.push_back(modulePtr);
                 ownedModules.push_back(std::move(module));
 
-                // Add this module's imports to the queue
                 for (const auto& subImport : modulePtr->imports) {
                     if (processedImports.find(subImport) == processedImports.end()) {
                         toProcess.push_back(subImport);
                     }
                 }
-            } else {
-                // Use normal import resolution
-                importedModules = resolver.resolveImport(importPath);
-
-                for (auto module : importedModules) {
-                    // Parse the module
-                    if (!parseModule(module, errorReporter)) {
-                        errorReporter.printErrors();
-                        return 1;
-                    }
-
-                    allModules.push_back(module);
-
-                    // Add this module's imports to the queue
-                    for (const auto& subImport : module->imports) {
-                        if (processedImports.find(subImport) == processedImports.end()) {
-                            toProcess.push_back(subImport);
-                        }
-                    }
-                }
             }
         }
 
-        std::cout << "  Total modules loaded: " << allModules.size() << "\n";
+        std::cout << "  Loaded " << allModules.size() << " module(s)\n";
 
         // Build dependency graph
-        std::cout << "Building dependency graph...\n";
         XXML::Import::DependencyGraph depGraph;
-
-        for (auto module : allModules) {
-            depGraph.addModule(module->moduleName);
-        }
-
+        for (auto module : allModules) depGraph.addModule(module->moduleName);
         for (auto module : allModules) {
             for (const auto& importPath : module->imports) {
-                // Find all modules that match this import
                 for (auto otherModule : allModules) {
-                    if (otherModule->moduleName.find(importPath) == 0 ||
-                        importPath.find(otherModule->moduleName) == 0) {
-                        if (otherModule != module) {
-                            depGraph.addDependency(module->moduleName, otherModule->moduleName);
-                        }
+                    if (otherModule != module &&
+                        (otherModule->moduleName.find(importPath) == 0 || importPath.find(otherModule->moduleName) == 0)) {
+                        depGraph.addDependency(module->moduleName, otherModule->moduleName);
                     }
                 }
             }
         }
 
-        // Check for circular dependencies
         std::vector<std::string> cycle;
         if (depGraph.hasCycle(cycle)) {
             std::cerr << "Error: Circular dependency detected!\n";
-            std::cerr << "  Cycle: ";
-            for (size_t i = 0; i < cycle.size(); ++i) {
-                if (i > 0) std::cerr << " -> ";
-                std::cerr << cycle[i];
-            }
-            std::cerr << "\n";
             return 1;
         }
 
-        // Get compilation order via topological sort
         auto compilationOrder = depGraph.topologicalSort();
-        std::cout << "  Compilation order established (" << compilationOrder.size() << " modules)\n";
-
-        // Create a map for quick module lookup
         std::map<std::string, XXML::Import::Module*> moduleMap;
-        for (auto module : allModules) {
-            moduleMap[module->moduleName] = module;
-        }
+        for (auto module : allModules) moduleMap[module->moduleName] = module;
 
-        // Store analyzers for each module (needed for template code generation)
         std::map<std::string, std::unique_ptr<XXML::Semantic::SemanticAnalyzer>> analyzerMap;
 
-        // PHASE 1: Registration phase - Register all classes and methods without validation
-        std::cout << "Phase 1: Registering classes and methods...\n";
+        // Phase 1: Registration
+        std::cout << "Phase 1: Registering types...\n";
         for (const auto& moduleName : compilationOrder) {
             auto it = moduleMap.find(moduleName);
             if (it != moduleMap.end()) {
-                auto module = it->second;
-                std::cout << "  Registering: " << moduleName << "\n";
-
-                // ✅ NEW: Pass CompilationContext to analyzer
                 auto analyzer = std::make_unique<XXML::Semantic::SemanticAnalyzer>(compilationContext, errorReporter);
-                analyzer->setValidationEnabled(false);  // Disable validation for registration phase
-                analyzer->analyze(*module->ast);
-
+                analyzer->setValidationEnabled(false);
+                analyzer->analyze(*it->second->ast);
                 if (errorReporter.hasErrors()) {
-                    std::cerr << "\nRegistration phase failed for " << moduleName << ":\n";
                     errorReporter.printErrors();
                     return 1;
                 }
-
                 analyzerMap[moduleName] = std::move(analyzer);
             }
         }
 
-        // Register main module
-        std::unique_ptr<XXML::Semantic::SemanticAnalyzer> mainAnalyzer;
-        std::cout << "  Registering: __main__\n";
-        // ✅ NEW: Pass CompilationContext to analyzer
-        mainAnalyzer = std::make_unique<XXML::Semantic::SemanticAnalyzer>(compilationContext, errorReporter);
-        mainAnalyzer->setValidationEnabled(false);  // Disable validation for registration phase
+        auto mainAnalyzer = std::make_unique<XXML::Semantic::SemanticAnalyzer>(compilationContext, errorReporter);
+        mainAnalyzer->setValidationEnabled(false);
         mainAnalyzer->analyze(*mainModule->ast);
-
         if (errorReporter.hasErrors()) {
-            std::cerr << "\nRegistration phase failed for main module:\n";
             errorReporter.printErrors();
             return 1;
         }
 
-        // Collect all template classes from Phase 1 analyzers
+        // Collect template classes
         std::unordered_map<std::string, XXML::Parser::ClassDecl*> allTemplateClasses;
         for (const auto& [moduleName, analyzer] : analyzerMap) {
-            const auto& moduleTemplateClasses = analyzer->getTemplateClasses();
-            for (const auto& [name, classDecl] : moduleTemplateClasses) {
+            for (const auto& [name, classDecl] : analyzer->getTemplateClasses()) {
                 allTemplateClasses[name] = classDecl;
             }
         }
 
-        // PHASE 2: Validation phase - Run semantic analysis with validation enabled
-        std::cout << "Phase 2: Running semantic analysis with validation...\n";
+        // Phase 2: Validation
+        std::cout << "Phase 2: Semantic analysis...\n";
         for (const auto& moduleName : compilationOrder) {
             auto it = moduleMap.find(moduleName);
             if (it != moduleMap.end()) {
-                auto module = it->second;
-                std::cout << "  Analyzing: " << moduleName << "\n";
-
-                // Create a new analyzer for validation
                 auto validator = std::make_unique<XXML::Semantic::SemanticAnalyzer>(compilationContext, errorReporter);
-                validator->setValidationEnabled(true);  // Enable validation
-                validator->setModuleName(moduleName);  // Set module name for registry
-
-                // Register all template classes from Phase 1
+                validator->setValidationEnabled(true);
+                validator->setModuleName(moduleName);
                 for (const auto& [name, classDecl] : allTemplateClasses) {
                     validator->registerTemplateClass(name, classDecl);
                 }
-
-                validator->analyze(*module->ast);
-
+                validator->analyze(*it->second->ast);
                 if (errorReporter.hasErrors()) {
-                    std::cerr << "\nSemantic analysis failed for " << moduleName << ":\n";
                     errorReporter.printErrors();
                     return 1;
                 }
-
-                module->isAnalyzed = true;
-                // Keep the validator as the main analyzer for code generation
+                it->second->isAnalyzed = true;
                 analyzerMap[moduleName] = std::move(validator);
             }
         }
 
-        // Validate main module
-        std::cout << "  Analyzing: __main__\n";
         mainAnalyzer = std::make_unique<XXML::Semantic::SemanticAnalyzer>(compilationContext, errorReporter);
-        mainAnalyzer->setValidationEnabled(true);  // Enable validation
-        mainAnalyzer->setModuleName("__main__");  // Set module name for registry
-
-        // Register all template classes from Phase 1
+        mainAnalyzer->setValidationEnabled(true);
+        mainAnalyzer->setModuleName("__main__");
         for (const auto& [name, classDecl] : allTemplateClasses) {
             mainAnalyzer->registerTemplateClass(name, classDecl);
         }
-
         mainAnalyzer->analyze(*mainModule->ast);
-
         if (errorReporter.hasErrors()) {
-            std::cerr << "\nSemantic analysis failed for main module:\n";
             errorReporter.printErrors();
             return 1;
         }
-        mainModule->isAnalyzed = true;
 
-        std::cout << "  Semantic analysis passed\n";
-
-        // Collect all template classes and instantiations from all modules
-        // and merge them into the main analyzer so template instantiation works
-        std::cout << "Collecting template information from all modules...\n";
+        // Merge template info
         for (const auto& [moduleName, analyzer] : analyzerMap) {
-            const auto& moduleTemplateClasses = analyzer->getTemplateClasses();
-            const auto& moduleTemplateInsts = analyzer->getTemplateInstantiations();
-
-            // Merge template classes into main analyzer
-            for (const auto& [name, classDecl] : moduleTemplateClasses) {
+            for (const auto& [name, classDecl] : analyzer->getTemplateClasses()) {
                 mainAnalyzer->registerTemplateClass(name, classDecl);
             }
-
-            // Merge template instantiations into main analyzer
-            for (const auto& inst : moduleTemplateInsts) {
+            for (const auto& inst : analyzer->getTemplateInstantiations()) {
                 mainAnalyzer->mergeTemplateInstantiation(inst);
             }
         }
 
-        // Also merge main analyzer's templates back to all module analyzers
-        // so they can generate code properly
-        const auto& mainTemplateClasses = mainAnalyzer->getTemplateClasses();
-        const auto& mainTemplateInsts = mainAnalyzer->getTemplateInstantiations();
-        for (const auto& [moduleName, analyzer] : analyzerMap) {
-            for (const auto& [name, classDecl] : mainTemplateClasses) {
-                analyzer->registerTemplateClass(name, classDecl);
-            }
-            for (const auto& inst : mainTemplateInsts) {
-                analyzer->mergeTemplateInstantiation(inst);
-            }
+        // Generate LLVM IR
+        std::cout << "Generating LLVM IR...\n";
+        auto* backend = compilationContext.getActiveBackend();
+        auto* llvmBackend = dynamic_cast<XXML::Backends::LLVMBackend*>(backend);
+        if (llvmBackend && mainAnalyzer) {
+            llvmBackend->setSemanticAnalyzer(mainAnalyzer.get());
         }
 
-        // Code generation for all modules
-        std::stringstream fullOutput;
+        std::string llvmIR = backend->generate(*mainModule->ast);
 
-        // Check if we're using LLVM backend - if so, use simplified generation path
-        auto* activeBackend = compilationContext.getActiveBackend();
-        if (activeBackend && activeBackend->targetType() == XXML::Core::BackendTarget::LLVM_IR) {
-            std::cout << "Generating LLVM IR code...\n";
+        std::filesystem::path outputPath(outputFile);
 
-            // Set semantic analyzer for template support
-            auto* llvmBackend = dynamic_cast<XXML::Backends::LLVMBackend*>(activeBackend);
-            if (llvmBackend && mainAnalyzer) {
-                llvmBackend->setSemanticAnalyzer(mainAnalyzer.get());
-            }
-
-            // For LLVM backend, just call generate() on the combined AST
-            // Merge all ASTs into one for LLVM backend
-            for (const auto& decl : mainModule->ast->declarations) {
-                // Main module declarations are the entry point
-            }
-
-            fullOutput << activeBackend->generate(*mainModule->ast);
-
+        if (llvmIROnly || outputPath.extension() == ".ll") {
+            // Write LLVM IR only
+            std::cout << "Writing LLVM IR to: " << outputFile << "\n";
+            writeFile(outputFile, llvmIR);
+            std::cout << "\n✓ Generated " << llvmIR.length() << " bytes of LLVM IR\n";
+            std::cout << "\nTo compile: clang " << outputFile << " -o output\n";
         } else {
-            // C++ backend - use existing complex generation path
-            std::cout << "Generating C++ code...\n";
-
-        // Write standard includes once at the top
-        fullOutput << "// Generated by XXML Compiler\n\n";
-        fullOutput << "#include <iostream>\n";
-        fullOutput << "#include <string>\n";
-        fullOutput << "#include <memory>\n";
-        fullOutput << "#include <cstdint>\n";
-        fullOutput << "#include <cstring>\n";
-        fullOutput << "#include <cstdlib>\n";
-        fullOutput << "#include <limits>\n";
-        fullOutput << "#include <cassert>\n";
-        fullOutput << "#include <stdexcept>\n";
-        fullOutput << "#include <utility>\n";
-        fullOutput << "#include <type_traits>\n\n";
-
-        // Add Owned<T> wrapper for ownership tracking
-        fullOutput << "// ============================================\n";
-        fullOutput << "// Owned<T> - Runtime wrapper for owned values (T^)\n";
-        fullOutput << "// ============================================\n";
-        fullOutput << "namespace Language {\n";
-        fullOutput << "namespace Runtime {\n\n";
-        fullOutput << "template<typename T>\n";
-        fullOutput << "class Owned {\n";
-        fullOutput << "private:\n";
-        fullOutput << "    T value_;\n";
-        fullOutput << "    bool movedFrom_;\n\n";
-        fullOutput << "public:\n";
-        fullOutput << "    Owned() : value_(), movedFrom_(false) {}  // Default constructor\n";
-        fullOutput << "    Owned(const T& val) : value_(val), movedFrom_(false) {}  // Copy for primitives\n";
-        fullOutput << "    Owned(T&& val) : value_(std::move(val)), movedFrom_(false) {}  // Move\n\n";
-        fullOutput << "    // Copy constructor - enabled for primitive types only (int64_t, double, float, bool, void*)\n";
-        fullOutput << "    Owned(const Owned& other) : value_(other.value_), movedFrom_(false) {\n";
-        fullOutput << "        static_assert(\n";
-        fullOutput << "            std::is_same_v<T, int64_t> || std::is_same_v<T, double> ||\n";
-        fullOutput << "            std::is_same_v<T, float> || std::is_same_v<T, bool> ||\n";
-        fullOutput << "            std::is_same_v<T, void*> || std::is_same_v<T, const void*> ||\n";
-        fullOutput << "            std::is_same_v<T, int32_t>,\n";
-        fullOutput << "            \"Owned<T> can only be copied for primitive types. \"\n";
-        fullOutput << "            \"For complex types, use move semantics or reference parameters.\");\n";
-        fullOutput << "    }\n\n";
-        fullOutput << "    Owned& operator=(const Owned& other) {\n";
-        fullOutput << "        static_assert(\n";
-        fullOutput << "            std::is_same_v<T, int64_t> || std::is_same_v<T, double> ||\n";
-        fullOutput << "            std::is_same_v<T, float> || std::is_same_v<T, bool> ||\n";
-        fullOutput << "            std::is_same_v<T, void*> || std::is_same_v<T, const void*> ||\n";
-        fullOutput << "            std::is_same_v<T, int32_t>,\n";
-        fullOutput << "            \"Owned<T> can only be copied for primitive types. \"\n";
-        fullOutput << "            \"For complex types, use move semantics or reference parameters.\");\n";
-        fullOutput << "        if (this != &other) {\n";
-        fullOutput << "            value_ = other.value_;\n";
-        fullOutput << "            movedFrom_ = false;\n";
-        fullOutput << "        }\n";
-        fullOutput << "        return *this;\n";
-        fullOutput << "    }\n\n";
-        fullOutput << "    Owned(Owned&& other) noexcept\n";
-        fullOutput << "        : value_(std::move(other.value_)), movedFrom_(false) {\n";
-        fullOutput << "        other.movedFrom_ = true;\n";
-        fullOutput << "    }\n\n";
-        fullOutput << "    Owned& operator=(Owned&& other) noexcept {\n";
-        fullOutput << "        if (this != &other) {\n";
-        fullOutput << "            value_ = std::move(other.value_);\n";
-        fullOutput << "            movedFrom_ = false;\n";
-        fullOutput << "            other.movedFrom_ = true;\n";
-        fullOutput << "        }\n";
-        fullOutput << "        return *this;\n";
-        fullOutput << "    }\n\n";
-        fullOutput << "    T& get() {\n";
-        fullOutput << "        if (movedFrom_) {\n";
-        fullOutput << "            assert(false && \"Use-after-move detected\");\n";
-        fullOutput << "            throw std::runtime_error(\"Use-after-move detected\");\n";
-        fullOutput << "        }\n";
-        fullOutput << "        return value_;\n";
-        fullOutput << "    }\n\n";
-        fullOutput << "    const T& get() const {\n";
-        fullOutput << "        if (movedFrom_) {\n";
-        fullOutput << "            assert(false && \"Use-after-move detected\");\n";
-        fullOutput << "            throw std::runtime_error(\"Use-after-move detected\");\n";
-        fullOutput << "        }\n";
-        fullOutput << "        return value_;\n";
-        fullOutput << "    }\n\n";
-        fullOutput << "    T extract() {\n";
-        fullOutput << "        if (movedFrom_) {\n";
-        fullOutput << "            assert(false && \"Use-after-move detected\");\n";
-        fullOutput << "            throw std::runtime_error(\"Use-after-move detected\");\n";
-        fullOutput << "        }\n";
-        fullOutput << "        movedFrom_ = true;\n";
-        fullOutput << "        return std::move(value_);\n";
-        fullOutput << "    }\n\n";
-        fullOutput << "    operator T&() { return get(); }\n";
-        fullOutput << "    operator const T&() const { return get(); }\n";
-        fullOutput << "    T* operator->() { return &get(); }\n";
-        fullOutput << "    const T* operator->() const { return &get(); }\n";
-        fullOutput << "    bool isMovedFrom() const { return movedFrom_; }\n";
-        fullOutput << "    \n";
-        fullOutput << "    // Equality operator - must be specialized for each type\n";
-        fullOutput << "    bool operator==(const Owned& other) const;\n";
-        fullOutput << "};\n\n";
-        fullOutput << "} // namespace Runtime\n";
-        fullOutput << "} // namespace Language\n\n";
-
-        // Add Syscall intrinsic functions
-        fullOutput << "// Syscall intrinsic functions\n";
-        fullOutput << "class Syscall {\n";
-        fullOutput << "public:\n";
-        fullOutput << "    static void* string_create(const void* cstr) {\n";
-        fullOutput << "        return (void*)new std::string((const char*)cstr);\n";
-        fullOutput << "    }\n";
-        fullOutput << "    static const unsigned char* string_cstr(void* ptr) {\n";
-        fullOutput << "        return reinterpret_cast<const unsigned char*>(((std::string*)ptr)->c_str());\n";
-        fullOutput << "    }\n";
-        fullOutput << "    static int64_t string_length(void* ptr) {\n";
-        fullOutput << "        return ((std::string*)ptr)->length();\n";
-        fullOutput << "    }\n";
-        fullOutput << "    static void* string_concat(void* ptr1, void* ptr2) {\n";
-        fullOutput << "        std::string* s1 = (std::string*)ptr1;\n";
-        fullOutput << "        std::string* s2 = (std::string*)ptr2;\n";
-        fullOutput << "        return (void*)new std::string(*s1 + *s2);\n";
-        fullOutput << "    }\n";
-        fullOutput << "    static void* string_copy(void* ptr) {\n";
-        fullOutput << "        return (void*)new std::string(*(std::string*)ptr);\n";
-        fullOutput << "    }\n";
-        fullOutput << "    static int64_t string_equals(void* ptr1, void* ptr2) {\n";
-        fullOutput << "        return (*(std::string*)ptr1 == *(std::string*)ptr2) ? 1 : 0;\n";
-        fullOutput << "    }\n";
-        fullOutput << "    static void string_destroy(void* ptr) {\n";
-        fullOutput << "        delete (std::string*)ptr;\n";
-        fullOutput << "    }\n";
-        fullOutput << "    static void memcpy(void* dest, const void* src, size_t n) {\n";
-        fullOutput << "        std::memcpy(dest, src, n);\n";
-        fullOutput << "    }\n";
-        fullOutput << "    static const unsigned char* int_to_string(int64_t value) {\n";
-        fullOutput << "        static thread_local std::string buffer;\n";
-        fullOutput << "        buffer = std::to_string(value);\n";
-        fullOutput << "        return reinterpret_cast<const unsigned char*>(buffer.c_str());\n";
-        fullOutput << "    }\n";
-        fullOutput << "    static unsigned char* malloc(int64_t size) {\n";
-        fullOutput << "        return static_cast<unsigned char*>(std::malloc(static_cast<size_t>(size)));\n";
-        fullOutput << "    }\n";
-        fullOutput << "    static void free(void* ptr) {\n";
-        fullOutput << "        std::free(ptr);\n";
-        fullOutput << "    }\n";
-        fullOutput << "    static void* memset(void* dest, int value, int64_t size) {\n";
-        fullOutput << "        return std::memset(dest, value, static_cast<size_t>(size));\n";
-        fullOutput << "    }\n";
-        fullOutput << "    static int64_t read_int64(const void* ptr) {\n";
-        fullOutput << "        return *static_cast<const int64_t*>(ptr);\n";
-        fullOutput << "    }\n";
-        fullOutput << "    static void write_int64(void* ptr, int64_t value) {\n";
-        fullOutput << "        *static_cast<int64_t*>(ptr) = value;\n";
-        fullOutput << "    }\n";
-        fullOutput << "    static const unsigned char* string_charAt(void* strPtr, int64_t index) {\n";
-        fullOutput << "        std::string* str = static_cast<std::string*>(strPtr);\n";
-        fullOutput << "        if (index < 0 || index >= static_cast<int64_t>(str->length())) {\n";
-        fullOutput << "            static thread_local std::string empty;\n";
-        fullOutput << "            empty = \"\";\n";
-        fullOutput << "            return reinterpret_cast<const unsigned char*>(empty.c_str());\n";
-        fullOutput << "        }\n";
-        fullOutput << "        static thread_local std::string charBuf;\n";
-        fullOutput << "        charBuf = str->substr(static_cast<size_t>(index), 1);\n";
-        fullOutput << "        return reinterpret_cast<const unsigned char*>(charBuf.c_str());\n";
-        fullOutput << "    }\n";
-        fullOutput << "    static void* ptr_add(void* ptr, int64_t offset) {\n";
-        fullOutput << "        return static_cast<void*>(static_cast<char*>(ptr) + offset);\n";
-        fullOutput << "    }\n";
-        fullOutput << "    static unsigned char* ptr_read(const void* ptr) {\n";
-        fullOutput << "        return static_cast<unsigned char*>(*static_cast<void* const*>(ptr));\n";
-        fullOutput << "    }\n";
-        fullOutput << "    \n";
-        fullOutput << "    // Specialized overload to read as Owned<T> - returns by value\n";
-        fullOutput << "    template<typename T>\n";
-        fullOutput << "    static Language::Runtime::Owned<T> ptr_read(const void* ptr) {\n";
-        fullOutput << "        void* obj_ptr = *static_cast<void* const*>(ptr);\n";
-        fullOutput << "        if (obj_ptr == nullptr) {\n";
-        fullOutput << "            return Language::Runtime::Owned<T>(T());\n";
-        fullOutput << "        }\n";
-        fullOutput << "        T* obj = static_cast<T*>(obj_ptr);\n";
-        fullOutput << "        // Copy the object (don't transfer ownership, list still owns it)\n";
-        fullOutput << "        return Language::Runtime::Owned<T>(*obj);\n";
-        fullOutput << "    }\n";
-        fullOutput << "    static void ptr_write(void* dest, void* value) {\n";
-        fullOutput << "        *static_cast<void**>(dest) = value;\n";
-        fullOutput << "    }\n";
-        fullOutput << "    // Overload for int64_t (used for writing null pointers/terminators)\n";
-        fullOutput << "    static void ptr_write(void* dest, int64_t value) {\n";
-        fullOutput << "        *static_cast<void**>(dest) = reinterpret_cast<void*>(value);\n";
-        fullOutput << "    }\n";
-        fullOutput << "    \n";
-        fullOutput << "    // Template overloads for Owned<T> to work with List<T>\n";
-        fullOutput << "    template<typename T>\n";
-        fullOutput << "    static void ptr_write(void* dest, Language::Runtime::Owned<T> value) {\n";
-        fullOutput << "        // Allocate memory for the object and store its pointer\n";
-        fullOutput << "        T* obj = new T(std::move(value.extract()));\n";
-        fullOutput << "        *static_cast<void**>(dest) = static_cast<void*>(obj);\n";
-        fullOutput << "    }\n";
-        fullOutput << "    \n";
-        fullOutput << "    template<typename T>\n";
-        fullOutput << "    static Language::Runtime::Owned<T> ptr_read_owned(const void* ptr) {\n";
-        fullOutput << "        // Read the pointer and wrap in Owned<T> (transfers ownership)\n";
-        fullOutput << "        void* obj_ptr = *static_cast<void* const*>(ptr);\n";
-        fullOutput << "        if (obj_ptr == nullptr) {\n";
-        fullOutput << "            return Language::Runtime::Owned<T>(T());\n";
-        fullOutput << "        }\n";
-        fullOutput << "        T* obj = static_cast<T*>(obj_ptr);\n";
-        fullOutput << "        T value = std::move(*obj);\n";
-        fullOutput << "        // Note: We don't delete here because the object is still in the list\n";
-        fullOutput << "        // The list owns it until removed\n";
-        fullOutput << "        return Language::Runtime::Owned<T>(std::move(value));\n";
-        fullOutput << "    }\n";
-        fullOutput << "    \n";
-        fullOutput << "    static int64_t read_byte(const void* ptr) {\n";
-        fullOutput << "        return static_cast<int64_t>(*static_cast<const unsigned char*>(ptr));\n";
-        fullOutput << "    }\n";
-        fullOutput << "};\n\n";
-
-        // Add System::Console intrinsic class for I/O (forward declared, will use Language::Core types)
-        fullOutput << "// System::Console intrinsic class (will be implemented after core types)\n";
-        fullOutput << "namespace System {\n";
-        fullOutput << "class Console;\n";
-        fullOutput << "} // namespace System\n\n";
-
-        // Add forward declarations for all classes to resolve circular dependencies
-        fullOutput << "// Forward declarations\n";
-        fullOutput << "namespace Language::Core {\n";
-        fullOutput << "    class Bool;\n";
-        fullOutput << "    class Integer;\n";
-        fullOutput << "    class Float;\n";
-        fullOutput << "    class Double;\n";
-        fullOutput << "    class String;\n";
-        fullOutput << "}\n";
-        fullOutput << "namespace System {\n";
-        fullOutput << "    class Console;\n";
-        fullOutput << "}\n\n";
-
-        // Define core types that need declaration/implementation separation
-        std::vector<std::string> coreValueTypes = {
-            "Language/Core/Integer.XXML",
-            "Language/Core/Bool.XXML",
-            "Language/Core/Float.XXML",
-            "Language/Core/Double.XXML",
-            "Language/Core/String.XXML"
-        };
-
-        // PHASE 1: Generate class declarations for core value types (to avoid circular dependencies)
-        std::set<std::string> generatedModules;
-        fullOutput << "// ============================================\n";
-        fullOutput << "// Core Library - Class Declarations\n";
-        fullOutput << "// ============================================\n\n";
-
-        for (const auto& moduleName : coreValueTypes) {
-            auto it = moduleMap.find(moduleName);
-            if (it != moduleMap.end()) {
-                auto module = it->second;
-                std::cout << "  Generating declarations: " << moduleName << "\n";
-
-                XXML::CodeGen::CodeGenerator codeGen(errorReporter);
-                codeGen.setGeneratingDeclarationsOnly(true);  // Declarations only
-
-                // Pass semantic analyzer for template support and type context
-                auto analyzerIt = analyzerMap.find(moduleName);
-                if (analyzerIt != analyzerMap.end()) {
-                    codeGen.setSemanticAnalyzer(analyzerIt->second.get());
-                    codeGen.setTypeContext(&analyzerIt->second->getTypeContext());
-                }
-
-                std::string moduleCode = codeGen.generate(*module->ast, false);
-
-                if (errorReporter.hasErrors()) {
-                    std::cerr << "\nCode generation failed for " << moduleName << ":\n";
-                    errorReporter.printErrors();
-                    return 1;
-                }
-
-                fullOutput << moduleCode;
-                // Mark as generated after declarations phase
-                generatedModules.insert(moduleName);
+            // Compile to executable
+            std::string executablePath = outputPath.string();
+#ifdef _WIN32
+            if (outputPath.extension() != ".exe") {
+                executablePath = outputPath.stem().string() + ".exe";
             }
-        }
+#endif
 
-        // PHASE 2: Generate method implementations for core value types
-        fullOutput << "// ============================================\n";
-        fullOutput << "// Core Library - Method Implementations\n";
-        fullOutput << "// ============================================\n\n";
-
-        for (const auto& moduleName : coreValueTypes) {
-            auto it = moduleMap.find(moduleName);
-            if (it != moduleMap.end()) {
-                auto module = it->second;
-                std::cout << "  Generating implementations: " << moduleName << "\n";
-
-                XXML::CodeGen::CodeGenerator codeGen(errorReporter);
-                codeGen.setGeneratingImplementationsOnly(true);  // Implementations only
-
-                // Pass semantic analyzer for template support and type context
-                auto analyzerIt = analyzerMap.find(moduleName);
-                if (analyzerIt != analyzerMap.end()) {
-                    codeGen.setSemanticAnalyzer(analyzerIt->second.get());
-                    codeGen.setTypeContext(&analyzerIt->second->getTypeContext());
-                }
-
-                std::string moduleCode = codeGen.generate(*module->ast, false);
-
-                if (errorReporter.hasErrors()) {
-                    std::cerr << "\nCode generation failed for " << moduleName << ":\n";
-                    errorReporter.printErrors();
-                    return 1;
-                }
-
-                fullOutput << moduleCode;
-                it->second->isCompiled = true;
-                generatedModules.insert(moduleName);
-            }
-        }
-
-        // Add operator== specialization for Owned<String> after String is fully defined
-        fullOutput << "\n";
-        fullOutput << "// Equality operator specialization for Owned<String>\n";
-        fullOutput << "// String uses equals() method instead of operator==\n";
-        fullOutput << "namespace Language {\n";
-        fullOutput << "namespace Runtime {\n";
-        fullOutput << "template<>\n";
-        fullOutput << "inline bool Owned<Language::Core::String>::operator==(const Owned<Language::Core::String>& other) const {\n";
-        fullOutput << "    Language::Core::String& lhs = const_cast<Language::Core::String&>(this->get());\n";
-        fullOutput << "    Language::Core::String& rhs = const_cast<Language::Core::String&>(other.get());\n";
-        fullOutput << "    return lhs.equals(rhs)->toBool();\n";
-        fullOutput << "}\n";
-        fullOutput << "} // namespace Runtime\n";
-        fullOutput << "} // namespace Language\n\n";
-
-        // PHASE 3: Generate System::Console implementation (before any code that uses it)
-        fullOutput << "// ============================================\n";
-        fullOutput << "// System::Console Implementation (C++ intrinsic)\n";
-        fullOutput << "// ============================================\n";
-        fullOutput << "namespace System {\n";
-        fullOutput << "class Console {\n";
-        fullOutput << "public:\n";
-        fullOutput << "    // Print without newline - takes Owned<String> by rvalue reference\n";
-        fullOutput << "    static void print(Language::Runtime::Owned<Language::Core::String>&& str) {\n";
-        fullOutput << "        const char* cstr = (const char*)str.get().toCString();\n";
-        fullOutput << "        std::cout << cstr;\n";
-        fullOutput << "        std::cout.flush();\n";
-        fullOutput << "    }\n\n";
-        fullOutput << "    // Print with newline - takes Owned<String> by rvalue reference\n";
-        fullOutput << "    static void printLine(Language::Runtime::Owned<Language::Core::String>&& str) {\n";
-        fullOutput << "        const char* cstr = (const char*)str.get().toCString();\n";
-        fullOutput << "        std::cout << cstr << std::endl;\n";
-        fullOutput << "    }\n\n";
-        fullOutput << "    // Read a line from stdin - returns wrapped String\n";
-        fullOutput << "    static Language::Runtime::Owned<Language::Core::String> readLine() {\n";
-        fullOutput << "        std::string* line = new std::string();\n";
-        fullOutput << "        std::getline(std::cin, *line);\n";
-        fullOutput << "        return Language::Core::String((void*)line);\n";
-        fullOutput << "    }\n\n";
-        fullOutput << "    // Read a single character - returns wrapped String\n";
-        fullOutput << "    static Language::Runtime::Owned<Language::Core::String> readChar() {\n";
-        fullOutput << "        std::string* ch = new std::string();\n";
-        fullOutput << "        char c;\n";
-        fullOutput << "        if (std::cin.get(c)) {\n";
-        fullOutput << "            *ch = c;\n";
-        fullOutput << "        }\n";
-        fullOutput << "        return Language::Core::String((void*)ch);\n";
-        fullOutput << "    }\n\n";
-        fullOutput << "    // Read an integer - returns wrapped Integer\n";
-        fullOutput << "    static Language::Runtime::Owned<Language::Core::Integer> readInt() {\n";
-        fullOutput << "        int64_t value = 0;\n";
-        fullOutput << "        std::cin >> value;\n";
-        fullOutput << "        std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\\n');\n";
-        fullOutput << "        return Language::Core::Integer(value);\n";
-        fullOutput << "    }\n\n";
-        fullOutput << "    // Read a float - returns wrapped Float\n";
-        fullOutput << "    static Language::Runtime::Owned<Language::Core::Float> readFloat() {\n";
-        fullOutput << "        float value = 0.0f;\n";
-        fullOutput << "        std::cin >> value;\n";
-        fullOutput << "        std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\\n');\n";
-        fullOutput << "        return Language::Core::Float(value);\n";
-        fullOutput << "    }\n\n";
-        fullOutput << "    // Read a double - returns wrapped Double\n";
-        fullOutput << "    static Language::Runtime::Owned<Language::Core::Double> readDouble() {\n";
-        fullOutput << "        double value = 0.0;\n";
-        fullOutput << "        std::cin >> value;\n";
-        fullOutput << "        std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\\n');\n";
-        fullOutput << "        return Language::Core::Double(value);\n";
-        fullOutput << "    }\n\n";
-        fullOutput << "    // Read a boolean - reads 'true'/'false' or '1'/'0', returns wrapped Bool\n";
-        fullOutput << "    static Language::Runtime::Owned<Language::Core::Bool> readBool() {\n";
-        fullOutput << "        std::string input;\n";
-        fullOutput << "        std::cin >> input;\n";
-        fullOutput << "        std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\\n');\n";
-        fullOutput << "        // Convert to lowercase for comparison\n";
-        fullOutput << "        for (auto& c : input) c = std::tolower(c);\n";
-        fullOutput << "        bool result = (input == \"true\" || input == \"1\" || input == \"yes\");\n";
-        fullOutput << "        return Language::Core::Bool(result);\n";
-        fullOutput << "    }\n";
-        fullOutput << "};\n";
-        fullOutput << "} // namespace System\n\n";
-
-        // Generate Language::Core::Mem implementation (move semantics intrinsic)
-        fullOutput << "// ============================================\n";
-        fullOutput << "// Language::Core::Mem Implementation\n";
-        fullOutput << "// ============================================\n";
-        fullOutput << "namespace Language {\n";
-        fullOutput << "namespace Core {\n";
-        fullOutput << "namespace Mem {\n\n";
-        fullOutput << "    // Move operation - transfers ownership from Owned<T>\n";
-        fullOutput << "    template<typename T>\n";
-        fullOutput << "    Language::Runtime::Owned<T> move(Language::Runtime::Owned<T>& owned) {\n";
-        fullOutput << "        T extracted = owned.extract();\n";
-        fullOutput << "        return Language::Runtime::Owned<T>(std::move(extracted));\n";
-        fullOutput << "    }\n\n";
-        fullOutput << "} // namespace Mem\n";
-        fullOutput << "} // namespace Core\n";
-        fullOutput << "} // namespace Language\n\n";
-
-        // Generate remaining modules in dependency order (non-core library)
-        for (const auto& moduleName : compilationOrder) {
-            if (generatedModules.find(moduleName) != generatedModules.end()) {
-                continue; // Already generated
-            }
-
-            // Skip __main__ module - it's handled separately at the end
-            if (moduleName == "__main__") {
-                continue;
-            }
-
-            // Skip namespace entries (they start with .::) - these are not real files
-            if (moduleName.find(".::") == 0) {
-                std::cout << "  Skipping: " << moduleName << " (namespace entry, not a file)\n";
-                continue;
-            }
-
-            // Skip intrinsic modules - they're handled by the compiler
-            if (moduleName.find("Console") != std::string::npos ||
-                moduleName.find("System") != std::string::npos ||
-                moduleName.find("Mem.XXML") != std::string::npos) {
-                std::cout << "  Skipping: " << moduleName << " (using intrinsic implementation)\n";
-                continue;
-            }
-
-            auto it = moduleMap.find(moduleName);
-            if (it != moduleMap.end()) {
-                auto module = it->second;
-                std::cout << "  Generating: " << moduleName << "\n";
-
-                XXML::CodeGen::CodeGenerator codeGen(errorReporter);
-
-                // Pass semantic analyzer for template support and type context
-                auto analyzerIt = analyzerMap.find(moduleName);
-                if (analyzerIt != analyzerMap.end()) {
-                    codeGen.setSemanticAnalyzer(analyzerIt->second.get());
-                    codeGen.setTypeContext(&analyzerIt->second->getTypeContext());
-                }
-
-                std::string moduleCode = codeGen.generate(*module->ast, false); // Don't include headers
-
-                if (errorReporter.hasErrors()) {
-                    std::cerr << "\nCode generation failed for " << moduleName << ":\n";
-                    errorReporter.printErrors();
-                    return 1;
-                }
-
-                fullOutput << "// ============================================\n";
-                fullOutput << "// Module: " << moduleName << "\n";
-                fullOutput << "// ============================================\n";
-                fullOutput << moduleCode << "\n\n";
-                module->isCompiled = true;
-                generatedModules.insert(moduleName);
-            }
-        }
-
-        // Generate main module code if it wasn't already generated
-        // Skip if the main file is actually a library module that was already generated
-        bool mainFileAlreadyGenerated = generatedModules.find(inputFile) != generatedModules.end();
-
-        if (!mainModule->isCompiled && !mainFileAlreadyGenerated) {
-            std::cout << "  Generating: __main__\n";
-
-            std::string mainCode;
-
-            // ✅ Use active backend for code generation
-            auto* backend = compilationContext.getActiveBackend();
-            if (backend && backend->targetType() == XXML::Core::BackendTarget::LLVM_IR) {
-                // Cast to LLVM backend to set semantic analyzer
-                auto* llvmBackend = dynamic_cast<XXML::Backends::LLVMBackend*>(backend);
-                if (llvmBackend && mainAnalyzer) {
-                    llvmBackend->setSemanticAnalyzer(mainAnalyzer.get());
-                }
-
-                // Generate LLVM IR using backend
-                mainCode = backend->generate(*mainModule->ast);
-            } else {
-                // Fall back to C++20 code generator
-                XXML::CodeGen::CodeGenerator mainCodeGen(errorReporter);
-
-                // Pass semantic analyzer for template support and type context
-                if (mainAnalyzer) {
-                    mainCodeGen.setSemanticAnalyzer(mainAnalyzer.get());
-                    mainCodeGen.setTypeContext(&mainAnalyzer->getTypeContext());
-                }
-
-                // Enable template generation for main module only
-                mainCodeGen.setShouldGenerateTemplates(true);
-
-                mainCode = mainCodeGen.generate(*mainModule->ast, false); // Don't include headers
-            }
-
-            if (errorReporter.hasErrors()) {
-                std::cerr << "\nCode generation failed for main module:\n";
-                errorReporter.printErrors();
+            std::cout << "Compiling to object file...\n";
+            std::string objPath = outputPath.stem().string() + ".obj";
+            if (!llvmBackend->generateObjectFile(llvmIR, objPath, 0)) {
+                std::cerr << "✗ Object file generation failed\n";
                 return 1;
             }
 
-            fullOutput << "// ============================================\n";
-            fullOutput << "// Module: __main__\n";
-            fullOutput << "// ============================================\n";
-            fullOutput << mainCode << "\n";
-            mainModule->isCompiled = true;
-        } else if (mainFileAlreadyGenerated) {
-            std::cout << "  Skipping __main__: already generated as module " << inputFile << "\n";
-        }
-
-        // Template instantiations are now generated by the main module generation above
-        // No need for separate template generation since mainAnalyzer has all the templates
-        // and they will be generated when generating the main module
-
-        } // End of C++ backend code generation
-
-        // Get generated code
-        std::string finalCode = fullOutput.str();
-        auto* backend = compilationContext.getActiveBackend();
-        std::string backendName = backend ? backend->targetName() : "C++20";
-
-        // Handle output based on backend type
-        if (backend && backend->targetType() == XXML::Core::BackendTarget::LLVM_IR) {
-            // LLVM IR backend - compile to executable
-            std::cout << "Generating LLVM IR and compiling to executable...\n";
-
-            // Determine output executable name
-            std::filesystem::path outputPath(outputFile);
-            std::string executablePath;
-
-            if (outputPath.extension() == ".ll") {
-                // User specified .ll extension, write IR only
-                std::cout << "Writing LLVM IR to: " << outputFile << "\n";
-                writeFile(outputFile, finalCode);
-
-                std::cout << "\n✓ LLVM IR generation successful!\n";
-                std::cout << "  Generated " << finalCode.length() << " bytes of LLVM IR\n";
-                std::cout << "\nTo compile the LLVM IR to executable:\n";
-                std::cout << "  clang " << outputFile << " -o output.exe\n";
-            } else {
-                // Compile to executable
-                executablePath = outputPath.stem().string();
+            // Find runtime library
+            std::string exeDir = XXML::Utils::ProcessUtils::getExecutableDirectory();
+            std::string runtimeLibPath;
 #ifdef _WIN32
-                if (outputPath.extension() != ".exe") {
-                    executablePath += ".exe";
-                } else {
-                    executablePath = outputPath.string();
-                }
+            std::vector<std::string> tryPaths = {
+                // MSVC .lib format
+                exeDir + "\\..\\lib\\Release\\XXMLLLVMRuntime.lib",
+                exeDir + "\\..\\lib\\XXMLLLVMRuntime.lib",
+                "build\\lib\\Release\\XXMLLLVMRuntime.lib",
+                "build\\lib\\XXMLLLVMRuntime.lib",
+                "build\\x64-release\\lib\\XXMLLLVMRuntime.lib",
+                // MinGW .a format (cross-compatible)
+                exeDir + "\\..\\lib\\libXXMLLLVMRuntime.a",
+                "build\\lib\\libXXMLLLVMRuntime.a",
+                "build\\x64-release\\lib\\libXXMLLLVMRuntime.a",
+                "build_mingw\\lib\\libXXMLLLVMRuntime.a"
+            };
 #else
-                executablePath = outputPath.string();
-                // Remove .exe extension on Unix
-                if (executablePath.ends_with(".exe")) {
-                    executablePath = executablePath.substr(0, executablePath.length() - 4);
+            std::vector<std::string> tryPaths = {
+                exeDir + "/../lib/libXXMLLLVMRuntime.a",
+                "build/lib/libXXMLLLVMRuntime.a",
+                "build_mingw/lib/libXXMLLLVMRuntime.a"
+            };
+#endif
+            for (const auto& path : tryPaths) {
+                if (XXML::Utils::ProcessUtils::fileExists(path)) {
+                    runtimeLibPath = path;
+                    break;
                 }
-#endif
-
-                // Get LLVM backend to compile
-                auto* llvmBackend = dynamic_cast<XXML::Backends::LLVMBackend*>(backend);
-                if (llvmBackend) {
-                    std::cout << "Compiling LLVM IR to object file...\n";
-                    std::string objPath = outputPath.stem().string() + ".obj";
-                    bool objSuccess = llvmBackend->generateObjectFile(finalCode, objPath, 0);
-
-                    if (!objSuccess) {
-                        std::cerr << "✗ Object file generation failed\n";
-                        return 1;
-                    }
-
-                    std::cout << "✓ Object file generated: " << objPath << "\n";
-
-                    // Link the object file to create executable
-                    std::cout << "Linking executable...\n";
-
-                    // Find runtime library
-                    std::string exeDir = XXML::Utils::ProcessUtils::getExecutableDirectory();
-                    std::string runtimeLibPath;
-
-                    // Try different paths for runtime library based on platform
-#ifdef _WIN32
-                    std::vector<std::string> tryPaths = {
-                        exeDir + "\\..\\lib\\Release\\XXMLLLVMRuntime.lib",
-                        exeDir + "\\..\\..\\lib\\Release\\XXMLLLVMRuntime.lib",
-                        "build\\lib\\Release\\XXMLLLVMRuntime.lib",
-                        "..\\..\\lib\\Release\\XXMLLLVMRuntime.lib"
-                    };
-#else
-                    std::vector<std::string> tryPaths = {
-                        // Try without Release subdirectory first (default CMake build on Unix)
-                        exeDir + "/../lib/libXXMLLLVMRuntime.a",
-                        "../lib/libXXMLLLVMRuntime.a",  // From build/bin to build/lib
-                        exeDir + "/../../lib/libXXMLLLVMRuntime.a",
-                        "build/lib/libXXMLLLVMRuntime.a",
-                        "../../lib/libXXMLLLVMRuntime.a",
-                        // Also try with Release subdirectory (multi-config builds)
-                        exeDir + "/../lib/Release/libXXMLLLVMRuntime.a",
-                        "../lib/Release/libXXMLLLVMRuntime.a",  // From build/bin to build/lib/Release
-                        exeDir + "/../../lib/Release/libXXMLLLVMRuntime.a",
-                        "build/lib/Release/libXXMLLLVMRuntime.a",
-                        "../../lib/Release/libXXMLLLVMRuntime.a"
-                    };
-#endif
-
-                    for (const auto& path : tryPaths) {
-                        if (XXML::Utils::ProcessUtils::fileExists(path)) {
-                            runtimeLibPath = path;
-                            break;
-                        }
-                    }
-
-                    if (runtimeLibPath.empty()) {
-                        std::cerr << "⚠ Warning: Could not find XXML runtime library\n";
-                        std::cerr << "  Tried paths:\n";
-                        for (const auto& path : tryPaths) {
-                            std::cerr << "    - " << path << "\n";
-                        }
-                        runtimeLibPath = tryPaths[0]; // Use first path anyway
-                    }
-
-                    // Create linker using factory
-                    auto linker = XXML::Linker::LinkerFactory::createLinker();
-                    if (!linker) {
-                        std::cerr << "✗ No suitable linker found on this system\n";
-                        std::cerr << "  On Windows: Requires Visual Studio Developer Command Prompt\n";
-                        std::cerr << "  On macOS/Linux: Requires gcc or clang\n";
-                        std::cerr << "\nObject file generated: " << objPath << "\n";
-                        std::cerr << "You can link manually with:\n";
-#ifdef _WIN32
-                        std::cerr << "  link \"" << objPath << "\" \"" << runtimeLibPath << "\" /OUT:\"" << executablePath << "\" /SUBSYSTEM:CONSOLE\n";
-#else
-                        std::cerr << "  gcc " << objPath << " " << runtimeLibPath << " -o " << executablePath << "\n";
-#endif
-                        return 1;
-                    }
-
-                    std::cout << "Using linker: " << linker->name() << "\n";
-
-                    // Configure linking
-                    XXML::Linker::LinkConfig linkConfig;
-                    linkConfig.objectFiles.push_back(objPath);
-                    linkConfig.libraries.push_back(runtimeLibPath);
-                    linkConfig.outputPath = executablePath;
-                    linkConfig.createConsoleApp = true;
-                    linkConfig.verbose = false;
-                    linkConfig.optimizationLevel = 0;
-
-                    // Perform linking
-                    XXML::Linker::LinkResult linkResult = linker->link(linkConfig);
-
-                    if (!linkResult.success) {
-                        std::cerr << "✗ Linking failed\n";
-                        if (!linkResult.error.empty()) {
-                            std::cerr << linkResult.error << "\n";
-                        }
-                        if (!linkResult.output.empty()) {
-                            std::cerr << linkResult.output << "\n";
-                        }
-                        return 1;
-                    }
-
-                    std::cout << "✓ Linking successful: " << executablePath << "\n";
-                }
-
-                std::cout << "\n✅ Compilation successful!\n";
-                std::cout << "  Compiled " << allModules.size() << " module(s) + main file\n";
-                std::cout << "  Executable: " << executablePath << "\n";
             }
-        } else {
-            // C++ backend - write source code
-            std::cout << "Writing C++ code to: " << outputFile << "\n";
-            writeFile(outputFile, finalCode);
 
-            std::cout << "\n✓ Multi-file compilation successful!\n";
-            std::cout << "  Compiled " << allModules.size() << " module(s) + main file\n";
-            std::cout << "  Generated " << finalCode.length() << " bytes of C++ code\n";
-            std::cout << "\nTo compile the generated C++ code:\n";
-            std::cout << "  g++ -std=c++17 " << outputFile << " -o output.exe\n";
-            std::cout << "  or\n";
-            std::cout << "  cl /EHsc /std:c++17 /I. " << outputFile << "\n";
+            // Link
+            std::cout << "Linking...\n";
+            auto linker = XXML::Linker::LinkerFactory::createLinker();
+            if (!linker) {
+                std::cerr << "✗ No linker found. Object file: " << objPath << "\n";
+                return 1;
+            }
+
+            XXML::Linker::LinkConfig linkConfig;
+            linkConfig.objectFiles.push_back(objPath);
+            if (!runtimeLibPath.empty()) linkConfig.libraries.push_back(runtimeLibPath);
+            linkConfig.outputPath = executablePath;
+            linkConfig.createConsoleApp = true;
+
+            auto linkResult = linker->link(linkConfig);
+            if (!linkResult.success) {
+                std::cerr << "✗ Linking failed: " << linkResult.error << "\n";
+                return 1;
+            }
+
+            std::cout << "\n✓ Compilation successful!\n";
+            std::cout << "  Executable: " << executablePath << "\n";
         }
 
         return 0;

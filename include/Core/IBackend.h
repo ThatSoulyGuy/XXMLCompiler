@@ -17,12 +17,8 @@ class ITypeSystem;
 
 /// Backend target identifiers
 enum class BackendTarget {
-    Cpp20,          // C++20 standard
-    Cpp17,          // C++17 standard
-    Cpp14,          // C++14 standard
-    LLVM_IR,        // LLVM intermediate representation
-    WebAssembly,    // WebAssembly
-    JavaScript,     // JavaScript (for web)
+    LLVM_IR,        // LLVM intermediate representation (default)
+    WebAssembly,    // WebAssembly (future)
     Custom          // User-defined backend
 };
 

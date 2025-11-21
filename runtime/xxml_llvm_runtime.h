@@ -81,6 +81,15 @@ void* Bool_not(void* self);
 void* None_Constructor();
 
 // ============================================
+// List Operations
+// ============================================
+
+void* List_Constructor();
+void List_add(void* self, void* item);
+void* List_get(void* self, int64_t index);
+size_t List_size(void* self);
+
+// ============================================
 // Console I/O
 // ============================================
 

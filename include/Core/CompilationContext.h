@@ -40,7 +40,7 @@ struct CompilerConfig {
     };
 
     // Output options
-    BackendTarget defaultBackend = BackendTarget::Cpp20;
+    BackendTarget defaultBackend = BackendTarget::LLVM_IR;
     BackendConfig backendConfig;
 
     // Diagnostic options

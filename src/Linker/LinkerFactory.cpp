@@ -9,8 +9,20 @@ extern std::unique_ptr<ILinker> createGNULinker();
 
 std::unique_ptr<ILinker> LinkerFactory::createLinker(bool preferLLD) {
     // Try platform-specific linker first
-#ifdef _WIN32
-    // On Windows, use MSVC linker
+#if defined(__MINGW32__) || defined(__MINGW64__)
+    // Built with MinGW: always prefer GNU linker to avoid MSVC/link.exe issues
+    // MSVC link.exe often conflicts with /usr/bin/link in MSYS2/Git Bash
+    auto linker = createGNULinker();
+    if (linker && linker->isAvailable()) {
+        return linker;
+    }
+    // Fallback to MSVC if GNU not available
+    linker = createMSVCLinker();
+    if (linker && linker->isAvailable()) {
+        return linker;
+    }
+#elif defined(_WIN32)
+    // Native MSVC build: prefer MSVC linker
     auto linker = createMSVCLinker();
     if (linker && linker->isAvailable()) {
         return linker;

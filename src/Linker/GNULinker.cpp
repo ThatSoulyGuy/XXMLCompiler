@@ -25,11 +25,19 @@ public:
     }
 
     std::string objectFileExtension() const override {
+#if defined(_WIN32) || defined(__MINGW32__) || defined(__MINGW64__)
+        return ".obj";  // Windows prefers .obj, though .o also works
+#else
         return ".o";
+#endif
     }
 
     std::string executableExtension() const override {
+#if defined(_WIN32) || defined(__MINGW32__) || defined(__MINGW64__)
+        return ".exe";
+#else
         return "";  // Unix executables typically have no extension
+#endif
     }
 
     LinkResult link(const LinkConfig& config) override {
@@ -92,16 +100,19 @@ public:
             }
         }
 
-        // Standard C library (always needed)
-        args.push_back("-lc");
-
-        // macOS-specific: Link against system frameworks
-#ifdef __APPLE__
+        // Platform-specific standard libraries
+#if defined(__APPLE__)
+        // macOS: Link against system frameworks
         args.push_back("-lSystem");
+#elif defined(_WIN32) || defined(__MINGW32__) || defined(__MINGW64__)
+        // Windows/MinGW: Standard C library is implicit, no -ldl needed
+        // Just add basic Windows libraries
+        args.push_back("-lkernel32");
+        args.push_back("-lmsvcrt");
 #else
-        // Linux-specific: Link against math library if needed
+        // Linux/Unix: Standard C library and math/dl
+        args.push_back("-lc");
         args.push_back("-lm");
-        // Dynamic linker for Linux
         args.push_back("-ldl");
 #endif
 

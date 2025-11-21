@@ -92,12 +92,8 @@ private:
 // Helper function to get target name as string
 inline std::string backendTargetToString(BackendTarget target) {
     switch (target) {
-        case BackendTarget::Cpp20: return "cpp20";
-        case BackendTarget::Cpp17: return "cpp17";
-        case BackendTarget::Cpp14: return "cpp14";
         case BackendTarget::LLVM_IR: return "llvm";
         case BackendTarget::WebAssembly: return "wasm";
-        case BackendTarget::JavaScript: return "js";
         case BackendTarget::Custom: return "custom";
         default: return "unknown";
     }
@@ -105,12 +101,8 @@ inline std::string backendTargetToString(BackendTarget target) {
 
 // Helper function to parse target from string
 inline std::optional<BackendTarget> stringToBackendTarget(std::string_view str) {
-    if (str == "cpp20" || str == "c++20") return BackendTarget::Cpp20;
-    if (str == "cpp17" || str == "c++17") return BackendTarget::Cpp17;
-    if (str == "cpp14" || str == "c++14") return BackendTarget::Cpp14;
     if (str == "llvm" || str == "llvm-ir") return BackendTarget::LLVM_IR;
     if (str == "wasm" || str == "webassembly") return BackendTarget::WebAssembly;
-    if (str == "js" || str == "javascript") return BackendTarget::JavaScript;
     if (str == "custom") return BackendTarget::Custom;
     return std::nullopt;
 }

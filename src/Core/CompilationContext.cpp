@@ -4,7 +4,6 @@
 #include "Core/BackendRegistry.h"
 #include "Semantic/SymbolTable.h"
 #include "Common/Error.h"
-#include "Backends/Cpp20Backend.h"
 #include "Backends/LLVMBackend.h"
 #include "Core/FormatCompat.h"  // Compatibility layer for std::format
 #include <sstream>
@@ -134,10 +133,7 @@ void CompilationContext::initializeBuiltins() {
     // Register all built-in operators
     operatorRegistry_->registerBuiltinOperators();
 
-    // Register built-in backends
-    backendRegistry_->emplaceBackend<Backends::Cpp20Backend>(
-        BackendTarget::Cpp20, this);
-
+    // Register built-in backends (LLVM IR only)
     backendRegistry_->emplaceBackend<Backends::LLVMBackend>(
         BackendTarget::LLVM_IR, this);
 

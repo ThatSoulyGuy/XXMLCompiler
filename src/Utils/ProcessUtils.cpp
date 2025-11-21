@@ -4,9 +4,10 @@
 #include <fstream>
 #include <filesystem>
 
+#include <cstdlib>
+
 #ifdef _WIN32
 #include <windows.h>
-#include <stdlib.h>
 #else
 #include <unistd.h>
 #include <sys/wait.h>
@@ -120,17 +121,13 @@ std::string ProcessUtils::findInPath(const std::string& name) {
     // On Windows, try with and without .exe extension
     std::vector<std::string> candidates = {name, name + ".exe"};
 
-    // Get PATH environment variable
-    char* pathEnv = nullptr;
-    size_t len = 0;
-    _dupenv_s(&pathEnv, &len, "PATH");
-
+    // Get PATH environment variable (use std::getenv for cross-platform compatibility)
+    const char* pathEnv = std::getenv("PATH");
     if (!pathEnv) {
         return "";
     }
 
     std::string pathStr(pathEnv);
-    free(pathEnv);
 
     // Split PATH by semicolon
     std::vector<std::string> paths;
@@ -378,8 +375,31 @@ ProcessResult ProcessUtils::executeUnix(
         }
         argv.push_back(nullptr);
 
-        // Execute
-        execvp(command.c_str(), argv.data());
+        // Execute - use execv for absolute paths, execvp for names that need PATH search
+        // Check if command is an absolute path (Windows: drive letter, Unix: starts with /)
+        bool isWindowsPath = (command.length() > 2 && command[1] == ':');  // Windows: C:\...
+        bool isUnixPath = (!command.empty() && command[0] == '/');         // Unix: /...
+
+        // Convert Windows path to Unix format for MSYS2/Git Bash compatibility
+        std::string execCommand = command;
+        if (isWindowsPath) {
+            // Convert D:\path\to\file.exe to /d/path/to/file.exe
+            execCommand = "/" + std::string(1, std::tolower(command[0]));  // /d
+            for (size_t i = 2; i < command.length(); ++i) {
+                if (command[i] == '\\') {
+                    execCommand += '/';
+                } else {
+                    execCommand += command[i];
+                }
+            }
+            // Update argv[0] with converted path
+            argv[0] = const_cast<char*>(execCommand.c_str());
+            execv(execCommand.c_str(), argv.data());
+        } else if (isUnixPath) {
+            execv(command.c_str(), argv.data());
+        } else {
+            execvp(command.c_str(), argv.data());
+        }
 
         // If we get here, exec failed
         _exit(127);

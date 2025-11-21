@@ -42,7 +42,7 @@
  *     );
  *
  *     // Select backend
- *     context.setActiveBackend(XXML::Core::BackendTarget::Cpp20);
+ *     context.setActiveBackend(XXML::Core::BackendTarget::LLVM_IR);
  *
  *     // Compile
  *     // ... your compilation code here
@@ -60,10 +60,7 @@
 #include "Core/Concepts.h"
 
 // Backends
-#include "Backends/Cpp20Backend.h"
-#ifdef XXML_LLVM_ENABLED
 #include "Backends/LLVMBackend.h"
-#endif
 
 // Parser and AST
 #include "Parser/AST.h"
@@ -100,7 +97,7 @@ namespace Core {}
 
 /**
  * @namespace XXML::Backends
- * @brief Code generation backends (C++20, LLVM, etc.)
+ * @brief Code generation backends (LLVM IR)
  */
 namespace Backends {}
 

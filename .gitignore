@@ -1,5 +1,6 @@
 # Build directories
 build/
+build_*/
 bin/
 lib/
 out/
@@ -52,11 +53,28 @@ cmake_install.cmake
 Makefile
 *.cmake
 !CMakeLists.txt
+CMakeUserPresets.json
 
 # Generated files
 output.cpp
 test_output.cpp
 *.generated.cpp
+*.ll
+
+# Build logs and outputs
+*_log.txt
+*_output.txt
+build_output.txt
+rebuild_log.txt
+
+# Backup files
+*.bak
+
+# Node modules
+node_modules/
+
+# Build artifact subdirectory
+XXMLCompiler/
 
 # IDEs
 .vscode/
