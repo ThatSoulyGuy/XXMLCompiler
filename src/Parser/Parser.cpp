@@ -652,21 +652,42 @@ std::unique_ptr<ForStmt> Parser::parseFor() {
 
     consume(Lexer::TokenType::Equals, "Expected '=' after iterator name");
 
-    auto rangeStart = parseExpression();
+    auto initExpr = parseExpression();
 
-    consume(Lexer::TokenType::Range, "Expected '..' in for loop range");
+    // Check if this is a range-based loop (.. syntax) or C-style loop (; syntax)
+    if (match(Lexer::TokenType::Range)) {
+        // Range-based for loop: For (Type <name> = start .. end)
+        auto rangeEnd = parseExpression();
 
-    auto rangeEnd = parseExpression();
+        consume(Lexer::TokenType::RightParen, "Expected ')' after for loop range");
+        consume(Lexer::TokenType::Arrow, "Expected '->' before for loop body");
 
-    consume(Lexer::TokenType::RightParen, "Expected ')' after for loop range");
+        auto body = parseBlock();
 
-    consume(Lexer::TokenType::Arrow, "Expected '->' before for loop body");
+        return std::make_unique<ForStmt>(std::move(iteratorType), iteratorName,
+                                         std::move(initExpr), std::move(rangeEnd),
+                                         std::move(body), loc);
+    } else if (match(Lexer::TokenType::Semicolon)) {
+        // C-style for loop: For (Type <name> = init; condition; increment)
+        auto condition = parseExpression();
 
-    auto body = parseBlock();
+        consume(Lexer::TokenType::Semicolon, "Expected ';' after condition in C-style for loop");
 
-    return std::make_unique<ForStmt>(std::move(iteratorType), iteratorName,
-                                     std::move(rangeStart), std::move(rangeEnd),
-                                     std::move(body), loc);
+        auto increment = parseExpression();
+
+        consume(Lexer::TokenType::RightParen, "Expected ')' after increment expression");
+        consume(Lexer::TokenType::Arrow, "Expected '->' before for loop body");
+
+        auto body = parseBlock();
+
+        return std::make_unique<ForStmt>(std::move(iteratorType), iteratorName,
+                                         std::move(initExpr), std::move(condition),
+                                         std::move(increment),
+                                         std::move(body), loc);
+    } else {
+        error("Expected '..' for range-based loop or ';' for C-style loop");
+        return nullptr;
+    }
 }
 
 std::unique_ptr<ExitStmt> Parser::parseExit() {

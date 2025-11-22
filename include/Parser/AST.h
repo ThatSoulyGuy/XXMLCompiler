@@ -264,17 +264,35 @@ public:
 
 class ForStmt : public Statement {
 public:
+    // Range-based for loop fields (For x = 0 .. 10)
     std::unique_ptr<TypeRef> iteratorType;
     std::string iteratorName;
     std::unique_ptr<Expression> rangeStart;
     std::unique_ptr<Expression> rangeEnd;
+
+    // C-style for loop fields (For (Type <name> = init; condition; increment))
+    std::unique_ptr<Expression> condition;
+    std::unique_ptr<Expression> increment;
+    bool isCStyleLoop;
+
     std::vector<std::unique_ptr<Statement>> body;
 
+    // Range-based constructor
     ForStmt(std::unique_ptr<TypeRef> type, const std::string& name,
             std::unique_ptr<Expression> start, std::unique_ptr<Expression> end,
             std::vector<std::unique_ptr<Statement>> bodyStmts, const Common::SourceLocation& loc)
         : Statement(loc), iteratorType(std::move(type)), iteratorName(name),
-          rangeStart(std::move(start)), rangeEnd(std::move(end)), body(std::move(bodyStmts)) {}
+          rangeStart(std::move(start)), rangeEnd(std::move(end)),
+          isCStyleLoop(false), body(std::move(bodyStmts)) {}
+
+    // C-style constructor
+    ForStmt(std::unique_ptr<TypeRef> type, const std::string& name,
+            std::unique_ptr<Expression> init, std::unique_ptr<Expression> cond,
+            std::unique_ptr<Expression> incr,
+            std::vector<std::unique_ptr<Statement>> bodyStmts, const Common::SourceLocation& loc)
+        : Statement(loc), iteratorType(std::move(type)), iteratorName(name),
+          rangeStart(std::move(init)), condition(std::move(cond)), increment(std::move(incr)),
+          isCStyleLoop(true), body(std::move(bodyStmts)) {}
 
     void accept(ASTVisitor& visitor) override;    std::unique_ptr<ASTNode> clone() const override;    std::unique_ptr<Statement> cloneStmt() const override;
 };

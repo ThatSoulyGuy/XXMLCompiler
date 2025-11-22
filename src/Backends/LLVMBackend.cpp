@@ -1081,6 +1081,14 @@ void LLVMBackend::visit(Parser::ForStmt& node) {
     std::string xxmlIteratorType = node.iteratorType->typeName;
     registerTypes_[iteratorReg] = "ptr_to<" + xxmlIteratorType + ">";
 
+    // CRITICAL FIX: Add loop variable to variables_ map so IdentifierExpr can properly load it
+    variables_[node.iteratorName] = {
+        iteratorReg,
+        xxmlIteratorType,
+        iteratorType,
+        OwnershipKind::Owned
+    };
+
     // Initialize iterator with range start
     node.rangeStart->accept(*this);
     std::string startValue = valueMap_["__last_expr"];
@@ -1098,81 +1106,133 @@ void LLVMBackend::visit(Parser::ForStmt& node) {
 
     emitLine(format("store {} {}, ptr {}", iteratorType, startValue, iteratorReg));
 
-    // Evaluate range end once
-    node.rangeEnd->accept(*this);
-    std::string endValue = valueMap_["__last_expr"];
+    if (node.isCStyleLoop) {
+        // C-style for loop: For (Type <name> = init; condition; increment)
+        // Jump to condition
+        emitLine(format("br label %{}", condLabel));
 
-    // Same wrapping for end value
-    if (iteratorType == "ptr" && (xxmlIteratorType == "Integer" || xxmlIteratorType == "Integer^")) {
-        bool isLiteral = !endValue.empty() && (std::isdigit(endValue[0]) || endValue[0] == '-');
-        if (isLiteral) {
-            std::string constructorReg = allocateRegister();
-            emitLine(format("{} = call ptr @Integer_Constructor(i64 {})", constructorReg, endValue));
-            endValue = constructorReg;
+        // Condition
+        emitLine(format("{}:", condLabel));
+        indent();
+        node.condition->accept(*this);
+        std::string condValue = valueMap_["__last_expr"];
+
+        // If condition returns a Bool^ object, extract the boolean value
+        std::string condReg = condValue;
+        auto typeIt = registerTypes_.find(condValue);
+        if (typeIt != registerTypes_.end() && (typeIt->second == "Bool" || typeIt->second == "Bool^")) {
+            // Call Bool_getValue to get the i1 value
+            std::string boolValReg = allocateRegister();
+            emitLine(format("{} = call i1 @Bool_getValue(ptr {})", boolValReg, condValue));
+            condReg = boolValReg;
         }
-    }
 
-    std::string endReg = allocateRegister();
-    emitLine(format("{} = alloca {}", endReg, iteratorType));
-    emitLine(format("store {} {}, ptr {}", iteratorType, endValue, endReg));
+        emitLine(format("br i1 {}, label %{}, label %{}", condReg, bodyLabel, endLabel));
+        dedent();
 
-    // Jump to condition
-    emitLine(format("br label %{}", condLabel));
+        // Body
+        emitLine(format("{}:", bodyLabel));
+        indent();
+        for (auto& stmt : node.body) {
+            stmt->accept(*this);
+        }
+        emitLine(format("br label %{}", incrLabel));
+        dedent();
 
-    // Condition: check if iterator < end
-    emitLine(format("{}:", condLabel));
-    indent();
-    std::string currentVal = allocateRegister();
-    std::string endVal = allocateRegister();
-    emitLine(format("{} = load {}, ptr {}", currentVal, iteratorType, iteratorReg));
-    emitLine(format("{} = load {}, ptr {}", endVal, iteratorType, endReg));
+        // Increment
+        emitLine(format("{}:", incrLabel));
+        indent();
+        node.increment->accept(*this);
+        // The increment expression should update the loop variable
+        // For expressions like "i.add(Integer::Constructor(1))", we need to store the result
+        std::string incrResult = valueMap_["__last_expr"];
+        if (!incrResult.empty() && incrResult != "") {
+            // Store the result back to the iterator variable
+            emitLine(format("store {} {}, ptr {}", iteratorType, incrResult, iteratorReg));
+        }
+        emitLine(format("br label %{}", condLabel));
+        dedent();
 
-    std::string condReg = allocateRegister();
-
-    // For Integer^ types, we need to compare the objects, not pointers
-    if (xxmlIteratorType == "Integer" || xxmlIteratorType == "Integer^") {
-        // Call Integer comparison: Integer_lt(currentVal, endVal)
-        emitLine(format("{} = call i1 @Integer_lt(ptr {}, ptr {})", condReg, currentVal, endVal));
+        // End
+        emitLine(format("{}:", endLabel));
     } else {
-        // For primitive types, use direct comparison
-        emitLine(format("{} = icmp slt {} {}, {}", condReg, iteratorType, currentVal, endVal));
+        // Range-based for loop: For (Type <name> = start .. end)
+        // Evaluate range end once
+        node.rangeEnd->accept(*this);
+        std::string endValue = valueMap_["__last_expr"];
+
+        // Same wrapping for end value
+        if (iteratorType == "ptr" && (xxmlIteratorType == "Integer" || xxmlIteratorType == "Integer^")) {
+            bool isLiteral = !endValue.empty() && (std::isdigit(endValue[0]) || endValue[0] == '-');
+            if (isLiteral) {
+                std::string constructorReg = allocateRegister();
+                emitLine(format("{} = call ptr @Integer_Constructor(i64 {})", constructorReg, endValue));
+                endValue = constructorReg;
+            }
+        }
+
+        std::string endReg = allocateRegister();
+        emitLine(format("{} = alloca {}", endReg, iteratorType));
+        emitLine(format("store {} {}, ptr {}", iteratorType, endValue, endReg));
+
+        // Jump to condition
+        emitLine(format("br label %{}", condLabel));
+
+        // Condition: check if iterator < end
+        emitLine(format("{}:", condLabel));
+        indent();
+        std::string currentVal = allocateRegister();
+        std::string endVal = allocateRegister();
+        emitLine(format("{} = load {}, ptr {}", currentVal, iteratorType, iteratorReg));
+        emitLine(format("{} = load {}, ptr {}", endVal, iteratorType, endReg));
+
+        std::string condReg = allocateRegister();
+
+        // For Integer^ types, we need to compare the objects, not pointers
+        if (xxmlIteratorType == "Integer" || xxmlIteratorType == "Integer^") {
+            // Call Integer comparison: Integer_lt(currentVal, endVal)
+            emitLine(format("{} = call i1 @Integer_lt(ptr {}, ptr {})", condReg, currentVal, endVal));
+        } else {
+            // For primitive types, use direct comparison
+            emitLine(format("{} = icmp slt {} {}, {}", condReg, iteratorType, currentVal, endVal));
+        }
+        emitLine(format("br i1 {}, label %{}, label %{}", condReg, bodyLabel, endLabel));
+        dedent();
+
+        // Body
+        emitLine(format("{}:", bodyLabel));
+        indent();
+        for (auto& stmt : node.body) {
+            stmt->accept(*this);
+        }
+        emitLine(format("br label %{}", incrLabel));
+        dedent();
+
+        // Increment iterator
+        emitLine(format("{}:", incrLabel));
+        indent();
+        std::string iterVal = allocateRegister();
+        emitLine(format("{} = load {}, ptr {}", iterVal, iteratorType, iteratorReg));
+        std::string nextVal = allocateRegister();
+
+        // For Integer^ types, we need to call add method
+        if (xxmlIteratorType == "Integer" || xxmlIteratorType == "Integer^") {
+            // Create Integer(1) for increment
+            std::string oneReg = allocateRegister();
+            emitLine(format("{} = call ptr @Integer_Constructor(i64 1)", oneReg));
+            // Call Integer_add(iterVal, oneReg) to get new Integer
+            emitLine(format("{} = call ptr @Integer_add(ptr {}, ptr {})", nextVal, iterVal, oneReg));
+        } else {
+            // For primitive types, use direct add
+            emitLine(format("{} = add {} {}, 1", nextVal, iteratorType, iterVal));
+        }
+        emitLine(format("store {} {}, ptr {}", iteratorType, nextVal, iteratorReg));
+        emitLine(format("br label %{}", condLabel));
+        dedent();
+
+        // End
+        emitLine(format("{}:", endLabel));
     }
-    emitLine(format("br i1 {}, label %{}, label %{}", condReg, bodyLabel, endLabel));
-    dedent();
-
-    // Body
-    emitLine(format("{}:", bodyLabel));
-    indent();
-    for (auto& stmt : node.body) {
-        stmt->accept(*this);
-    }
-    emitLine(format("br label %{}", incrLabel));
-    dedent();
-
-    // Increment iterator
-    emitLine(format("{}:", incrLabel));
-    indent();
-    std::string iterVal = allocateRegister();
-    emitLine(format("{} = load {}, ptr {}", iterVal, iteratorType, iteratorReg));
-    std::string nextVal = allocateRegister();
-
-    // For Integer^ types, we need to call add method
-    if (xxmlIteratorType == "Integer" || xxmlIteratorType == "Integer^") {
-        // Create Integer(1) for increment
-        std::string oneReg = allocateRegister();
-        emitLine(format("{} = call ptr @Integer_Constructor(i64 1)", oneReg));
-        // Call Integer_add(iterVal, oneReg) to get new Integer
-        emitLine(format("{} = call ptr @Integer_add(ptr {}, ptr {})", nextVal, iterVal, oneReg));
-    } else {
-        // For primitive types, use direct add
-        emitLine(format("{} = add {} {}, 1", nextVal, iteratorType, iterVal));
-    }
-    emitLine(format("store {} {}, ptr {}", iteratorType, nextVal, iteratorReg));
-    emitLine(format("br label %{}", condLabel));
-    dedent();
-
-    // End
-    emitLine(format("{}:", endLabel));
 
     // Pop loop labels
     loopStack_.pop_back();
@@ -1941,9 +2001,35 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
         functionName = "Console_" + consoleMethod;  // Replace with "Console_" prefix
     }
 
+    // Map Integer XXML methods to runtime function names
+    if (functionName.find("Integer_") == 0) {
+        if (functionName == "Integer_lessThan") functionName = "Integer_lt";
+        else if (functionName == "Integer_lessThanOrEqual") functionName = "Integer_le";
+        else if (functionName == "Integer_greaterThan") functionName = "Integer_gt";
+        else if (functionName == "Integer_greaterThanOrEqual") functionName = "Integer_ge";
+        else if (functionName == "Integer_equals") functionName = "Integer_eq";
+        else if (functionName == "Integer_notEquals") functionName = "Integer_ne";
+    }
+
     // CRITICAL FIX: Detect constructor calls and allocate memory with malloc
     bool isConstructorCall = (functionName.find("_Constructor") != std::string::npos &&
                               functionName.find("_Constructor") == functionName.length() - 12);
+
+    // CRITICAL FIX: If calling a template base constructor (e.g., List_Constructor)
+    // redirect to the actual template instantiation (e.g., List_Integer_Constructor)
+    if (isConstructorCall && !isInstanceMethod) {
+        std::string baseName = functionName.substr(0, functionName.length() - 12);
+        // Check if this might be a template base name by looking for an instantiation
+        bool foundInstantiation = false;
+        for (const auto& [className, classInfo] : classes_) {
+            if (className.find(baseName + "_") == 0) {
+                // Found a template instantiation - use it instead
+                functionName = className + "_Constructor";
+                foundInstantiation = true;
+                break;
+            }
+        }
+    }
 
     if (isConstructorCall && !isInstanceMethod) {
         // Extract class name from function name (e.g., "MyClass_Constructor" -> "MyClass")
@@ -2050,6 +2136,12 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
             llvmReturnType = "i64";
         } else if (functionName.find("toBool") != std::string::npos) {
             llvmReturnType = "i1";
+        } else if (functionName == "Integer_lt" || functionName == "Integer_le" ||
+                   functionName == "Integer_gt" || functionName == "Integer_ge" ||
+                   functionName == "Integer_eq" || functionName == "Integer_ne" ||
+                   functionName == "Bool_getValue") {
+            // Integer comparison and Bool_getValue return i1
+            llvmReturnType = "i1";
         }
     }
 
@@ -2141,10 +2233,32 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
             argValue = convertedReg;
             argType = "ptr";
         } else if (argType == "ptr" && expectedType == "i64") {
-            std::string convertedReg = allocateRegister();
-            emitLine(format("{} = ptrtoint ptr {} to i64", convertedReg, argValue));
-            argValue = convertedReg;
-            argType = "i64";
+            // CRITICAL FIX: When converting pointer to i64 for a parameter that expects a value (reference %),
+            // we need to LOAD the value from the pointer first, not convert the pointer address itself
+            // Check if this pointer points to an i64 (NativeType<"int64">^) that needs to be dereferenced
+            auto typeIt = registerTypes_.find(argValue);
+            bool isInt64Pointer = false;
+            if (typeIt != registerTypes_.end()) {
+                std::string xxmlType = typeIt->second;
+                // Check if this is NativeType<"int64">^ or NativeType<int64>^
+                if (xxmlType == "NativeType<\"int64\">" || xxmlType == "NativeType<int64>") {
+                    isInt64Pointer = true;
+                }
+            }
+
+            if (isInt64Pointer) {
+                // Load the i64 value from the pointer
+                std::string loadedReg = allocateRegister();
+                emitLine(format("{} = load i64, ptr {}", loadedReg, argValue));
+                argValue = loadedReg;
+                argType = "i64";
+            } else {
+                // Convert pointer address to i64 (for non-int64 pointers)
+                std::string convertedReg = allocateRegister();
+                emitLine(format("{} = ptrtoint ptr {} to i64", convertedReg, argValue));
+                argValue = convertedReg;
+                argType = "i64";
+            }
         }
 
         callInstr << argType << " " << argValue;
@@ -2827,8 +2941,23 @@ size_t LLVMBackend::calculateClassSize(const std::string& className) const {
     // Look up class in the classes_ map
     auto it = classes_.find(className);
     if (it == classes_.end()) {
-        // Unknown class - use default size (1 byte to avoid zero-sized allocations)
-        return 1;
+        // CRITICAL FIX: If className not found, it might be a template base name (e.g., "List")
+        // Try to find a template instantiation by looking for className_ prefix
+        // This handles the case where List_Constructor is called but we need List_Integer size
+        for (const auto& [name, info] : classes_) {
+            if (name.find(className + "_") == 0) {
+                // Found a template instantiation of this class
+                it = classes_.find(name);
+                if (it != classes_.end()) {
+                    break;
+                }
+            }
+        }
+
+        // Still not found - use default size (1 byte to avoid zero-sized allocations)
+        if (it == classes_.end()) {
+            return 1;
+        }
     }
 
     const ClassInfo& classInfo = it->second;

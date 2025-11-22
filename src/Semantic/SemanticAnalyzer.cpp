@@ -822,28 +822,40 @@ void SemanticAnalyzer::visit(Parser::ForStmt& node) {
     );
     symbolTable_->define(node.iteratorName, std::move(symbol));
 
-    // Analyze range expressions
+    // Analyze initialization
     node.rangeStart->accept(*this);
-    node.rangeEnd->accept(*this);
 
-    // Check that range expressions are integers
-    std::string startType = getExpressionType(node.rangeStart.get());
-    std::string endType = getExpressionType(node.rangeEnd.get());
+    if (node.isCStyleLoop) {
+        // C-style for loop: analyze condition and increment
+        if (node.condition) {
+            node.condition->accept(*this);
+        }
+        if (node.increment) {
+            node.increment->accept(*this);
+        }
+    } else {
+        // Range-based for loop: analyze range end
+        node.rangeEnd->accept(*this);
 
-    if (startType != "Integer") {
-        errorReporter.reportError(
-            Common::ErrorCode::TypeMismatch,
-            "For loop range start must be Integer, got " + startType,
-            node.rangeStart->location
-        );
-    }
+        // Check that range expressions are integers
+        std::string startType = getExpressionType(node.rangeStart.get());
+        std::string endType = getExpressionType(node.rangeEnd.get());
 
-    if (endType != "Integer") {
-        errorReporter.reportError(
-            Common::ErrorCode::TypeMismatch,
-            "For loop range end must be Integer, got " + endType,
-            node.rangeEnd->location
-        );
+        if (startType != "Integer") {
+            errorReporter.reportError(
+                Common::ErrorCode::TypeMismatch,
+                "For loop range start must be Integer, got " + startType,
+                node.rangeStart->location
+            );
+        }
+
+        if (endType != "Integer") {
+            errorReporter.reportError(
+                Common::ErrorCode::TypeMismatch,
+                "For loop range end must be Integer, got " + endType,
+                node.rangeEnd->location
+            );
+        }
     }
 
     // Analyze body
