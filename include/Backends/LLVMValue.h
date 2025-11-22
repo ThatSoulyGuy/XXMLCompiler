@@ -37,6 +37,24 @@ public:
         return LLVMValue(Kind::Null, "null", LLVMType::getPointerType());
     }
 
+    // Get type-appropriate default value (null for pointers, 0 for integers, etc.)
+    static LLVMValue getDefaultValue(const LLVMType& type) {
+        if (type.isPointer()) {
+            return makeNull();  // ptr null
+        } else if (type.getKind() == LLVMType::Kind::I1) {
+            return makeConstant("false", type);  // i1 false
+        } else if (type.isInteger()) {
+            return makeConstant("0", type);  // i64 0, i32 0, etc.
+        } else if (type.isFloatingPoint()) {
+            return makeConstant("0.0", type);  // float 0.0, double 0.0
+        } else if (type.isStruct()) {
+            // For struct types, return zeroinitializer
+            return makeConstant("zeroinitializer", type);
+        }
+        // Default fallback: null pointer
+        return makeNull();
+    }
+
     // Query methods
     Kind getKind() const { return kind_; }
     const std::string& getName() const { return name_; }

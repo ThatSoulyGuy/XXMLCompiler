@@ -106,9 +106,12 @@ public:
         args.push_back("-lSystem");
 #elif defined(_WIN32) || defined(__MINGW32__) || defined(__MINGW64__)
         // Windows/MinGW: Standard C library is implicit, no -ldl needed
-        // Just add basic Windows libraries
+        // Add basic Windows libraries and GCC runtime (for __chkstk, etc.)
         args.push_back("-lkernel32");
         args.push_back("-lmsvcrt");
+        args.push_back("-static-libgcc");  // Statically link GCC runtime (provides __chkstk)
+        args.push_back("-lgcc");  // Provides __chkstk and other runtime functions
+        args.push_back("-lgcc_eh");  // Exception handling support
 #else
         // Linux/Unix: Standard C library and math/dl
         args.push_back("-lc");

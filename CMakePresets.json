@@ -11,6 +11,7 @@
       "hidden": true,
       "binaryDir": "${sourceDir}/build/${presetName}",
       "installDir": "${sourceDir}/install/${presetName}",
+      "generator": "Ninja",
       "cacheVariables": {
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
       }
@@ -19,11 +20,6 @@
       "name": "windows-base",
       "hidden": true,
       "inherits": "default",
-      "generator": "Ninja",
-      "cacheVariables": {
-        "CMAKE_C_COMPILER": "cl.exe",
-        "CMAKE_CXX_COMPILER": "cl.exe"
-      },
       "condition": {
         "type": "equals",
         "lhs": "${hostSystemName}",
@@ -34,11 +30,6 @@
       "name": "linux-base",
       "hidden": true,
       "inherits": "default",
-      "generator": "Ninja",
-      "cacheVariables": {
-        "CMAKE_C_COMPILER": "gcc",
-        "CMAKE_CXX_COMPILER": "g++"
-      },
       "condition": {
         "type": "equals",
         "lhs": "${hostSystemName}",
@@ -49,11 +40,6 @@
       "name": "macos-base",
       "hidden": true,
       "inherits": "default",
-      "generator": "Ninja",
-      "cacheVariables": {
-        "CMAKE_C_COMPILER": "clang",
-        "CMAKE_CXX_COMPILER": "clang++"
-      },
       "condition": {
         "type": "equals",
         "lhs": "${hostSystemName}",
@@ -61,115 +47,55 @@
       }
     },
     {
-      "name": "x64-debug",
-      "displayName": "x64 Debug",
-      "inherits": "windows-base",
-      "architecture": {
-        "value": "x64",
-        "strategy": "external"
-      },
+      "name": "debug",
+      "displayName": "Debug",
+      "inherits": ["windows-base", "linux-base", "macos-base"],
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug"
       }
     },
     {
-      "name": "x64-release",
-      "displayName": "x64 Release",
-      "inherits": "windows-base",
-      "architecture": {
-        "value": "x64",
-        "strategy": "external"
-      },
+      "name": "release",
+      "displayName": "Release",
+      "inherits": ["windows-base", "linux-base", "macos-base"],
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release"
       }
     },
     {
-      "name": "x64-relwithdebinfo",
-      "displayName": "x64 RelWithDebInfo",
-      "inherits": "windows-base",
-      "architecture": {
-        "value": "x64",
-        "strategy": "external"
-      },
+      "name": "relwithdebinfo",
+      "displayName": "RelWithDebInfo",
+      "inherits": ["windows-base", "linux-base", "macos-base"],
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "RelWithDebInfo"
-      }
-    },
-    {
-      "name": "linux-debug",
-      "displayName": "Linux Debug",
-      "inherits": "linux-base",
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Debug"
-      }
-    },
-    {
-      "name": "linux-release",
-      "displayName": "Linux Release",
-      "inherits": "linux-base",
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Release"
-      }
-    },
-    {
-      "name": "macos-debug",
-      "displayName": "macOS Debug",
-      "inherits": "macos-base",
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Debug"
-      }
-    },
-    {
-      "name": "macos-release",
-      "displayName": "macOS Release",
-      "inherits": "macos-base",
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Release"
       }
     }
   ],
   "buildPresets": [
     {
-      "name": "x64-debug",
-      "configurePreset": "x64-debug"
+      "name": "debug",
+      "configurePreset": "debug"
     },
     {
-      "name": "x64-release",
-      "configurePreset": "x64-release"
+      "name": "release",
+      "configurePreset": "release"
     },
     {
-      "name": "x64-relwithdebinfo",
-      "configurePreset": "x64-relwithdebinfo"
-    },
-    {
-      "name": "linux-debug",
-      "configurePreset": "linux-debug"
-    },
-    {
-      "name": "linux-release",
-      "configurePreset": "linux-release"
-    },
-    {
-      "name": "macos-debug",
-      "configurePreset": "macos-debug"
-    },
-    {
-      "name": "macos-release",
-      "configurePreset": "macos-release"
+      "name": "relwithdebinfo",
+      "configurePreset": "relwithdebinfo"
     }
   ],
   "testPresets": [
     {
-      "name": "x64-debug",
-      "configurePreset": "x64-debug",
+      "name": "debug",
+      "configurePreset": "debug",
       "output": {
         "outputOnFailure": true
       }
     },
     {
-      "name": "x64-release",
-      "configurePreset": "x64-release",
+      "name": "release",
+      "configurePreset": "release",
       "output": {
         "outputOnFailure": true
       }

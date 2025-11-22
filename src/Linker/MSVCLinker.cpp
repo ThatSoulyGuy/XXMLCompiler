@@ -32,9 +32,15 @@ private:
         // Validate it's actually MSVC link.exe and not Unix link
         if (!linkerPath.empty()) {
             // Reject Unix-style paths (Git Bash /usr/bin/link, etc.)
+            // Check both forward and backslash variants since Git on Windows uses backslashes
             if (linkerPath.find("/usr/") != std::string::npos ||
                 linkerPath.find("/bin/") != std::string::npos ||
-                linkerPath.find("/mingw") != std::string::npos) {
+                linkerPath.find("/mingw") != std::string::npos ||
+                linkerPath.find("\\usr\\") != std::string::npos ||
+                linkerPath.find("\\bin\\link") != std::string::npos ||
+                linkerPath.find("\\Git\\") != std::string::npos ||
+                linkerPath.find("\\mingw") != std::string::npos ||
+                linkerPath.find("\\msys") != std::string::npos) {
                 // Unix-style path, not MSVC - continue searching
                 linkerPath.clear();
             }
@@ -264,6 +270,9 @@ public:
 
         if (!result.success) {
             std::cerr << "MSVC Linker failed with exit code " << result.exitCode << std::endl;
+            if (!result.output.empty()) {
+                std::cerr << result.output << std::endl;
+            }
             if (!result.error.empty()) {
                 std::cerr << result.error << std::endl;
             }

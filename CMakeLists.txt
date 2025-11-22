@@ -69,6 +69,12 @@ set_target_properties(XXMLLLVMRuntime PROPERTIES
     C_STANDARD_REQUIRED ON
 )
 
+# MSVC-specific runtime settings
+if(MSVC)
+    # Let CMake handle architecture automatically
+    target_compile_options(XXMLLLVMRuntime PRIVATE /EHsc)
+endif()
+
 # Main compiler executable
 add_executable(xxml ${CMAKE_SOURCE_DIR}/src/main.cpp)
 target_link_libraries(xxml PRIVATE XXMLLib)

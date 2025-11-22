@@ -187,6 +187,9 @@ private:
     /// Map XXML types to LLVM types using TypeRegistry
     std::string getLLVMType(const std::string& xxmlType) const;
 
+    /// Get default/zero value for an LLVM type (null for pointers, 0 for integers, etc.)
+    std::string getDefaultValueForType(const std::string& llvmType) const;
+
     /// Ownership helper methods
     OwnershipKind parseOwnership(char ownershipChar) const;
     void registerVariable(const std::string& name, const std::string& type,

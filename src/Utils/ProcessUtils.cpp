@@ -224,9 +224,21 @@ ProcessResult ProcessUtils::executeWindows(
     char* cmdLineBuf = _strdup(cmdLine.c_str());
     const char* workDirPtr = workingDir.empty() ? NULL : workingDir.c_str();
 
+    // Use the full command path as lpApplicationName to avoid MSYS2/Git Bash
+    // path resolution issues where /usr/bin/link might be found instead of link.exe
+    // Only use appName if command contains a path separator (full path), otherwise
+    // let CreateProcessA search PATH by passing NULL
+    const char* appName = NULL;
+    if (!command.empty() && (command.find('/') != std::string::npos ||
+                             command.find('\\') != std::string::npos ||
+                             command.find(':') != std::string::npos)) {
+        // Command contains a path - use it as app name to bypass PATH resolution
+        appName = command.c_str();
+    }
+
     // Create process
     BOOL success = CreateProcessA(
-        NULL,           // Application name
+        appName,        // Application name (full path to avoid PATH issues)
         cmdLineBuf,     // Command line
         NULL,           // Process security attributes
         NULL,           // Thread security attributes

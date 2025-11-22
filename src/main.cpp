@@ -330,17 +330,24 @@ int main(int argc, char* argv[]) {
             std::string runtimeLibPath;
 #ifdef _WIN32
             std::vector<std::string> tryPaths = {
-                // MSVC .lib format
-                exeDir + "\\..\\lib\\Release\\XXMLLLVMRuntime.lib",
-                exeDir + "\\..\\lib\\XXMLLLVMRuntime.lib",
-                "build\\lib\\Release\\XXMLLLVMRuntime.lib",
-                "build\\lib\\XXMLLLVMRuntime.lib",
-                "build\\x64-release\\lib\\XXMLLLVMRuntime.lib",
-                // MinGW .a format (cross-compatible)
-                exeDir + "\\..\\lib\\libXXMLLLVMRuntime.a",
+                // Relative paths first (finds the correct library for the current build)
+                // Visual Studio generator: bin/Release/xxml.exe or bin/Debug/xxml.exe
+                exeDir + "\\..\\..\\lib\\Release\\XXMLLLVMRuntime.lib", // VS Release
+                exeDir + "\\..\\..\\lib\\Debug\\XXMLLLVMRuntime.lib",   // VS Debug
+                exeDir + "\\..\\..\\lib\\XXMLLLVMRuntime.lib",          // VS
+                // Ninja generator: bin/xxml.exe
+                exeDir + "\\..\\lib\\libXXMLLLVMRuntime.a",             // MinGW/Ninja
+                exeDir + "\\..\\lib\\XXMLLLVMRuntime.lib",              // MSVC/Ninja
+                exeDir + "\\..\\lib\\Release\\XXMLLLVMRuntime.lib",     // MSVC/Ninja Release
+                // Fallback to absolute paths
+                "build_mingw\\lib\\libXXMLLLVMRuntime.a",
                 "build\\lib\\libXXMLLLVMRuntime.a",
                 "build\\x64-release\\lib\\libXXMLLLVMRuntime.a",
-                "build_mingw\\lib\\libXXMLLLVMRuntime.a"
+                "build\\vs-x64-release\\lib\\Release\\XXMLLLVMRuntime.lib",
+                "build\\vs-x64-release\\lib\\Debug\\XXMLLLVMRuntime.lib",
+                "build\\lib\\Release\\XXMLLLVMRuntime.lib",
+                "build\\lib\\XXMLLLVMRuntime.lib",
+                "build\\x64-release\\lib\\XXMLLLVMRuntime.lib"
             };
 #else
             std::vector<std::string> tryPaths = {

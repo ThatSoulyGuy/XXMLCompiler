@@ -9,6 +9,7 @@
 #include <fstream>
 #include <iostream>
 #include <algorithm>  // For std::replace
+#include <cctype>     // For std::isdigit
 
 #ifdef _WIN32
 #include <windows.h>  // For GetShortPathNameA
@@ -178,7 +179,11 @@ std::string LLVMBackend::getTargetTriple() const {
         default:
             // Detect host platform
 #ifdef _WIN32
-            return "x86_64-pc-windows-msvc";
+    #if defined(__MINGW32__) || defined(__MINGW64__)
+            return "x86_64-w64-windows-gnu";  // MinGW uses GNU ABI with ___chkstk (3 underscores)
+    #else
+            return "x86_64-pc-windows-msvc";  // MSVC uses __chkstk (2 underscores)
+    #endif
 #elif defined(__APPLE__)
     #if defined(__aarch64__) || defined(__arm64__)
             return "arm64-apple-darwin";
@@ -480,6 +485,23 @@ std::string LLVMBackend::getLLVMType(const std::string& xxmlType) const {
 
     // Default to pointer for user-defined types
     return "ptr";
+}
+
+std::string LLVMBackend::getDefaultValueForType(const std::string& llvmType) const {
+    // Map LLVM type strings to their default values
+    if (llvmType == "ptr" || llvmType.find("%class.") == 0) {
+        return "ptr null";
+    } else if (llvmType == "i1") {
+        return "i1 false";
+    } else if (llvmType == "i8" || llvmType == "i16" || llvmType == "i32" || llvmType == "i64") {
+        return llvmType + " 0";
+    } else if (llvmType == "float") {
+        return "float 0.0";
+    } else if (llvmType == "double") {
+        return "double 0.0";
+    }
+    // Default: ptr null for unknown types (safer than 0)
+    return "ptr null";
 }
 
 std::string LLVMBackend::generateBinaryOp(const std::string& op,
@@ -849,28 +871,19 @@ void LLVMBackend::visit(Parser::ConstructorDecl& node) {
             int fieldIndex = 0;
 
             for (const auto& [propName, propType] : classInfo.properties) {
-                // Remove ownership indicators (^, &, %)
-                std::string baseType = propType;
-                if (!baseType.empty() && (baseType.back() == '^' || baseType.back() == '&' || baseType.back() == '%')) {
-                    baseType = baseType.substr(0, baseType.length() - 1);
-                }
-
                 // Get pointer to field
                 std::string fieldPtrReg = allocateRegister();
                 emitLine(format("{} = getelementptr inbounds %class.{}, ptr %this, i32 0, i32 {}",
                                    fieldPtrReg, currentClassName_, fieldIndex));
 
-                // Initialize field based on type
-                if (baseType == "NativeType" || baseType == "Integer" || baseType == "Float" || baseType == "Double") {
-                    // Initialize to zero
-                    emitLine(format("store i64 0, ptr {}", fieldPtrReg));
-                } else if (baseType == "Bool") {
-                    // Initialize to false
-                    emitLine(format("store i1 false, ptr {}", fieldPtrReg));
-                } else {
-                    // Initialize pointer to null
-                    emitLine(format("store ptr null, ptr {}", fieldPtrReg));
-                }
+                // Get LLVM type for this property
+                std::string llvmType = getLLVMType(propType);
+
+                // Get type-appropriate default value (null for pointers, 0 for integers, etc.)
+                std::string defaultValue = getDefaultValueForType(llvmType);
+
+                // Initialize field with type-safe default value
+                emitLine(format("store {}, ptr {}", defaultValue, fieldPtrReg));
 
                 fieldIndex++;
             }
@@ -1071,11 +1084,34 @@ void LLVMBackend::visit(Parser::ForStmt& node) {
     // Initialize iterator with range start
     node.rangeStart->accept(*this);
     std::string startValue = valueMap_["__last_expr"];
+
+    // If iterator type is Integer and we have a plain integer literal, wrap it
+    if (iteratorType == "ptr" && (xxmlIteratorType == "Integer" || xxmlIteratorType == "Integer^")) {
+        // Check if startValue is just a number (literal)
+        bool isLiteral = !startValue.empty() && (std::isdigit(startValue[0]) || startValue[0] == '-');
+        if (isLiteral) {
+            std::string constructorReg = allocateRegister();
+            emitLine(format("{} = call ptr @Integer_Constructor(i64 {})", constructorReg, startValue));
+            startValue = constructorReg;
+        }
+    }
+
     emitLine(format("store {} {}, ptr {}", iteratorType, startValue, iteratorReg));
 
     // Evaluate range end once
     node.rangeEnd->accept(*this);
     std::string endValue = valueMap_["__last_expr"];
+
+    // Same wrapping for end value
+    if (iteratorType == "ptr" && (xxmlIteratorType == "Integer" || xxmlIteratorType == "Integer^")) {
+        bool isLiteral = !endValue.empty() && (std::isdigit(endValue[0]) || endValue[0] == '-');
+        if (isLiteral) {
+            std::string constructorReg = allocateRegister();
+            emitLine(format("{} = call ptr @Integer_Constructor(i64 {})", constructorReg, endValue));
+            endValue = constructorReg;
+        }
+    }
+
     std::string endReg = allocateRegister();
     emitLine(format("{} = alloca {}", endReg, iteratorType));
     emitLine(format("store {} {}, ptr {}", iteratorType, endValue, endReg));
@@ -2403,6 +2439,9 @@ bool LLVMBackend::generateObjectFile(const std::string& irCode,
     // Fallback: Try to use clang (just use "clang" - should be in PATH)
     std::ostringstream cmd;
     cmd << "clang -c";
+
+    // Specify target to match the IR target triple
+    cmd << " -target " << getTargetTriple();
 
     // Add optimization level
     if (optimizationLevel > 0) {
