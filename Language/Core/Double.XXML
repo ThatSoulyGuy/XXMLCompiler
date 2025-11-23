@@ -67,6 +67,51 @@
 				Return Double::Constructor(result);
 			}
 
+			// Assignment operations (modify this and return this)
+			Method <addAssign> Returns Double^ Parameters (
+				Parameter <other> Types Double&
+			) ->
+			{
+				Instantiate NativeType<"double">^ As <v1> = value;
+				Instantiate NativeType<"double">^ As <v2> = other.value;
+				Instantiate NativeType<"double">^ As <result> = v1 + v2;
+				Run Syscall::memcpy(&value, &result, 8);
+				Return this;
+			}
+
+			Method <subtractAssign> Returns Double^ Parameters (
+				Parameter <other> Types Double&
+			) ->
+			{
+				Instantiate NativeType<"double">^ As <v1> = value;
+				Instantiate NativeType<"double">^ As <v2> = other.value;
+				Instantiate NativeType<"double">^ As <result> = v1 - v2;
+				Run Syscall::memcpy(&value, &result, 8);
+				Return this;
+			}
+
+			Method <multiplyAssign> Returns Double^ Parameters (
+				Parameter <other> Types Double&
+			) ->
+			{
+				Instantiate NativeType<"double">^ As <v1> = value;
+				Instantiate NativeType<"double">^ As <v2> = other.value;
+				Instantiate NativeType<"double">^ As <result> = v1 * v2;
+				Run Syscall::memcpy(&value, &result, 8);
+				Return this;
+			}
+
+			Method <divideAssign> Returns Double^ Parameters (
+				Parameter <other> Types Double&
+			) ->
+			{
+				Instantiate NativeType<"double">^ As <v1> = value;
+				Instantiate NativeType<"double">^ As <v2> = other.value;
+				Instantiate NativeType<"double">^ As <result> = v1 / v2;
+				Run Syscall::memcpy(&value, &result, 8);
+				Return this;
+			}
+
 			// Comparison operations
 			Method <equals> Returns Bool^ Parameters (
 				Parameter <other> Types Double&

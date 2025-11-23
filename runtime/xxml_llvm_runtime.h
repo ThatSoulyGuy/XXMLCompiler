@@ -48,6 +48,33 @@ bool Integer_gt(void* self, void* other);
 bool Integer_ge(void* self, void* other);
 int64_t Integer_toInt64(void* self);
 void* Integer_toString(void* self);
+void* Integer_addAssign(void* self, void* other);
+void* Integer_subtractAssign(void* self, void* other);
+void* Integer_multiplyAssign(void* self, void* other);
+void* Integer_divideAssign(void* self, void* other);
+void* Integer_moduloAssign(void* self, void* other);
+
+// ============================================
+// Float Operations
+// ============================================
+
+void* Float_Constructor(float value);
+void* Float_toString(void* self);
+char* xxml_float_to_string(float value);
+void* Float_addAssign(void* self, void* other);
+void* Float_subtractAssign(void* self, void* other);
+void* Float_multiplyAssign(void* self, void* other);
+void* Float_divideAssign(void* self, void* other);
+
+// ============================================
+// Double Operations
+// ============================================
+
+void* Double_Constructor(double value);
+void* Double_addAssign(void* self, void* other);
+void* Double_subtractAssign(void* self, void* other);
+void* Double_multiplyAssign(void* self, void* other);
+void* Double_divideAssign(void* self, void* other);
 
 // ============================================
 // String Operations

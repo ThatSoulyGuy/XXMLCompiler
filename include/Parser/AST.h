@@ -117,6 +117,30 @@ public:
     std::unique_ptr<Expression> cloneExpr() const override;
 };
 
+class FloatLiteralExpr : public Expression {
+public:
+    float value;
+
+    FloatLiteralExpr(float val, const Common::SourceLocation& loc)
+        : Expression(loc), value(val) {}
+
+    void accept(ASTVisitor& visitor) override;
+    std::unique_ptr<ASTNode> clone() const override;
+    std::unique_ptr<Expression> cloneExpr() const override;
+};
+
+class DoubleLiteralExpr : public Expression {
+public:
+    double value;
+
+    DoubleLiteralExpr(double val, const Common::SourceLocation& loc)
+        : Expression(loc), value(val) {}
+
+    void accept(ASTVisitor& visitor) override;
+    std::unique_ptr<ASTNode> clone() const override;
+    std::unique_ptr<Expression> cloneExpr() const override;
+};
+
 class StringLiteralExpr : public Expression {
 public:
     std::string value;
@@ -366,11 +390,11 @@ public:
 
 class AssignmentStmt : public Statement {
 public:
-    std::string variableName;
+    std::unique_ptr<Expression> target;  // The lvalue (can be IdentifierExpr, MemberAccessExpr, ThisExpr, etc.)
     std::unique_ptr<Expression> value;
 
-    AssignmentStmt(const std::string& varName, std::unique_ptr<Expression> val, const Common::SourceLocation& loc)
-        : Statement(loc), variableName(varName), value(std::move(val)) {}
+    AssignmentStmt(std::unique_ptr<Expression> tgt, std::unique_ptr<Expression> val, const Common::SourceLocation& loc)
+        : Statement(loc), target(std::move(tgt)), value(std::move(val)) {}
 
     void accept(ASTVisitor& visitor) override;    std::unique_ptr<ASTNode> clone() const override;    std::unique_ptr<Statement> cloneStmt() const override;
 };
@@ -435,6 +459,19 @@ public:
           body(std::move(bodyStmts)) {}
 
     void accept(ASTVisitor& visitor) override;    std::unique_ptr<ASTNode> clone() const override;    std::unique_ptr<Declaration> cloneDecl() const override;
+};
+
+class DestructorDecl : public Declaration {
+public:
+    std::vector<std::unique_ptr<Statement>> body;
+
+    DestructorDecl(std::vector<std::unique_ptr<Statement>> bodyStmts,
+                   const Common::SourceLocation& loc)
+        : Declaration(loc), body(std::move(bodyStmts)) {}
+
+    void accept(ASTVisitor& visitor) override;
+    std::unique_ptr<ASTNode> clone() const override;
+    std::unique_ptr<Declaration> cloneDecl() const override;
 };
 
 class MethodDecl : public Declaration {
@@ -613,6 +650,7 @@ public:
     virtual void visit(AccessSection& node) = 0;
     virtual void visit(PropertyDecl& node) = 0;
     virtual void visit(ConstructorDecl& node) = 0;
+    virtual void visit(DestructorDecl& node) = 0;
     virtual void visit(MethodDecl& node) = 0;
     virtual void visit(ParameterDecl& node) = 0;
     virtual void visit(EntrypointDecl& node) = 0;
@@ -631,6 +669,8 @@ public:
     virtual void visit(AssignmentStmt& node) = 0;
 
     virtual void visit(IntegerLiteralExpr& node) = 0;
+    virtual void visit(FloatLiteralExpr& node) = 0;
+    virtual void visit(DoubleLiteralExpr& node) = 0;
     virtual void visit(StringLiteralExpr& node) = 0;
     virtual void visit(BoolLiteralExpr& node) = 0;
     virtual void visit(ThisExpr& node) = 0;

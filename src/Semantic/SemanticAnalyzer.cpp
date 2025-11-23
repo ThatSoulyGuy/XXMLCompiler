@@ -583,6 +583,19 @@ void SemanticAnalyzer::visit(Parser::ConstructorDecl& node) {
     symbolTable_->exitScope();
 }
 
+void SemanticAnalyzer::visit(Parser::DestructorDecl& node) {
+    symbolTable_->enterScope("Destructor");
+
+    // Process body
+    for (auto& stmt : node.body) {
+        stmt->accept(*this);
+    }
+
+    symbolTable_->exitScope();
+
+    // Note: Tracking that this class has a destructor is done in ClassDecl visit
+}
+
 void SemanticAnalyzer::visit(Parser::MethodDecl& node) {
     // Visit return type to record template instantiations
     node.returnType->accept(*this);
@@ -784,23 +797,20 @@ void SemanticAnalyzer::visit(Parser::InstantiateStmt& node) {
 }
 
 void SemanticAnalyzer::visit(Parser::AssignmentStmt& node) {
-    // Check if variable exists
-    Symbol* existing = symbolTable_->resolve(node.variableName);
-    if (!existing) {
-        errorReporter.reportError(
-            Common::ErrorCode::UndeclaredIdentifier,
-            "Variable '" + node.variableName + "' not declared",
-            node.location
-        );
-        return;
-    }
+    // Analyze the target expression (lvalue)
+    node.target->accept(*this);
 
-    // Analyze the value expression
+    // Verify it's a valid lvalue (for now, we allow all expressions that were analyzed successfully)
+    // In a more complete implementation, we would check that it's actually assignable
+
+    // Analyze the value expression (rvalue)
     node.value->accept(*this);
 
-    // Type check (but be lenient with Unknown types)
+    // Type check (get types from both sides)
+    std::string targetType = getExpressionType(node.target.get());
     std::string valueType = getExpressionType(node.value.get());
-    if (valueType != "Unknown" && !isCompatibleType(existing->typeName, valueType)) {
+
+    if (targetType != "Unknown" && valueType != "Unknown" && !isCompatibleType(targetType, valueType)) {
         // Warn about type mismatch but don't error
     }
 }
@@ -952,6 +962,14 @@ void SemanticAnalyzer::visit(Parser::ContinueStmt& node) {
 // Expression visitors
 void SemanticAnalyzer::visit(Parser::IntegerLiteralExpr& node) {
     registerExpressionType(&node, "Integer", Parser::OwnershipType::Owned);
+}
+
+void SemanticAnalyzer::visit(Parser::FloatLiteralExpr& node) {
+    registerExpressionType(&node, "Float", Parser::OwnershipType::Owned);
+}
+
+void SemanticAnalyzer::visit(Parser::DoubleLiteralExpr& node) {
+    registerExpressionType(&node, "Double", Parser::OwnershipType::Owned);
 }
 
 void SemanticAnalyzer::visit(Parser::StringLiteralExpr& node) {
@@ -2223,11 +2241,47 @@ bool SemanticAnalyzer::validateConstraintRequirements(const std::string& typeNam
         typeSubstitutions[constraint.templateParams[0].name] = typeName;
     }
 
+    // Resolve the type name to its fully qualified name
+    // Try to find the class to get its actual registered name
+    std::string resolvedTypeName = typeName;
+    ClassInfo* classInfo = findClass(typeName);
+    if (classInfo) {
+        // Use the fully qualified name from the registry
+        // Search the registry for the key that matches this ClassInfo
+        for (const auto& pair : classRegistry_) {
+            if (&pair.second == classInfo) {
+                resolvedTypeName = pair.first;
+                break;
+            }
+        }
+    }
+
     // Validate each requirement
     for (const auto* requirement : constraint.requirements) {
         if (requirement->kind == Parser::RequirementKind::Method) {
-            // Check if the type has the required method
-            if (!hasMethod(typeName, requirement->methodName, requirement->methodReturnType.get())) {
+            // Substitute template parameters in the return type if needed
+            Parser::TypeRef* returnTypeToCheck = requirement->methodReturnType.get();
+            std::unique_ptr<Parser::TypeRef> substitutedReturnType;
+
+            if (returnTypeToCheck) {
+                std::string returnTypeName = returnTypeToCheck->typeName;
+
+                // Check if the return type is a template parameter that needs substitution
+                if (typeSubstitutions.find(returnTypeName) != typeSubstitutions.end()) {
+                    // Create a substituted return type
+                    std::string substitutedTypeName = typeSubstitutions.at(returnTypeName);
+                    substitutedReturnType = std::make_unique<Parser::TypeRef>(
+                        substitutedTypeName,
+                        returnTypeToCheck->ownership,
+                        returnTypeToCheck->location,
+                        returnTypeToCheck->isTemplateParameter
+                    );
+                    returnTypeToCheck = substitutedReturnType.get();
+                }
+            }
+
+            // Check if the type has the required method (use resolved name)
+            if (!hasMethod(resolvedTypeName, requirement->methodName, returnTypeToCheck)) {
                 errorReporter.reportError(
                     Common::ErrorCode::ConstraintViolation,
                     "Type '" + typeName + "' does not have required method '" +

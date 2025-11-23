@@ -904,45 +904,14 @@ void CodeGenerator::visit(Parser::InstantiateStmt& node) {
 void CodeGenerator::visit(Parser::AssignmentStmt& node) {
     indent();
 
-    std::string varName = sanitizeIdentifier(node.variableName);
+    // Generate the lvalue expression (target)
+    node.target->accept(*this);
 
-    // Check ownership type of the variable (for parameters)
-    // - Reference (&): Assignment affects the referenced object (intended behavior)
-    // - Copy (%): Assignment only affects the local copy (C++ pass-by-value semantics)
-    // - Owned (^): Assignment moves ownership
-    auto ownershipIt = variableOwnership.find(node.variableName);
-    if (ownershipIt != variableOwnership.end()) {
-        Parser::OwnershipType ownership = ownershipIt->second;
-        // Copy parameters: assignments only affect local copy, not the original
-        // Reference parameters: assignments affect the original object
-        // Owned parameters: use move semantics
-        // This is handled automatically by the C++ type system via getParameterType()
-    }
+    write(" = ");
 
-    // Check if this variable is a smart pointer (Owned<T>)
-    bool isSmartPtr = variableIsSmartPointer[node.variableName];
-
-    if (isSmartPtr) {
-        // For Owned<T>, we need to use the assignment operator or extract/construct
-        // Generate: varName = Owned<T>(value.get())
-        write(varName + " = ");
-
-        // Check if value is a member access or identifier that might be Owned<T>
-        if (dynamic_cast<Parser::MemberAccessExpr*>(node.value.get()) ||
-            dynamic_cast<Parser::IdentifierExpr*>(node.value.get())) {
-            // Wrap in constructor with .get() call
-            write("std::move(");
-            node.value->accept(*this);
-            write(")");
-        } else {
-            // Regular expression
-            node.value->accept(*this);
-        }
-    } else {
-        // Regular assignment
-        write(varName + " = ");
-        node.value->accept(*this);
-    }
+    // Generate the rvalue expression (value)
+    // For now, simplified - just generate the value directly
+    node.value->accept(*this);
 
     write(";");
     output << "\n";

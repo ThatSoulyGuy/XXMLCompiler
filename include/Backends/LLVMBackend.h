@@ -82,6 +82,7 @@ public:
     void visit(Parser::AccessSection& node) override;
     void visit(Parser::PropertyDecl& node) override;
     void visit(Parser::ConstructorDecl& node) override;
+    void visit(Parser::DestructorDecl& node) override;
     void visit(Parser::MethodDecl& node) override;
     void visit(Parser::ParameterDecl& node) override;
     void visit(Parser::EntrypointDecl& node) override;
@@ -100,6 +101,8 @@ public:
     void visit(Parser::ConstraintDecl& node) override;
 
     void visit(Parser::IntegerLiteralExpr& node) override;
+    void visit(Parser::FloatLiteralExpr& node) override;
+    void visit(Parser::DoubleLiteralExpr& node) override;
     void visit(Parser::StringLiteralExpr& node) override;
     void visit(Parser::BoolLiteralExpr& node) override;
     void visit(Parser::ThisExpr& node) override;

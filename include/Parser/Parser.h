@@ -39,6 +39,7 @@ private:
     std::unique_ptr<AccessSection> parseAccessSection();
     std::unique_ptr<PropertyDecl> parseProperty();
     std::unique_ptr<ConstructorDecl> parseConstructor();
+    std::unique_ptr<DestructorDecl> parseDestructor();
     std::unique_ptr<MethodDecl> parseMethod();
     std::unique_ptr<ParameterDecl> parseParameter();
 

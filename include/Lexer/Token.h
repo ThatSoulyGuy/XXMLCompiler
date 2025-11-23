@@ -16,6 +16,8 @@ public:
     // For literals
     union {
         int64_t intValue;
+        float floatValue;
+        double doubleValue;
         bool boolValue;
     };
     std::string stringValue;

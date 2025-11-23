@@ -75,6 +75,22 @@ std::unique_ptr<Expression> BoolLiteralExpr::cloneExpr() const {
     return std::make_unique<BoolLiteralExpr>(value, location);
 }
 
+std::unique_ptr<ASTNode> FloatLiteralExpr::clone() const {
+    return cloneExpr();
+}
+
+std::unique_ptr<Expression> FloatLiteralExpr::cloneExpr() const {
+    return std::make_unique<FloatLiteralExpr>(value, location);
+}
+
+std::unique_ptr<ASTNode> DoubleLiteralExpr::clone() const {
+    return cloneExpr();
+}
+
+std::unique_ptr<Expression> DoubleLiteralExpr::cloneExpr() const {
+    return std::make_unique<DoubleLiteralExpr>(value, location);
+}
+
 std::unique_ptr<ASTNode> ThisExpr::clone() const {
     return cloneExpr();
 }
@@ -287,7 +303,7 @@ std::unique_ptr<ASTNode> AssignmentStmt::clone() const {
 
 std::unique_ptr<Statement> AssignmentStmt::cloneStmt() const {
     return std::make_unique<AssignmentStmt>(
-        variableName,
+        target->cloneExpr(),
         value->cloneExpr(),
         location
     );
@@ -340,7 +356,23 @@ std::unique_ptr<Declaration> ConstructorDecl::cloneDecl() const {
     );
 }
 
-std::unique_ptr<ASTNode> MethodDecl::clone() const {
+std::unique_ptr<ASTNode> DestructorDecl::clone() const {
+    return cloneDecl();
+}
+
+std::unique_ptr<Declaration> DestructorDecl::cloneDecl() const {
+    std::vector<std::unique_ptr<Statement>> clonedBody;
+    for (const auto& stmt : body) {
+        clonedBody.push_back(stmt->cloneStmt());
+    }
+
+    return std::make_unique<DestructorDecl>(
+        std::move(clonedBody),
+        location
+    );
+}
+
+std::unique_ptr<ASTNode> MethodDecl::clone() const{
     return cloneDecl();
 }
 

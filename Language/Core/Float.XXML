@@ -67,6 +67,51 @@
 				Return Float::Constructor(result);
 			}
 
+			// Assignment operations (modify this and return this)
+			Method <addAssign> Returns Float^ Parameters (
+				Parameter <other> Types Float&
+			) ->
+			{
+				Instantiate NativeType<"float">^ As <v1> = value;
+				Instantiate NativeType<"float">^ As <v2> = other.value;
+				Instantiate NativeType<"float">^ As <result> = v1 + v2;
+				Run Syscall::memcpy(&value, &result, 4);
+				Return this;
+			}
+
+			Method <subtractAssign> Returns Float^ Parameters (
+				Parameter <other> Types Float&
+			) ->
+			{
+				Instantiate NativeType<"float">^ As <v1> = value;
+				Instantiate NativeType<"float">^ As <v2> = other.value;
+				Instantiate NativeType<"float">^ As <result> = v1 - v2;
+				Run Syscall::memcpy(&value, &result, 4);
+				Return this;
+			}
+
+			Method <multiplyAssign> Returns Float^ Parameters (
+				Parameter <other> Types Float&
+			) ->
+			{
+				Instantiate NativeType<"float">^ As <v1> = value;
+				Instantiate NativeType<"float">^ As <v2> = other.value;
+				Instantiate NativeType<"float">^ As <result> = v1 * v2;
+				Run Syscall::memcpy(&value, &result, 4);
+				Return this;
+			}
+
+			Method <divideAssign> Returns Float^ Parameters (
+				Parameter <other> Types Float&
+			) ->
+			{
+				Instantiate NativeType<"float">^ As <v1> = value;
+				Instantiate NativeType<"float">^ As <v2> = other.value;
+				Instantiate NativeType<"float">^ As <result> = v1 / v2;
+				Run Syscall::memcpy(&value, &result, 4);
+				Return this;
+			}
+
 			// Comparison operations
 			Method <equals> Returns Bool^ Parameters (
 				Parameter <other> Types Float&
@@ -137,6 +182,14 @@
 				Instantiate NativeType<"float">^ As <v> = value;
 				Instantiate NativeType<"double">^ As <result> = v;
 				Return Double::Constructor(result);
+			}
+
+			// String conversion
+			Method <toString> Returns String^ Parameters () ->
+			{
+				Instantiate NativeType<"float">^ As <v> = value;
+				Instantiate NativeType<"cstr">^ As <str> = Syscall::float_to_string(v);
+				Return String::Constructor(str);
 			}
 		]
 	]

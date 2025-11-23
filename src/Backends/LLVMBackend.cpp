@@ -8,8 +8,11 @@
 #include <sstream>
 #include <fstream>
 #include <iostream>
+#include <iomanip>    // For std::setprecision
 #include <algorithm>  // For std::replace
 #include <cctype>     // For std::isdigit
+#include <cstring>    // For std::memcpy
+#include <cstdint>    // For uint32_t
 
 #ifdef _WIN32
 #include <windows.h>  // For GetShortPathNameA
@@ -276,6 +279,31 @@ std::string LLVMBackend::generatePreamble() {
     preamble << "declare i1 @Integer_ge(ptr, ptr)\n";
     preamble << "declare i64 @Integer_toInt64(ptr)\n";
     preamble << "declare ptr @Integer_toString(ptr)\n";
+    preamble << "declare ptr @Integer_addAssign(ptr, ptr)\n";
+    preamble << "declare ptr @Integer_subtractAssign(ptr, ptr)\n";
+    preamble << "declare ptr @Integer_multiplyAssign(ptr, ptr)\n";
+    preamble << "declare ptr @Integer_divideAssign(ptr, ptr)\n";
+    preamble << "declare ptr @Integer_moduloAssign(ptr, ptr)\n";
+    preamble << "\n";
+
+    // Float Operations
+    preamble << "; Float Operations\n";
+    preamble << "declare ptr @Float_Constructor(float)\n";
+    preamble << "declare ptr @Float_toString(ptr)\n";
+    preamble << "declare ptr @xxml_float_to_string(float)\n";
+    preamble << "declare ptr @Float_addAssign(ptr, ptr)\n";
+    preamble << "declare ptr @Float_subtractAssign(ptr, ptr)\n";
+    preamble << "declare ptr @Float_multiplyAssign(ptr, ptr)\n";
+    preamble << "declare ptr @Float_divideAssign(ptr, ptr)\n";
+    preamble << "\n";
+
+    // Double Operations
+    preamble << "; Double Operations\n";
+    preamble << "declare ptr @Double_Constructor(double)\n";
+    preamble << "declare ptr @Double_addAssign(ptr, ptr)\n";
+    preamble << "declare ptr @Double_subtractAssign(ptr, ptr)\n";
+    preamble << "declare ptr @Double_multiplyAssign(ptr, ptr)\n";
+    preamble << "declare ptr @Double_divideAssign(ptr, ptr)\n";
     preamble << "\n";
 
     // String Operations
@@ -854,6 +882,29 @@ void LLVMBackend::visit(Parser::ConstructorDecl& node) {
         registerTypes_["%" + param->name] = param->type->typeName;
     }
 
+    // Mangle constructor name to support overloading
+    // LLVM doesn't support function overloading, so add parameter count suffix
+    // BUT skip mangling for standard library types (declared in preamble or runtime)
+    static const std::unordered_set<std::string> builtinTypes = {
+        "Integer", "String", "Bool", "Float", "Double", "None"
+    };
+
+    // Extract base class name (without namespace/template)
+    std::string baseClassName = currentClassName_;
+    size_t colonPos = baseClassName.rfind("::");
+    if (colonPos != std::string::npos) {
+        baseClassName = baseClassName.substr(colonPos + 2);
+    }
+    size_t templatePos = baseClassName.find('_');
+    if (templatePos != std::string::npos) {
+        baseClassName = baseClassName.substr(0, templatePos);
+    }
+
+    if (builtinTypes.find(baseClassName) == builtinTypes.end()) {
+        // Only mangle user-defined types, not built-in types
+        funcName += "_" + std::to_string(node.parameters.size());
+    }
+
     // Store 'this' in value map
     valueMap_["this"] = "%this";
 
@@ -909,6 +960,40 @@ void LLVMBackend::visit(Parser::ConstructorDecl& node) {
     valueMap_.erase("this");
 }
 
+void LLVMBackend::visit(Parser::DestructorDecl& node) {
+    if (currentClassName_.empty()) {
+        emitLine("; ERROR: Destructor outside of class");
+        return;
+    }
+
+    // Generate qualified function name: ClassName_Destructor
+    std::string funcName = getQualifiedName(currentClassName_, "Destructor");
+
+    // Store 'this' in value map
+    valueMap_["this"] = "%this";
+
+    // Destructors return void
+    currentFunctionReturnType_ = "void";
+    emitLine("; Destructor for " + currentClassName_);
+    emitLine("define void @" + funcName + "(ptr %this) #1 {");
+    indent();
+
+    // Generate body
+    for (auto& stmt : node.body) {
+        stmt->accept(*this);
+    }
+
+    // Return void
+    emitLine("ret void");
+
+    dedent();
+    emitLine("}");
+    emitLine("");
+
+    // Clear 'this' mapping
+    valueMap_.erase("this");
+}
+
 void LLVMBackend::visit(Parser::MethodDecl& node) {
     // Determine function name (qualified if inside a class)
     std::string funcName;
@@ -920,8 +1005,9 @@ void LLVMBackend::visit(Parser::MethodDecl& node) {
         funcName = node.name;
     }
 
-    // Build parameter list
+    // Build parameter list and collect parameter types for name mangling
     std::stringstream params;
+    std::vector<std::string> paramTypes;
 
     // Add implicit 'this' parameter for instance methods
     if (isInstanceMethod) {
@@ -934,10 +1020,20 @@ void LLVMBackend::visit(Parser::MethodDecl& node) {
         auto& param = node.parameters[i];
         std::string paramType = getLLVMType(param->type->typeName);
         params << paramType << " %" << param->name;
+        paramTypes.push_back(paramType);
 
         // Store parameter in value map and track its type
         valueMap_[param->name] = "%" + param->name;
         registerTypes_["%" + param->name] = param->type->typeName;
+    }
+
+    // Mangle constructor names to support overloading
+    // LLVM doesn't support function overloading, so we need unique names
+    if (node.name == "Constructor") {
+        // Add parameter count suffix: Constructor_0, Constructor_1, Constructor_2, etc.
+        std::string suffix = "_" + std::to_string(paramTypes.size());
+        funcName += suffix;
+        std::cerr << "DEBUG: Mangling constructor '" << funcName << "' with " << paramTypes.size() << " params" << std::endl;
     }
 
     // Generate function definition
@@ -1361,6 +1457,26 @@ void LLVMBackend::visit(Parser::IntegerLiteralExpr& node) {
     valueMap_["__last_expr"] = reg;
 }
 
+void LLVMBackend::visit(Parser::FloatLiteralExpr& node) {
+    // Float literals in LLVM IR:
+    // LLVM IR requires float constants in hex to use 64-bit double precision format
+    // Convert float to double, then to IEEE 754 hex (0xHHHHHHHHHHHHHHHH)
+    double doubleValue = static_cast<double>(node.value);
+    uint64_t bits;
+    std::memcpy(&bits, &doubleValue, sizeof(double));
+
+    std::ostringstream oss;
+    oss << "0x" << std::hex << std::uppercase << std::setfill('0') << std::setw(16) << bits << "f";
+    valueMap_["__last_expr"] = oss.str();
+}
+
+void LLVMBackend::visit(Parser::DoubleLiteralExpr& node) {
+    // Double literals are constants - format with sufficient precision
+    std::ostringstream oss;
+    oss << std::scientific << std::setprecision(17) << node.value;
+    valueMap_["__last_expr"] = oss.str();
+}
+
 void LLVMBackend::visit(Parser::StringLiteralExpr& node) {
     // Create a unique label for this string literal
     std::string strLabel = format("str.{}", labelCounter_++);
@@ -1541,6 +1657,47 @@ void LLVMBackend::visit(Parser::MemberAccessExpr& node) {
         return;
     }
 
+    // Check if this is 'this' expression (member access on current object)
+    if (dynamic_cast<Parser::ThisExpr*>(node.object.get())) {
+        // Access property on 'this'
+        auto classIt = classes_.find(currentClassName_);
+        if (classIt != classes_.end()) {
+            // Find the property index
+            const auto& properties = classIt->second.properties;
+            for (size_t i = 0; i < properties.size(); ++i) {
+                if (properties[i].first == node.member) {
+                    // Generate getelementptr to access the property
+                    std::string ptrReg = allocateRegister();
+
+                    // Mangle class name to remove ::
+                    std::string mangledTypeName = currentClassName_;
+                    size_t pos = 0;
+                    while ((pos = mangledTypeName.find("::")) != std::string::npos) {
+                        mangledTypeName.replace(pos, 2, "_");
+                    }
+                    emitLine(ptrReg + " = getelementptr inbounds %class." + mangledTypeName +
+                            ", ptr %this, i32 0, i32 " + std::to_string(i));
+
+                    // Load the field value
+                    std::string valueReg = allocateRegister();
+                    std::string llvmType = properties[i].second; // LLVM type (ptr, i64, etc.)
+                    emitLine(valueReg + " = load " + llvmType + ", ptr " + ptrReg);
+
+                    valueMap_["__last_expr"] = valueReg;
+                    // Store the LLVM type as a pseudo-XXML type for later lookup
+                    if (llvmType == "ptr") {
+                        registerTypes_[valueReg] = "NativeType<\"ptr\">";
+                    } else if (llvmType == "i64") {
+                        registerTypes_[valueReg] = "NativeType<\"int64\">";
+                    } else {
+                        registerTypes_[valueReg] = properties[i].first; // Fallback to property name
+                    }
+                    return;
+                }
+            }
+        }
+    }
+
     // Check if this is a simple identifier (variable)
     if (auto* ident = dynamic_cast<Parser::IdentifierExpr*>(node.object.get())) {
         // Look up the variable to get its type
@@ -1632,6 +1789,13 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
                     }
                 }
 
+                // Strip ownership modifiers (^, %, &) before mangling for function name
+                if (!className.empty() && (className.back() == '^' ||
+                                           className.back() == '%' ||
+                                           className.back() == '&')) {
+                    className = className.substr(0, className.length() - 1);
+                }
+
                 // Mangle template arguments if present (e.g., SomeClass<Integer> -> SomeClass_Integer)
                 if (className.find('<') != std::string::npos) {
                     // Replace namespace separators
@@ -1680,6 +1844,13 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
                         if (end != std::string::npos) {
                             className = className.substr(start, end - start);
                         }
+                    }
+
+                    // Strip ownership modifiers (^, %, &) before mangling for function name
+                    if (!className.empty() && (className.back() == '^' ||
+                                               className.back() == '%' ||
+                                               className.back() == '&')) {
+                        className = className.substr(0, className.length() - 1);
                     }
 
                     // Mangle namespace separators (same as getQualifiedName)
@@ -1842,6 +2013,13 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
                         if (end != std::string::npos) {
                             className = className.substr(start, end - start);
                         }
+                    }
+
+                    // Strip ownership modifiers (^, %, &) before mangling for function name
+                    if (!className.empty() && (className.back() == '^' ||
+                                               className.back() == '%' ||
+                                               className.back() == '&')) {
+                        className = className.substr(0, className.length() - 1);
                     }
 
                     // Mangle template arguments if present
@@ -2012,28 +2190,61 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
     }
 
     // CRITICAL FIX: Detect constructor calls and allocate memory with malloc
-    bool isConstructorCall = (functionName.find("_Constructor") != std::string::npos &&
-                              functionName.find("_Constructor") == functionName.length() - 12);
+    bool isConstructorCall = functionName.find("_Constructor") != std::string::npos;
+    std::string className;
+
+    // Extract className if this is a constructor call
+    if (isConstructorCall) {
+        size_t constructorPos = functionName.find("_Constructor");
+        if (constructorPos != std::string::npos) {
+            className = functionName.substr(0, constructorPos);
+        }
+    }
 
     // CRITICAL FIX: If calling a template base constructor (e.g., List_Constructor)
     // redirect to the actual template instantiation (e.g., List_Integer_Constructor)
-    if (isConstructorCall && !isInstanceMethod) {
-        std::string baseName = functionName.substr(0, functionName.length() - 12);
+    if (isConstructorCall && !isInstanceMethod && !className.empty()) {
         // Check if this might be a template base name by looking for an instantiation
         bool foundInstantiation = false;
-        for (const auto& [className, classInfo] : classes_) {
-            if (className.find(baseName + "_") == 0) {
+        for (const auto& [registeredClassName, classInfo] : classes_) {
+            if (registeredClassName.find(className + "_") == 0) {
                 // Found a template instantiation - use it instead
-                functionName = className + "_Constructor";
+                className = registeredClassName;
                 foundInstantiation = true;
                 break;
             }
         }
     }
 
-    if (isConstructorCall && !isInstanceMethod) {
-        // Extract class name from function name (e.g., "MyClass_Constructor" -> "MyClass")
-        std::string className = functionName.substr(0, functionName.length() - 12);
+    // Add parameter count mangling to constructor calls to support overloading
+    // LLVM doesn't support function overloading, so Constructor_0, Constructor_2, etc.
+    // BUT skip mangling for standard library types (declared in preamble or runtime)
+    if (isConstructorCall && !isInstanceMethod && !className.empty()) {
+        static const std::unordered_set<std::string> builtinTypes = {
+            "Integer", "String", "Bool", "Float", "Double", "None"
+        };
+
+        size_t argCount = argValues.size();
+        functionName = className + "_Constructor";
+
+        // Extract base class name to check if it's built-in
+        std::string baseClassName = className;
+        size_t colonPos = baseClassName.rfind("::");
+        if (colonPos != std::string::npos) {
+            baseClassName = baseClassName.substr(colonPos + 2);
+        }
+        size_t templatePos = baseClassName.find('_');
+        if (templatePos != std::string::npos) {
+            baseClassName = baseClassName.substr(0, templatePos);
+        }
+
+        // Only mangle user-defined types, not built-in types
+        if (builtinTypes.find(baseClassName) == builtinTypes.end()) {
+            functionName += "_" + std::to_string(argCount);
+        }
+    }
+
+    if (isConstructorCall && !isInstanceMethod && !className.empty()) {
 
         // Skip malloc injection for built-in types handled by the runtime library
         // These constructors allocate their own memory internally
@@ -2082,14 +2293,74 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
                 }
             }
 
+            // Strip ownership modifiers (^, %, &) for type lookup
+            std::string baseInstanceType = instanceType;
+            if (!baseInstanceType.empty() && (baseInstanceType.back() == '^' ||
+                                              baseInstanceType.back() == '%' ||
+                                              baseInstanceType.back() == '&')) {
+                baseInstanceType = baseInstanceType.substr(0, baseInstanceType.length() - 1);
+            }
+
             // Extract method name from function name
             size_t underscorePos = functionName.rfind('_');
             if (underscorePos != std::string::npos) {
                 std::string methodName = functionName.substr(underscorePos + 1);
 
                 // Look up the method in the semantic analyzer
-                auto* methodInfo = semanticAnalyzer_->findMethod(instanceType, methodName);
-                if (methodInfo) {
+                auto* methodInfo = semanticAnalyzer_->findMethod(baseInstanceType, methodName);
+
+                // If not found, check if this is a template instantiation
+                // e.g., "Math::Vector2<Float>" or mangled form "Math_Vector2_Float"
+                if (!methodInfo && baseInstanceType.find('<') != std::string::npos) {
+                    // Template instantiation with angle brackets: Math::Vector2<Float>
+                    size_t openAngle = baseInstanceType.find('<');
+                    size_t closeAngle = baseInstanceType.rfind('>');
+
+                    if (openAngle != std::string::npos && closeAngle != std::string::npos) {
+                        // Extract base template name: Math::Vector2
+                        std::string baseTemplate = baseInstanceType.substr(0, openAngle);
+
+                        // Extract template argument: Float
+                        std::string templateArg = baseInstanceType.substr(openAngle + 1, closeAngle - openAngle - 1);
+
+                        // Try to look up method in the base template
+                        methodInfo = semanticAnalyzer_->findMethod(baseTemplate, methodName);
+
+                        if (methodInfo) {
+                            // Substitute template parameters in return type
+                            // For Vector2<T>, if return type is "T%" and T=Float, result is "Float%"
+                            returnType = methodInfo->returnType;
+
+                            // Simple template parameter substitution
+                            // Find template parameter name from base template
+                            const auto& templateClasses = semanticAnalyzer_->getTemplateClasses();
+                            auto templateIt = templateClasses.find(baseTemplate);
+                            if (templateIt != templateClasses.end() && !templateIt->second->templateParams.empty()) {
+                                // For now, assume single template parameter (T)
+                                std::string templateParam = templateIt->second->templateParams[0].name;
+
+                                // Replace all occurrences of T with the concrete type
+                                size_t pos = 0;
+                                while ((pos = returnType.find(templateParam)) != std::string::npos) {
+                                    // Only replace if it's a standalone identifier (not part of another word)
+                                    bool isBoundary = (pos == 0 || !std::isalnum(returnType[pos - 1])) &&
+                                                     (pos + templateParam.length() >= returnType.length() ||
+                                                      !std::isalnum(returnType[pos + templateParam.length()]));
+                                    if (isBoundary) {
+                                        returnType.replace(pos, templateParam.length(), templateArg);
+                                        pos += templateArg.length();
+                                    } else {
+                                        pos += templateParam.length();
+                                    }
+                                }
+                            }
+
+                            fromSemanticAnalyzer = true;
+                        }
+                    }
+                }
+
+                if (methodInfo && !fromSemanticAnalyzer) {
                     returnType = methodInfo->returnType;
                     fromSemanticAnalyzer = true;
                 }
@@ -2176,12 +2447,21 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
                    functionName.find("memset") != std::string::npos) {
             expectedType = (i < 2) ? "ptr" : "i64";
         }
-        // Constructors that take primitive values (exact match to avoid matching List_Integer_Constructor)
-        else if (functionName == "Integer_Constructor") {
+        // Constructors that take primitive values
+        // Note: Function names may be namespaced (e.g., Language_Core_Float_Constructor)
+        // so we check if the name contains the pattern, not just exact match
+        else if (functionName.find("Integer_Constructor") != std::string::npos &&
+                 functionName.find("List_Integer_Constructor") == std::string::npos) {
             expectedType = "i64";  // Integer constructor takes i64
         }
-        else if (functionName == "Bool_Constructor") {
+        else if (functionName.find("Bool_Constructor") != std::string::npos) {
             expectedType = "i1";  // Bool constructor takes i1
+        }
+        else if (functionName.find("Float_Constructor") != std::string::npos) {
+            expectedType = "float";  // Float constructor takes float
+        }
+        else if (functionName.find("Double_Constructor") != std::string::npos) {
+            expectedType = "double";  // Double constructor takes double
         }
         // User-defined class constructors: first arg is always 'this' pointer (ptr)
         else if (isConstructorCall && i == 0) {
@@ -2220,7 +2500,27 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
             } else if (argValue[0] == '@') {
                 argType = "ptr";  // Globals are pointers
             } else {
-                argType = "i64";  // Numeric literal
+                // Numeric literal - detect if it's float/double or integer
+                // Float literals end with 'f', double literals contain 'e' or '.', integers are plain numbers
+                bool hasFloatSuffix = !argValue.empty() && argValue.back() == 'f';
+                bool isFloatingPoint = hasFloatSuffix ||
+                                      argValue.find('e') != std::string::npos ||
+                                      argValue.find('.') != std::string::npos;
+
+                if (hasFloatSuffix) {
+                    argType = "float";
+                    // Remove 'f' suffix from argValue for LLVM IR
+                    argValue = argValue.substr(0, argValue.length() - 1);
+                } else if (isFloatingPoint) {
+                    // Could be double
+                    if (expectedType == "double") {
+                        argType = "double";
+                    } else {
+                        argType = "float";  // Default to float
+                    }
+                } else {
+                    argType = "i64";  // Integer literal
+                }
             }
         } else {
             argType = "i64";
@@ -2259,6 +2559,18 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
                 argValue = convertedReg;
                 argType = "i64";
             }
+        } else if (argType == "i64" && expectedType == "float") {
+            // Convert integer to float using sitofp (signed integer to floating point)
+            std::string convertedReg = allocateRegister();
+            emitLine(format("{} = sitofp i64 {} to float", convertedReg, argValue));
+            argValue = convertedReg;
+            argType = "float";
+        } else if (argType == "i64" && expectedType == "double") {
+            // Convert integer to double using sitofp
+            std::string convertedReg = allocateRegister();
+            emitLine(format("{} = sitofp i64 {} to double", convertedReg, argValue));
+            argValue = convertedReg;
+            argType = "double";
         }
 
         callInstr << argType << " " << argValue;
@@ -2446,43 +2758,84 @@ void LLVMBackend::visit(Parser::TypeRef& node) {
 }
 
 void LLVMBackend::visit(Parser::AssignmentStmt& node) {
-    // Check if this is a move assignment (owned value to owned value)
-    bool isMove = false;
-    if (auto* identExpr = dynamic_cast<Parser::IdentifierExpr*>(node.value.get())) {
-        auto varIt = variables_.find(identExpr->name);
-        if (varIt != variables_.end() && varIt->second.ownership == OwnershipKind::Owned) {
-            // This is a move - check and mark the source as moved
-            if (checkAndMarkMoved(identExpr->name)) {
-                emitLine("; Move " + identExpr->name + " to " + node.variableName);
-                isMove = true;
-            }
-        }
-    }
-
     // Generate code for the value expression
     node.value->accept(*this);
     std::string valueReg = valueMap_["__last_expr"];
 
-    // Get the target variable's info
-    auto targetIt = variables_.find(node.variableName);
-    if (targetIt != variables_.end()) {
-        // If target was owned and not moved, emit destructor first
-        if (targetIt->second.ownership == OwnershipKind::Owned && !targetIt->second.isMovedFrom) {
-            emitDestructor(node.variableName);
-        }
+    // Handle different types of lvalue expressions
+    if (auto* identExpr = dynamic_cast<Parser::IdentifierExpr*>(node.target.get())) {
+        // Simple variable assignment: Set x = value;
+        std::string varName = identExpr->name;
 
-        // Store the value to the variable's memory location
-        emitLine("store i64 " + valueReg + ", ptr " + targetIt->second.llvmRegister);
-
-        // If this was a move, mark target as not moved
-        if (isMove) {
-            targetIt->second.isMovedFrom = false;
+        auto targetIt = variables_.find(varName);
+        if (targetIt != variables_.end()) {
+            // Store the value to the variable's memory location
+            emitLine("store i64 " + valueReg + ", ptr " + targetIt->second.llvmRegister);
+        } else if (valueMap_.find(varName) != valueMap_.end()) {
+            // Fallback for variables not in ownership tracking
+            emitLine("store i64 " + valueReg + ", ptr " + valueMap_[varName]);
+        } else {
+            emitLine("; Error: variable " + varName + " not found");
         }
-    } else if (valueMap_.find(node.variableName) != valueMap_.end()) {
-        // Fallback for variables not in ownership tracking
-        emitLine("store i64 " + valueReg + ", ptr " + valueMap_[node.variableName]);
-    } else {
-        emitLine("; Error: variable " + node.variableName + " not found");
+    }
+    else if (auto* memberExpr = dynamic_cast<Parser::MemberAccessExpr*>(node.target.get())) {
+        // Member access assignment: Set this.x = value; or Set obj.field = value;
+
+        // Check if the object is 'this'
+        if (dynamic_cast<Parser::ThisExpr*>(memberExpr->object.get())) {
+            // Handle: Set this.memberName = value;
+            std::string memberName = memberExpr->member;
+
+            // Remove the accessor prefix (. or ::) from member name
+            if (memberName.length() > 0 && (memberName[0] == '.' || memberName[0] == ':')) {
+                size_t start = (memberName[0] == ':' && memberName.length() > 1 && memberName[1] == ':') ? 2 : 1;
+                memberName = memberName.substr(start);
+            }
+
+            // Get the current class type
+            if (!currentClassName_.empty()) {
+                auto classIt = classes_.find(currentClassName_);
+                if (classIt != classes_.end()) {
+                    // Find the property index
+                    const auto& properties = classIt->second.properties;
+                    for (size_t i = 0; i < properties.size(); ++i) {
+                        if (properties[i].first == memberName) {
+                            // Generate getelementptr to get address of the field
+                            std::string ptrReg = allocateRegister();
+
+                            // Mangle class name
+                            std::string mangledTypeName = currentClassName_;
+                            size_t pos = 0;
+                            while ((pos = mangledTypeName.find("::")) != std::string::npos) {
+                                mangledTypeName.replace(pos, 2, "_");
+                            }
+
+                            emitLine(ptrReg + " = getelementptr inbounds %class." + mangledTypeName +
+                                    ", ptr %this, i32 0, i32 " + std::to_string(i));
+
+                            // Store the value to the field
+                            std::string llvmType = properties[i].second; // LLVM type
+                            emitLine("store " + llvmType + " " + valueReg + ", ptr " + ptrReg);
+                            return;
+                        }
+                    }
+                    emitLine("; Error: property " + memberName + " not found in class " + currentClassName_);
+                } else {
+                    emitLine("; Error: class " + currentClassName_ + " not found");
+                }
+            } else {
+                emitLine("; Error: 'this' used outside of class context");
+            }
+        } else {
+            emitLine("; Error: Complex member access assignments not yet supported");
+        }
+    }
+    else if (dynamic_cast<Parser::ThisExpr*>(node.target.get())) {
+        // Assignment to 'this' itself: Set this = value;
+        emitLine("store i64 " + valueReg + ", ptr %this");
+    }
+    else {
+        emitLine("; Error: Unsupported lvalue type in assignment");
     }
 }
 
@@ -2762,9 +3115,10 @@ std::unique_ptr<Parser::Statement> LLVMBackend::cloneStatement(
         return std::make_unique<Parser::ReturnStmt>(std::move(clonedExpr), ret->location);
     }
     if (auto* assign = dynamic_cast<const Parser::AssignmentStmt*>(stmt)) {
+        auto clonedTarget = cloneExpression(assign->target.get(), typeMap);
         auto clonedValue = cloneExpression(assign->value.get(), typeMap);
         return std::make_unique<Parser::AssignmentStmt>(
-            assign->variableName,
+            std::move(clonedTarget),
             std::move(clonedValue),
             assign->location
         );
@@ -2931,6 +3285,9 @@ std::unique_ptr<Parser::Expression> LLVMBackend::cloneExpression(
             std::move(clonedInner),
             ref->location
         );
+    }
+    if (auto* thisExpr = dynamic_cast<const Parser::ThisExpr*>(expr)) {
+        return std::make_unique<Parser::ThisExpr>(thisExpr->location);
     }
 
     // For unknown expression types, return nullptr

@@ -8,6 +8,8 @@ void TypeRef::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 
 // Expressions
 void IntegerLiteralExpr::accept(ASTVisitor& visitor) { visitor.visit(*this); }
+void FloatLiteralExpr::accept(ASTVisitor& visitor) { visitor.visit(*this); }
+void DoubleLiteralExpr::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void StringLiteralExpr::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void BoolLiteralExpr::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void ThisExpr::accept(ASTVisitor& visitor) { visitor.visit(*this); }
@@ -35,6 +37,7 @@ void AssignmentStmt::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void ParameterDecl::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void PropertyDecl::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void ConstructorDecl::accept(ASTVisitor& visitor) { visitor.visit(*this); }
+void DestructorDecl::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void MethodDecl::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void AccessSection::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void ClassDecl::accept(ASTVisitor& visitor) { visitor.visit(*this); }

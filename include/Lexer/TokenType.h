@@ -23,6 +23,7 @@ enum class TokenType {
     Types,            // Types
     NativeType,       // NativeType
     Constructor,      // Constructor
+    Destructor,       // Destructor
     Default,          // default
     Method,           // Method
     Returns,          // Returns
@@ -56,6 +57,8 @@ enum class TokenType {
     Identifier,       // variable names, type names, etc.
     AngleBracketId,   // <identifier>
     IntegerLiteral,   // 123i
+    FloatLiteral,     // 29.3842f
+    DoubleLiteral,    // 37.239D
     StringLiteral,    // "hello"
     BoolLiteral,      // true, false
 

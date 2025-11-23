@@ -171,32 +171,82 @@ Token Lexer::lexAngleBracketIdentifier() {
 Token Lexer::lexNumber() {
     auto startLoc = getCurrentLocation();
     std::string text;
+    bool hasDecimalPoint = false;
 
+    // Read integer part
     while (!isAtEnd() && isDigit(current())) {
         text += advance();
     }
 
-    // Check for integer suffix 'i'
-    bool hasIntegerSuffix = false;
-    if (!isAtEnd() && current() == 'i') {
-        hasIntegerSuffix = true;
-        text += advance();
-    }
+    // Check for decimal point
+    if (!isAtEnd() && current() == '.' && peek() != '.') {  // Make sure it's not the range operator '..'
+        hasDecimalPoint = true;
+        text += advance();  // consume '.'
 
-    // Check for decimal point (for future float support)
-    if (!hasIntegerSuffix && !isAtEnd() && current() == '.') {
-        // For now, we only support integers
-        // This could be extended for float support
-    }
-
-    Token token = makeToken(TokenType::IntegerLiteral, text, startLoc);
-
-    try {
-        if (hasIntegerSuffix) {
-            token.intValue = std::stoll(text.substr(0, text.length() - 1));
-        } else {
-            token.intValue = std::stoll(text);
+        // Read fractional part
+        while (!isAtEnd() && isDigit(current())) {
+            text += advance();
         }
+    }
+
+    // Check for suffix
+    if (!isAtEnd()) {
+        char suffix = current();
+
+        // Float suffix 'f'
+        if (suffix == 'f') {
+            text += advance();
+            Token token = makeToken(TokenType::FloatLiteral, text, startLoc);
+            try {
+                token.floatValue = std::stof(text.substr(0, text.length() - 1));
+            } catch (const std::exception& e) {
+                errorReporter.reportError(
+                    Common::ErrorCode::InvalidNumberLiteral,
+                    "Invalid float literal: " + text,
+                    startLoc
+                );
+                token.floatValue = 0.0f;
+            }
+            return token;
+        }
+        // Double suffix 'D' (must be capitalized)
+        else if (suffix == 'D') {
+            text += advance();
+            Token token = makeToken(TokenType::DoubleLiteral, text, startLoc);
+            try {
+                token.doubleValue = std::stod(text.substr(0, text.length() - 1));
+            } catch (const std::exception& e) {
+                errorReporter.reportError(
+                    Common::ErrorCode::InvalidNumberLiteral,
+                    "Invalid double literal: " + text,
+                    startLoc
+                );
+                token.doubleValue = 0.0;
+            }
+            return token;
+        }
+        // Integer suffix 'i'
+        else if (suffix == 'i') {
+            text += advance();
+            Token token = makeToken(TokenType::IntegerLiteral, text, startLoc);
+            try {
+                token.intValue = std::stoll(text.substr(0, text.length() - 1));
+            } catch (const std::exception& e) {
+                errorReporter.reportError(
+                    Common::ErrorCode::InvalidNumberLiteral,
+                    "Invalid integer literal: " + text,
+                    startLoc
+                );
+                token.intValue = 0;
+            }
+            return token;
+        }
+    }
+
+    // No suffix - default to integer
+    Token token = makeToken(TokenType::IntegerLiteral, text, startLoc);
+    try {
+        token.intValue = std::stoll(text);
     } catch (const std::exception& e) {
         errorReporter.reportError(
             Common::ErrorCode::InvalidNumberLiteral,

@@ -91,6 +91,47 @@ void* Integer_div(void* self, void* other) {
     return Integer_Constructor(result);
 }
 
+// Assignment operations (modify in place)
+void* Integer_addAssign(void* self, void* other) {
+    if (!self || !other) return NULL;
+    ((Integer*)self)->value += ((Integer*)other)->value;
+    return self;
+}
+
+void* Integer_subtractAssign(void* self, void* other) {
+    if (!self || !other) return NULL;
+    ((Integer*)self)->value -= ((Integer*)other)->value;
+    return self;
+}
+
+void* Integer_multiplyAssign(void* self, void* other) {
+    if (!self || !other) return NULL;
+    ((Integer*)self)->value *= ((Integer*)other)->value;
+    return self;
+}
+
+void* Integer_divideAssign(void* self, void* other) {
+    if (!self || !other) return NULL;
+    int64_t otherVal = ((Integer*)other)->value;
+    if (otherVal == 0) {
+        fprintf(stderr, "Error: Division by zero\n");
+        exit(1);
+    }
+    ((Integer*)self)->value /= otherVal;
+    return self;
+}
+
+void* Integer_moduloAssign(void* self, void* other) {
+    if (!self || !other) return NULL;
+    int64_t otherVal = ((Integer*)other)->value;
+    if (otherVal == 0) {
+        fprintf(stderr, "Error: Modulo by zero\n");
+        exit(1);
+    }
+    ((Integer*)self)->value %= otherVal;
+    return self;
+}
+
 bool Integer_eq(void* self, void* other) {
     if (!self || !other) return false;
     return ((Integer*)self)->value == ((Integer*)other)->value;
@@ -321,6 +362,115 @@ void* Integer_toString(void* self) {
     char* buffer = (char*)malloc(21);
     snprintf(buffer, 21, "%lld", (long long)obj->value);
     return String_Constructor(buffer);
+}
+
+// ============================================
+// Float Operations
+// ============================================
+
+// Internal structure for Float objects
+typedef struct {
+    float value;
+} Float;
+
+void* Float_Constructor(float value) {
+    Float* obj = (Float*)xxml_malloc(sizeof(Float));
+    if (obj) {
+        obj->value = value;
+    }
+    return obj;
+}
+
+void* Float_toString(void* self) {
+    Float* obj = (Float*)self;
+    // Allocate buffer for string representation (enough for a float with precision)
+    char* buffer = (char*)malloc(32);
+    snprintf(buffer, 32, "%g", obj->value);
+    return String_Constructor(buffer);
+}
+
+// Assignment operations (modify in place)
+void* Float_addAssign(void* self, void* other) {
+    if (!self || !other) return NULL;
+    ((Float*)self)->value += ((Float*)other)->value;
+    return self;
+}
+
+void* Float_subtractAssign(void* self, void* other) {
+    if (!self || !other) return NULL;
+    ((Float*)self)->value -= ((Float*)other)->value;
+    return self;
+}
+
+void* Float_multiplyAssign(void* self, void* other) {
+    if (!self || !other) return NULL;
+    ((Float*)self)->value *= ((Float*)other)->value;
+    return self;
+}
+
+void* Float_divideAssign(void* self, void* other) {
+    if (!self || !other) return NULL;
+    float otherVal = ((Float*)other)->value;
+    if (otherVal == 0.0f) {
+        fprintf(stderr, "Error: Division by zero (float)\n");
+        exit(1);
+    }
+    ((Float*)self)->value /= otherVal;
+    return self;
+}
+
+// Syscall function for float to string conversion
+char* xxml_float_to_string(float value) {
+    char* buffer = (char*)malloc(32);
+    snprintf(buffer, 32, "%g", value);
+    return buffer;
+}
+
+// ============================================
+// Double Operations
+// ============================================
+
+// Internal structure for Double objects
+typedef struct {
+    double value;
+} Double;
+
+void* Double_Constructor(double value) {
+    Double* obj = (Double*)xxml_malloc(sizeof(Double));
+    if (obj) {
+        obj->value = value;
+    }
+    return obj;
+}
+
+// Assignment operations (modify in place)
+void* Double_addAssign(void* self, void* other) {
+    if (!self || !other) return NULL;
+    ((Double*)self)->value += ((Double*)other)->value;
+    return self;
+}
+
+void* Double_subtractAssign(void* self, void* other) {
+    if (!self || !other) return NULL;
+    ((Double*)self)->value -= ((Double*)other)->value;
+    return self;
+}
+
+void* Double_multiplyAssign(void* self, void* other) {
+    if (!self || !other) return NULL;
+    ((Double*)self)->value *= ((Double*)other)->value;
+    return self;
+}
+
+void* Double_divideAssign(void* self, void* other) {
+    if (!self || !other) return NULL;
+    double otherVal = ((Double*)other)->value;
+    if (otherVal == 0.0) {
+        fprintf(stderr, "Error: Division by zero (double)\n");
+        exit(1);
+    }
+    ((Double*)self)->value /= otherVal;
+    return self;
 }
 
 // ============================================

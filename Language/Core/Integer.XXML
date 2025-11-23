@@ -77,6 +77,62 @@
 				Return Integer::Constructor(result);
 			}
 
+			// Assignment operations (modify this and return this)
+			Method <addAssign> Returns Integer^ Parameters (
+				Parameter <other> Types Integer&
+			) ->
+			{
+				Instantiate NativeType<"int64">^ As <v1> = value;
+				Instantiate NativeType<"int64">^ As <v2> = other.value;
+				Instantiate NativeType<"int64">^ As <result> = v1 + v2;
+				Run Syscall::memcpy(&value, &result, 8);
+				Return this;
+			}
+
+			Method <subtractAssign> Returns Integer^ Parameters (
+				Parameter <other> Types Integer&
+			) ->
+			{
+				Instantiate NativeType<"int64">^ As <v1> = value;
+				Instantiate NativeType<"int64">^ As <v2> = other.value;
+				Instantiate NativeType<"int64">^ As <result> = v1 - v2;
+				Run Syscall::memcpy(&value, &result, 8);
+				Return this;
+			}
+
+			Method <multiplyAssign> Returns Integer^ Parameters (
+				Parameter <other> Types Integer&
+			) ->
+			{
+				Instantiate NativeType<"int64">^ As <v1> = value;
+				Instantiate NativeType<"int64">^ As <v2> = other.value;
+				Instantiate NativeType<"int64">^ As <result> = v1 * v2;
+				Run Syscall::memcpy(&value, &result, 8);
+				Return this;
+			}
+
+			Method <divideAssign> Returns Integer^ Parameters (
+				Parameter <other> Types Integer&
+			) ->
+			{
+				Instantiate NativeType<"int64">^ As <v1> = value;
+				Instantiate NativeType<"int64">^ As <v2> = other.value;
+				Instantiate NativeType<"int64">^ As <result> = v1 / v2;
+				Run Syscall::memcpy(&value, &result, 8);
+				Return this;
+			}
+
+			Method <moduloAssign> Returns Integer^ Parameters (
+				Parameter <other> Types Integer&
+			) ->
+			{
+				Instantiate NativeType<"int64">^ As <v1> = value;
+				Instantiate NativeType<"int64">^ As <v2> = other.value;
+				Instantiate NativeType<"int64">^ As <result> = v1 % v2;
+				Run Syscall::memcpy(&value, &result, 8);
+				Return this;
+			}
+
 			// Comparison operations
 			Method <equals> Returns Bool^ Parameters (
 				Parameter <other> Types Integer&

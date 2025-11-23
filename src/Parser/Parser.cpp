@@ -240,10 +240,12 @@ std::unique_ptr<AccessSection> Parser::parseAccessSection() {
             section->declarations.push_back(parseProperty());
         } else if (check(Lexer::TokenType::Constructor)) {
             section->declarations.push_back(parseConstructor());
+        } else if (check(Lexer::TokenType::Destructor)) {
+            section->declarations.push_back(parseDestructor());
         } else if (check(Lexer::TokenType::Method)) {
             section->declarations.push_back(parseMethod());
         } else {
-            error("Expected Property, Constructor, or Method in access section");
+            error("Expected Property, Constructor, Destructor, or Method in access section");
             synchronize();
             break;
         }
@@ -281,8 +283,29 @@ std::unique_ptr<ConstructorDecl> Parser::parseConstructor() {
         consume(Lexer::TokenType::Default, "Expected 'default' after '='");
         isDefault = true;
         consume(Lexer::TokenType::Semicolon, "Expected ';' after default constructor");
+    } else if (match(Lexer::TokenType::Parameters)) {
+        // New syntax: Constructor Parameters(...) -> { body }
+        consume(Lexer::TokenType::LeftParen, "Expected '(' after 'Parameters'");
+
+        // Parse parameters
+        if (!check(Lexer::TokenType::RightParen)) {
+            do {
+                params.push_back(parseParameter());
+            } while (match(Lexer::TokenType::Comma));
+        }
+
+        consume(Lexer::TokenType::RightParen, "Expected ')' after constructor parameters");
+        consume(Lexer::TokenType::Arrow, "Expected '->' before constructor body");
+        consume(Lexer::TokenType::LeftBrace, "Expected '{' to start constructor body");
+
+        // Parse constructor body
+        while (!check(Lexer::TokenType::RightBrace) && !isAtEnd()) {
+            body.push_back(parseStatement());
+        }
+
+        consume(Lexer::TokenType::RightBrace, "Expected '}' after constructor body");
     } else if (match(Lexer::TokenType::LeftParen)) {
-        // Parse explicit constructor with parameters: Constructor (params) -> { body }
+        // Old syntax: Constructor (params) -> { body }
 
         // Parse parameters
         if (!check(Lexer::TokenType::RightParen)) {
@@ -306,6 +329,39 @@ std::unique_ptr<ConstructorDecl> Parser::parseConstructor() {
     }
 
     return std::make_unique<ConstructorDecl>(isDefault, std::move(params), std::move(body), loc);
+}
+
+std::unique_ptr<DestructorDecl> Parser::parseDestructor() {
+    auto loc = peek().location;
+    consume(Lexer::TokenType::Destructor, "Expected 'Destructor'");
+
+    std::vector<std::unique_ptr<Statement>> body;
+
+    // Destructors must use: Destructor Parameters() -> { body }
+    consume(Lexer::TokenType::Parameters, "Expected 'Parameters' after 'Destructor'");
+    consume(Lexer::TokenType::LeftParen, "Expected '(' after 'Parameters'");
+
+    // Destructors cannot have parameters - verify empty parameter list
+    if (!check(Lexer::TokenType::RightParen)) {
+        error("Destructors cannot have parameters");
+        // Skip to closing paren
+        while (!check(Lexer::TokenType::RightParen) && !isAtEnd()) {
+            advance();
+        }
+    }
+
+    consume(Lexer::TokenType::RightParen, "Expected ')' after destructor parameters");
+    consume(Lexer::TokenType::Arrow, "Expected '->' before destructor body");
+    consume(Lexer::TokenType::LeftBrace, "Expected '{' to start destructor body");
+
+    // Parse destructor body
+    while (!check(Lexer::TokenType::RightBrace) && !isAtEnd()) {
+        body.push_back(parseStatement());
+    }
+
+    consume(Lexer::TokenType::RightBrace, "Expected '}' after destructor body");
+
+    return std::make_unique<DestructorDecl>(std::move(body), loc);
 }
 
 std::unique_ptr<MethodDecl> Parser::parseMethod() {
@@ -611,24 +667,54 @@ std::unique_ptr<InstantiateStmt> Parser::parseInstantiate() {
 std::unique_ptr<AssignmentStmt> Parser::parseAssignment() {
     auto loc = previous().location;
 
-    // Parse variable name (can be identifier or angle bracket id)
-    std::string varName;
+    // Parse lvalue expression (can be identifier, this, or member access like this.x)
+    std::unique_ptr<Expression> target;
+
     if (check(Lexer::TokenType::AngleBracketId)) {
-        varName = parseAngleBracketIdentifier();
+        std::string name = parseAngleBracketIdentifier();
+        target = std::make_unique<IdentifierExpr>(name, loc);
+    } else if (check(Lexer::TokenType::This)) {
+        advance();
+        target = std::make_unique<ThisExpr>(loc);
     } else if (check(Lexer::TokenType::Identifier)) {
-        varName = advance().lexeme;
+        std::string name = advance().lexeme;
+        target = std::make_unique<IdentifierExpr>(name, loc);
     } else {
-        error("Expected variable name after 'Set'");
+        error("Expected variable name or 'this' after 'Set'");
         return nullptr;
     }
 
-    consume(Lexer::TokenType::Equals, "Expected '=' after variable name");
+    // Check for member access (. or ::)
+    while (check(Lexer::TokenType::Dot) || check(Lexer::TokenType::DoubleColon)) {
+        std::string accessor = advance().lexeme;  // "." or "::"
+
+        if (check(Lexer::TokenType::Identifier)) {
+            std::string memberName = advance().lexeme;
+            target = std::make_unique<MemberAccessExpr>(
+                std::move(target),
+                accessor + memberName,
+                loc
+            );
+        } else if (check(Lexer::TokenType::AngleBracketId)) {
+            std::string memberName = parseAngleBracketIdentifier();
+            target = std::make_unique<MemberAccessExpr>(
+                std::move(target),
+                accessor + memberName,
+                loc
+            );
+        } else {
+            error("Expected member name after '" + accessor + "'");
+            return nullptr;
+        }
+    }
+
+    consume(Lexer::TokenType::Equals, "Expected '=' after lvalue");
 
     auto value = parseExpression();
 
     consume(Lexer::TokenType::Semicolon, "Expected ';' after assignment");
 
-    return std::make_unique<AssignmentStmt>(varName, std::move(value), loc);
+    return std::make_unique<AssignmentStmt>(std::move(target), std::move(value), loc);
 }
 
 std::unique_ptr<RunStmt> Parser::parseRun() {
@@ -1017,6 +1103,14 @@ std::unique_ptr<Expression> Parser::parseCallOrMemberAccess(std::unique_ptr<Expr
 std::unique_ptr<Expression> Parser::parsePrimary() {
     if (match(Lexer::TokenType::IntegerLiteral)) {
         return std::make_unique<IntegerLiteralExpr>(previous().intValue, previous().location);
+    }
+
+    if (match(Lexer::TokenType::FloatLiteral)) {
+        return std::make_unique<FloatLiteralExpr>(previous().floatValue, previous().location);
+    }
+
+    if (match(Lexer::TokenType::DoubleLiteral)) {
+        return std::make_unique<DoubleLiteralExpr>(previous().doubleValue, previous().location);
     }
 
     if (match(Lexer::TokenType::StringLiteral)) {
