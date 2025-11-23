@@ -469,7 +469,12 @@
       "Bash(then sed -n '531,533p' MazeGame.obj.temp.ll)",
       "Bash(else echo \"temp file not found\")",
       "Bash(./TestFloat.exe)",
-      "Bash(./TestAssignmentOps.exe)"
+      "Bash(./TestAssignmentOps.exe)",
+      "Bash(build/x64-release/bin/xxml.exe:*)",
+      "Bash(./build/bin/xxml.exe:*)",
+      "Bash(if [ -f TestTemplateErrors.ll ])",
+      "Bash(then head -20 TestTemplateErrors.ll)",
+      "Bash(else echo \"TestTemplateErrors.ll not found\")"
     ],
     "deny": [],
     "ask": []

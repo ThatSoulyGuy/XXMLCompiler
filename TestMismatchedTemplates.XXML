@@ -1,0 +1,38 @@
+#import Language::Core;
+
+[ Namespace <Math>
+    [ Constraint <Arithmetic> <T Constrains None> (T a)
+        Require (F(T^)(add)(T&) On a)
+        Require (F(T^)(subtract)(T&) On a)
+    ]
+
+    [ Class <Vector2> <T Constrains Arithmetic> Final Extends None
+    [ Public<>
+        Constructor Parameters (Parameter <x> Types T%, Parameter <y> Types T%) ->
+        {
+            Set this.x = x;
+            Set this.y = y;
+        }
+
+        Method <toString> Returns String^ Parameters () ->
+        {
+            Return String::Constructor("Vector2");
+        }
+    ]
+    [ Private<>
+        Property <x> Types T^;
+        Property <y> Types T^;
+    ]
+    ]
+]
+
+[ Entrypoint
+    {
+        Run Console::printLine(String::Constructor("=== Test: Mismatched Template Types ==="));
+
+        // This should error: "Cannot assign Math::Vector2<Float>^ to Math::Vector2<Integer>^"
+        Instantiate Math::Vector2<Integer>^ As <position> = Math::Vector2@Float::Constructor(Float::Constructor(8.23f), Float::Constructor(5.13f));
+
+        Run Console::printLine(String::Constructor("Done"));
+    }
+]

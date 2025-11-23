@@ -58,7 +58,13 @@ bool SemanticAnalyzer::isCompatibleType(const std::string& expected, const std::
     // None is compatible with everything (void/null)
     if (expected == "None" || actual == "None") return true;
 
-    // NativeType compatibility with wrapper types
+    // NativeType has special compatibility rules - check these FIRST before general template logic
+
+    // NativeType<X> is compatible with NativeType<Y> for any X, Y (used for type conversions and bitwise operations)
+    if (expected.find("NativeType<") != std::string::npos && actual.find("NativeType<") != std::string::npos) {
+        return true;
+    }
+
     // NativeType<int64> accepts Integer
     if (expected.find("NativeType<int64>") != std::string::npos && actual == "Integer") return true;
     if (expected.find("NativeType<bool>") != std::string::npos && actual == "Bool") return true;
@@ -68,6 +74,13 @@ bool SemanticAnalyzer::isCompatibleType(const std::string& expected, const std::
     if (expected.find("NativeType<cstr>") != std::string::npos && actual == "String") return true;
     if (expected.find("NativeType<ptr>") != std::string::npos) return true; // NativeType<ptr> accepts any pointer
 
+    // Pointer types accept Integer for null pointer initialization (0)
+    if ((expected.find("NativeType<string_ptr>") != std::string::npos ||
+         expected.find("NativeType<ptr>") != std::string::npos ||
+         expected.find("NativeType<cstr>") != std::string::npos) && actual == "Integer") {
+        return true;
+    }
+
     // Allow implicit conversions for NativeType<float> and NativeType<double>
     if (expected.find("NativeType<float>") != std::string::npos && actual == "Integer") return true; // int to float conversion
     if (expected.find("NativeType<double>") != std::string::npos && actual == "Integer") return true; // int to double conversion
@@ -76,6 +89,55 @@ bool SemanticAnalyzer::isCompatibleType(const std::string& expected, const std::
     if (actual.find("NativeType<int64>") != std::string::npos && expected == "Integer") return true;
     if (actual.find("NativeType<bool>") != std::string::npos && expected == "Bool") return true;
     if (actual.find("NativeType<ptr>") != std::string::npos) return true; // NativeType<ptr> is compatible with any pointer
+
+    // Normalize type names for comparison (handle namespace variations)
+    // e.g., "Math::Vector2<Float>" and "Math_Vector2_Float" should be compared properly
+    auto normalizeType = [](const std::string& type) -> std::string {
+        std::string normalized = type;
+        // Replace :: with _ for namespace normalization
+        size_t pos = 0;
+        while ((pos = normalized.find("::")) != std::string::npos) {
+            normalized.replace(pos, 2, "_");
+        }
+        return normalized;
+    };
+
+    std::string normalizedExpected = normalizeType(expected);
+    std::string normalizedActual = normalizeType(actual);
+
+    // Check if types match after normalization
+    if (normalizedExpected == normalizedActual) return true;
+
+    // Extract base type and template arguments for comparison
+    // Skip NativeType since we already handled it above
+    auto extractTemplateInfo = [](const std::string& type) -> std::pair<std::string, std::string> {
+        // Skip NativeType - it has special compatibility rules
+        if (type.find("NativeType<") != std::string::npos) {
+            return {type, ""};
+        }
+
+        size_t anglePos = type.find('<');
+        if (anglePos != std::string::npos) {
+            std::string baseType = type.substr(0, anglePos);
+            std::string templateArgs = type.substr(anglePos);
+            return {baseType, templateArgs};
+        }
+        return {type, ""};
+    };
+
+    auto [expectedBase, expectedArgs] = extractTemplateInfo(normalizedExpected);
+    auto [actualBase, actualArgs] = extractTemplateInfo(normalizedActual);
+
+    // For template types: base type AND template arguments must match
+    // This prevents Vector2<Float> from being compatible with Vector2<Integer>
+    if (!expectedArgs.empty() || !actualArgs.empty()) {
+        // If one has template args and the other doesn't, they're incompatible
+        if (expectedArgs.empty() != actualArgs.empty()) return false;
+        // Both must have same base type AND same template arguments
+        if (expectedBase != actualBase) return false;
+        if (expectedArgs != actualArgs) return false;
+        return true;
+    }
 
     // Future: implement inheritance checking
     return false;
@@ -744,6 +806,43 @@ void SemanticAnalyzer::visit(Parser::InstantiateStmt& node) {
         return;
     }
 
+    // VALIDATION: Check if type is a template class but no template arguments provided
+    std::string baseTypeName = node.type->typeName;
+    // Remove namespace prefix for template class lookup
+    std::string simpleTypeName = baseTypeName;
+    size_t lastColon = baseTypeName.rfind("::");
+    if (lastColon != std::string::npos) {
+        simpleTypeName = baseTypeName.substr(lastColon + 2);
+    }
+
+    // Check if this is a template class that requires template parameters
+    if (node.type->templateArgs.empty()) {
+        // Look up if this is a template class
+        auto it = templateClasses.find(baseTypeName);
+        if (it == templateClasses.end() && lastColon != std::string::npos) {
+            // Try without namespace
+            it = templateClasses.find(simpleTypeName);
+        }
+
+        if (it != templateClasses.end() && it->second && !it->second->templateParams.empty()) {
+            // This is a template class that requires parameters but none were provided
+            std::string paramList = "<";
+            for (size_t i = 0; i < it->second->templateParams.size(); ++i) {
+                if (i > 0) paramList += ", ";
+                paramList += it->second->templateParams[i].name;
+            }
+            paramList += ">";
+
+            errorReporter.reportError(
+                Common::ErrorCode::InvalidSyntax,
+                "Template class '" + baseTypeName + "' requires template parameters " + paramList +
+                ". Usage: " + baseTypeName + "<Type>^",
+                node.location
+            );
+            return;
+        }
+    }
+
     // Visit the type to record template instantiations
     node.type->accept(*this);
 
@@ -764,13 +863,6 @@ void SemanticAnalyzer::visit(Parser::InstantiateStmt& node) {
         }
     }
 
-    // Type check initializer (but be lenient with Unknown types from method calls)
-    std::string initType = getExpressionType(node.initializer.get());
-    if (initType != "Unknown" && !isCompatibleType(node.type->typeName, initType)) {
-        // Only warn, don't error, for type mismatches with Unknown
-        // This allows method calls and constructor calls to work
-    }
-
     // Build full type name including template arguments
     std::string fullTypeName = node.type->typeName;
     if (!node.type->templateArgs.empty()) {
@@ -780,6 +872,19 @@ void SemanticAnalyzer::visit(Parser::InstantiateStmt& node) {
             fullTypeName += node.type->templateArgs[i].typeArg;
         }
         fullTypeName += ">";
+    }
+
+    // Type check initializer with full template type names
+    std::string initType = getExpressionType(node.initializer.get());
+
+    if (initType != "Unknown" && !isCompatibleType(fullTypeName, initType)) {
+        errorReporter.reportError(
+            Common::ErrorCode::TypeMismatch,
+            "Cannot assign value of type '" + initType + "' to variable of type '" + fullTypeName + "'. " +
+            "Template types with different parameters are incompatible (e.g., Vector2<Float> != Vector2<Integer>).",
+            node.location
+        );
+        return;
     }
 
     // Define the variable symbol
@@ -1247,10 +1352,25 @@ void SemanticAnalyzer::visit(Parser::CallExpr& node) {
                     }
                 }
 
-                registerExpressionType(&node, method->returnType, method->returnOwnership);
+                // For constructors, return the fully-qualified class name (with template args if present)
+                // instead of the generic return type from the method info
+                if (methodName == "Constructor" || methodName == "constructor") {
+                    registerExpressionType(&node, className, method->returnOwnership);
+                } else {
+                    registerExpressionType(&node, method->returnType, method->returnOwnership);
+                }
             } else {
-                // Builtin type - assume valid
-                registerExpressionType(&node, "Unknown", Parser::OwnershipType::Owned);
+                // Check if this is a template instantiation constructor
+                bool isTemplateInstantiation = (className.find('<') != std::string::npos);
+                bool isConstructorCall = (methodName == "Constructor" || methodName == "constructor");
+
+                if (isTemplateInstantiation && isConstructorCall) {
+                    // Template instantiation constructor - register the full type name
+                    registerExpressionType(&node, className, Parser::OwnershipType::Owned);
+                } else {
+                    // Builtin type - assume valid
+                    registerExpressionType(&node, "Unknown", Parser::OwnershipType::Owned);
+                }
             }
             return;
         }
