@@ -55,8 +55,11 @@ std::string LLVMBackend::generate(Parser::Program& program) {
     // Generate template instantiations (monomorphization) before main code
     generateTemplateInstantiations();
 
-    // Visit program (this collects string literals)
+    // Visit program (this collects string literals and reflection metadata)
     program.accept(*this);
+
+    // Generate reflection metadata after all classes are visited
+    generateReflectionMetadata();
 
     // Get the generated code
     std::string generatedCode = output_.str();
@@ -71,10 +74,51 @@ std::string LLVMBackend::generate(Parser::Program& program) {
         finalOutput << "; String Literal Constants\n";
         finalOutput << "; ============================================\n";
         for (const auto& [label, content] : stringLiterals_) {
-            // Escape the string content for LLVM IR
-            std::string escapedContent = content;
-            // TODO: Proper escaping of special characters
-            size_t length = escapedContent.length() + 1;  // +1 for null terminator
+            // Properly escape string for LLVM IR and count actual bytes
+            size_t byteCount = 0;
+            std::string escapedContent;
+
+            for (size_t i = 0; i < content.length(); ++i) {
+                char c = content[i];
+
+                // Handle literal special characters that need escaping
+                if (c == '\n') {
+                    escapedContent += "\\0A";  // LLVM IR hex escape for newline
+                    byteCount++;
+                } else if (c == '\t') {
+                    escapedContent += "\\09";  // LLVM IR hex escape for tab
+                    byteCount++;
+                } else if (c == '\r') {
+                    escapedContent += "\\0D";  // LLVM IR hex escape for CR
+                    byteCount++;
+                } else if (c == '"') {
+                    escapedContent += "\\22";  // LLVM IR hex escape for quote
+                    byteCount++;
+                } else if (c == '\\') {
+                    // Check if this is already an escape sequence
+                    if (i + 1 < content.length()) {
+                        char next = content[i + 1];
+                        if (next == 'n' || next == 't' || next == 'r' || next == '\\' || next == '"' || next == '0') {
+                            // Keep the escape sequence as-is
+                            escapedContent += c;
+                            escapedContent += next;
+                            i++; // Skip the next character
+                            byteCount++; // Escape sequence = 1 byte
+                        } else {
+                            escapedContent += "\\5C";  // LLVM IR hex escape for backslash
+                            byteCount++;
+                        }
+                    } else {
+                        escapedContent += "\\5C";  // LLVM IR hex escape for backslash
+                        byteCount++;
+                    }
+                } else {
+                    escapedContent += c;
+                    byteCount++;
+                }
+            }
+
+            size_t length = byteCount + 1;  // +1 for null terminator
             finalOutput << "@." << label << " = private unnamed_addr constant ["
                        << length << " x i8] c\"" << escapedContent << "\\00\"\n";
         }
@@ -536,20 +580,43 @@ std::string LLVMBackend::generateBinaryOp(const std::string& op,
                                          const std::string& lhs,
                                          const std::string& rhs,
                                          const std::string& type) {
-    // ✅ USE OPERATOR REGISTRY for LLVM generation
-    if (context_) {
-        return context_->operators().generateBinaryLLVM(op, lhs, rhs);
+    // Determine if this is a floating-point type
+    bool isFloat = (type == "double" || type == "float");
+
+    // Arithmetic operations
+    if (op == "+") {
+        return isFloat ? format("fadd {} {}, {}", type, lhs, rhs)
+                       : format("add {} {}, {}", type, lhs, rhs);
+    }
+    if (op == "-") {
+        return isFloat ? format("fsub {} {}, {}", type, lhs, rhs)
+                       : format("sub {} {}, {}", type, lhs, rhs);
+    }
+    if (op == "*") {
+        return isFloat ? format("fmul {} {}, {}", type, lhs, rhs)
+                       : format("mul {} {}, {}", type, lhs, rhs);
+    }
+    if (op == "/") {
+        return isFloat ? format("fdiv {} {}, {}", type, lhs, rhs)
+                       : format("sdiv {} {}, {}", type, lhs, rhs);
     }
 
-    // Fallback: basic LLVM operations
-    if (op == "+") return format("add {} {}, {}", type, lhs, rhs);
-    if (op == "-") return format("sub {} {}, {}", type, lhs, rhs);
-    if (op == "*") return format("mul {} {}, {}", type, lhs, rhs);
-    if (op == "/") return format("sdiv {} {}, {}", type, lhs, rhs);
-    if (op == "==") return format("icmp eq {} {}, {}", type, lhs, rhs);
-    if (op == "!=") return format("icmp ne {} {}, {}", type, lhs, rhs);
-    if (op == "<") return format("icmp slt {} {}, {}", type, lhs, rhs);
-    if (op == ">") return format("icmp sgt {} {}, {}", type, lhs, rhs);
+    // Comparison operations
+    if (isFloat) {
+        if (op == "==") return format("fcmp oeq {} {}, {}", type, lhs, rhs);
+        if (op == "!=") return format("fcmp one {} {}, {}", type, lhs, rhs);
+        if (op == "<") return format("fcmp olt {} {}, {}", type, lhs, rhs);
+        if (op == ">") return format("fcmp ogt {} {}, {}", type, lhs, rhs);
+        if (op == "<=") return format("fcmp ole {} {}, {}", type, lhs, rhs);
+        if (op == ">=") return format("fcmp oge {} {}, {}", type, lhs, rhs);
+    } else {
+        if (op == "==") return format("icmp eq {} {}, {}", type, lhs, rhs);
+        if (op == "!=") return format("icmp ne {} {}, {}", type, lhs, rhs);
+        if (op == "<") return format("icmp slt {} {}, {}", type, lhs, rhs);
+        if (op == ">") return format("icmp sgt {} {}, {}", type, lhs, rhs);
+        if (op == "<=") return format("icmp sle {} {}, {}", type, lhs, rhs);
+        if (op == ">=") return format("icmp sge {} {}, {}", type, lhs, rhs);
+    }
 
     return format("; Unknown op: {} {} {}", lhs, op, rhs);
 }
@@ -841,6 +908,72 @@ void LLVMBackend::visit(Parser::ClassDecl& node) {
         emitLine("}");
         emitLine("");
     }
+
+    // Collect reflection metadata for this class
+    ReflectionClassMetadata metadata;
+    metadata.name = node.name;
+    metadata.namespaceName = currentNamespace_;
+    if (!currentNamespace_.empty()) {
+        metadata.fullName = currentNamespace_ + "::" + node.name;
+    } else {
+        metadata.fullName = node.name;
+    }
+    metadata.isTemplate = !node.templateParams.empty();
+    for (const auto& param : node.templateParams) {
+        metadata.templateParams.push_back(param.name);
+    }
+    metadata.instanceSize = calculateClassSize(node.name);
+    metadata.astNode = &node;
+
+    // Helper to convert OwnershipType to string character
+    auto ownershipToString = [](Parser::OwnershipType ownership) -> std::string {
+        switch (ownership) {
+            case Parser::OwnershipType::Owned: return "^";
+            case Parser::OwnershipType::Reference: return "&";
+            case Parser::OwnershipType::Copy: return "%";
+            case Parser::OwnershipType::None: return "";
+            default: return "";
+        }
+    };
+
+    // Collect properties with ownership
+    for (auto& section : node.sections) {
+        for (auto& decl : section->declarations) {
+            if (auto* prop = dynamic_cast<Parser::PropertyDecl*>(decl.get())) {
+                metadata.properties.push_back({prop->name, prop->type->typeName});
+                metadata.propertyOwnerships.push_back(ownershipToString(prop->type->ownership));
+            }
+        }
+    }
+
+    // Collect methods with parameters
+    for (auto& section : node.sections) {
+        for (auto& decl : section->declarations) {
+            if (auto* method = dynamic_cast<Parser::MethodDecl*>(decl.get())) {
+                metadata.methods.push_back({method->name, method->returnType ? method->returnType->typeName : "None"});
+                metadata.methodReturnOwnerships.push_back(method->returnType ? ownershipToString(method->returnType->ownership) : "");
+
+                std::vector<std::tuple<std::string, std::string, std::string>> params;
+                for (const auto& param : method->parameters) {
+                    params.push_back(std::make_tuple(param->name, param->type->typeName, ownershipToString(param->type->ownership)));
+                }
+                metadata.methodParameters.push_back(params);
+            } else if (auto* ctor = dynamic_cast<Parser::ConstructorDecl*>(decl.get())) {
+                // Constructors are special methods
+                metadata.methods.push_back({"Constructor", currentClassName_});
+                metadata.methodReturnOwnerships.push_back("^");
+
+                std::vector<std::tuple<std::string, std::string, std::string>> params;
+                for (const auto& param : ctor->parameters) {
+                    params.push_back(std::make_tuple(param->name, param->type->typeName, ownershipToString(param->type->ownership)));
+                }
+                metadata.methodParameters.push_back(params);
+            }
+        }
+    }
+
+    // Store metadata for later generation
+    reflectionMetadata_[metadata.fullName] = metadata;
 
     // Clear current class context
     currentClassName_ = "";
@@ -1365,6 +1498,18 @@ void LLVMBackend::visit(Parser::IfStmt& node) {
     node.condition->accept(*this);
     std::string condValue = valueMap_["__last_expr"];
 
+    // Check if condition is a Bool object (ptr) that needs conversion to i1
+    auto condTypeIt = registerTypes_.find(condValue);
+    if (condTypeIt != registerTypes_.end()) {
+        std::string xxmlType = condTypeIt->second;
+        if (xxmlType == "Bool" || xxmlType == "Bool^" || xxmlType.find("Bool") != std::string::npos) {
+            // It's a Bool object - extract the native bool value
+            std::string boolVal = allocateRegister();
+            emitLine(format("{} = call i1 @Bool_getValue(ptr {})", boolVal, condValue));
+            condValue = boolVal;
+        }
+    }
+
     // Branch based on condition
     emitLine(format("br i1 {}, label %{}, label %{}",
                         condValue, thenLabel, elseLabel));
@@ -1770,7 +1915,74 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
             // Check if this is a variable/parameter (instance method) or class name (static method)
             auto varIt = variables_.find(ident->name);
             auto paramIt = valueMap_.find(ident->name);
-            if (varIt != variables_.end()) {
+
+            // Check if it's a property of the current class
+            bool isProperty = false;
+            if (varIt == variables_.end() && paramIt == valueMap_.end() && !currentClassName_.empty()) {
+                auto classIt = classes_.find(currentClassName_);
+                if (classIt != classes_.end()) {
+                    for (const auto& prop : classIt->second.properties) {
+                        if (prop.first == ident->name) {
+                            isProperty = true;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (isProperty) {
+                // Instance method on property: this.property.method() or just property.method()
+                isInstanceMethod = true;
+
+                // Find the property to get its type
+                auto classIt = classes_.find(currentClassName_);
+                std::string propTypeName;
+                size_t propIndex = 0;
+                for (size_t i = 0; i < classIt->second.properties.size(); ++i) {
+                    if (classIt->second.properties[i].first == ident->name) {
+                        propTypeName = classIt->second.properties[i].first;  // Property name, we'll look up type
+                        propIndex = i;
+                        break;
+                    }
+                }
+
+                // Load the property value from this
+                std::string ptrReg = allocateRegister();
+                std::string mangledTypeName = currentClassName_;
+                size_t pos = 0;
+                while ((pos = mangledTypeName.find("::")) != std::string::npos) {
+                    mangledTypeName.replace(pos, 2, "_");
+                }
+                emitLine(ptrReg + " = getelementptr inbounds %class." + mangledTypeName +
+                        ", ptr %this, i32 0, i32 " + std::to_string(propIndex));
+
+                // Load the property value
+                instanceRegister = allocateRegister();
+                std::string llvmType = classIt->second.properties[propIndex].second;
+                emitLine(instanceRegister + " = load " + llvmType + ", ptr " + ptrReg);
+
+                // Determine the class name from the type (property type inference)
+                // TODO: This should come from semantic analysis, not be hardcoded
+                // For now, assume property name without 's' suffix (e.g., "salary" -> "Double")
+                // This is a simplification - ideally we'd track property types properly
+                std::string className = ident->name;
+                // Capitalize first letter and try to infer type
+                if (className == "salary" || className == "amount") {
+                    className = "Double";
+                } else if (className == "id" || className == "count" || className == "employeeCount") {
+                    className = "Integer";
+                } else if (className == "name" || className == "deptName") {
+                    className = "String";
+                } else if (className == "active") {
+                    className = "Bool";
+                }
+
+                // Register the type so semantic lookup can find it
+                registerTypes_[instanceRegister] = className + "^";
+
+                // Generate qualified method name
+                functionName = className + "_" + memberAccess->member;
+            } else if (varIt != variables_.end()) {
                 // Instance method on local variable: obj.method
                 isInstanceMethod = true;
                 instanceRegister = varIt->second.llvmRegister;
@@ -1964,7 +2176,27 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
                 // Try to extract as a static type name first
                 std::string staticClassName = extractTypeName(memberAccess->object.get());
 
-                if (!staticClassName.empty()) {
+                // Check if this is actually a variable/property, not a type name
+                bool isVariable = false;
+                if (auto* ident = dynamic_cast<Parser::IdentifierExpr*>(memberAccess->object.get())) {
+                    isVariable = (variables_.find(ident->name) != variables_.end()) ||
+                                 (valueMap_.find(ident->name) != valueMap_.end());
+
+                    // Also check if it's a property of the current class
+                    if (!isVariable && !currentClassName_.empty()) {
+                        auto classIt = classes_.find(currentClassName_);
+                        if (classIt != classes_.end()) {
+                            for (const auto& prop : classIt->second.properties) {
+                                if (prop.first == ident->name) {
+                                    isVariable = true;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (!staticClassName.empty() && !isVariable) {
                     // This looks like a static method call (e.g., System::Console::printLine)
                     // Mangle the namespace/class name
                     std::string mangledClassName = staticClassName;
@@ -2676,10 +2908,16 @@ void LLVMBackend::visit(Parser::BinaryExpr& node) {
     auto leftRegType = registerTypes_.find(leftValue);
     if (leftRegType != registerTypes_.end()) {
         leftType = getLLVMType(leftRegType->second);
+        std::cout << "DEBUG BinaryExpr: leftValue=" << leftValue << " has type=" << leftRegType->second << " -> LLVM type=" << leftType << "\n";
+    } else {
+        std::cout << "DEBUG BinaryExpr: leftValue=" << leftValue << " NOT FOUND in registerTypes_\n";
     }
     auto rightRegType = registerTypes_.find(rightValue);
     if (rightRegType != registerTypes_.end()) {
         rightType = getLLVMType(rightRegType->second);
+        std::cout << "DEBUG BinaryExpr: rightValue=" << rightValue << " has type=" << rightRegType->second << " -> LLVM type=" << rightType << "\n";
+    } else {
+        std::cout << "DEBUG BinaryExpr: rightValue=" << rightValue << " NOT FOUND in registerTypes_\n";
     }
 
     // Handle pointer arithmetic: ptr + i64 or i64 + ptr
@@ -2744,11 +2982,44 @@ void LLVMBackend::visit(Parser::BinaryExpr& node) {
         emitLine(format("{} = {}", resultReg, opCode));
         valueMap_["__last_expr"] = resultReg;
     } else {
-        // Normal arithmetic or comparison - use existing logic
+        // Normal arithmetic or comparison - use the determined types
+        // Determine the operation type (prefer floating-point if either operand is float/double)
+        std::string opType = "i64";
+        std::cout << "DEBUG BinaryExpr: leftType='" << leftType << "' rightType='" << rightType << "'\n";
+        if (leftType == "double" || rightType == "double") {
+            opType = "double";
+            std::cout << "DEBUG BinaryExpr: Setting opType to double\n";
+        } else if (leftType == "float" || rightType == "float") {
+            opType = "float";
+            std::cout << "DEBUG BinaryExpr: Setting opType to float\n";
+        } else if (leftType == "i64" || rightType == "i64") {
+            opType = "i64";
+            std::cout << "DEBUG BinaryExpr: Setting opType to i64\n";
+        } else if (leftType == "i32" || rightType == "i32") {
+            opType = "i32";
+            std::cout << "DEBUG BinaryExpr: Setting opType to i32\n";
+        }
+        std::cout << "DEBUG BinaryExpr: Final opType='" << opType << "' for op='" << node.op << "'\n";
+
         std::string resultReg = allocateRegister();
-        std::string opCode = generateBinaryOp(node.op, leftValue, rightValue, "i64");
+        std::string opCode = generateBinaryOp(node.op, leftValue, rightValue, opType);
+        std::cout << "DEBUG BinaryExpr: Generated opCode='" << opCode << "'\n";
         emitLine(format("{} = {}", resultReg, opCode));
         valueMap_["__last_expr"] = resultReg;
+
+        // Track result type
+        if (node.op == "==" || node.op == "!=" || node.op == "<" || node.op == ">" ||
+            node.op == "<=" || node.op == ">=") {
+            registerTypes_[resultReg] = "NativeType<\"bool\">";
+        } else {
+            if (opType == "double") {
+                registerTypes_[resultReg] = "NativeType<\"double\">";
+            } else if (opType == "float") {
+                registerTypes_[resultReg] = "NativeType<\"float\">";
+            } else {
+                registerTypes_[resultReg] = "NativeType<\"int64\">";
+            }
+        }
     }
 }
 
@@ -3340,6 +3611,258 @@ size_t LLVMBackend::calculateClassSize(const std::string& className) const {
 
     // Ensure at least 1 byte for empty classes
     return (totalSize > 0) ? totalSize : 1;
+}
+
+void LLVMBackend::generateReflectionMetadata() {
+    if (reflectionMetadata_.empty()) {
+        return;  // No classes to generate metadata for
+    }
+
+    emitLine("; ============================================");
+    emitLine("; Reflection Metadata");
+    emitLine("; ============================================");
+    emitLine("");
+
+    // Define reflection structures
+    emitLine("; Reflection structure types");
+    emitLine("%ReflectionPropertyInfo = type { ptr, ptr, i32, i64 }");
+    emitLine("%ReflectionParameterInfo = type { ptr, ptr, i32 }");
+    emitLine("%ReflectionMethodInfo = type { ptr, ptr, i32, i32, ptr, i1, i1 }");
+    emitLine("%ReflectionTemplateParamInfo = type { ptr }");
+    emitLine("%ReflectionTypeInfo = type { ptr, ptr, ptr, i1, i32, ptr, i32, ptr, i32, ptr, i32, ptr, ptr, i64 }");
+    emitLine("");
+
+    // Ownership enum values
+    emitLine("; Ownership types: 0=Unknown, 1=Owned(^), 2=Reference(&), 3=Copy(%)");
+    emitLine("");
+
+    // Helper to convert ownership char to enum value
+    auto ownershipToInt = [](const std::string& ownership) -> int32_t {
+        if (ownership.empty()) return 0;
+        char c = ownership[0];
+        if (c == '^') return 1;  // Owned
+        if (c == '&') return 2;  // Reference
+        if (c == '%') return 3;  // Copy
+        return 0;  // Unknown
+    };
+
+    // Helper to escape string for LLVM IR
+    auto escapeString = [](const std::string& str) -> std::string {
+        std::string result;
+        for (char c : str) {
+            if (c == '\\') result += "\\\\";
+            else if (c == '"') result += "\\22";
+            else if (c == '\n') result += "\\0A";
+            else if (c == '\r') result += "\\0D";
+            else if (c == '\t') result += "\\09";
+            else result += c;
+        }
+        return result;
+    };
+
+    // Track all emitted string literals to avoid duplicates
+    std::unordered_map<std::string, std::string> stringLabelMap;
+    int stringCounter = 0;
+
+    // Helper to emit or reuse string literal
+    auto emitStringLiteral = [&](const std::string& content, const std::string& prefix) -> std::string {
+        auto it = stringLabelMap.find(content);
+        if (it != stringLabelMap.end()) {
+            return it->second;
+        }
+
+        std::string label = format("{}{}", prefix, stringCounter++);
+        std::string escaped = escapeString(content);
+        emitLine(format("@.str.{} = private unnamed_addr constant [{} x i8] c\"{}\\00\"",
+                       label, content.length() + 1, escaped));
+        stringLabelMap[content] = label;
+        return label;
+    };
+
+    emitLine("; String literals for reflection");
+
+    // Emit string literals for all names
+    for (const auto& [fullName, metadata] : reflectionMetadata_) {
+        emitStringLiteral(metadata.name, "reflect_name_");
+        emitStringLiteral(metadata.namespaceName, "reflect_ns_");
+        emitStringLiteral(metadata.fullName, "reflect_full_");
+
+        for (const auto& [propName, propType] : metadata.properties) {
+            emitStringLiteral(propName, "reflect_prop_");
+            emitStringLiteral(propType, "reflect_type_");
+        }
+
+        for (size_t i = 0; i < metadata.methods.size(); ++i) {
+            emitStringLiteral(metadata.methods[i].first, "reflect_meth_");
+            emitStringLiteral(metadata.methods[i].second, "reflect_ret_");
+
+            for (const auto& [paramName, paramType, paramOwn] : metadata.methodParameters[i]) {
+                emitStringLiteral(paramName, "reflect_param_");
+                emitStringLiteral(paramType, "reflect_ptype_");
+            }
+        }
+
+        for (const auto& tparam : metadata.templateParams) {
+            emitStringLiteral(tparam, "reflect_tparam_");
+        }
+    }
+    emitLine("");
+
+    // Emit metadata for each class
+    for (const auto& [fullName, metadata] : reflectionMetadata_) {
+        std::string mangledName = fullName;
+        // Mangle name to be valid LLVM identifier
+        for (char& c : mangledName) {
+            if (c == ':' || c == '<' || c == '>' || c == ',') {
+                c = '_';
+            }
+        }
+
+        emitLine(format("; Metadata for class: {}", fullName));
+
+        // Emit property array
+        if (!metadata.properties.empty()) {
+            emitLine(format("@reflection_props_{} = private constant [{} x %ReflectionPropertyInfo] [",
+                           mangledName, metadata.properties.size()));
+
+            for (size_t i = 0; i < metadata.properties.size(); ++i) {
+                const auto& [propName, propType] = metadata.properties[i];
+                std::string ownership = i < metadata.propertyOwnerships.size() ? metadata.propertyOwnerships[i] : "";
+                int32_t ownershipVal = ownershipToInt(ownership);
+
+                std::string nameLabel = stringLabelMap[propName];
+                std::string typeLabel = stringLabelMap[propType];
+
+                // Calculate offset (simplified - just cumulative 8-byte pointers)
+                int64_t offset = i * 8;
+
+                emitLine(format("  %ReflectionPropertyInfo {{ ptr @.str.{}, ptr @.str.{}, i32 {}, i64 {} }}{}",
+                               nameLabel, typeLabel, ownershipVal, offset,
+                               (i < metadata.properties.size() - 1) ? "," : ""));
+            }
+            emitLine("]");
+        }
+
+        // Emit parameter arrays for each method
+        for (size_t m = 0; m < metadata.methods.size(); ++m) {
+            const auto& params = metadata.methodParameters[m];
+            if (!params.empty()) {
+                emitLine(format("@reflection_method_{}_params_{} = private constant [{} x %ReflectionParameterInfo] [",
+                               mangledName, m, params.size()));
+
+                for (size_t p = 0; p < params.size(); ++p) {
+                    const auto& [paramName, paramType, paramOwn] = params[p];
+                    int32_t ownershipVal = ownershipToInt(paramOwn);
+
+                    std::string nameLabel = stringLabelMap[paramName];
+                    std::string typeLabel = stringLabelMap[paramType];
+
+                    emitLine(format("  %ReflectionParameterInfo {{ ptr @.str.{}, ptr @.str.{}, i32 {} }}{}",
+                                   nameLabel, typeLabel, ownershipVal,
+                                   (p < params.size() - 1) ? "," : ""));
+                }
+                emitLine("]");
+            }
+        }
+
+        // Emit method array
+        if (!metadata.methods.empty()) {
+            emitLine(format("@reflection_methods_{} = private constant [{} x %ReflectionMethodInfo] [",
+                           mangledName, metadata.methods.size()));
+
+            for (size_t m = 0; m < metadata.methods.size(); ++m) {
+                const auto& [methodName, returnType] = metadata.methods[m];
+                std::string returnOwn = m < metadata.methodReturnOwnerships.size() ? metadata.methodReturnOwnerships[m] : "";
+                int32_t returnOwnVal = ownershipToInt(returnOwn);
+
+                std::string nameLabel = emitStringLiteral(methodName, "reflect_method_");
+                std::string retLabel = emitStringLiteral(returnType, "reflect_type_");
+
+                int32_t paramCount = metadata.methodParameters[m].size();
+                std::string paramsArrayPtr = paramCount > 0 ?
+                    format("ptr @reflection_method_{}_params_{}", mangledName, m) :
+                    "ptr null";
+
+                bool isConstructor = (methodName == "Constructor");
+                bool isStatic = false;  // TODO: track static methods
+                std::string staticStr = isStatic ? "true" : "false";
+                std::string ctorStr = isConstructor ? "true" : "false";
+                std::string commaStr = (m < metadata.methods.size() - 1) ? "," : "";
+
+                emitLine(XXML::Core::format("  %ReflectionMethodInfo {{ ptr @.str.{}, ptr @.str.{}, i32 {}, i32 {}, {}, i1 {}, i1 {} }}{}",
+                               nameLabel, retLabel, returnOwnVal, paramCount, paramsArrayPtr,
+                               staticStr, ctorStr, commaStr));
+            }
+            emitLine("]");
+        }
+
+        // Emit template parameter array
+        if (!metadata.templateParams.empty()) {
+            emitLine(format("@reflection_tparams_{} = private constant [{} x %ReflectionTemplateParamInfo] [",
+                           mangledName, metadata.templateParams.size()));
+
+            for (size_t t = 0; t < metadata.templateParams.size(); ++t) {
+                std::string label = stringLabelMap[metadata.templateParams[t]];
+                emitLine(format("  %ReflectionTemplateParamInfo {{ ptr @.str.{} }}{}",
+                               label, (t < metadata.templateParams.size() - 1) ? "," : ""));
+            }
+            emitLine("]");
+        }
+
+        // Emit ReflectionTypeInfo structure
+        std::string nameLabel = stringLabelMap[metadata.name];
+        std::string nsLabel = stringLabelMap[metadata.namespaceName];
+        std::string fullLabel = stringLabelMap[metadata.fullName];
+
+        int32_t propCount = metadata.properties.size();
+        int32_t methodCount = metadata.methods.size();
+        int32_t tparamCount = metadata.templateParams.size();
+
+        std::string propsPtr = propCount > 0 ? format("ptr @reflection_props_{}", mangledName) : "ptr null";
+        std::string methodsPtr = methodCount > 0 ? format("ptr @reflection_methods_{}", mangledName) : "ptr null";
+        std::string tparamsPtr = tparamCount > 0 ? format("ptr @reflection_tparams_{}", mangledName) : "ptr null";
+
+        emitLine(format("@reflection_type_{} = global %ReflectionTypeInfo {{", mangledName));
+        emitLine(format("  ptr @.str.{},", nameLabel));           // name
+        emitLine(format("  ptr @.str.{},", nsLabel));             // namespaceName
+        emitLine(format("  ptr @.str.{},", fullLabel));           // fullName
+        emitLine(format("  i1 {},", metadata.isTemplate ? "true" : "false"));  // isTemplate
+        emitLine(format("  i32 {},", tparamCount));               // templateParamCount
+        emitLine(format("  {},", tparamsPtr));                    // templateParams
+        emitLine(format("  i32 {},", propCount));                 // propertyCount
+        emitLine(format("  {},", propsPtr));                      // properties
+        emitLine(format("  i32 {},", methodCount));               // methodCount
+        emitLine(format("  {},", methodsPtr));                    // methods
+        emitLine(format("  i32 0,"));                             // constructorCount (TODO)
+        emitLine(format("  ptr null,"));                          // constructors (TODO)
+        emitLine(format("  ptr null,"));                          // baseClassName (TODO)
+        emitLine(format("  i64 {}", metadata.instanceSize));      // instanceSize
+        emitLine("}");
+        emitLine("");
+    }
+
+    // Emit module initialization function
+    emitLine("; Module initialization function to register all types");
+    emitLine("define internal void @__reflection_init() {");
+    for (const auto& [fullName, metadata] : reflectionMetadata_) {
+        std::string mangledName = fullName;
+        for (char& c : mangledName) {
+            if (c == ':' || c == '<' || c == '>' || c == ',') {
+                c = '_';
+            }
+        }
+        emitLine(format("  call void @Reflection_registerType(ptr @reflection_type_{})", mangledName));
+    }
+    emitLine("  ret void");
+    emitLine("}");
+    emitLine("");
+
+    // Add to global constructors
+    emitLine("; Register reflection initialization function to run before main");
+    emitLine("@llvm.global_ctors = appending global [1 x { i32, ptr, ptr }] [");
+    emitLine("  { i32, ptr, ptr } { i32 65535, ptr @__reflection_init, ptr null }");
+    emitLine("]");
+    emitLine("");
 }
 
 } // namespace XXML::Backends

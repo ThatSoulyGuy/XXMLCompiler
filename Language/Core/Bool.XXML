@@ -26,6 +26,11 @@
 				Return value;
 			}
 
+			Method <getValue> Returns NativeType<"bool">% Parameters () ->
+			{
+				Return value;
+			}
+
 			// Logical operations
 			Method <and> Returns Bool^ Parameters (
 				Parameter <other> Types Bool&

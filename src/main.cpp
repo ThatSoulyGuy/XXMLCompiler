@@ -93,8 +93,28 @@ int main(int argc, char* argv[]) {
     }
 
     std::string inputFile = argv[1];
-    std::string outputFile = argv[2];
-    bool llvmIROnly = (argc >= 4 && std::string(argv[3]) == "2");
+    std::string outputFile;
+    bool llvmIROnly = false;
+
+    // Parse command-line arguments
+    for (int i = 2; i < argc; i++) {
+        std::string arg = argv[i];
+        if (arg == "-o" && i + 1 < argc) {
+            outputFile = argv[i + 1];
+            i++; // Skip the next argument
+        } else if (arg == "2") {
+            llvmIROnly = true;
+        } else if (outputFile.empty()) {
+            // If no -o flag, treat as direct output file
+            outputFile = arg;
+        }
+    }
+
+    if (outputFile.empty()) {
+        std::cerr << "Error: No output file specified\n";
+        printUsage(argv[0]);
+        return 1;
+    }
 
     try {
         // Create compilation context with LLVM backend
@@ -104,6 +124,9 @@ int main(int argc, char* argv[]) {
 
         XXML::Common::ErrorReporter errorReporter;
         XXML::Import::ImportResolver resolver;
+
+        // Add source file directory to search paths
+        resolver.addSourceFileDirectory(inputFile);
 
         // Create and parse main module
         std::cout << "Reading: " << inputFile << "\n";

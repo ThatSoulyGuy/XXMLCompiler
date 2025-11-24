@@ -1,0 +1,13 @@
+// Reflection Module - Runtime type introspection system
+// Import this to get access to reflection API:
+// - Type - Main entry point for reflection
+// - PropertyInfo - Property information
+// - MethodInfo - Method information
+// - ParameterInfo - Parameter information
+
+// This file serves as a namespace aggregator
+// The actual implementations are in separate files in Language/Reflection/:
+// - Type.XXML
+// - PropertyInfo.XXML
+// - MethodInfo.XXML
+// - ParameterInfo.XXML

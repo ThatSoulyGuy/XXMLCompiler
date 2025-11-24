@@ -1,0 +1,159 @@
+#import Language::Core;
+#import Language::Reflection::Type;
+#import Language::Reflection::PropertyInfo;
+#import Language::Reflection::MethodInfo;
+
+// Test class for reflection
+[ Class <Person> Final Extends None
+	[ Private <>
+		Property <name> Types String^;
+		Property <age> Types Integer^;
+		Property <email> Types String^;
+	]
+
+	[ Public <>
+		Constructor Parameters (
+			Parameter <n> Types String^,
+			Parameter <a> Types Integer^,
+			Parameter <e> Types String^
+		) ->
+		{
+			Set name = n;
+			Set age = a;
+			Set email = e;
+		}
+
+		Method <greet> Returns String^ Parameters () ->
+		{
+			Return String::Constructor("Hello, I am a person!");
+		}
+
+		Method <setAge> Returns None Parameters (
+			Parameter <newAge> Types Integer^
+		) ->
+		{
+			Set age = newAge;
+		}
+
+		Method <getAge> Returns Integer^ Parameters () ->
+		{
+			Return age;
+		}
+	]
+]
+
+[ Entrypoint
+	{
+		Run Console::printLine(String::Constructor("=== Basic Reflection Test ==="));
+
+		// Get type info for Person class
+		Instantiate Language::Reflection::Type^ As <personType> =
+			Language::Reflection::Type::forName(String::Constructor("Person"));
+
+		If (personType == None::Constructor()) -> {
+			Run Console::printLine(String::Constructor("ERROR: Person type not found!"));
+		}
+
+		// Print type information
+		Run Console::printLine(String::Constructor("\n--- Type Information ---"));
+		Instantiate String^ As <typeName> = personType.getName();
+		Run Console::printLine(String::Constructor("Type name: "));
+		Run Console::printLine(typeName);
+
+		Instantiate String^ As <fullName> = personType.getFullName();
+		Run Console::printLine(String::Constructor("Full name: "));
+		Run Console::printLine(fullName);
+
+		Instantiate String^ As <namespace> = personType.getNamespace();
+		Run Console::printLine(String::Constructor("Namespace: "));
+		Run Console::printLine(namespace);
+
+		Instantiate Bool^ As <isTemplate> = personType.isTemplate();
+		If (isTemplate.getValue()) -> {
+			Run Console::printLine(String::Constructor("Is template: true"));
+		}
+		Else -> {
+			Run Console::printLine(String::Constructor("Is template: false"));
+		}
+
+		// Print properties
+		Run Console::printLine(String::Constructor("\n--- Properties ---"));
+		Instantiate Integer^ As <propCount> = personType.getPropertyCount();
+		Run Console::printLine(String::Constructor("Property count: "));
+		Run Console::printLine(propCount.toString());
+
+		Instantiate NativeType<"int64">^ As <i> = 0;
+		Instantiate NativeType<"int64">^ As <count> = propCount.toInt64();
+
+		While (i < count) -> {
+			Instantiate Language::Reflection::PropertyInfo^ As <prop> =
+				personType.getPropertyAt(Integer::Constructor(i));
+
+			Instantiate String^ As <propName> = prop.getName();
+			Instantiate String^ As <propType> = prop.getTypeName();
+			Instantiate String^ As <ownership> = prop.getOwnershipString();
+
+			Run Console::printLine(String::Constructor("  "));
+			Run Console::printLine(propName);
+			Run Console::printLine(String::Constructor(" : "));
+			Run Console::printLine(propType);
+			Run Console::printLine(String::Constructor(" ("));
+			Run Console::printLine(ownership);
+			Run Console::printLine(String::Constructor(")"));
+
+			Set i = i + 1;
+		}
+
+		// Print methods
+		Run Console::printLine(String::Constructor("\n--- Methods ---"));
+		Instantiate Integer^ As <methodCount> = personType.getMethodCount();
+		Run Console::printLine(String::Constructor("Method count: "));
+		Run Console::printLine(methodCount.toString());
+
+		Instantiate NativeType<"int64">^ As <j> = 0;
+		Instantiate NativeType<"int64">^ As <mCount> = methodCount.toInt64();
+
+		While (j < mCount) -> {
+			Instantiate Language::Reflection::MethodInfo^ As <method> =
+				personType.getMethodAt(Integer::Constructor(j));
+
+			Instantiate String^ As <signature> = method.getSignature();
+			Run Console::printLine(String::Constructor("  "));
+			Run Console::printLine(signature);
+
+			Set j = j + 1;
+		}
+
+		// Get specific method by name
+		Run Console::printLine(String::Constructor("\n--- Get Method By Name ---"));
+		Instantiate Language::Reflection::MethodInfo^ As <greetMethod> =
+			personType.getMethod(String::Constructor("greet"));
+
+		If (greetMethod != None::Constructor()) -> {
+			Instantiate String^ As <greetName> = greetMethod.getName();
+			Run Console::printLine(String::Constructor("Found method: "));
+			Run Console::printLine(greetName);
+
+			Instantiate String^ As <retType> = greetMethod.getReturnType();
+			Run Console::printLine(String::Constructor("Return type: "));
+			Run Console::printLine(retType);
+		}
+
+		// Get specific property by name
+		Run Console::printLine(String::Constructor("\n--- Get Property By Name ---"));
+		Instantiate Language::Reflection::PropertyInfo^ As <nameProp> =
+			personType.getProperty(String::Constructor("name"));
+
+		If (nameProp != None::Constructor()) -> {
+			Instantiate String^ As <namePropName> = nameProp.getName();
+			Run Console::printLine(String::Constructor("Found property: "));
+			Run Console::printLine(namePropName);
+
+			Instantiate String^ As <namePropType> = nameProp.getTypeName();
+			Run Console::printLine(String::Constructor("Type: "));
+			Run Console::printLine(namePropType);
+		}
+
+		Run Console::printLine(String::Constructor("\n=== Test Complete ==="));
+	}
+]

@@ -1,0 +1,121 @@
+#import Language::Core;
+
+[ Namespace <Language::Reflection>
+	[ Class <MethodInfo> Final Extends None
+		[ Private <>
+			Property <methodInfoPtr> Types NativeType<"ptr">^;
+		]
+
+		[ Public <>
+			Constructor Parameters (
+				Parameter <infoPtr> Types NativeType<"ptr">%
+			) ->
+			{
+				Run Syscall::memcpy(&methodInfoPtr, &infoPtr, 8);
+			}
+
+			// Get method name
+			Method <getName> Returns String^ Parameters () ->
+			{
+				Instantiate NativeType<"ptr">^ As <ptr> = methodInfoPtr;
+				Instantiate NativeType<"cstr">^ As <namePtr> =
+					Syscall::reflection_method_getName(ptr);
+				Return String::FromCString(namePtr);
+			}
+
+			// Get return type name
+			Method <getReturnType> Returns String^ Parameters () ->
+			{
+				Instantiate NativeType<"ptr">^ As <ptr> = methodInfoPtr;
+				Instantiate NativeType<"cstr">^ As <typePtr> =
+					Syscall::reflection_method_getReturnType(ptr);
+				Return String::FromCString(typePtr);
+			}
+
+			// Get return ownership type (0=None, 1=Owned, 2=Reference, 3=Copy)
+			Method <getReturnOwnership> Returns Integer^ Parameters () ->
+			{
+				Instantiate NativeType<"ptr">^ As <ptr> = methodInfoPtr;
+				Instantiate NativeType<"int64">^ As <ownership> =
+					Syscall::reflection_method_getReturnOwnership(ptr);
+				Return Integer::Constructor(ownership);
+			}
+
+			// Get parameter count
+			Method <getParameterCount> Returns Integer^ Parameters () ->
+			{
+				Instantiate NativeType<"ptr">^ As <ptr> = methodInfoPtr;
+				Instantiate NativeType<"int64">^ As <count> =
+					Syscall::reflection_method_getParameterCount(ptr);
+				Return Integer::Constructor(count);
+			}
+
+			// Get parameter by index
+			Method <getParameterAt> Returns ParameterInfo^ Parameters (
+				Parameter <index> Types Integer&
+			) ->
+			{
+				Instantiate NativeType<"ptr">^ As <ptr> = methodInfoPtr;
+				Instantiate NativeType<"int64">^ As <idx> = index.toInt64();
+				Instantiate NativeType<"ptr">^ As <paramPtr> =
+					Syscall::reflection_method_getParameter(ptr, idx);
+
+				If (paramPtr == 0) -> {
+					Return None::Constructor();
+				}
+
+				Return ParameterInfo::Constructor(paramPtr);
+			}
+
+			// Check if static method
+			Method <isStatic> Returns Bool^ Parameters () ->
+			{
+				Instantiate NativeType<"ptr">^ As <ptr> = methodInfoPtr;
+				Instantiate NativeType<"int64">^ As <result> =
+					Syscall::reflection_method_isStatic(ptr);
+				Instantiate NativeType<"bool">^ As <b> = result != 0;
+				Return Bool::Constructor(b);
+			}
+
+			// Check if constructor
+			Method <isConstructor> Returns Bool^ Parameters () ->
+			{
+				Instantiate NativeType<"ptr">^ As <ptr> = methodInfoPtr;
+				Instantiate NativeType<"int64">^ As <result> =
+					Syscall::reflection_method_isConstructor(ptr);
+				Instantiate NativeType<"bool">^ As <b> = result != 0;
+				Return Bool::Constructor(b);
+			}
+
+			// Get method signature as string
+			Method <getSignature> Returns String^ Parameters () ->
+			{
+				Instantiate String^ As <sig> = String::Constructor("");
+				Instantiate String^ As <retType> = getReturnType();
+				Instantiate String^ As <name> = getName();
+
+				Run sig.append(retType);
+				Run sig.append(String::Constructor(" "));
+				Run sig.append(name);
+				Run sig.append(String::Constructor("("));
+
+				Instantiate Integer^ As <count> = getParameterCount();
+				Instantiate NativeType<"int64">^ As <i> = 0;
+				Instantiate NativeType<"int64">^ As <paramCount> = count.toInt64();
+
+				While (i < paramCount) -> {
+					If (i > 0) -> {
+						Run sig.append(String::Constructor(", "));
+					}
+					Instantiate Parameter^ As <param> = getParameterAt(Integer::Constructor(i));
+					Instantiate String^ As <paramType> = param.getTypeName();
+					Run sig.append(paramType);
+					Set i = i + 1;
+				}
+
+				Run sig.append(String::Constructor(")"));
+				Return sig;
+			}
+		]
+	]
+]

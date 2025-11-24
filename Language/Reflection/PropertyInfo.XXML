@@ -1,0 +1,76 @@
+#import Language::Core;
+
+[ Namespace <Language::Reflection>
+	[ Class <PropertyInfo> Final Extends None
+		[ Private <>
+			Property <propertyInfoPtr> Types NativeType<"ptr">^;
+		]
+
+		[ Public <>
+			Constructor Parameters (
+				Parameter <infoPtr> Types NativeType<"ptr">%
+			) ->
+			{
+				Run Syscall::memcpy(&propertyInfoPtr, &infoPtr, 8);
+			}
+
+			// Get property name
+			Method <getName> Returns String^ Parameters () ->
+			{
+				Instantiate NativeType<"ptr">^ As <ptr> = propertyInfoPtr;
+				Instantiate NativeType<"cstr">^ As <namePtr> =
+					Syscall::reflection_property_getName(ptr);
+				Return String::FromCString(namePtr);
+			}
+
+			// Get property type name
+			Method <getTypeName> Returns String^ Parameters () ->
+			{
+				Instantiate NativeType<"ptr">^ As <ptr> = propertyInfoPtr;
+				Instantiate NativeType<"cstr">^ As <typePtr> =
+					Syscall::reflection_property_getTypeName(ptr);
+				Return String::FromCString(typePtr);
+			}
+
+			// Get ownership type (0=None, 1=Owned(^), 2=Reference(&), 3=Copy(%))
+			Method <getOwnership> Returns Integer^ Parameters () ->
+			{
+				Instantiate NativeType<"ptr">^ As <ptr> = propertyInfoPtr;
+				Instantiate NativeType<"int64">^ As <ownership> =
+					Syscall::reflection_property_getOwnership(ptr);
+				Return Integer::Constructor(ownership);
+			}
+
+			// Get ownership as string
+			Method <getOwnershipString> Returns String^ Parameters () ->
+			{
+				Instantiate Integer^ As <ownership> = getOwnership();
+				Instantiate NativeType<"int64">^ As <ownershipValue> = ownership.toInt64();
+
+				If (ownershipValue == 0) -> {
+					Return String::Constructor("None");
+				}
+				If (ownershipValue == 1) -> {
+					Return String::Constructor("Owned(^)");
+				}
+				If (ownershipValue == 2) -> {
+					Return String::Constructor("Reference(&)");
+				}
+				If (ownershipValue == 3) -> {
+					Return String::Constructor("Copy(%)");
+				}
+
+				Return String::Constructor("Unknown");
+			}
+
+			// Get offset in bytes from object start
+			Method <getOffset> Returns Integer^ Parameters () ->
+			{
+				Instantiate NativeType<"ptr">^ As <ptr> = propertyInfoPtr;
+				Instantiate NativeType<"int64">^ As <offset> =
+					Syscall::reflection_property_getOffset(ptr);
+				Return Integer::Constructor(offset);
+			}
+		]
+	]
+]

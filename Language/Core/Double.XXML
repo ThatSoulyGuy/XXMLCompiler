@@ -26,6 +26,11 @@
 				Return value;
 			}
 
+			Method <getValue> Returns NativeType<"double">% Parameters () ->
+			{
+				Return value;
+			}
+
 			// Arithmetic operations
 			Method <add> Returns Double^ Parameters (
 				Parameter <other> Types Double&
@@ -206,6 +211,13 @@
 				Instantiate NativeType<"double">^ As <v> = value;
 				Instantiate NativeType<"float">^ As <result> = v;
 				Return Float::Constructor(result);
+			}
+
+			Method <toString> Returns String^ Parameters () ->
+			{
+				Instantiate NativeType<"double">^ As <v> = value;
+				Instantiate NativeType<"cstr">^ As <str> = Syscall::double_to_string(v);
+				Return String::Constructor(str);
 			}
 		]
 	]

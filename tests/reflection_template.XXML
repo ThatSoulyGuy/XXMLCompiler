@@ -1,0 +1,132 @@
+#import Language::Core;
+#import Language::Reflection;
+
+// Test template class
+[ Namespace <Container>
+	[ Class <Box> <T Constrains None> Final Extends None
+		[ Private <>
+			Property <value> Types T^;
+		]
+
+		[ Public <>
+			Constructor Parameters (
+				Parameter <val> Types T^
+			) ->
+			{
+				Set value = val;
+			}
+
+			Method <getValue> Returns T^ Parameters () ->
+			{
+				Return value;
+			}
+
+			Method <setValue> Returns None Parameters (
+				Parameter <newValue> Types T^
+			) ->
+			{
+				Set value = newValue;
+			}
+		]
+	]
+]
+
+[ Entrypoint
+	{
+		Run Console::printLine(String::Constructor("=== Template Reflection Test ==="));
+
+		// Test with Box<Integer>
+		Run Console::printLine(String::Constructor("\n--- Box<Integer> ---"));
+		Instantiate Language::Reflection::Type^ As <boxIntType> =
+			Language::Reflection::Type::forName(String::Constructor("Container::Box<Integer>"));
+
+		If (boxIntType != None::Constructor()) -> {
+			Instantiate String^ As <fullName> = boxIntType.getFullName();
+			Run Console::printLine(String::Constructor("Full name: "));
+			Run Console::printLine(fullName);
+
+			Instantiate Bool^ As <isTemplate> = boxIntType.isTemplate();
+			If (isTemplate.getValue()) -> {
+				Run Console::printLine(String::Constructor("Is template: true"));
+
+				Instantiate Integer^ As <paramCount> = boxIntType.getTemplateParameterCount();
+				Run Console::printLine(String::Constructor("Template parameter count: "));
+				Run Console::printLine(paramCount.toString());
+			}
+
+			// Show properties
+			Run Console::printLine(String::Constructor("\nProperties:"));
+			Instantiate Integer^ As <propCount> = boxIntType.getPropertyCount();
+			Instantiate NativeType<"int64">^ As <i> = 0;
+			Instantiate NativeType<"int64">^ As <count> = propCount.toInt64();
+
+			While (i < count) -> {
+				Instantiate Language::Reflection::PropertyInfo^ As <prop> =
+					boxIntType.getPropertyAt(Integer::Constructor(i));
+
+				Instantiate String^ As <propName> = prop.getName();
+				Instantiate String^ As <propType> = prop.getTypeName();
+
+				Run Console::printLine(String::Constructor("  "));
+				Run Console::printLine(propName);
+				Run Console::printLine(String::Constructor(" : "));
+				Run Console::printLine(propType);
+
+				Set i = i + 1;
+			}
+
+			// Show methods
+			Run Console::printLine(String::Constructor("\nMethods:"));
+			Instantiate Integer^ As <methodCount> = boxIntType.getMethodCount();
+			Instantiate NativeType<"int64">^ As <j> = 0;
+			Instantiate NativeType<"int64">^ As <mCount> = methodCount.toInt64();
+
+			While (j < mCount) -> {
+				Instantiate Language::Reflection::MethodInfo^ As <method> =
+					boxIntType.getMethodAt(Integer::Constructor(j));
+
+				Instantiate String^ As <signature> = method.getSignature();
+				Run Console::printLine(String::Constructor("  "));
+				Run Console::printLine(signature);
+
+				Set j = j + 1;
+			}
+		}
+		Else -> {
+			Run Console::printLine(String::Constructor("ERROR: Box<Integer> type not found!"));
+		}
+
+		// Test with Box<String>
+		Run Console::printLine(String::Constructor("\n--- Box<String> ---"));
+		Instantiate Language::Reflection::Type^ As <boxStrType> =
+			Language::Reflection::Type::forName(String::Constructor("Container::Box<String>"));
+
+		If (boxStrType != None::Constructor()) -> {
+			Instantiate String^ As <fullName> = boxStrType.getFullName();
+			Run Console::printLine(String::Constructor("Full name: "));
+			Run Console::printLine(fullName);
+
+			Instantiate Bool^ As <isTemplate> = boxStrType.isTemplate();
+			If (isTemplate.getValue()) -> {
+				Run Console::printLine(String::Constructor("Is template: true"));
+			}
+
+			// Show that Box<String> is different from Box<Integer>
+			Run Console::printLine(String::Constructor("\nComparing Box<Integer> vs Box<String>:"));
+			Instantiate String^ As <intFullName> = boxIntType.getFullName();
+			Instantiate String^ As <strFullName> = boxStrType.getFullName();
+
+			If (String::equals(intFullName, strFullName)) -> {
+				Run Console::printLine(String::Constructor("ERROR: Types are the same!"));
+			}
+			Else -> {
+				Run Console::printLine(String::Constructor("Types are different (correct!)"));
+			}
+		}
+		Else -> {
+			Run Console::printLine(String::Constructor("ERROR: Box<String> type not found!"));
+		}
+
+		Run Console::printLine(String::Constructor("\n=== Test Complete ==="));
+	}
+]

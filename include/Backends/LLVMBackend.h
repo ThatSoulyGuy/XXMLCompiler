@@ -240,6 +240,24 @@ private:
 
     /// Calculate size in bytes for a given class
     size_t calculateClassSize(const std::string& className) const;
+
+    /// Reflection metadata generation
+    void generateReflectionMetadata();
+    struct ReflectionClassMetadata {
+        std::string name;
+        std::string namespaceName;
+        std::string fullName;
+        std::vector<std::pair<std::string, std::string>> properties;  // name, type
+        std::vector<std::string> propertyOwnerships;  // ownership chars (^, &, %)
+        std::vector<std::pair<std::string, std::string>> methods;  // name, return type
+        std::vector<std::string> methodReturnOwnerships;  // ownership for return types
+        std::vector<std::vector<std::tuple<std::string, std::string, std::string>>> methodParameters;  // name, type, ownership
+        bool isTemplate;
+        std::vector<std::string> templateParams;
+        size_t instanceSize;
+        Parser::ClassDecl* astNode;
+    };
+    std::unordered_map<std::string, ReflectionClassMetadata> reflectionMetadata_;
 };
 
 } // namespace Backends

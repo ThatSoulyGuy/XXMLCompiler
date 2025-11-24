@@ -41,6 +41,9 @@ public:
     // Add a search path (e.g., "Language/", "./lib/")
     void addSearchPath(const std::string& path);
 
+    // Add the directory containing the source file being compiled
+    void addSourceFileDirectory(const std::string& sourceFilePath);
+
     // Resolve an import statement to a list of modules
     // e.g., "Language::Core" -> [Language::Core::String, Language::Core::Integer, ...]
     std::vector<Module*> resolveImport(const std::string& importPath);

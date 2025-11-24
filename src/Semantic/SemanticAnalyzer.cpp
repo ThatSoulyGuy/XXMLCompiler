@@ -504,6 +504,12 @@ void SemanticAnalyzer::visit(Parser::ClassDecl& node) {
                 methodInfo.returnType = node.name;
                 methodInfo.returnOwnership = Parser::OwnershipType::Owned;
                 methodInfo.isConstructor = true;
+
+                // Collect constructor parameters
+                for (auto& param : ctorDecl->parameters) {
+                    methodInfo.parameters.push_back({param->type->typeName, param->type->ownership});
+                }
+
                 classInfo.methods["Constructor"] = methodInfo;
             }
         }

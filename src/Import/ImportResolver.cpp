@@ -41,6 +41,9 @@ ImportResolver::ImportResolver() {
     std::string exeDir = getExecutableDirectory();
     std::string languagePath = exeDir + "/Language";
 
+    // Add the executable directory itself for auto-scanning
+    addSearchPath(exeDir);
+
     // Check if Language folder exists next to executable
     if (fs::exists(languagePath) && fs::is_directory(languagePath)) {
         addSearchPath(languagePath);
@@ -62,6 +65,16 @@ ImportResolver::ImportResolver() {
 
 void ImportResolver::addSearchPath(const std::string& path) {
     searchPaths.push_back(path);
+}
+
+void ImportResolver::addSourceFileDirectory(const std::string& sourceFilePath) {
+    // Extract directory from source file path
+    fs::path filePath(sourceFilePath);
+    if (filePath.has_parent_path()) {
+        std::string dirPath = filePath.parent_path().string();
+        addSearchPath(dirPath);
+        std::cout << "✓ Added source directory to search paths: " << dirPath << "\n";
+    }
 }
 
 std::string ImportResolver::namespaceToPath(const std::string& namespacePath) const {
@@ -224,49 +237,47 @@ void ImportResolver::clear() {
 std::vector<Module*> ImportResolver::discoverAllModules() {
     std::vector<Module*> modules;
 
-    // Discover all XXML files in current directory and subdirectories
-    std::cout << "Auto-discovering XXML files in current directory...\n";
+    // Discover all XXML files in all search paths
+    std::cout << "Auto-discovering XXML files in search paths...\n";
 
-    // Find all XXML files recursively from current directory
-    auto files = findXXMLFilesRecursive(".");
+    for (const auto& searchPath : searchPaths) {
+        std::cout << "  Scanning: " << searchPath << "\n";
 
-    for (const auto& filePath : files) {
-        // Skip files in Language folder (they're handled separately)
-        if (filePath.find("Language/") != std::string::npos ||
-            filePath.find("Language\\") != std::string::npos) {
-            continue;
+        // Find all XXML files in this directory (non-recursive for search paths)
+        auto files = findXXMLFilesInDirectory(searchPath);
+
+        for (const auto& filePath : files) {
+            // Skip build directories
+            if (filePath.find("build/") != std::string::npos ||
+                filePath.find("build\\") != std::string::npos ||
+                filePath.find("x64/") != std::string::npos ||
+                filePath.find("x64\\") != std::string::npos) {
+                continue;
+            }
+
+            std::string moduleName = extractModuleName(filePath);
+
+            // Check if module is already loaded
+            if (hasModule(moduleName)) {
+                modules.push_back(moduleCache[moduleName].get());
+                continue;
+            }
+
+            // Create new module
+            auto module = std::make_unique<Module>(moduleName, filePath);
+
+            // Load source code
+            if (!module->loadFromFile()) {
+                std::cerr << "    Warning: Failed to load module file: " << filePath << "\n";
+                continue;
+            }
+
+            std::cout << "    Found: " << filePath << " -> " << moduleName << "\n";
+
+            Module* modulePtr = module.get();
+            moduleCache[moduleName] = std::move(module);
+            modules.push_back(modulePtr);
         }
-
-        // Skip build directories
-        if (filePath.find("build/") != std::string::npos ||
-            filePath.find("build\\") != std::string::npos ||
-            filePath.find("x64/") != std::string::npos ||
-            filePath.find("x64\\") != std::string::npos) {
-            continue;
-        }
-
-        std::string moduleName = extractModuleName(filePath);
-
-        // Check if module is already loaded
-        if (hasModule(moduleName)) {
-            modules.push_back(moduleCache[moduleName].get());
-            continue;
-        }
-
-        // Create new module
-        auto module = std::make_unique<Module>(moduleName, filePath);
-
-        // Load source code
-        if (!module->loadFromFile()) {
-            std::cerr << "  Warning: Failed to load module file: " << filePath << "\n";
-            continue;
-        }
-
-        std::cout << "  Discovered: " << filePath << " -> " << moduleName << "\n";
-
-        Module* modulePtr = module.get();
-        moduleCache[moduleName] = std::move(module);
-        modules.push_back(modulePtr);
     }
 
     return modules;

@@ -1,0 +1,185 @@
+#import Language::Core;
+#import Language::Reflection;
+
+// Test class with various methods
+[ Class <Calculator> Final Extends None
+	[ Private <>
+		Property <result> Types Integer^;
+	]
+
+	[ Public <>
+		Constructor Parameters () ->
+		{
+			Set result = Integer::Constructor(0);
+		}
+
+		// Method with multiple parameters
+		Method <add> Returns Integer^ Parameters (
+			Parameter <a> Types Integer&,
+			Parameter <b> Types Integer&
+		) ->
+		{
+			Return a.add(b);
+		}
+
+		// Method with no parameters
+		Method <getResult> Returns Integer^ Parameters () ->
+		{
+			Return result;
+		}
+
+		// Method returning None
+		Method <clear> Returns None Parameters () ->
+		{
+			Set result = Integer::Constructor(0);
+		}
+
+		// Method with owned parameter
+		Method <setResult> Returns None Parameters (
+			Parameter <newResult> Types Integer^
+		) ->
+		{
+			Set result = newResult;
+		}
+
+		// Method with copy parameter
+		Method <multiply> Returns Integer^ Parameters (
+			Parameter <a> Types Integer%,
+			Parameter <b> Types Integer%
+		) ->
+		{
+			Return a.multiply(b);
+		}
+	]
+]
+
+[ Entrypoint
+	{
+		Run Console::printLine(String::Constructor("=== Method Introspection Test ==="));
+
+		// Get type info for Calculator class
+		Instantiate Language::Reflection::Type^ As <calcType> =
+			Language::Reflection::Type::forName(String::Constructor("Calculator"));
+
+		If (calcType == None::Constructor()) -> {
+			Run Console::printLine(String::Constructor("ERROR: Calculator type not found!"));
+		}
+
+		Run Console::printLine(String::Constructor("\n--- All Methods ---"));
+		Instantiate Integer^ As <methodCount> = calcType.getMethodCount();
+		Run Console::printLine(String::Constructor("Method count: "));
+		Run Console::printLine(methodCount.toString());
+
+		Instantiate NativeType<"int64">^ As <i> = 0;
+		Instantiate NativeType<"int64">^ As <count> = methodCount.toInt64();
+
+		While (i < count) -> {
+			Instantiate Language::Reflection::MethodInfo^ As <method> =
+				calcType.getMethodAt(Integer::Constructor(i));
+
+			Instantiate String^ As <methodName> = method.getName();
+			Instantiate String^ As <signature> = method.getSignature();
+
+			Run Console::printLine(String::Constructor("\nMethod: "));
+			Run Console::printLine(methodName);
+			Run Console::printLine(String::Constructor("\nSignature: "));
+			Run Console::printLine(signature);
+
+			// Show return type
+			Instantiate String^ As <retType> = method.getReturnType();
+			Run Console::printLine(String::Constructor("Return type: "));
+			Run Console::printLine(retType);
+
+			// Show if it's a constructor
+			Instantiate Bool^ As <isCtor> = method.isConstructor();
+			If (isCtor.getValue()) -> {
+				Run Console::printLine(String::Constructor("Is constructor: true"));
+			}
+
+			Set i = i + 1;
+		}
+
+		// Inspect specific method: add
+		Run Console::printLine(String::Constructor("\n--- Detailed Method Analysis: add ---"));
+		Instantiate Language::Reflection::MethodInfo^ As <addMethod> =
+			calcType.getMethod(String::Constructor("add"));
+
+		If (addMethod != None::Constructor()) -> {
+			Instantiate String^ As <addName> = addMethod.getName();
+			Run Console::printLine(String::Constructor("Method name: "));
+			Run Console::printLine(addName);
+
+			Instantiate String^ As <retType> = addMethod.getReturnType();
+			Run Console::printLine(String::Constructor("Return type: "));
+			Run Console::printLine(retType);
+
+			Instantiate Integer^ As <retOwnership> = addMethod.getReturnOwnership();
+			Run Console::printLine(String::Constructor("Return ownership: "));
+			Run Console::printLine(retOwnership.toString());
+
+			// Show parameters
+			Run Console::printLine(String::Constructor("\nParameters:"));
+			Instantiate Integer^ As <paramCount> = addMethod.getParameterCount();
+			Run Console::printLine(String::Constructor("Parameter count: "));
+			Run Console::printLine(paramCount.toString());
+
+			Instantiate NativeType<"int64">^ As <j> = 0;
+			Instantiate NativeType<"int64">^ As <pCount> = paramCount.toInt64();
+
+			While (j < pCount) -> {
+				Instantiate Language::Reflection::ParameterInfo^ As <param> =
+					addMethod.getParameterAt(Integer::Constructor(j));
+
+				Instantiate String^ As <paramName> = param.getName();
+				Instantiate String^ As <paramType> = param.getTypeName();
+				Instantiate String^ As <ownership> = param.getOwnershipString();
+
+				Run Console::printLine(String::Constructor("  Parameter "));
+				Run Console::printLine(Integer::Constructor(j).toString());
+				Run Console::printLine(String::Constructor(": "));
+				Run Console::printLine(paramName);
+				Run Console::printLine(String::Constructor(" : "));
+				Run Console::printLine(paramType);
+				Run Console::printLine(String::Constructor(" ("));
+				Run Console::printLine(ownership);
+				Run Console::printLine(String::Constructor(")"));
+
+				Set j = j + 1;
+			}
+		}
+		Else -> {
+			Run Console::printLine(String::Constructor("ERROR: add method not found!"));
+		}
+
+		// Test parameter ownership differences
+		Run Console::printLine(String::Constructor("\n--- Ownership Comparison ---"));
+
+		Instantiate Language::Reflection::MethodInfo^ As <addMeth> =
+			calcType.getMethod(String::Constructor("add"));
+		Instantiate Language::Reflection::MethodInfo^ As <setResultMeth> =
+			calcType.getMethod(String::Constructor("setResult"));
+		Instantiate Language::Reflection::MethodInfo^ As <multiplyMeth> =
+			calcType.getMethod(String::Constructor("multiply"));
+
+		If (addMeth != None::Constructor() && setResultMeth != None::Constructor() && multiplyMeth != None::Constructor()) -> {
+			// Compare first parameter ownership
+			Instantiate Language::Reflection::ParameterInfo^ As <addParam> =
+				addMeth.getParameterAt(Integer::Constructor(0));
+			Instantiate Language::Reflection::ParameterInfo^ As <setParam> =
+				setResultMeth.getParameterAt(Integer::Constructor(0));
+			Instantiate Language::Reflection::ParameterInfo^ As <multParam> =
+				multiplyMeth.getParameterAt(Integer::Constructor(0));
+
+			Run Console::printLine(String::Constructor("add parameter ownership: "));
+			Run Console::printLine(addParam.getOwnershipString());
+
+			Run Console::printLine(String::Constructor("setResult parameter ownership: "));
+			Run Console::printLine(setParam.getOwnershipString());
+
+			Run Console::printLine(String::Constructor("multiply parameter ownership: "));
+			Run Console::printLine(multParam.getOwnershipString());
+		}
+
+		Run Console::printLine(String::Constructor("\n=== Test Complete ==="));
+	}
+]

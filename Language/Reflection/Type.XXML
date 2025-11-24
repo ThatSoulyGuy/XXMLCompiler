@@ -1,0 +1,176 @@
+#import Language::Core;
+
+[ Namespace <Language::Reflection>
+	[ Class <Type> Final Extends None
+		[ Private <>
+			Property <typeInfoPtr> Types NativeType<"ptr">^;
+		]
+
+		[ Public <>
+			// Internal constructor from type info pointer
+			Constructor Parameters (
+				Parameter <infoPtr> Types NativeType<"ptr">%
+			) ->
+			{
+				Run Syscall::memcpy(&typeInfoPtr, &infoPtr, 8);
+			}
+
+			// Get type name (simple name without namespace)
+			Method <getName> Returns String^ Parameters () ->
+			{
+				Instantiate NativeType<"ptr">^ As <ptr> = typeInfoPtr;
+				Instantiate NativeType<"cstr">^ As <namePtr> =
+					Syscall::reflection_type_getName(ptr);
+				Return String::FromCString(namePtr);
+			}
+
+			// Get full qualified name (Namespace::ClassName)
+			Method <getFullName> Returns String^ Parameters () ->
+			{
+				Instantiate NativeType<"ptr">^ As <ptr> = typeInfoPtr;
+				Instantiate NativeType<"cstr">^ As <fullNamePtr> =
+					Syscall::reflection_type_getFullName(ptr);
+				Return String::FromCString(fullNamePtr);
+			}
+
+			// Get namespace
+			Method <getNamespace> Returns String^ Parameters () ->
+			{
+				Instantiate NativeType<"ptr">^ As <ptr> = typeInfoPtr;
+				Instantiate NativeType<"cstr">^ As <nsPtr> =
+					Syscall::reflection_type_getNamespace(ptr);
+				Return String::FromCString(nsPtr);
+			}
+
+			// Check if this is a template type
+			Method <isTemplate> Returns Bool^ Parameters () ->
+			{
+				Instantiate NativeType<"ptr">^ As <ptr> = typeInfoPtr;
+				Instantiate NativeType<"int64">^ As <result> =
+					Syscall::reflection_type_isTemplate(ptr);
+				Instantiate NativeType<"bool">^ As <b> = result != 0;
+				Return Bool::Constructor(b);
+			}
+
+			// Get number of template parameters
+			Method <getTemplateParameterCount> Returns Integer^ Parameters () ->
+			{
+				Instantiate NativeType<"ptr">^ As <ptr> = typeInfoPtr;
+				Instantiate NativeType<"int64">^ As <count> =
+					Syscall::reflection_type_getTemplateParamCount(ptr);
+				Return Integer::Constructor(count);
+			}
+
+			// Get number of properties
+			Method <getPropertyCount> Returns Integer^ Parameters () ->
+			{
+				Instantiate NativeType<"ptr">^ As <ptr> = typeInfoPtr;
+				Instantiate NativeType<"int64">^ As <count> =
+					Syscall::reflection_type_getPropertyCount(ptr);
+				Return Integer::Constructor(count);
+			}
+
+			// Get property by index
+			Method <getPropertyAt> Returns PropertyInfo^ Parameters (
+				Parameter <index> Types Integer&
+			) ->
+			{
+				Instantiate NativeType<"ptr">^ As <ptr> = typeInfoPtr;
+				Instantiate NativeType<"int64">^ As <idx> = index.toInt64();
+				Instantiate NativeType<"ptr">^ As <propPtr> =
+					Syscall::reflection_type_getProperty(ptr, idx);
+
+				If (propPtr == 0) -> {
+					Return None::Constructor();
+				}
+
+				Return PropertyInfo::Constructor(propPtr);
+			}
+
+			// Get property by name
+			Method <getProperty> Returns PropertyInfo^ Parameters (
+				Parameter <name> Types String&
+			) ->
+			{
+				Instantiate NativeType<"ptr">^ As <ptr> = typeInfoPtr;
+				Instantiate NativeType<"cstr">^ As <nameStr> = String::toCString(name);
+				Instantiate NativeType<"ptr">^ As <propPtr> =
+					Syscall::reflection_type_getPropertyByName(ptr, nameStr);
+
+				If (propPtr == 0) -> {
+					Return None::Constructor();
+				}
+
+				Return PropertyInfo::Constructor(propPtr);
+			}
+
+			// Get number of methods
+			Method <getMethodCount> Returns Integer^ Parameters () ->
+			{
+				Instantiate NativeType<"ptr">^ As <ptr> = typeInfoPtr;
+				Instantiate NativeType<"int64">^ As <count> =
+					Syscall::reflection_type_getMethodCount(ptr);
+				Return Integer::Constructor(count);
+			}
+
+			// Get method by index
+			Method <getMethodAt> Returns MethodInfo^ Parameters (
+				Parameter <index> Types Integer&
+			) ->
+			{
+				Instantiate NativeType<"ptr">^ As <ptr> = typeInfoPtr;
+				Instantiate NativeType<"int64">^ As <idx> = index.toInt64();
+				Instantiate NativeType<"ptr">^ As <methodPtr> =
+					Syscall::reflection_type_getMethod(ptr, idx);
+
+				If (methodPtr == 0) -> {
+					Return None::Constructor();
+				}
+
+				Return MethodInfo::Constructor(methodPtr);
+			}
+
+			// Get method by name
+			Method <getMethod> Returns MethodInfo^ Parameters (
+				Parameter <name> Types String&
+			) ->
+			{
+				Instantiate NativeType<"ptr">^ As <ptr> = typeInfoPtr;
+				Instantiate NativeType<"cstr">^ As <nameStr> = String::toCString(name);
+				Instantiate NativeType<"ptr">^ As <methodPtr> =
+					Syscall::reflection_type_getMethodByName(ptr, nameStr);
+
+				If (methodPtr == 0) -> {
+					Return None::Constructor();
+				}
+
+				Return MethodInfo::Constructor(methodPtr);
+			}
+
+			// Get type by name (static method)
+			Method <forName> Returns Type^ Parameters (
+				Parameter <typeName> Types String&
+			) ->
+			{
+				Instantiate NativeType<"cstr">^ As <nameStr> = String::toCString(typeName);
+				Instantiate NativeType<"ptr">^ As <typePtr> =
+					Syscall::reflection_getTypeByName(nameStr);
+
+				If (typePtr == 0) -> {
+					Return None::Constructor();
+				}
+
+				Return Type::Constructor(typePtr);
+			}
+
+			// Get instance size in bytes
+			Method <getInstanceSize> Returns Integer^ Parameters () ->
+			{
+				Instantiate NativeType<"ptr">^ As <ptr> = typeInfoPtr;
+				Instantiate NativeType<"int64">^ As <size> =
+					Syscall::reflection_type_getInstanceSize(ptr);
+				Return Integer::Constructor(size);
+			}
+		]
+	]
+]

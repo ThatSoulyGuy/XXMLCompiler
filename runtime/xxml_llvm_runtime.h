@@ -71,6 +71,8 @@ void* Float_divideAssign(void* self, void* other);
 // ============================================
 
 void* Double_Constructor(double value);
+void* Double_toString(void* self);
+char* xxml_double_to_string(double value);
 void* Double_addAssign(void* self, void* other);
 void* Double_subtractAssign(void* self, void* other);
 void* Double_multiplyAssign(void* self, void* other);
@@ -124,6 +126,45 @@ void Console_print(void* str);
 void Console_printLine(void* str);
 void Console_printInt(int64_t value);
 void Console_printBool(bool value);
+
+// ============================================
+// Reflection Syscalls
+// ============================================
+
+// Type reflection syscalls
+const char* Syscall_reflection_type_getName(void* typeInfo);
+const char* Syscall_reflection_type_getFullName(void* typeInfo);
+const char* Syscall_reflection_type_getNamespace(void* typeInfo);
+int64_t Syscall_reflection_type_isTemplate(void* typeInfo);
+int64_t Syscall_reflection_type_getTemplateParamCount(void* typeInfo);
+int64_t Syscall_reflection_type_getPropertyCount(void* typeInfo);
+void* Syscall_reflection_type_getProperty(void* typeInfo, int64_t index);
+void* Syscall_reflection_type_getPropertyByName(void* typeInfo, const char* name);
+int64_t Syscall_reflection_type_getMethodCount(void* typeInfo);
+void* Syscall_reflection_type_getMethod(void* typeInfo, int64_t index);
+void* Syscall_reflection_type_getMethodByName(void* typeInfo, const char* name);
+void* Syscall_reflection_getTypeByName(const char* typeName);
+int64_t Syscall_reflection_type_getInstanceSize(void* typeInfo);
+
+// Method reflection syscalls
+const char* Syscall_reflection_method_getName(void* methodInfo);
+const char* Syscall_reflection_method_getReturnType(void* methodInfo);
+int64_t Syscall_reflection_method_getReturnOwnership(void* methodInfo);
+int64_t Syscall_reflection_method_getParameterCount(void* methodInfo);
+void* Syscall_reflection_method_getParameter(void* methodInfo, int64_t index);
+int64_t Syscall_reflection_method_isStatic(void* methodInfo);
+int64_t Syscall_reflection_method_isConstructor(void* methodInfo);
+
+// Property reflection syscalls
+const char* Syscall_reflection_property_getName(void* propInfo);
+const char* Syscall_reflection_property_getTypeName(void* propInfo);
+int64_t Syscall_reflection_property_getOwnership(void* propInfo);
+int64_t Syscall_reflection_property_getOffset(void* propInfo);
+
+// Parameter reflection syscalls
+const char* Syscall_reflection_parameter_getName(void* paramInfo);
+const char* Syscall_reflection_parameter_getTypeName(void* paramInfo);
+int64_t Syscall_reflection_parameter_getOwnership(void* paramInfo);
 
 // ============================================
 // System Functions
