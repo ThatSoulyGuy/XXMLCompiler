@@ -1,13 +1,29 @@
 // Reflection Module - Runtime type introspection system
 // Import this to get access to reflection API:
-// - Type - Main entry point for reflection
+// - GetType<T> - Type-safe template for accessing type info (RECOMMENDED)
+// - Type - Type information
 // - PropertyInfo - Property information
 // - MethodInfo - Method information
 // - ParameterInfo - Parameter information
 
+// Usage:
+//   #import Language::Reflection;
+//
+//   // Type-safe way to get reflection info (compile-time checked):
+//   Instantiate Language::Reflection::GetType<MyClass>^ As <getter> = Language::Reflection::GetType<MyClass>::Constructor();
+//   Instantiate Type^ As <type> = getter.get();
+//
+//   // String-based lookup (runtime checked):
+//   Instantiate Type^ As <type> = Type::forName(String::Constructor("MyClass"));
+//
+//   // Get type info:
+//   Run Console::printLine(type.getName());
+//   Run Console::printLine(type.getPropertyCount().toString());
+
 // This file serves as a namespace aggregator
 // The actual implementations are in separate files in Language/Reflection/:
-// - Type.XXML
-// - PropertyInfo.XXML
-// - MethodInfo.XXML
-// - ParameterInfo.XXML
+// - GetType.XXML - Type-safe template accessor
+// - Type.XXML - Type information class
+// - PropertyInfo.XXML - Property information class
+// - MethodInfo.XXML - Method information class
+// - ParameterInfo.XXML - Parameter information class

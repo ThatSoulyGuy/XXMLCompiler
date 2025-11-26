@@ -93,7 +93,7 @@
 			) ->
 			{
 				Instantiate NativeType<"ptr">^ As <ptr> = typeInfoPtr;
-				Instantiate NativeType<"cstr">^ As <nameStr> = String::toCString(name);
+				Instantiate NativeType<"cstr">^ As <nameStr> = name.toCString();
 				Instantiate NativeType<"ptr">^ As <propPtr> =
 					Syscall::reflection_type_getPropertyByName(ptr, nameStr);
 
@@ -136,7 +136,7 @@
 			) ->
 			{
 				Instantiate NativeType<"ptr">^ As <ptr> = typeInfoPtr;
-				Instantiate NativeType<"cstr">^ As <nameStr> = String::toCString(name);
+				Instantiate NativeType<"cstr">^ As <nameStr> = name.toCString();
 				Instantiate NativeType<"ptr">^ As <methodPtr> =
 					Syscall::reflection_type_getMethodByName(ptr, nameStr);
 
@@ -152,7 +152,7 @@
 				Parameter <typeName> Types String&
 			) ->
 			{
-				Instantiate NativeType<"cstr">^ As <nameStr> = String::toCString(typeName);
+				Instantiate NativeType<"cstr">^ As <nameStr> = typeName.toCString();
 				Instantiate NativeType<"ptr">^ As <typePtr> =
 					Syscall::reflection_getTypeByName(nameStr);
 

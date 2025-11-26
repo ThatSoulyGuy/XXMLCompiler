@@ -1,0 +1,26 @@
+// GetType<T> - Type-safe reflection accessor template
+// Usage:
+//   Instantiate Reflection::GetType<MyClass>^ As <getter> = Reflection::GetType<MyClass>::Constructor();
+//   Instantiate Type^ As <type> = getter.get();
+
+#import Language::Core;
+
+[ Namespace <Language::Reflection>
+	[ Class <GetType> <T Constrains None> Final Extends None
+		[ Public <>
+			// Default constructor
+			Constructor = default;
+
+			// Get the Type info for T at compile-time
+			// This is type-safe: GetType<MyClass>::get() will fail at compile time
+			// if MyClass doesn't exist
+			Method <get> Returns Language::Reflection::Type^ Parameters () ->
+			{
+				// __typename(T) is a compiler intrinsic that returns the type name
+				// as a string literal at compile time during template instantiation
+				Instantiate NativeType<"cstr">^ As <typeName> = __typename(T);
+				Return Language::Reflection::Type::forName(String::FromCString(typeName));
+			}
+		]
+	]
+]

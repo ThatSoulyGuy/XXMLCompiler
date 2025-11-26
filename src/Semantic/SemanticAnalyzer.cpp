@@ -363,6 +363,14 @@ void SemanticAnalyzer::visit(Parser::NamespaceDecl& node) {
     // Register namespace as valid
     validNamespaces_.insert(node.name);
 
+    // Also register parent namespaces (e.g., for "Language::Reflection", register "Language")
+    std::string ns = node.name;
+    size_t pos;
+    while ((pos = ns.rfind("::")) != std::string::npos) {
+        ns = ns.substr(0, pos);
+        validNamespaces_.insert(ns);
+    }
+
     // Track this namespace as imported (for classes in imported modules to be accessible)
     importedNamespaces_.insert(node.name);
 
@@ -409,6 +417,21 @@ void SemanticAnalyzer::visit(Parser::ClassDecl& node) {
         // Also register without namespace for convenience
         if (!currentNamespace.empty()) {
             templateClasses[node.name] = &node;
+        }
+
+        // Also register in global template registry for cross-module access
+        if (context_) {
+            auto* globalTemplates = context_->getCustomData<std::unordered_map<std::string, Parser::ClassDecl*>>("globalTemplateClasses");
+            if (!globalTemplates) {
+                context_->setCustomData("globalTemplateClasses", std::unordered_map<std::string, Parser::ClassDecl*>{});
+                globalTemplates = context_->getCustomData<std::unordered_map<std::string, Parser::ClassDecl*>>("globalTemplateClasses");
+            }
+            if (globalTemplates) {
+                (*globalTemplates)[qualifiedTemplateName] = &node;
+                if (!currentNamespace.empty()) {
+                    (*globalTemplates)[node.name] = &node;
+                }
+            }
         }
     }
 
@@ -603,7 +626,27 @@ void SemanticAnalyzer::visit(Parser::PropertyDecl& node) {
 
     // Validate the type exists (allow NativeType and builtin types)
     Symbol* typeSym = symbolTable_->resolve(node.type->typeName);
-    if (!typeSym && node.type->typeName.find("NativeType<") != 0) {
+    bool foundInClassRegistry = false;
+
+    // If not found and we have a current namespace, try with namespace prefix
+    if (!typeSym && !currentNamespace.empty() &&
+        node.type->typeName.find("::") == std::string::npos) {
+        std::string qualifiedType = currentNamespace + "::" + node.type->typeName;
+        typeSym = symbolTable_->resolve(qualifiedType);
+        // Also check class registry for cross-module same-namespace types
+        if (!typeSym && classRegistry_.find(qualifiedType) != classRegistry_.end()) {
+            foundInClassRegistry = true;
+        }
+        // Also check global class registry in CompilationContext
+        if (!typeSym && !foundInClassRegistry && context_) {
+            auto* globalRegistry = context_->getCustomData<std::unordered_map<std::string, ClassInfo>>("globalClassRegistry");
+            if (globalRegistry && globalRegistry->find(qualifiedType) != globalRegistry->end()) {
+                foundInClassRegistry = true;
+            }
+        }
+    }
+
+    if (!typeSym && !foundInClassRegistry && node.type->typeName.find("NativeType<") != 0) {
         // ✅ Phase 5: Skip validation if this is a template parameter in a template definition
         bool isTemplateParam = (inTemplateDefinition &&
                                 templateTypeParameters.find(node.type->typeName) != templateTypeParameters.end());
@@ -776,13 +819,36 @@ void SemanticAnalyzer::visit(Parser::InstantiateStmt& node) {
 
     // Validate the type exists (allow qualified names, NativeType, and user-defined types)
     Symbol* typeSym = symbolTable_->resolve(node.type->typeName);
+    bool foundInClassRegistry = false;
+
+    // If not found and we have a current namespace, try with namespace prefix
+    if (!typeSym && !currentNamespace.empty() &&
+        node.type->typeName.find("::") == std::string::npos) {
+        std::string qualifiedType = currentNamespace + "::" + node.type->typeName;
+        typeSym = symbolTable_->resolve(qualifiedType);
+        // Also check class registry for cross-module same-namespace types
+        if (!typeSym && classRegistry_.find(qualifiedType) != classRegistry_.end()) {
+            foundInClassRegistry = true;
+        }
+        // Also check global class registry in CompilationContext
+        if (!typeSym && !foundInClassRegistry && context_) {
+            auto* globalRegistry = context_->getCustomData<std::unordered_map<std::string, ClassInfo>>("globalClassRegistry");
+            if (globalRegistry && globalRegistry->find(qualifiedType) != globalRegistry->end()) {
+                foundInClassRegistry = true;
+            }
+        }
+    }
 
     // ✅ Phase 5: Skip validation if this is a template parameter in a template definition
     bool isTemplateParam = (inTemplateDefinition &&
                             templateTypeParameters.find(node.type->typeName) != templateTypeParameters.end());
 
+    // Skip validation for types in known namespaces (they'll be resolved at link time)
+    bool isInKnownNamespace = !currentNamespace.empty() &&
+        (currentNamespace.find("Language::") == 0 || validNamespaces_.count(currentNamespace) > 0);
+
     // Don't error if type is qualified (contains ::), NativeType, template parameter, or a builtin type
-    if (!typeSym && !isTemplateParam &&
+    if (!typeSym && !foundInClassRegistry && !isTemplateParam && !isInKnownNamespace &&
         node.type->typeName.find("::") == std::string::npos &&
         node.type->typeName.find("NativeType<") != 0) {
         // Only error for simple unqualified types that aren't found
@@ -823,19 +889,42 @@ void SemanticAnalyzer::visit(Parser::InstantiateStmt& node) {
 
     // Check if this is a template class that requires template parameters
     if (node.type->templateArgs.empty()) {
-        // Look up if this is a template class
+        // Look up if this is a template class (check local first, then global)
+        Parser::ClassDecl* templateClass = nullptr;
+
         auto it = templateClasses.find(baseTypeName);
-        if (it == templateClasses.end() && lastColon != std::string::npos) {
+        if (it != templateClasses.end()) {
+            templateClass = it->second;
+        } else if (lastColon != std::string::npos) {
             // Try without namespace
             it = templateClasses.find(simpleTypeName);
+            if (it != templateClasses.end()) {
+                templateClass = it->second;
+            }
         }
 
-        if (it != templateClasses.end() && it->second && !it->second->templateParams.empty()) {
+        // Check global registry if not found locally
+        if (!templateClass && context_) {
+            auto* globalTemplates = context_->getCustomData<std::unordered_map<std::string, Parser::ClassDecl*>>("globalTemplateClasses");
+            if (globalTemplates) {
+                auto git = globalTemplates->find(baseTypeName);
+                if (git != globalTemplates->end()) {
+                    templateClass = git->second;
+                } else if (lastColon != std::string::npos) {
+                    git = globalTemplates->find(simpleTypeName);
+                    if (git != globalTemplates->end()) {
+                        templateClass = git->second;
+                    }
+                }
+            }
+        }
+
+        if (templateClass && !templateClass->templateParams.empty()) {
             // This is a template class that requires parameters but none were provided
             std::string paramList = "<";
-            for (size_t i = 0; i < it->second->templateParams.size(); ++i) {
+            for (size_t i = 0; i < templateClass->templateParams.size(); ++i) {
                 if (i > 0) paramList += ", ";
-                paramList += it->second->templateParams[i].name;
+                paramList += templateClass->templateParams[i].name;
             }
             paramList += ">";
 
@@ -1123,17 +1212,34 @@ void SemanticAnalyzer::visit(Parser::IdentifierExpr& node) {
 
     if (!sym) {
         // Check if this is a namespace or class name (used as part of a qualified name)
-        if (validNamespaces_.find(node.name) != validNamespaces_.end() ||
-            classRegistry_.find(node.name) != classRegistry_.end()) {
+        bool isValidClass = classRegistry_.find(node.name) != classRegistry_.end();
+
+        // Also check with current namespace prefix (same-namespace class lookup)
+        if (!isValidClass && !currentNamespace.empty()) {
+            std::string qualifiedName = currentNamespace + "::" + node.name;
+            if (classRegistry_.find(qualifiedName) != classRegistry_.end()) {
+                isValidClass = true;
+            }
+            // Also check global class registry in CompilationContext
+            if (!isValidClass && context_) {
+                auto* globalRegistry = context_->getCustomData<std::unordered_map<std::string, ClassInfo>>("globalClassRegistry");
+                if (globalRegistry && globalRegistry->find(qualifiedName) != globalRegistry->end()) {
+                    isValidClass = true;
+                }
+            }
+        }
+
+        if (validNamespaces_.find(node.name) != validNamespaces_.end() || isValidClass) {
             // It's a valid namespace or class name, assume it's part of a qualified expression
             expressionTypes[&node] = "Unknown";
             expressionOwnerships[&node] = Parser::OwnershipType::Owned;
             return;
         }
 
-        // Check if it's a known intrinsic (Syscall, System, Console, Mem, etc.)
+        // Check if it's a known intrinsic (Syscall, System, Console, Mem, Language, __typename, etc.)
         if (node.name == "Syscall" ||
-            node.name == "System" || node.name == "Console" || node.name == "Mem") {
+            node.name == "System" || node.name == "Console" || node.name == "Mem" ||
+            node.name == "Language" || node.name == "__typename") {
             expressionTypes[&node] = "Unknown";
             expressionOwnerships[&node] = Parser::OwnershipType::Owned;
             return;
@@ -1271,9 +1377,10 @@ void SemanticAnalyzer::visit(Parser::CallExpr& node) {
                 // Check if this is a template instantiation (contains <...>)
                 bool isTemplateInstantiation = (className.find('<') != std::string::npos);
 
-                // Only exempt Syscall, Mem, Console, and template instantiations from validation
+                // Only exempt Syscall, Mem, Console, Language namespaces, and template instantiations from validation
                 bool isIntrinsic = (className == "Syscall" || className == "Mem" ||
-                                    className == "Console" || className == "System::Console");
+                                    className == "Console" || className == "System::Console" ||
+                                    className.find("Language::") == 0);
 
                 // Skip validation if the class is a template parameter (will be validated at instantiation)
                 bool isTemplateParameter = (templateTypeParameters.find(className) != templateTypeParameters.end());
@@ -1395,10 +1502,22 @@ void SemanticAnalyzer::visit(Parser::CallExpr& node) {
                 // This is a template instantiation - extract base type and template args
                 baseType = objectType.substr(0, angleBracketPos);
 
-                // Find the template definition
-                if (templateClasses.find(baseType) != templateClasses.end()) {
-                    auto* templateClass = templateClasses[baseType];
+                // Find the template definition (check local first, then global)
+                Parser::ClassDecl* templateClass = nullptr;
+                auto localIt = templateClasses.find(baseType);
+                if (localIt != templateClasses.end()) {
+                    templateClass = localIt->second;
+                } else if (context_) {
+                    auto* globalTemplates = context_->getCustomData<std::unordered_map<std::string, Parser::ClassDecl*>>("globalTemplateClasses");
+                    if (globalTemplates) {
+                        auto globalIt = globalTemplates->find(baseType);
+                        if (globalIt != globalTemplates->end()) {
+                            templateClass = globalIt->second;
+                        }
+                    }
+                }
 
+                if (templateClass) {
                     // Extract template arguments from the type string
                     size_t endBracket = objectType.rfind('>');
                     if (endBracket != std::string::npos) {
@@ -1420,9 +1539,10 @@ void SemanticAnalyzer::visit(Parser::CallExpr& node) {
 
             // Only validate if validation is enabled
             if (enableValidation) {
-                // Only exempt Syscall, Mem, and Console from validation (intrinsic functions / stubs)
+                // Only exempt Syscall, Mem, Console, Language namespaces from validation (intrinsic functions / stubs)
                 bool isIntrinsic = (objectType == "Syscall" || objectType == "Mem" ||
-                                    objectType == "Console" || objectType == "System::Console");
+                                    objectType == "Console" || objectType == "System::Console" ||
+                                    objectType.find("Language::") == 0 || baseType.find("Language::") == 0);
                 bool isTemplateInstantiation = !templateSubstitutions.empty();
                 // Skip validation if the object is a template parameter (will be validated at instantiation)
                 bool isTemplateParameter = (templateTypeParameters.find(baseType) != templateTypeParameters.end());
@@ -1591,13 +1711,27 @@ void SemanticAnalyzer::visit(Parser::TypeRef& node) {
 }
 
 void SemanticAnalyzer::recordTemplateInstantiation(const std::string& templateName, const std::vector<Parser::TemplateArgument>& args) {
-    // Check if this template class exists
-    if (templateClasses.find(templateName) == templateClasses.end()) {
+    // Check if this template class exists (check local first, then global)
+    Parser::ClassDecl* templateClass = nullptr;
+
+    auto localIt = templateClasses.find(templateName);
+    if (localIt != templateClasses.end()) {
+        templateClass = localIt->second;
+    } else if (context_) {
+        // Check global registry
+        auto* globalTemplates = context_->getCustomData<std::unordered_map<std::string, Parser::ClassDecl*>>("globalTemplateClasses");
+        if (globalTemplates) {
+            auto globalIt = globalTemplates->find(templateName);
+            if (globalIt != globalTemplates->end()) {
+                templateClass = globalIt->second;
+            }
+        }
+    }
+
+    if (!templateClass) {
         // Not a template class - maybe it's a regular class or error will be caught elsewhere
         return;
     }
-
-    auto* templateClass = templateClasses[templateName];
 
     // ✅ Phase 7: Improved error message for argument count mismatch
     // Validate argument count
@@ -1761,7 +1895,20 @@ int64_t SemanticAnalyzer::evaluateConstantExpression(Parser::Expression* expr) {
 }
 
 bool SemanticAnalyzer::isTemplateClass(const std::string& className) {
-    return templateClasses.find(className) != templateClasses.end();
+    // Check local registry first
+    if (templateClasses.find(className) != templateClasses.end()) {
+        return true;
+    }
+
+    // Check global registry for cross-module templates
+    if (context_) {
+        auto* globalTemplates = context_->getCustomData<std::unordered_map<std::string, Parser::ClassDecl*>>("globalTemplateClasses");
+        if (globalTemplates && globalTemplates->find(className) != globalTemplates->end()) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 SemanticAnalyzer::ClassInfo* SemanticAnalyzer::findClass(const std::string& className) {
@@ -1950,7 +2097,10 @@ bool SemanticAnalyzer::validateQualifiedIdentifier(const std::string& qualifiedN
             // Check if this is a valid namespace or class
             bool isIntrinsic = (accumulated == "System" || accumulated == "System::Console" ||
                                 accumulated == "Syscall" ||
-                                accumulated == "Mem" || accumulated == "Language::Core::Mem");
+                                accumulated == "Mem" || accumulated == "Language::Core::Mem" ||
+                                accumulated == "Language" || accumulated == "Language::Core" ||
+                                accumulated == "Language::Reflection" || accumulated == "Language::Collections" ||
+                                accumulated == "Language::System");
 
             if (!isIntrinsic &&
                 validNamespaces_.find(accumulated) == validNamespaces_.end() &&

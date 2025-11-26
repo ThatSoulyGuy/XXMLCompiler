@@ -28,7 +28,21 @@
       "Bash(\"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" \"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\comprehensive_reflection_test.XXML\" reflections.ll 2)",
       "Bash(\"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" \"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\simple_test.XXML\" simple_test.exe)",
       "Bash(./simple_test.exe:*)",
-      "Bash(\"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" \"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\comprehensive_reflection_test.XXML\" \"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\reflections.exe\")"
+      "Bash(\"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" \"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\comprehensive_reflection_test.XXML\" \"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\reflections.exe\")",
+      "Bash(cat:*)",
+      "Bash(\"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" \"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\comprehensive_reflection_test.XXML\" reflection_test.exe)",
+      "Bash(\"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" \"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\comprehensive_reflection_test.XXML\" reflection_test.ll)",
+      "Bash(./reflection_test.exe:*)",
+      "Bash(copy:*)",
+      "Bash(\"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" \"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\gettype_test.XXML\" gettype_test.exe)",
+      "Bash(\"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" \"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\typename_test.XXML\" typename_test.exe)",
+      "Bash(./typename_test.exe)",
+      "Bash(\"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\typename_test.exe\")",
+      "Bash(\"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" \"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\count_test.XXML\" count_test.exe)",
+      "Bash(\"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\count_test.exe\")",
+      "Bash(\"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" \"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\reflection_simple_test.XXML\" reflection_simple_test.exe)",
+      "Bash(\"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\reflection_simple_test.exe\")",
+      "Bash(tee:*)"
     ],
     "deny": [],
     "ask": []

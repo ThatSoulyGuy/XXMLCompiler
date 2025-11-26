@@ -1,8 +1,0 @@
-#import Language::Core;
-#import Language::Reflection::Type;
-
-[ Entrypoint
-	{
-		Run Console::printLine(String::Constructor("Testing reflection import"));
-	}
-]

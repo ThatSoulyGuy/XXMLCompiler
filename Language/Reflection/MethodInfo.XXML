@@ -107,7 +107,7 @@
 					If (i > 0) -> {
 						Run sig.append(String::Constructor(", "));
 					}
-					Instantiate Parameter^ As <param> = getParameterAt(Integer::Constructor(i));
+					Instantiate ParameterInfo^ As <param> = getParameterAt(Integer::Constructor(i));
 					Instantiate String^ As <paramType> = param.getTypeName();
 					Run sig.append(paramType);
 					Set i = i + 1;

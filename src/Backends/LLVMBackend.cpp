@@ -1036,6 +1036,9 @@ void LLVMBackend::visit(Parser::PropertyDecl& node) {
 }
 
 void LLVMBackend::visit(Parser::ConstructorDecl& node) {
+    // Clear local variables from previous method
+    variables_.clear();
+
     if (currentClassName_.empty()) {
         emitLine("; ERROR: Constructor outside of class");
         return;
@@ -1172,6 +1175,9 @@ void LLVMBackend::visit(Parser::DestructorDecl& node) {
 }
 
 void LLVMBackend::visit(Parser::MethodDecl& node) {
+    // Clear local variables from previous method
+    variables_.clear();
+
     // Determine function name (qualified if inside a class)
     std::string funcName;
     bool isInstanceMethod = !currentClassName_.empty();  // All class methods are instance methods
@@ -1255,6 +1261,9 @@ void LLVMBackend::visit(Parser::MethodDecl& node) {
 void LLVMBackend::visit(Parser::ParameterDecl& node) {}
 
 void LLVMBackend::visit(Parser::EntrypointDecl& node) {
+    // Clear local variables from previous scope
+    variables_.clear();
+
     emitLine("define i32 @main() #1 {");
     indent();
 
@@ -3612,6 +3621,29 @@ std::unique_ptr<Parser::Expression> LLVMBackend::cloneExpression(
         return std::make_unique<Parser::IdentifierExpr>(ident->name, ident->location);
     }
     if (auto* call = dynamic_cast<const Parser::CallExpr*>(expr)) {
+        // Check for __typename intrinsic - replaces __typename(T) with the actual type name string
+        bool isTypenameIntrinsic = false;
+        if (auto* calleeIdent = dynamic_cast<const Parser::IdentifierExpr*>(call->callee.get())) {
+            isTypenameIntrinsic = (calleeIdent->name == "__typename");
+        } else if (auto* calleeMember = dynamic_cast<const Parser::MemberAccessExpr*>(call->callee.get())) {
+            // Also support Syscall::typename syntax
+            if (auto* baseIdent = dynamic_cast<const Parser::IdentifierExpr*>(calleeMember->object.get())) {
+                isTypenameIntrinsic = (baseIdent->name == "Syscall" && calleeMember->member == "::typename");
+            }
+        }
+
+        if (isTypenameIntrinsic && call->arguments.size() == 1) {
+            // Check if the argument is a template parameter
+            if (auto* argIdent = dynamic_cast<const Parser::IdentifierExpr*>(call->arguments[0].get())) {
+                auto it = typeMap.find(argIdent->name);
+                if (it != typeMap.end()) {
+                    // Found! Replace the entire call with a string literal of the type name
+                    return std::make_unique<Parser::StringLiteralExpr>(it->second, call->location);
+                }
+            }
+        }
+
+        // Not a __typename intrinsic, clone normally
         auto clonedCallee = cloneExpression(call->callee.get(), typeMap);
         std::vector<std::unique_ptr<Parser::Expression>> clonedArgs;
         for (const auto& arg : call->arguments) {

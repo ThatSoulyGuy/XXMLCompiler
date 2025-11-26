@@ -192,6 +192,7 @@ int main(int argc, char* argv[]) {
             processedImports.insert(importPath);
 
             if (importPath.find(".XXML") != std::string::npos || importPath.find("/") != std::string::npos) {
+                // Direct file path import
                 auto module = std::make_unique<XXML::Import::Module>(importPath, importPath);
                 if (!module->loadFromFile()) continue;
                 if (!parseModule(module.get(), errorReporter)) {
@@ -206,6 +207,38 @@ int main(int argc, char* argv[]) {
                 for (const auto& subImport : modulePtr->imports) {
                     if (processedImports.find(subImport) == processedImports.end()) {
                         toProcess.push_back(subImport);
+                    }
+                }
+            } else if (importPath.find("::") != std::string::npos) {
+                // Namespace import (e.g., "Language::Reflection")
+                // Use ImportResolver to find all files in that namespace
+                auto resolvedModules = resolver.resolveImport(importPath);
+                for (auto* resolvedModule : resolvedModules) {
+                    if (!resolvedModule->isParsed) {
+                        if (!parseModule(resolvedModule, errorReporter)) {
+                            errorReporter.printErrors();
+                            return 1;
+                        }
+                    }
+
+                    // Check if this module is already in our list
+                    bool alreadyAdded = false;
+                    for (auto* existing : allModules) {
+                        if (existing->moduleName == resolvedModule->moduleName) {
+                            alreadyAdded = true;
+                            break;
+                        }
+                    }
+
+                    if (!alreadyAdded) {
+                        allModules.push_back(resolvedModule);
+
+                        // Process sub-imports
+                        for (const auto& subImport : resolvedModule->imports) {
+                            if (processedImports.find(subImport) == processedImports.end()) {
+                                toProcess.push_back(subImport);
+                            }
+                        }
                     }
                 }
             }
