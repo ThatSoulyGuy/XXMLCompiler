@@ -59,6 +59,7 @@ void* Integer_moduloAssign(void* self, void* other);
 // ============================================
 
 void* Float_Constructor(float value);
+float Float_getValue(void* self);
 void* Float_toString(void* self);
 char* xxml_float_to_string(float value);
 void* Float_addAssign(void* self, void* other);
@@ -71,6 +72,7 @@ void* Float_divideAssign(void* self, void* other);
 // ============================================
 
 void* Double_Constructor(double value);
+double Double_getValue(void* self);
 void* Double_toString(void* self);
 char* xxml_double_to_string(double value);
 void* Double_addAssign(void* self, void* other);

@@ -62,6 +62,10 @@ private:
         std::vector<std::string> vsPaths = {
             // VS 2026 Preview / non-standard installations
             "D:\\VisualStudio\\Installs\\2026\\VC\\Tools\\MSVC",
+            // VS 18 (2025) locations
+            "C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC",
+            "C:\\Program Files\\Microsoft Visual Studio\\18\\Professional\\VC\\Tools\\MSVC",
+            "C:\\Program Files\\Microsoft Visual Studio\\18\\Enterprise\\VC\\Tools\\MSVC",
             // VS 2022 locations
             "D:\\VisualStudio\\Installs\\2022\\Community\\VC\\Tools\\MSVC",
             "D:\\VisualStudio\\Installs\\2022\\Professional\\VC\\Tools\\MSVC",

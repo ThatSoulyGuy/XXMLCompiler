@@ -305,10 +305,16 @@ std::string CompilationDriver::getRuntimeLibraryPath() const {
     // 2. Check relative to compiler executable
     std::string exeDir = ProcessUtils::getExecutableDirectory();
     std::vector<std::string> candidates = {
+        // Standard installation paths (bin/../lib)
         ProcessUtils::joinPath({exeDir, "..", "lib", "libXXMLLLVMRuntime.a"}),
         ProcessUtils::joinPath({exeDir, "..", "lib", "XXMLLLVMRuntime.lib"}),
         ProcessUtils::joinPath({exeDir, "lib", "libXXMLLLVMRuntime.a"}),
         ProcessUtils::joinPath({exeDir, "lib", "XXMLLLVMRuntime.lib"}),
+        // Build directory paths (build/debug/bin -> build/debug/lib or build/release/lib)
+        ProcessUtils::joinPath({exeDir, "..", "..", "debug", "lib", "XXMLLLVMRuntime.lib"}),
+        ProcessUtils::joinPath({exeDir, "..", "..", "release", "lib", "XXMLLLVMRuntime.lib"}),
+        ProcessUtils::joinPath({exeDir, "..", "..", "debug", "lib", "libXXMLLLVMRuntime.a"}),
+        ProcessUtils::joinPath({exeDir, "..", "..", "release", "lib", "libXXMLLLVMRuntime.a"}),
     };
 
     for (const auto& candidate : candidates) {

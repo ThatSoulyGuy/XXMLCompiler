@@ -111,7 +111,8 @@ public:
         args.push_back("-lmsvcrt");
         args.push_back("-static-libgcc");  // Statically link GCC runtime (provides __chkstk)
         args.push_back("-lgcc");  // Provides __chkstk and other runtime functions
-        args.push_back("-lgcc_eh");  // Exception handling support
+        // Note: -lgcc_eh (exception handling) is not always available in MinGW
+        // and not needed for C code without exceptions
 #else
         // Linux/Unix: Standard C library and math/dl
         args.push_back("-lc");

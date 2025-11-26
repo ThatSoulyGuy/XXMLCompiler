@@ -354,14 +354,14 @@ int main(int argc, char* argv[]) {
 #ifdef _WIN32
             std::vector<std::string> tryPaths = {
                 // Relative paths first (finds the correct library for the current build)
+                // Ninja generator: bin/xxml.exe -> lib/XXMLLLVMRuntime.lib (most common)
+                exeDir + "\\..\\lib\\XXMLLLVMRuntime.lib",              // MSVC/Ninja
+                exeDir + "\\..\\lib\\libXXMLLLVMRuntime.a",             // MinGW/Ninja
+                exeDir + "\\..\\lib\\Release\\XXMLLLVMRuntime.lib",     // MSVC/Ninja Release
                 // Visual Studio generator: bin/Release/xxml.exe or bin/Debug/xxml.exe
                 exeDir + "\\..\\..\\lib\\Release\\XXMLLLVMRuntime.lib", // VS Release
                 exeDir + "\\..\\..\\lib\\Debug\\XXMLLLVMRuntime.lib",   // VS Debug
                 exeDir + "\\..\\..\\lib\\XXMLLLVMRuntime.lib",          // VS
-                // Ninja generator: bin/xxml.exe
-                exeDir + "\\..\\lib\\libXXMLLLVMRuntime.a",             // MinGW/Ninja
-                exeDir + "\\..\\lib\\XXMLLLVMRuntime.lib",              // MSVC/Ninja
-                exeDir + "\\..\\lib\\Release\\XXMLLLVMRuntime.lib",     // MSVC/Ninja Release
                 // Fallback to absolute paths
                 "build_mingw\\lib\\libXXMLLLVMRuntime.a",
                 "build\\lib\\libXXMLLLVMRuntime.a",

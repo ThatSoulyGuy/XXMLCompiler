@@ -333,6 +333,7 @@ std::string LLVMBackend::generatePreamble() {
     // Float Operations
     preamble << "; Float Operations\n";
     preamble << "declare ptr @Float_Constructor(float)\n";
+    preamble << "declare float @Float_getValue(ptr)\n";
     preamble << "declare ptr @Float_toString(ptr)\n";
     preamble << "declare ptr @xxml_float_to_string(float)\n";
     preamble << "declare ptr @Float_addAssign(ptr, ptr)\n";
@@ -344,6 +345,8 @@ std::string LLVMBackend::generatePreamble() {
     // Double Operations
     preamble << "; Double Operations\n";
     preamble << "declare ptr @Double_Constructor(double)\n";
+    preamble << "declare double @Double_getValue(ptr)\n";
+    preamble << "declare ptr @Double_toString(ptr)\n";
     preamble << "declare ptr @Double_addAssign(ptr, ptr)\n";
     preamble << "declare ptr @Double_subtractAssign(ptr, ptr)\n";
     preamble << "declare ptr @Double_multiplyAssign(ptr, ptr)\n";
@@ -396,6 +399,45 @@ std::string LLVMBackend::generatePreamble() {
     preamble << "; System Functions\n";
     preamble << "declare void @xxml_exit(i32)\n";
     preamble << "declare void @exit(i32)\n";
+    preamble << "\n";
+
+    // Reflection Runtime Functions
+    preamble << "; Reflection Runtime Functions\n";
+    preamble << "declare void @Reflection_registerType(ptr)\n";
+    preamble << "declare ptr @Reflection_getTypeInfo(ptr)\n";
+    preamble << "declare i32 @Reflection_getTypeCount()\n";
+    preamble << "declare ptr @Reflection_getAllTypeNames()\n";
+    preamble << "\n";
+
+    // Reflection Syscall Functions (xxml_ prefixed)
+    preamble << "; Reflection Syscall Functions\n";
+    preamble << "declare ptr @xxml_reflection_getTypeByName(ptr)\n";
+    preamble << "declare ptr @xxml_reflection_type_getName(ptr)\n";
+    preamble << "declare ptr @xxml_reflection_type_getFullName(ptr)\n";
+    preamble << "declare ptr @xxml_reflection_type_getNamespace(ptr)\n";
+    preamble << "declare i64 @xxml_reflection_type_isTemplate(ptr)\n";
+    preamble << "declare i64 @xxml_reflection_type_getTemplateParamCount(ptr)\n";
+    preamble << "declare i64 @xxml_reflection_type_getPropertyCount(ptr)\n";
+    preamble << "declare ptr @xxml_reflection_type_getProperty(ptr, i64)\n";
+    preamble << "declare ptr @xxml_reflection_type_getPropertyByName(ptr, ptr)\n";
+    preamble << "declare i64 @xxml_reflection_type_getMethodCount(ptr)\n";
+    preamble << "declare ptr @xxml_reflection_type_getMethod(ptr, i64)\n";
+    preamble << "declare ptr @xxml_reflection_type_getMethodByName(ptr, ptr)\n";
+    preamble << "declare i64 @xxml_reflection_type_getInstanceSize(ptr)\n";
+    preamble << "declare ptr @xxml_reflection_property_getName(ptr)\n";
+    preamble << "declare ptr @xxml_reflection_property_getTypeName(ptr)\n";
+    preamble << "declare i64 @xxml_reflection_property_getOwnership(ptr)\n";
+    preamble << "declare i64 @xxml_reflection_property_getOffset(ptr)\n";
+    preamble << "declare ptr @xxml_reflection_method_getName(ptr)\n";
+    preamble << "declare ptr @xxml_reflection_method_getReturnType(ptr)\n";
+    preamble << "declare i64 @xxml_reflection_method_getReturnOwnership(ptr)\n";
+    preamble << "declare i64 @xxml_reflection_method_getParameterCount(ptr)\n";
+    preamble << "declare ptr @xxml_reflection_method_getParameter(ptr, i64)\n";
+    preamble << "declare i64 @xxml_reflection_method_isStatic(ptr)\n";
+    preamble << "declare i64 @xxml_reflection_method_isConstructor(ptr)\n";
+    preamble << "declare ptr @xxml_reflection_parameter_getName(ptr)\n";
+    preamble << "declare ptr @xxml_reflection_parameter_getTypeName(ptr)\n";
+    preamble << "declare i64 @xxml_reflection_parameter_getOwnership(ptr)\n";
     preamble << "\n";
 
     // Optimization attributes
@@ -504,6 +546,8 @@ std::string LLVMBackend::getLLVMType(const std::string& xxmlType) const {
                 else if (nativeType == "uint32") nativeType = "i32";
                 else if (nativeType == "uint16") nativeType = "i16";
                 else if (nativeType == "uint8") nativeType = "i8";
+                else if (nativeType == "cstr") nativeType = "ptr";
+                else if (nativeType == "string_ptr") nativeType = "ptr";
 
                 std::cerr << "DEBUG: Mapped to LLVM type = '" << nativeType << "'" << std::endl;
                 return nativeType;  // Return the LLVM type (e.g., "ptr", "i64", "i32")
@@ -2637,6 +2681,20 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
         } else if (functionName.find("toInt64") != std::string::npos ||
             functionName.find("toInt32") != std::string::npos) {
             llvmReturnType = "i64";
+        } else if (functionName.find("reflection") != std::string::npos && (
+            functionName.find("getPropertyCount") != std::string::npos ||
+            functionName.find("getMethodCount") != std::string::npos ||
+            functionName.find("getParameterCount") != std::string::npos ||
+            functionName.find("getOwnership") != std::string::npos ||
+            functionName.find("getOffset") != std::string::npos ||
+            functionName.find("getInstanceSize") != std::string::npos ||
+            functionName.find("isTemplate") != std::string::npos ||
+            functionName.find("isStatic") != std::string::npos ||
+            functionName.find("isConstructor") != std::string::npos ||
+            functionName.find("getReturnOwnership") != std::string::npos ||
+            functionName.find("getTemplateParamCount") != std::string::npos)) {
+            // Reflection syscalls that return integers
+            llvmReturnType = "i64";
         } else if (functionName.find("toBool") != std::string::npos) {
             llvmReturnType = "i1";
         } else if (functionName == "Integer_lt" || functionName == "Integer_le" ||
@@ -3045,6 +3103,40 @@ void LLVMBackend::visit(Parser::AssignmentStmt& node) {
         } else if (valueMap_.find(varName) != valueMap_.end()) {
             // Fallback for variables not in ownership tracking
             emitLine("store i64 " + valueReg + ", ptr " + valueMap_[varName]);
+        } else if (!currentClassName_.empty()) {
+            // Check if it's a class property (implicit this.propertyName)
+            auto classIt = classes_.find(currentClassName_);
+            if (classIt != classes_.end()) {
+                const auto& properties = classIt->second.properties;
+                bool found = false;
+                for (size_t i = 0; i < properties.size(); ++i) {
+                    if (properties[i].first == varName) {
+                        // Generate getelementptr to get address of the field
+                        std::string ptrReg = allocateRegister();
+
+                        // Mangle class name for LLVM type
+                        std::string mangledTypeName = currentClassName_;
+                        size_t pos = 0;
+                        while ((pos = mangledTypeName.find("::")) != std::string::npos) {
+                            mangledTypeName.replace(pos, 2, "_");
+                        }
+
+                        emitLine(ptrReg + " = getelementptr inbounds %class." + mangledTypeName +
+                                ", ptr %this, i32 0, i32 " + std::to_string(i));
+
+                        // Store the value to the field
+                        std::string llvmType = properties[i].second;
+                        emitLine("store " + llvmType + " " + valueReg + ", ptr " + ptrReg);
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) {
+                    emitLine("; Error: variable " + varName + " not found");
+                }
+            } else {
+                emitLine("; Error: variable " + varName + " not found");
+            }
         } else {
             emitLine("; Error: variable " + varName + " not found");
         }
@@ -3627,7 +3719,7 @@ void LLVMBackend::generateReflectionMetadata() {
     emitLine("; Reflection structure types");
     emitLine("%ReflectionPropertyInfo = type { ptr, ptr, i32, i64 }");
     emitLine("%ReflectionParameterInfo = type { ptr, ptr, i32 }");
-    emitLine("%ReflectionMethodInfo = type { ptr, ptr, i32, i32, ptr, i1, i1 }");
+    emitLine("%ReflectionMethodInfo = type { ptr, ptr, i32, i32, ptr, ptr, i1, i1 }");  // name, returnType, returnOwnership, paramCount, params, funcPtr, isStatic, isCtor
     emitLine("%ReflectionTemplateParamInfo = type { ptr }");
     emitLine("%ReflectionTypeInfo = type { ptr, ptr, ptr, i1, i32, ptr, i32, ptr, i32, ptr, i32, ptr, ptr, i64 }");
     emitLine("");
@@ -3789,7 +3881,7 @@ void LLVMBackend::generateReflectionMetadata() {
                 std::string ctorStr = isConstructor ? "true" : "false";
                 std::string commaStr = (m < metadata.methods.size() - 1) ? "," : "";
 
-                emitLine(XXML::Core::format("  %ReflectionMethodInfo {{ ptr @.str.{}, ptr @.str.{}, i32 {}, i32 {}, {}, i1 {}, i1 {} }}{}",
+                emitLine(format("  %ReflectionMethodInfo {{ ptr @.str.{}, ptr @.str.{}, i32 {}, i32 {}, {}, ptr null, i1 {}, i1 {} }}{}",
                                nameLabel, retLabel, returnOwnVal, paramCount, paramsArrayPtr,
                                staticStr, ctorStr, commaStr));
             }

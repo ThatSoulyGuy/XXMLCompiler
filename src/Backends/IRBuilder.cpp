@@ -66,7 +66,7 @@ std::string IRBuilder::emitRetVoid() {
     return "ret void";
 }
 
-std::string IRBuilder::emitBr(const std::string& label) {
+std::string IRBuilder::emitBr(const std::string & label) {
     return "br label %" + label;
 }
 

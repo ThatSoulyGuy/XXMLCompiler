@@ -382,6 +382,11 @@ void* Float_Constructor(float value) {
     return obj;
 }
 
+float Float_getValue(void* self) {
+    if (!self) return 0.0f;
+    return ((Float*)self)->value;
+}
+
 void* Float_toString(void* self) {
     Float* obj = (Float*)self;
     // Allocate buffer for string representation (enough for a float with precision)
@@ -442,6 +447,11 @@ void* Double_Constructor(double value) {
         obj->value = value;
     }
     return obj;
+}
+
+double Double_getValue(void* self) {
+    if (!self) return 0.0;
+    return ((Double*)self)->value;
 }
 
 // Assignment operations (modify in place)
