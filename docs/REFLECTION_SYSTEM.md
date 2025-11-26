@@ -1,240 +1,306 @@
 # XXML Reflection System
 
-## Status: ✅ **FULLY OPERATIONAL**
+## Status: **FULLY OPERATIONAL**
 
 The XXML Reflection System is **complete and functional**! All components are implemented:
-- ✅ Runtime infrastructure (C structures and type registry)
-- ✅ XXML API classes (Type, Method, Property, Parameter)
-- ✅ Syscall implementations (~30 reflection functions)
-- ✅ **Metadata generation in compiler** (LLVMBackend)
-- ✅ Automatic type registration
-- ✅ Test suite
+- Runtime infrastructure (C structures and type registry)
+- XXML API classes (Type, MethodInfo, PropertyInfo, ParameterInfo, GetType)
+- Syscall implementations (~30 reflection functions)
+- Metadata generation in compiler (LLVMBackend)
+- Automatic type registration
+- Test suite
 
 ## Overview
 
 The XXML Reflection System provides Java-like runtime type introspection capabilities, allowing programs to inspect classes, methods, properties, and template parameters at runtime.
 
-## Implementation Status
+---
 
-### ✅ Completed Components
+## XXML Reflection API
 
-#### 1. Runtime Infrastructure (`runtime/`)
-- **xxml_reflection_runtime.h** - C structures for reflection metadata
-  - `ReflectionTypeInfo` - Complete type information
-  - `ReflectionMethodInfo` - Method signatures and metadata
-  - `ReflectionPropertyInfo` - Property details with ownership
-  - `ReflectionParameterInfo` - Parameter information
-  - Global type registry with lookup functions
+The reflection API is located in `Language/Reflection/` and consists of five classes.
 
-- **xxml_reflection_runtime.c** - Runtime implementation
-  - Dynamic type registry with auto-resizing
-  - Type lookup by name
-  - Thread-safe registration (can be enhanced)
+### Type.XXML
 
-- **xxml_llvm_runtime.h/.c** - Reflection syscalls (~30 functions)
-  - Type introspection syscalls
-  - Method introspection syscalls
-  - Property introspection syscalls
-  - Parameter introspection syscalls
+The central class for type introspection. Get a `Type^` instance via static lookup or the `GetType<T>` template.
 
-#### 2. XXML Reflection API (`Language/Reflection/`)
-
-##### Type.XXML
 ```xxml
-Language::Reflection::Type::forName(String)^ -> Type^
-type.getName() -> String^
-type.getFullName() -> String^
-type.getNamespace() -> String^
-type.isTemplate() -> Bool^
-type.getTemplateParameterCount() -> Integer^
-type.getPropertyCount() -> Integer^
-type.getPropertyAt(Integer) -> Property^
-type.getProperty(String) -> Property^
-type.getMethodCount() -> Integer^
-type.getMethodAt(Integer) -> Method^
-type.getMethod(String) -> Method^
-type.getInstanceSize() -> Integer^
+// Static type lookup by fully qualified name
+Language::Reflection::Type::forName(String&) -> Type^  // Returns None if not found
+
+// Instance methods
+type.getName() -> String^                    // Simple name (e.g., "Person")
+type.getFullName() -> String^                // Qualified name (e.g., "Container::Box<Integer>")
+type.getNamespace() -> String^               // Namespace component
+type.isTemplate() -> Bool^                   // Check if template type
+type.getTemplateParameterCount() -> Integer^ // Number of template params
+type.getPropertyCount() -> Integer^          // Number of properties
+type.getPropertyAt(Integer&) -> PropertyInfo^    // Get property by index
+type.getProperty(String&) -> PropertyInfo^       // Get property by name
+type.getMethodCount() -> Integer^            // Number of methods
+type.getMethodAt(Integer&) -> MethodInfo^        // Get method by index
+type.getMethod(String&) -> MethodInfo^           // Get method by name
+type.getInstanceSize() -> Integer^           // Size in bytes
 ```
 
-##### Method.XXML
+### GetType.XXML
+
+Template-based type-safe accessor for compile-time type lookup.
+
 ```xxml
-method.getName() -> String^
-method.getReturnType() -> String^
-method.getReturnOwnership() -> Integer^
-method.getParameterCount() -> Integer^
-method.getParameterAt(Integer) -> Parameter^
-method.isStatic() -> Bool^
-method.isConstructor() -> Bool^
-method.getSignature() -> String^
+// Usage:
+Instantiate Language::Reflection::GetType<MyClass>^ As <getter> =
+    Language::Reflection::GetType<MyClass>::Constructor();
+Instantiate Language::Reflection::Type^ As <type> = getter.get();
+
+// API
+GetType<T>::get() -> Type^  // Returns Type info for T using __typename(T) intrinsic
 ```
 
-##### Property.XXML
+The `GetType<T>` template uses the `__typename(T)` compiler intrinsic to get the type name at compile time, providing type safety over the string-based `Type::forName()`.
+
+### MethodInfo.XXML
+
+Method introspection with parameter details.
+
 ```xxml
-property.getName() -> String^
-property.getTypeName() -> String^
-property.getOwnership() -> Integer^
-property.getOwnershipString() -> String^  // "Owned(^)", "Reference(&)", etc.
-property.getOffset() -> Integer^
+method.getName() -> String^              // Method name
+method.getReturnType() -> String^        // Return type name
+method.getReturnOwnership() -> Integer^  // Return ownership (0=None, 1=^, 2=&, 3=%)
+method.getParameterCount() -> Integer^   // Number of parameters
+method.getParameterAt(Integer&) -> ParameterInfo^  // Get parameter by index
+method.isStatic() -> Bool^               // Check if static method
+method.isConstructor() -> Bool^          // Check if constructor
+method.getSignature() -> String^         // Full signature (e.g., "String greet(Integer, String)")
 ```
 
-##### Parameter.XXML
+### PropertyInfo.XXML
+
+Property introspection with ownership tracking.
+
 ```xxml
-parameter.getName() -> String^
-parameter.getTypeName() -> String^
-parameter.getOwnership() -> Integer^
-parameter.getOwnershipString() -> String^
+property.getName() -> String^            // Property name
+property.getTypeName() -> String^        // Type name
+property.getOwnership() -> Integer^      // Ownership code (0-3)
+property.getOwnershipString() -> String^ // Human-readable: "Owned(^)", "Reference(&)", "Copy(%)", "None"
+property.getOffset() -> Integer^         // Byte offset from object start
 ```
 
-#### 3. Test Suite (`tests/`)
+### ParameterInfo.XXML
 
-##### reflection_basic.XXML
-Tests basic class introspection:
-- Type lookup by name
-- Property enumeration
-- Method enumeration
-- Property/method lookup by name
-- Ownership type inspection
+Method parameter introspection.
 
-##### reflection_template.XXML
-Tests template class reflection:
-- Template type detection
-- Template parameter count
-- Distinguishing `Box<Integer>` from `Box<String>`
-- Template method signatures
+```xxml
+parameter.getName() -> String^           // Parameter name
+parameter.getTypeName() -> String^       // Type name
+parameter.getOwnership() -> Integer^     // Ownership code (0-3)
+parameter.getOwnershipString() -> String^// Human-readable ownership
+```
 
-##### reflection_methods.XXML
-Tests detailed method introspection:
-- Method signature generation
-- Parameter details with ownership
-- Constructor detection
-- Return type analysis
-- Ownership comparison across methods
+### Ownership Codes
 
-#### 4. Build System
-- CMakeLists.txt automatically includes new runtime files (uses `runtime/*.c` glob)
+| Code | Symbol | Meaning | String |
+|------|--------|---------|--------|
+| 0 | (none) | Value/None | "None" |
+| 1 | `^` | Owned | "Owned(^)" |
+| 2 | `&` | Reference | "Reference(&)" |
+| 3 | `%` | Copy | "Copy(%)" |
 
 ---
 
-## ✅ Implementation Complete
+## Runtime Infrastructure
 
-### Metadata Generation - **IMPLEMENTED**
+### C Structures (`runtime/xxml_reflection_runtime.h`)
 
-The reflection system is **fully operational**! The compiler now automatically generates complete reflection metadata when emitting LLVM IR.
+```c
+// Property metadata
+struct ReflectionPropertyInfo {
+    const char* name;
+    const char* typeName;
+    int32_t ownership;  // 0=None, 1=Owned(^), 2=Reference(&), 3=Copy(%)
+    size_t offset;      // Byte offset from object start
+};
 
-#### Implementation in LLVMBackend.cpp
+// Parameter metadata
+struct ReflectionParameterInfo {
+    const char* name;
+    const char* typeName;
+    int32_t ownership;
+};
 
-The `generateReflectionMetadata()` method (lines 3414-3664) performs the following:
+// Method metadata
+struct ReflectionMethodInfo {
+    const char* name;
+    const char* returnType;
+    int32_t returnOwnership;
+    int32_t parameterCount;
+    ReflectionParameterInfo* parameters;
+    void* functionPointer;  // Pointer to method implementation
+    bool isStatic;
+    bool isConstructor;
+};
 
-1. **Emits string literals for names:**
-```cpp
-// For each class/method/property name
-output_ << "@.str.reflect_" << className << " = private constant ["
-        << name.size() + 1 << " x i8] c\"" << name << "\\00\"\n";
+// Template parameter metadata
+struct ReflectionTemplateParamInfo {
+    const char* name;
+    bool isTypeParameter;   // true for type, false for value
+    const char* valueType;  // For non-type parameters (e.g., "int64")
+};
+
+// Type metadata
+struct ReflectionTypeInfo {
+    const char* name;
+    const char* namespaceName;
+    const char* fullName;  // Namespace::ClassName
+    bool isTemplate;
+    int32_t templateParamCount;
+    ReflectionTemplateParamInfo* templateParams;
+    int32_t propertyCount;
+    ReflectionPropertyInfo* properties;
+    int32_t methodCount;
+    ReflectionMethodInfo* methods;
+    int32_t constructorCount;
+    ReflectionMethodInfo* constructors;
+    const char* baseClassName;  // NULL if no base class
+    size_t instanceSize;        // Size in bytes
+};
 ```
 
-2. **Emits ReflectionPropertyInfo arrays:**
-```cpp
-// For each class
-output_ << "@reflection_props_" << className << " = private constant ["
-        << properties.size() << " x %ReflectionPropertyInfo] [\n";
+### Global Type Registry (`runtime/xxml_reflection_runtime.c`)
 
-for (each property) {
-    output_ << "  %ReflectionPropertyInfo { "
-            << "ptr @.str.prop_" << propName << ", "  // name
-            << "ptr @.str.type_" << propType << ", "  // typeName
-            << "i32 " << ownershipValue << ", "        // ownership (0-3)
-            << "i64 " << offsetInBytes << " "          // offset
-            << "}";
-}
-output_ << "]\n";
+The runtime maintains a global type registry with these functions:
+
+```c
+// Register a new type (called automatically at module init)
+void* Reflection_registerType(ReflectionTypeInfo* typeInfo);
+
+// Look up type by full name (e.g., "Math::Vector2")
+ReflectionTypeInfo* Reflection_getTypeInfo(const char* typeName);
+
+// Get total number of registered types
+int32_t Reflection_getTypeCount();
+
+// Get array of all registered type names
+const char** Reflection_getAllTypeNames();
 ```
 
-3. **Emits ReflectionMethodInfo arrays:**
-```cpp
-// Similar structure for methods
-output_ << "@reflection_methods_" << className << " = private constant ["
-        << methods.size() << " x %ReflectionMethodInfo] [\n";
+The registry uses a dynamic array with automatic resizing (doubling strategy, starting at 16 entries).
 
-for (each method) {
-    // Emit method info with parameters array
-    // Include function pointer for potential dynamic invocation
-}
-output_ << "]\n";
-```
+### Syscall Functions
 
-4. **Emits ReflectionTypeInfo structure:**
-```cpp
-output_ << "@reflection_type_" << className
-        << " = global %ReflectionTypeInfo {\n"
-        << "  ptr @.str.name_" << className << ",\n"
-        << "  ptr @.str.namespace_" << namespace << ",\n"
-        << "  ptr @.str.fullname_" << fullName << ",\n"
-        << "  i1 " << (isTemplate ? "true" : "false") << ",\n"
-        << "  i32 " << templateParamCount << ",\n"
-        << "  ptr " << (templateParamCount > 0 ? "@template_params_" + className : "null") << ",\n"
-        << "  i32 " << propertyCount << ",\n"
-        << "  ptr @reflection_props_" << className << ",\n"
-        << "  i32 " << methodCount << ",\n"
-        << "  ptr @reflection_methods_" << className << ",\n"
-        << "  i32 " << constructorCount << ",\n"
-        << "  ptr @reflection_constructors_" << className << ",\n"
-        << "  ptr " << (baseClass.empty() ? "null" : "@.str.base_" + baseClass) << ",\n"
-        << "  i64 " << sizeInBytes << "\n"
-        << "}\n";
-```
+Type introspection:
+- `xxml_reflection_getTypeByName(const char*)` - Lookup type by name
+- `xxml_reflection_type_getName(void*)` - Get simple name
+- `xxml_reflection_type_getFullName(void*)` - Get qualified name
+- `xxml_reflection_type_getNamespace(void*)` - Get namespace
+- `xxml_reflection_type_isTemplate(void*)` - Check if template
+- `xxml_reflection_type_getTemplateParamCount(void*)` - Count template params
+- `xxml_reflection_type_getPropertyCount(void*)` - Count properties
+- `xxml_reflection_type_getProperty(void*, int64_t)` - Get property by index
+- `xxml_reflection_type_getPropertyByName(void*, const char*)` - Get property by name
+- `xxml_reflection_type_getMethodCount(void*)` - Count methods
+- `xxml_reflection_type_getMethod(void*, int64_t)` - Get method by index
+- `xxml_reflection_type_getMethodByName(void*, const char*)` - Get method by name
+- `xxml_reflection_type_getInstanceSize(void*)` - Get size in bytes
 
-5. **Registers types at module initialization:**
-```cpp
-// In module initialization function or global constructor
-output_ << "define internal void @__reflection_init() {\n";
-for (each type) {
-    output_ << "  call void @Reflection_registerType("
-            << "ptr @reflection_type_" << className << ")\n";
-}
-output_ << "  ret void\n";
-output_ << "}\n";
+Property introspection:
+- `xxml_reflection_property_getName(void*)` - Get property name
+- `xxml_reflection_property_getTypeName(void*)` - Get type name
+- `xxml_reflection_property_getOwnership(void*)` - Get ownership code
+- `xxml_reflection_property_getOffset(void*)` - Get byte offset
 
-// Add to llvm.global_ctors
-output_ << "@llvm.global_ctors = appending global [1 x { i32, ptr, ptr }] "
-        << "[{ i32, ptr, ptr } { i32 65535, ptr @__reflection_init, ptr null }]\n";
-```
+Method introspection:
+- `xxml_reflection_method_getName(void*)` - Get method name
+- `xxml_reflection_method_getReturnType(void*)` - Get return type
+- `xxml_reflection_method_getReturnOwnership(void*)` - Get return ownership
+- `xxml_reflection_method_getParameterCount(void*)` - Count parameters
+- `xxml_reflection_method_getParameter(void*, int64_t)` - Get parameter by index
+- `xxml_reflection_method_isStatic(void*)` - Check if static
+- `xxml_reflection_method_isConstructor(void*)` - Check if constructor
 
-#### Integration in LLVMBackend
+Parameter introspection:
+- `xxml_reflection_parameter_getName(void*)` - Get parameter name
+- `xxml_reflection_parameter_getTypeName(void*)` - Get type name
+- `xxml_reflection_parameter_getOwnership(void*)` - Get ownership code
 
-**✅ Fully Integrated** - The metadata generation is automatically invoked:
+---
 
-1. **Metadata Collection** (LLVMBackend.cpp:849-912):
-   - During `visit(ClassDecl&)`, metadata is collected for each class
-   - Properties, methods, parameters, template params, and ownership info are stored
-   - Stored in `reflectionMetadata_` map for later emission
+## Compiler Integration
 
-2. **Metadata Emission** (LLVMBackend.cpp:62):
-   - After all classes are visited, `generateReflectionMetadata()` is called
-   - Emits complete LLVM IR structures for all reflection data
-   - Registers types via global constructor `@__reflection_init`
+### Metadata Collection (LLVMBackend)
 
-#### Class Metadata Structure
-
-**✅ Implemented** in LLVMBackend.h:246-260:
+During `visit(ClassDecl&)`, the compiler collects metadata for each class:
 
 ```cpp
 struct ReflectionClassMetadata {
-    std::string name;
-    std::string namespaceName;
-    std::string fullName;
-    std::vector<std::pair<std::string, std::string>> properties;  // name, type
-    std::vector<std::string> propertyOwnerships;  // ownership chars (^, &, %)
-    std::vector<std::pair<std::string, std::string>> methods;  // name, return type
+    std::string name;                  // "Person"
+    std::string namespaceName;         // "" or "Container"
+    std::string fullName;              // "Person" or "Container::Box<Integer>"
+    std::vector<std::pair<std::string, std::string>> properties;  // (name, type)
+    std::vector<std::string> propertyOwnerships;  // "^", "&", "%", or ""
+    std::vector<std::pair<std::string, std::string>> methods;     // (name, returnType)
     std::vector<std::string> methodReturnOwnerships;
     std::vector<std::vector<std::tuple<std::string, std::string, std::string>>> methodParameters;
     bool isTemplate;
     std::vector<std::string> templateParams;
-    size_t instanceSize;  // Calculated via calculateClassSize()
+    size_t instanceSize;              // Calculated via calculateClassSize()
     Parser::ClassDecl* astNode;
 };
 ```
 
-The `calculateClassSize()` method (LLVMBackend.cpp:3383-3412) computes instance sizes based on property types and ownership.
+### Metadata Generation
+
+The `generateReflectionMetadata()` method emits LLVM IR:
+
+1. **String literals** for all names
+2. **ReflectionPropertyInfo arrays** per class
+3. **ReflectionParameterInfo arrays** per method
+4. **ReflectionMethodInfo arrays** per class
+5. **ReflectionTemplateParamInfo arrays** for template classes
+6. **ReflectionTypeInfo global structures** per class
+7. **Module initialization function** (`__reflection_init`)
+8. **Global constructor registration** at priority 65535
+
+Example generated IR:
+```llvm
+; String literals
+@.str.reflect_Person = private constant [7 x i8] c"Person\00"
+
+; Property array
+@reflection_props_Person = private constant [2 x %ReflectionPropertyInfo] [
+  %ReflectionPropertyInfo { ptr @.str.name, ptr @.str.String, i32 1, i64 0 },
+  %ReflectionPropertyInfo { ptr @.str.age, ptr @.str.Integer, i32 1, i64 8 }
+]
+
+; Type info structure
+@reflection_type_Person = global %ReflectionTypeInfo {
+  ptr @.str.name_Person,      ; name
+  ptr @.str.ns_,              ; namespace
+  ptr @.str.full_Person,      ; fullName
+  i1 false,                   ; isTemplate
+  i32 0,                      ; templateParamCount
+  ptr null,                   ; templateParams
+  i32 2,                      ; propertyCount
+  ptr @reflection_props_Person,
+  i32 3,                      ; methodCount
+  ptr @reflection_methods_Person,
+  i32 0,                      ; constructorCount
+  ptr null,
+  ptr null,                   ; baseClassName
+  i64 16                      ; instanceSize
+}
+
+; Module initialization
+define internal void @__reflection_init() {
+  call void @Reflection_registerType(ptr @reflection_type_Person)
+  ret void
+}
+
+; Global constructor
+@llvm.global_ctors = appending global [1 x { i32, ptr, ptr }] [
+  { i32, ptr, ptr } { i32 65535, ptr @__reflection_init, ptr null }
+]
+```
 
 ---
 
@@ -243,26 +309,61 @@ The `calculateClassSize()` method (LLVMBackend.cpp:3383-3412) computes instance 
 ### Basic Type Introspection
 
 ```xxml
-Instantiate Language::Reflection::Type^ As <type> =
-    Language::Reflection::Type::forName(String::Constructor("MyClass"));
+#import Language::Reflection;
 
-Instantiate Integer^ As <propCount> = type.getPropertyCount();
-Instantiate Integer^ As <methodCount> = type.getMethodCount();
+// Look up type by name
+Instantiate Language::Reflection::Type^ As <type> =
+    Language::Reflection::Type::forName(String::Constructor("Person"));
+
+// Check if type was found
+If (type == None::Constructor()) -> {
+    Run Console::WriteLine(String::Constructor("Type not found!"));
+    Return Integer::Constructor(1);
+}
+
+// Get type information
+Instantiate String^ As <name> = type.getName();
+Instantiate String^ As <fullName> = type.getFullName();
+Instantiate Integer^ As <size> = type.getInstanceSize();
+
+Run Console::WriteLine(String::Constructor("Type: "));
+Run Console::WriteLine(fullName);
+```
+
+### Type-Safe Lookup with GetType<T>
+
+```xxml
+#import Language::Reflection;
+
+// Compile-time type-safe lookup
+Instantiate Language::Reflection::GetType<Person>^ As <getter> =
+    Language::Reflection::GetType<Person>::Constructor();
+Instantiate Language::Reflection::Type^ As <type> = getter.get();
+
+// This fails at compile time if Person doesn't exist
 ```
 
 ### Property Enumeration
 
 ```xxml
+Instantiate Integer^ As <propCount> = type.getPropertyCount();
 Instantiate NativeType<"int64">^ As <i> = 0;
+
 While (i < propCount.toInt64()) -> {
-    Instantiate Language::Reflection::Property^ As <prop> =
+    Instantiate Language::Reflection::PropertyInfo^ As <prop> =
         type.getPropertyAt(Integer::Constructor(i));
 
-    Instantiate String^ As <name> = prop.getName();
+    Instantiate String^ As <propName> = prop.getName();
     Instantiate String^ As <typeName> = prop.getTypeName();
     Instantiate String^ As <ownership> = prop.getOwnershipString();
+    Instantiate Integer^ As <offset> = prop.getOffset();
 
-    // Use property info...
+    Run Console::Write(String::Constructor("  "));
+    Run Console::Write(propName);
+    Run Console::Write(String::Constructor(": "));
+    Run Console::Write(typeName);
+    Run Console::Write(String::Constructor(" "));
+    Run Console::WriteLine(ownership);
 
     Set i = i + 1;
 }
@@ -271,34 +372,89 @@ While (i < propCount.toInt64()) -> {
 ### Method Introspection
 
 ```xxml
-Instantiate Language::Reflection::Method^ As <method> =
-    type.getMethod(String::Constructor("myMethod"));
+Instantiate Language::Reflection::MethodInfo^ As <method> =
+    type.getMethod(String::Constructor("greet"));
 
-Instantiate String^ As <returnType> = method.getReturnType();
-Instantiate Integer^ As <paramCount> = method.getParameterCount();
-Instantiate String^ As <signature> = method.getSignature();
+If (method != None::Constructor()) -> {
+    Instantiate String^ As <signature> = method.getSignature();
+    Instantiate Bool^ As <isStatic> = method.isStatic();
+    Instantiate Bool^ As <isCtor> = method.isConstructor();
+
+    Run Console::Write(String::Constructor("Signature: "));
+    Run Console::WriteLine(signature);
+
+    // Enumerate parameters
+    Instantiate Integer^ As <paramCount> = method.getParameterCount();
+    Instantiate NativeType<"int64">^ As <p> = 0;
+
+    While (p < paramCount.toInt64()) -> {
+        Instantiate Language::Reflection::ParameterInfo^ As <param> =
+            method.getParameterAt(Integer::Constructor(p));
+
+        Instantiate String^ As <paramName> = param.getName();
+        Instantiate String^ As <paramType> = param.getTypeName();
+        Instantiate String^ As <paramOwnership> = param.getOwnershipString();
+
+        Run Console::Write(String::Constructor("    Param: "));
+        Run Console::Write(paramName);
+        Run Console::Write(String::Constructor(" : "));
+        Run Console::Write(paramType);
+        Run Console::Write(String::Constructor(" "));
+        Run Console::WriteLine(paramOwnership);
+
+        Set p = p + 1;
+    }
+}
 ```
 
 ### Template Type Detection
 
 ```xxml
-Instantiate Language::Reflection::Type^ As <listType> =
-    Language::Reflection::Type::forName(String::Constructor("List<Integer>"));
+Instantiate Language::Reflection::Type^ As <boxType> =
+    Language::Reflection::Type::forName(String::Constructor("Container::Box<Integer>"));
 
-Instantiate Bool^ As <isTemplate> = listType.isTemplate();
+Instantiate Bool^ As <isTemplate> = boxType.isTemplate();
 If (isTemplate.getValue()) -> {
-    Instantiate Integer^ As <paramCount> = listType.getTemplateParameterCount();
-    // Template-specific handling
+    Instantiate Integer^ As <templateParamCount> = boxType.getTemplateParameterCount();
+    Run Console::Write(String::Constructor("Template with "));
+    Run Console::Write(templateParamCount.toString());
+    Run Console::WriteLine(String::Constructor(" type parameters"));
 }
 ```
+
+---
+
+## Test Suite
+
+Located in `tests/`:
+
+### reflection_basic.XXML
+- Type lookup by name
+- Property enumeration
+- Method enumeration
+- Property/method lookup by name
+- Ownership type inspection
+
+### reflection_template.XXML
+- Template type detection
+- Template parameter counting
+- Distinguishing `Box<Integer>` from `Box<String>`
+- Template method signatures
+
+### reflection_methods.XXML
+- Method signature generation
+- Parameter details with ownership
+- Constructor detection
+- Return type analysis
+- Ownership comparison across methods
 
 ---
 
 ## Architecture Decisions
 
 ### 1. C Runtime Foundation
-- Uses simple C structures for maximum compatibility
-- No C++ STL dependencies
+- Simple C structures for maximum compatibility
+- No C++ STL dependencies in runtime
 - Easy to marshal across language boundaries
 
 ### 2. Syscall-Based API
@@ -308,11 +464,11 @@ If (isTemplate.getValue()) -> {
 
 ### 3. Global Type Registry
 - Single source of truth for all type information
-- Populated at module initialization
-- Fast O(n) lookup (can be optimized to hash map)
+- Populated at module initialization (priority 65535)
+- O(n) lookup (can be optimized to hash map)
 
 ### 4. Ownership Awareness
-- Full ownership type tracking (^, &, %)
+- Full ownership type tracking (`^`, `&`, `%`)
 - Enables memory safety analysis via reflection
 - Supports advanced metaprogramming
 
@@ -320,34 +476,6 @@ If (isTemplate.getValue()) -> {
 - Each instantiation (`List<Integer>`, `List<String>`) is a distinct type
 - Template parameter information preserved
 - Enables type-safe generic programming
-
----
-
-## Testing Strategy
-
-1. **Unit Tests**: Test each reflection class in isolation
-2. **Integration Tests**: Test cross-class reflection
-3. **Template Tests**: Verify template type distinction
-4. **Ownership Tests**: Verify ownership tracking accuracy
-5. **Performance Tests**: Measure reflection overhead
-
----
-
-## Future Enhancements
-
-### Short Term
-- [ ] Add method invocation support (dynamic dispatch)
-- [ ] Add property get/set via reflection
-- [ ] Optimize type registry with hash map
-- [ ] Add attribute/annotation support
-
-### Long Term
-- [ ] Reflection-based serialization/deserialization
-- [ ] Automatic toString() generation
-- [ ] Dependency injection framework
-- [ ] Unit test framework using reflection
-- [ ] ORM (Object-Relational Mapping) support
-- [ ] RPC (Remote Procedure Call) with reflection
 
 ---
 
@@ -360,7 +488,7 @@ If (isTemplate.getValue()) -> {
 
 ### Lookup Performance
 - Current: O(n) linear search in type registry
-- Recommended: Hash map for O(1) lookup
+- Recommended optimization: Hash map for O(1) lookup
 - Cache frequently accessed TypeInfo pointers
 
 ### Runtime Overhead
@@ -373,66 +501,57 @@ If (isTemplate.getValue()) -> {
 ## Security Considerations
 
 ### Information Disclosure
-- Reflection exposes all private members
-- Consider access control annotations
+- Reflection exposes all members (no access control)
+- Consider access control annotations in future
 - May expose sensitive class structure
 
 ### Dynamic Invocation
-- Method invocation via reflection bypasses type safety
-- Validate all reflected calls
+- Method invocation via reflection not yet implemented
+- When added, validate all reflected calls
 - Consider sandboxing for untrusted code
 
 ---
 
-## Comparison with Other Languages
+## Future Enhancements
 
-### vs. Java Reflection
-- **Similar**: Type introspection, method invocation, field access
-- **Different**: XXML adds ownership type tracking
-- **Missing**: Annotations (planned), dynamic proxies
+### Short Term
+- [ ] Dynamic method invocation
+- [ ] Property get/set via reflection
+- [ ] Hash map type registry for O(1) lookup
+- [ ] Attribute/annotation support
 
-### vs. C# Reflection
-- **Similar**: Type hierarchy, property/method info
-- **Different**: No attributes yet, simpler API
-- **Missing**: Emit (dynamic code generation)
-
-### vs. Python `dir()`/`inspect`
-- **Similar**: Runtime introspection
-- **Different**: Statically compiled with metadata
-- **Better**: Type safety, performance
+### Long Term
+- [ ] Reflection-based serialization/deserialization
+- [ ] Automatic toString() generation
+- [ ] Dependency injection framework
+- [ ] Unit test framework using reflection
+- [ ] ORM (Object-Relational Mapping) support
 
 ---
 
-## Development Roadmap
+## File Inventory
 
-### Phase 1: Foundation ✅ **COMPLETE**
-- ✅ Runtime structures
-- ✅ XXML API classes
-- ✅ Syscall implementations
-- ✅ Test suite
+### Runtime Files
+- `runtime/xxml_reflection_runtime.h` - C structures
+- `runtime/xxml_reflection_runtime.c` - Registry implementation
+- `runtime/xxml_llvm_runtime.h` - Syscall declarations
 
-### Phase 2: Metadata Generation ✅ **COMPLETE**
-- ✅ LLVMBackend integration (LLVMBackend.cpp:3414-3664)
-- ✅ Metadata collection during class visits (LLVMBackend.cpp:849-912)
-- ✅ Automatic type registration via global constructors
-- ✅ Complete reflection metadata emission
+### XXML API Classes
+- `Language/Reflection/Type.XXML` - Type introspection
+- `Language/Reflection/MethodInfo.XXML` - Method introspection
+- `Language/Reflection/PropertyInfo.XXML` - Property introspection
+- `Language/Reflection/ParameterInfo.XXML` - Parameter introspection
+- `Language/Reflection/GetType.XXML` - Type-safe template accessor
+- `Language/Reflection.XXML` - Module aggregation
 
-### Phase 3 (Current): Testing & Refinement 🚧
-- Test reflection API with user programs
-- Debug any edge cases
-- Optimize type registry (hash map)
-- Improve documentation
+### Compiler Backend
+- `include/Backends/LLVMBackend.h` - ReflectionClassMetadata struct
+- `src/Backends/LLVMBackend.cpp` - Metadata collection and generation
 
-### Phase 4 (Next): Advanced Features
-- Method invocation via reflection
-- Property get/set via reflection
-- Attribute/annotation system
-
-### Phase 5 (Future): Ecosystem
-- Serialization library using reflection
-- Testing framework
-- ORM framework
-- Dependency injection
+### Tests
+- `tests/reflection_basic.XXML`
+- `tests/reflection_template.XXML`
+- `tests/reflection_methods.XXML`
 
 ---
 
@@ -441,19 +560,8 @@ If (isTemplate.getValue()) -> {
 When adding reflection features:
 
 1. Update C structures in `xxml_reflection_runtime.h`
-2. Add syscalls to `xxml_llvm_runtime.h/.c`
-3. Extend XXML classes in `Language/Reflection/`
-4. Add tests in `tests/reflection_*.XXML`
-5. Update this documentation
-
----
-
-## License
-
-Same as XXML Compiler project.
-
----
-
-## Contact
-
-For questions about the reflection system implementation, please open an issue on the XXML Compiler repository.
+2. Add implementations in `xxml_reflection_runtime.c`
+3. Add syscall declarations to `xxml_llvm_runtime.h`
+4. Extend XXML classes in `Language/Reflection/`
+5. Add tests in `tests/reflection_*.XXML`
+6. Update this documentation
