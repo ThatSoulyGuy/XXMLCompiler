@@ -48,6 +48,27 @@ std::unique_ptr<TypeRef> TypeRef::cloneType() const {
 }
 
 // ============================================================================
+// FunctionTypeRef Clone
+// ============================================================================
+
+std::unique_ptr<ASTNode> FunctionTypeRef::clone() const {
+    return cloneType();
+}
+
+std::unique_ptr<TypeRef> FunctionTypeRef::cloneType() const {
+    std::vector<std::unique_ptr<TypeRef>> clonedParams;
+    for (const auto& param : paramTypes) {
+        clonedParams.push_back(param->cloneType());
+    }
+    return std::make_unique<FunctionTypeRef>(
+        returnType->cloneType(),
+        std::move(clonedParams),
+        ownership,
+        location
+    );
+}
+
+// ============================================================================
 // Expression Clones
 // ============================================================================
 
@@ -154,6 +175,39 @@ std::unique_ptr<ASTNode> TypeOfExpr::clone() const {
 
 std::unique_ptr<Expression> TypeOfExpr::cloneExpr() const {
     return std::make_unique<TypeOfExpr>(type->cloneType(), location);
+}
+
+std::unique_ptr<ASTNode> LambdaExpr::clone() const {
+    return cloneExpr();
+}
+
+std::unique_ptr<Expression> LambdaExpr::cloneExpr() const {
+    // Clone captures (CaptureSpec is a simple struct, can copy directly)
+    std::vector<CaptureSpec> clonedCaptures = captures;
+
+    // Clone parameters
+    std::vector<std::unique_ptr<ParameterDecl>> clonedParams;
+    for (const auto& param : parameters) {
+        clonedParams.push_back(
+            std::unique_ptr<ParameterDecl>(
+                static_cast<ParameterDecl*>(param->cloneDecl().release())
+            )
+        );
+    }
+
+    // Clone body
+    std::vector<std::unique_ptr<Statement>> clonedBody;
+    for (const auto& stmt : body) {
+        clonedBody.push_back(stmt->cloneStmt());
+    }
+
+    return std::make_unique<LambdaExpr>(
+        std::move(clonedCaptures),
+        std::move(clonedParams),
+        returnType->cloneType(),
+        std::move(clonedBody),
+        location
+    );
 }
 
 // ============================================================================

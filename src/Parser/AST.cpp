@@ -5,6 +5,7 @@ namespace Parser {
 
 // TypeRef
 void TypeRef::accept(ASTVisitor& visitor) { visitor.visit(*this); }
+void FunctionTypeRef::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 
 // Expressions
 void IntegerLiteralExpr::accept(ASTVisitor& visitor) { visitor.visit(*this); }
@@ -19,6 +20,7 @@ void MemberAccessExpr::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void CallExpr::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void BinaryExpr::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void TypeOfExpr::accept(ASTVisitor& visitor) { visitor.visit(*this); }
+void LambdaExpr::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 
 // Statements
 void InstantiateStmt::accept(ASTVisitor& visitor) { visitor.visit(*this); }

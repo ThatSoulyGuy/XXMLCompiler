@@ -1,0 +1,20 @@
+#import Language::Core;
+
+// Test: Double owned capture (should error)
+[ Entrypoint
+    {
+        Instantiate Integer^ As <x> = Integer::Constructor(42);
+
+        // First owned capture - moves x
+        Instantiate F(Integer^)()^ As <lambda1> = [ Lambda [^x] Returns Integer^ Parameters () {
+            Return x;
+        }];
+
+        // Second owned capture - ERROR: already moved
+        Instantiate F(Integer^)()^ As <lambda2> = [ Lambda [^x] Returns Integer^ Parameters () {
+            Return x;
+        }];
+
+        Exit(0);
+    }
+]

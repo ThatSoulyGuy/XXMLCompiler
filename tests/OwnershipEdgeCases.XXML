@@ -1,0 +1,167 @@
+#import Language::Core;
+
+// Ownership Edge Cases - Testing for Undefined Behavior
+// These tests probe the boundary conditions of the ownership system
+
+[ Entrypoint
+    {
+        Run Console::printLine(String::Constructor("=== Ownership Edge Cases ==="));
+
+        // ============================================
+        // Edge Case 1: Use after owned capture (^)
+        // In a proper ownership system, using a variable after
+        // it's been captured with ^ should be an error.
+        // Let's see what happens at runtime.
+        // ============================================
+        Run Console::printLine(String::Constructor(""));
+        Run Console::printLine(String::Constructor("Edge 1: Use after owned capture"));
+
+        Instantiate Integer^ As <moveMe> = Integer::Constructor(555);
+        Run Console::printLine(String::Constructor("Before owned capture: "));
+        Run Console::printLine(moveMe.toString());
+
+        // Capture with owned (^) - should "move" the value
+        Instantiate F(Integer^)()^ As <ownedCapture> = [ Lambda [^moveMe] Returns Integer^ Parameters () {
+            Return moveMe;
+        }];
+
+        // POTENTIAL UB: Using moveMe after owned capture
+        Run Console::printLine(String::Constructor("After owned capture (may be UB): "));
+        Run Console::printLine(moveMe.toString());
+
+        Instantiate Integer^ As <captured> = ownedCapture.call();
+        Run Console::printLine(String::Constructor("Lambda returned: "));
+        Run Console::printLine(captured.toString());
+
+        // ============================================
+        // Edge Case 2: Multiple owned captures of same variable
+        // This should not be allowed, but what happens?
+        // ============================================
+        Run Console::printLine(String::Constructor(""));
+        Run Console::printLine(String::Constructor("Edge 2: Multiple owned captures"));
+
+        Instantiate Integer^ As <multiOwn> = Integer::Constructor(777);
+
+        // First owned capture
+        Instantiate F(Integer^)()^ As <own1> = [ Lambda [^multiOwn] Returns Integer^ Parameters () {
+            Return multiOwn;
+        }];
+
+        // Second owned capture of same variable (double move!)
+        Instantiate F(Integer^)()^ As <own2> = [ Lambda [^multiOwn] Returns Integer^ Parameters () {
+            Return multiOwn;
+        }];
+
+        Instantiate Integer^ As <o1r> = own1.call();
+        Instantiate Integer^ As <o2r> = own2.call();
+
+        Run Console::printLine(String::Constructor("First owned capture returned: "));
+        Run Console::printLine(o1r.toString());
+        Run Console::printLine(String::Constructor("Second owned capture returned: "));
+        Run Console::printLine(o2r.toString());
+
+        // ============================================
+        // Edge Case 3: Reference capture outliving variable
+        // Create a reference capture, then see if it still works
+        // ============================================
+        Run Console::printLine(String::Constructor(""));
+        Run Console::printLine(String::Constructor("Edge 3: Reference capture lifetime"));
+
+        Instantiate Integer^ As <refVar> = Integer::Constructor(888);
+
+        Instantiate F(Integer^)()^ As <refCap> = [ Lambda [&refVar] Returns Integer^ Parameters () {
+            Return refVar;
+        }];
+
+        // Call multiple times - reference should still point to valid memory
+        Instantiate Integer^ As <rc1> = refCap.call();
+        Instantiate Integer^ As <rc2> = refCap.call();
+        Instantiate Integer^ As <rc3> = refCap.call();
+
+        Run Console::printLine(String::Constructor("ref call 1: "));
+        Run Console::printLine(rc1.toString());
+        Run Console::printLine(String::Constructor("ref call 2: "));
+        Run Console::printLine(rc2.toString());
+        Run Console::printLine(String::Constructor("ref call 3: "));
+        Run Console::printLine(rc3.toString());
+
+        // ============================================
+        // Edge Case 4: Nested lambda ownership
+        // Lambda inside lambda with captures
+        // ============================================
+        Run Console::printLine(String::Constructor(""));
+        Run Console::printLine(String::Constructor("Edge 4: Passing owned to owned param"));
+
+        Instantiate Integer^ As <passOwned> = Integer::Constructor(999);
+
+        // Lambda that takes owned parameter
+        Instantiate F(Integer^)(Integer^)^ As <takeOwned> = [ Lambda [] Returns Integer^ Parameters (
+            Parameter <x> Types Integer^
+        ) {
+            Return x.add(Integer::Constructor(1));
+        }];
+
+        // Pass owned variable - ownership should transfer
+        Instantiate Integer^ As <ownedResult> = takeOwned.call(passOwned);
+        Run Console::printLine(String::Constructor("takeOwned(999) = "));
+        Run Console::printLine(ownedResult.toString());
+
+        // POTENTIAL UB: Using passOwned after passing to owned param
+        Run Console::printLine(String::Constructor("passOwned after transfer (may be UB): "));
+        Run Console::printLine(passOwned.toString());
+
+        // ============================================
+        // Edge Case 5: Return reference vs return copy
+        // ============================================
+        Run Console::printLine(String::Constructor(""));
+        Run Console::printLine(String::Constructor("Edge 5: Return ownership variations"));
+
+        Instantiate Integer^ As <source> = Integer::Constructor(111);
+
+        // Lambda returns the captured value directly
+        Instantiate F(Integer^)()^ As <returnCaptured> = [ Lambda [%source] Returns Integer^ Parameters () {
+            Return source;
+        }];
+
+        Instantiate Integer^ As <ret1> = returnCaptured.call();
+        Instantiate Integer^ As <ret2> = returnCaptured.call();
+
+        Run Console::printLine(String::Constructor("Return 1: "));
+        Run Console::printLine(ret1.toString());
+        Run Console::printLine(String::Constructor("Return 2: "));
+        Run Console::printLine(ret2.toString());
+
+        // They should be independent (copy capture)
+        Run Console::printLine(String::Constructor("source unchanged: "));
+        Run Console::printLine(source.toString());
+
+        // ============================================
+        // Edge Case 6: Chain of ownership transfers
+        // ============================================
+        Run Console::printLine(String::Constructor(""));
+        Run Console::printLine(String::Constructor("Edge 6: Ownership chain"));
+
+        Instantiate Integer^ As <chainStart> = Integer::Constructor(1);
+
+        // Lambda that doubles and passes on
+        Instantiate F(Integer^)(Integer&)^ As <doubler> = [ Lambda [] Returns Integer^ Parameters (
+            Parameter <n> Types Integer&
+        ) {
+            Return n.add(n);
+        }];
+
+        // Chain multiple calls
+        Instantiate Integer^ As <c1> = doubler.call(chainStart);
+        Instantiate Integer^ As <c2> = doubler.call(c1);
+        Instantiate Integer^ As <c3> = doubler.call(c2);
+        Instantiate Integer^ As <c4> = doubler.call(c3);
+
+        Run Console::printLine(String::Constructor("1 -> 2 -> 4 -> 8 -> 16"));
+        Run Console::printLine(String::Constructor("Final: "));
+        Run Console::printLine(c4.toString());
+
+        Run Console::printLine(String::Constructor(""));
+        Run Console::printLine(String::Constructor("=== Edge Cases Complete ==="));
+        Exit(0);
+    }
+]

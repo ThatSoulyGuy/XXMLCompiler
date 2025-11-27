@@ -1,0 +1,58 @@
+#import Language::Core;
+
+// Test 1: Owned variable passed to function expecting reference
+// Should work - passing owned to & param borrows it
+
+[ Namespace <OwnershipTests>
+    [ Class <Helper> Final Extends None
+        [ Public <>
+            Constructor = default;
+
+            // Takes a reference parameter
+            Method <doubleRef> Returns Integer^ Parameters (
+                Parameter <x> Types Integer&
+            ) -> {
+                Return x.add(x);
+            }
+
+            // Takes a copy parameter
+            Method <doubleCopy> Returns Integer^ Parameters (
+                Parameter <x> Types Integer%
+            ) -> {
+                Return x.add(x);
+            }
+        ]
+    ]
+]
+
+[ Entrypoint
+    {
+        Run Console::printLine(String::Constructor("=== Ownership Test 1: Owned to Ref/Copy ==="));
+
+        Instantiate OwnershipTests::Helper^ As <helper> = OwnershipTests::Helper::Constructor();
+
+        // Create an owned value
+        Instantiate Integer^ As <owned> = Integer::Constructor(21);
+
+        // Pass owned to reference parameter - should borrow
+        Instantiate Integer^ As <r1> = helper.doubleRef(&owned);
+        Run Console::printLine(String::Constructor("doubleRef(&owned) where owned=21: "));
+        Run Console::printLine(r1.toString());
+
+        // owned should still be valid
+        Run Console::printLine(String::Constructor("owned after ref call: "));
+        Run Console::printLine(owned.toString());
+
+        // Pass owned to copy parameter
+        Instantiate Integer^ As <r2> = helper.doubleCopy(owned);
+        Run Console::printLine(String::Constructor("doubleCopy(owned) where owned=21: "));
+        Run Console::printLine(r2.toString());
+
+        // owned should still be valid
+        Run Console::printLine(String::Constructor("owned after copy call: "));
+        Run Console::printLine(owned.toString());
+
+        Run Console::printLine(String::Constructor("=== Test Complete ==="));
+        Exit(0);
+    }
+]

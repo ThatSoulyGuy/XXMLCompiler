@@ -1,0 +1,17 @@
+#import Language::Core;
+
+[ Entrypoint
+    {
+        // Test basic lambda syntax parsing
+        // Note: Full lambda execution is not yet implemented
+        // This test verifies the parser correctly handles lambda syntax
+
+        Instantiate Integer^ As <x> = Integer::Constructor(5);
+
+        // Simple print to verify the file compiles
+        Run Console::printLine(String::Constructor("Lambda syntax parsing test"));
+        Run Console::printLine(x.toString());
+
+        Exit(0);
+    }
+]

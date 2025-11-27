@@ -1,0 +1,18 @@
+#import Language::Core;
+
+// Test 1: Use after owned capture (should error)
+[ Entrypoint
+    {
+        Instantiate Integer^ As <x> = Integer::Constructor(42);
+
+        // Capture with owned - this moves x
+        Instantiate F(Integer^)()^ As <lambda> = [ Lambda [^x] Returns Integer^ Parameters () {
+            Return x;
+        }];
+
+        // ERROR: Use after move
+        Run Console::printLine(x.toString());
+
+        Exit(0);
+    }
+]

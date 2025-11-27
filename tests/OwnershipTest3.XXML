@@ -1,0 +1,43 @@
+#import Language::Core;
+
+// Test 3: Nested lambda captures and lambda-capturing-lambda
+
+[ Entrypoint
+    {
+        Run Console::printLine(String::Constructor("=== Ownership Test 3: Nested Lambdas ==="));
+
+        Instantiate Integer^ As <outer> = Integer::Constructor(10);
+        Instantiate Integer^ As <inner> = Integer::Constructor(5);
+
+        // Outer lambda captures outer, creates inner lambda that captures inner
+        Instantiate F(Integer^)()^ As <outerLambda> = [ Lambda [%outer, %inner] Returns Integer^ Parameters () {
+            // Use both captured values
+            Return outer.add(inner);
+        }];
+
+        Instantiate Integer^ As <r1> = outerLambda.call();
+        Run Console::printLine(String::Constructor("outer(10) + inner(5) = "));
+        Run Console::printLine(r1.toString());
+
+        // Can we capture a lambda itself?
+        Instantiate F(Integer^)(Integer&)^ As <adder> = [ Lambda [] Returns Integer^ Parameters (
+            Parameter <x> Types Integer&
+        ) {
+            Return x.add(Integer::Constructor(1));
+        }];
+
+        // Lambda that captures another lambda and calls it
+        Instantiate F(Integer^)(Integer&)^ As <wrapper> = [ Lambda [%adder] Returns Integer^ Parameters (
+            Parameter <n> Types Integer&
+        ) {
+            Return adder.call(n);
+        }];
+
+        Instantiate Integer^ As <r2> = wrapper.call(Integer::Constructor(99));
+        Run Console::printLine(String::Constructor("wrapper calling adder(99): "));
+        Run Console::printLine(r2.toString());
+
+        Run Console::printLine(String::Constructor("=== Test Complete ==="));
+        Exit(0);
+    }
+]

@@ -1,0 +1,50 @@
+#import Language::Core;
+
+// Simplified Test 1: Owned variable passed to lambda via reference vs copy
+// Note: Integer& means "borrow without ownership transfer" - at LLVM level,
+// it receives the object pointer directly (same as owned)
+
+[ Entrypoint
+    {
+        Run Console::printLine(String::Constructor("=== Ownership Test 1: Owned to Ref/Copy ==="));
+
+        // Create an owned value
+        Instantiate Integer^ As <owned> = Integer::Constructor(21);
+
+        // Lambda taking reference parameter (borrows, no ownership transfer)
+        Instantiate F(Integer^)(Integer&)^ As <doubleRef> = [ Lambda [] Returns Integer^ Parameters (
+            Parameter <x> Types Integer&
+        ) {
+            Return x.add(x);
+        }];
+
+        // Lambda taking copy parameter
+        Instantiate F(Integer^)(Integer%)^ As <doubleCopy> = [ Lambda [] Returns Integer^ Parameters (
+            Parameter <x> Types Integer%
+        ) {
+            Return x.add(x);
+        }];
+
+        // Pass owned to reference parameter - borrows the value
+        // Note: We pass the value directly (not &owned), lambda receives object pointer
+        Instantiate Integer^ As <r1> = doubleRef.call(owned);
+        Run Console::printLine(String::Constructor("doubleRef(owned) where owned=21: "));
+        Run Console::printLine(r1.toString());
+
+        // owned should still be valid (no ownership transferred)
+        Run Console::printLine(String::Constructor("owned after ref call: "));
+        Run Console::printLine(owned.toString());
+
+        // Pass owned to copy parameter
+        Instantiate Integer^ As <r2> = doubleCopy.call(owned);
+        Run Console::printLine(String::Constructor("doubleCopy(owned) where owned=21: "));
+        Run Console::printLine(r2.toString());
+
+        // owned should still be valid
+        Run Console::printLine(String::Constructor("owned after copy call: "));
+        Run Console::printLine(owned.toString());
+
+        Run Console::printLine(String::Constructor("=== Test Complete ==="));
+        Exit(0);
+    }
+]

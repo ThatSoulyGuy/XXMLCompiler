@@ -1,0 +1,25 @@
+#import Language::Core;
+
+// Test: Passing owned variable to owned parameter
+[ Entrypoint
+    {
+        Run Console::printLine(String::Constructor("=== Ownership Parameter Test ==="));
+
+        Instantiate Integer^ As <x> = Integer::Constructor(42);
+
+        // Create a lambda that takes owned parameter
+        Instantiate F(None)(Integer^)^ As <consume> = [ Lambda [] Returns None Parameters (
+            Parameter <value> Types Integer^
+        ) {
+            Run Console::printLine(value.toString());
+        }];
+
+        // Pass to owned parameter - should move x
+        Run consume.call(x);
+
+        // ERROR: Use after passing to owned parameter
+        Run Console::printLine(x.toString());
+
+        Exit(0);
+    }
+]

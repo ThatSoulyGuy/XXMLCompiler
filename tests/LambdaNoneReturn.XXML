@@ -1,0 +1,23 @@
+#import Language::Core;
+
+[ Entrypoint
+    {
+        Run Console::printLine(String::Constructor("=== Lambda None Return Test ==="));
+
+        Instantiate Integer^ As <counter> = Integer::Constructor(0);
+
+        // Lambda that takes a message and prints it (returns None)
+        Instantiate F(None)(String&)^ As <printer> = [ Lambda [] Returns None Parameters (
+            Parameter <msg> Types String&
+        ) {
+            Run Console::printLine(msg);
+        }];
+
+        // Call the printer lambda
+        Run printer.call(String::Constructor("Hello from lambda!"));
+        Run printer.call(String::Constructor("Lambda works!"));
+
+        Run Console::printLine(String::Constructor("=== Test Complete ==="));
+        Exit(0);
+    }
+]

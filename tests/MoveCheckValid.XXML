@@ -1,0 +1,57 @@
+#import Language::Core;
+
+// Valid ownership patterns - should compile without errors
+[ Entrypoint
+    {
+        Run Console::printLine(String::Constructor("=== Valid Ownership Patterns ==="));
+
+        // Test 1: Copy capture is always safe
+        Instantiate Integer^ As <a> = Integer::Constructor(10);
+        Instantiate F(Integer^)()^ As <copy1> = [ Lambda [%a] Returns Integer^ Parameters () {
+            Return a;
+        }];
+        Instantiate F(Integer^)()^ As <copy2> = [ Lambda [%a] Returns Integer^ Parameters () {
+            Return a;
+        }];
+        Run Console::printLine(String::Constructor("Copy capture: OK"));
+        Run Console::printLine(a.toString());
+
+        // Test 2: Reference capture is safe
+        Instantiate Integer^ As <b> = Integer::Constructor(20);
+        Instantiate F(Integer^)()^ As <ref1> = [ Lambda [&b] Returns Integer^ Parameters () {
+            Return b;
+        }];
+        Instantiate F(Integer^)()^ As <ref2> = [ Lambda [&b] Returns Integer^ Parameters () {
+            Return b;
+        }];
+        Run Console::printLine(String::Constructor("Reference capture: OK"));
+        Run Console::printLine(b.toString());
+
+        // Test 3: Passing to reference parameter is safe
+        Instantiate Integer^ As <c> = Integer::Constructor(30);
+        Instantiate F(Integer^)(Integer&)^ As <refParam> = [ Lambda [] Returns Integer^ Parameters (
+            Parameter <x> Types Integer&
+        ) {
+            Return x.add(Integer::Constructor(1));
+        }];
+        Instantiate Integer^ As <r1> = refParam.call(c);
+        Instantiate Integer^ As <r2> = refParam.call(c);
+        Run Console::printLine(String::Constructor("Ref parameter: OK"));
+        Run Console::printLine(c.toString());
+
+        // Test 4: Passing to copy parameter is safe
+        Instantiate Integer^ As <d> = Integer::Constructor(40);
+        Instantiate F(Integer^)(Integer%)^ As <copyParam> = [ Lambda [] Returns Integer^ Parameters (
+            Parameter <x> Types Integer%
+        ) {
+            Return x.add(Integer::Constructor(1));
+        }];
+        Instantiate Integer^ As <r3> = copyParam.call(d);
+        Instantiate Integer^ As <r4> = copyParam.call(d);
+        Run Console::printLine(String::Constructor("Copy parameter: OK"));
+        Run Console::printLine(d.toString());
+
+        Run Console::printLine(String::Constructor("=== All Valid ==="));
+        Exit(0);
+    }
+]

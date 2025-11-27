@@ -1247,6 +1247,15 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
         return expr;
     }
 
+    // Check for lambda expression: [ Lambda ... ]
+    if (match(Lexer::TokenType::LeftBracket)) {
+        if (check(Lexer::TokenType::Lambda)) {
+            return parseLambda();
+        }
+        // Not a lambda - restore position
+        current--;  // Put back the '['
+    }
+
     error("Expected expression");
     return std::make_unique<IntegerLiteralExpr>(0, peek().location); // Error recovery
 }
@@ -1255,6 +1264,18 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
 std::unique_ptr<TypeRef> Parser::parseTypeRef() {
     auto loc = peek().location;
     std::string typeName;
+
+    // Check for function type: F(ReturnType)(varName)(ParamTypes...)
+    if (check(Lexer::TokenType::Identifier) && peek().lexeme == "F") {
+        // Lookahead to see if this is a function type (F followed by '(')
+        size_t savedPos = current;
+        advance(); // consume F
+        if (check(Lexer::TokenType::LeftParen)) {
+            return parseFunctionTypeRef();
+        }
+        // Not a function type, restore position
+        current = savedPos;
+    }
 
     // Check for NativeType<"...">
     if (match(Lexer::TokenType::NativeType)) {
@@ -1505,6 +1526,104 @@ std::unique_ptr<Expression> Parser::parseTypeOfExpression() {
     consume(Lexer::TokenType::RightParen, "Expected ')' after '(' in TypeOf");
 
     return std::make_unique<TypeOfExpr>(std::move(typeRef), loc);
+}
+
+std::unique_ptr<Expression> Parser::parseLambda() {
+    // Called after [ was consumed, positioned at Lambda keyword
+    auto loc = peek().location;
+    consume(Lexer::TokenType::Lambda, "Expected 'Lambda' after '['");
+
+    // Parse optional capture list: [&refVar, ^ownedVar, %copyVar]
+    // Each capture must specify ownership: & (reference), ^ (owned/move), % (copy)
+    std::vector<LambdaExpr::CaptureSpec> captures;
+    if (match(Lexer::TokenType::LeftBracket)) {
+        if (!check(Lexer::TokenType::RightBracket)) {
+            do {
+                LambdaExpr::CaptureMode mode;
+                if (match(Lexer::TokenType::Ampersand)) {
+                    mode = LambdaExpr::CaptureMode::Reference;
+                } else if (match(Lexer::TokenType::Caret)) {
+                    mode = LambdaExpr::CaptureMode::Owned;
+                } else if (match(Lexer::TokenType::Percent)) {
+                    mode = LambdaExpr::CaptureMode::Copy;
+                } else {
+                    error("Expected capture mode (& for reference, ^ for owned, % for copy) before variable name");
+                    break;
+                }
+                if (!check(Lexer::TokenType::Identifier)) {
+                    error("Expected identifier after capture mode");
+                    break;
+                }
+                std::string varName = advance().lexeme;
+                captures.emplace_back(varName, mode);
+            } while (match(Lexer::TokenType::Comma));
+        }
+        consume(Lexer::TokenType::RightBracket, "Expected ']' after capture list");
+    }
+
+    // Parse Returns TypeRef
+    consume(Lexer::TokenType::Returns, "Expected 'Returns' in lambda");
+    auto returnType = parseTypeRef();
+
+    // Parse Parameters (...)
+    std::vector<std::unique_ptr<ParameterDecl>> params;
+    if (match(Lexer::TokenType::Parameters)) {
+        consume(Lexer::TokenType::LeftParen, "Expected '(' after 'Parameters'");
+        if (!check(Lexer::TokenType::RightParen)) {
+            do {
+                params.push_back(parseParameter());
+            } while (match(Lexer::TokenType::Comma));
+        }
+        consume(Lexer::TokenType::RightParen, "Expected ')' after parameters");
+    }
+
+    // Parse body { ... }
+    auto body = parseBlock();
+
+    // Consume closing ]
+    consume(Lexer::TokenType::RightBracket, "Expected ']' after lambda body");
+
+    return std::make_unique<LambdaExpr>(
+        std::move(captures),
+        std::move(params),
+        std::move(returnType),
+        std::move(body),
+        loc
+    );
+}
+
+std::unique_ptr<TypeRef> Parser::parseFunctionTypeRef() {
+    // Parse F(ReturnType)(ParamTypes...)
+    // Caller has already matched 'F' identifier
+    auto loc = previous().location;
+
+    // Parse (ReturnType)
+    consume(Lexer::TokenType::LeftParen, "Expected '(' after 'F' for function type");
+    auto returnType = parseTypeRef();
+    consume(Lexer::TokenType::RightParen, "Expected ')' after return type");
+
+    // Parse (ParamTypes...)
+    std::vector<std::unique_ptr<TypeRef>> paramTypes;
+    consume(Lexer::TokenType::LeftParen, "Expected '(' for parameter types in function type");
+    if (!check(Lexer::TokenType::RightParen)) {
+        do {
+            paramTypes.push_back(parseTypeRef());
+        } while (match(Lexer::TokenType::Comma));
+    }
+    consume(Lexer::TokenType::RightParen, "Expected ')' after parameter types");
+
+    // Parse optional ownership suffix
+    OwnershipType ownership = parseOwnershipType();
+    if (ownership == OwnershipType::None) {
+        ownership = OwnershipType::Owned; // Default to owned for function types
+    }
+
+    return std::make_unique<FunctionTypeRef>(
+        std::move(returnType),
+        std::move(paramTypes),
+        ownership,
+        loc
+    );
 }
 
 } // namespace Parser

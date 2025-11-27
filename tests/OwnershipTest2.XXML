@@ -1,0 +1,43 @@
+#import Language::Core;
+
+// Test 2: Lambda capturing method parameter
+// What happens when a lambda captures a parameter that's passed by reference?
+
+[ Entrypoint
+    {
+        Run Console::printLine(String::Constructor("=== Ownership Test 2: Capture Parameters ==="));
+
+        Instantiate Integer^ As <value> = Integer::Constructor(100);
+
+        // Lambda that captures a local owned variable by copy
+        Instantiate F(Integer^)()^ As <captureCopy> = [ Lambda [%value] Returns Integer^ Parameters () {
+            Return value;
+        }];
+
+        // Lambda that captures same variable by reference
+        Instantiate F(Integer^)()^ As <captureRef> = [ Lambda [&value] Returns Integer^ Parameters () {
+            Return value;
+        }];
+
+        // Lambda that captures by owned (move)
+        Instantiate F(Integer^)()^ As <captureOwned> = [ Lambda [^value] Returns Integer^ Parameters () {
+            Return value;
+        }];
+
+        // Call all three
+        Instantiate Integer^ As <r1> = captureCopy.call();
+        Run Console::printLine(String::Constructor("Copy capture result: "));
+        Run Console::printLine(r1.toString());
+
+        Instantiate Integer^ As <r2> = captureRef.call();
+        Run Console::printLine(String::Constructor("Reference capture result: "));
+        Run Console::printLine(r2.toString());
+
+        Instantiate Integer^ As <r3> = captureOwned.call();
+        Run Console::printLine(String::Constructor("Owned capture result: "));
+        Run Console::printLine(r3.toString());
+
+        Run Console::printLine(String::Constructor("=== Test Complete ==="));
+        Exit(0);
+    }
+]

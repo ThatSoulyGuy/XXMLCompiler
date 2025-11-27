@@ -124,8 +124,10 @@ public:
     void visit(Parser::CallExpr& node) override;
     void visit(Parser::BinaryExpr& node) override;
     void visit(Parser::TypeOfExpr& node) override;
+    void visit(Parser::LambdaExpr& node) override;
 
     void visit(Parser::TypeRef& node) override;
+    void visit(Parser::FunctionTypeRef& node) override;
 };
 
 } // namespace CodeGen

@@ -1,0 +1,36 @@
+#import Language::Core;
+
+[ Entrypoint
+    {
+        Run Console::printLine(String::Constructor("=== Capture By Reference Test ==="));
+
+        // Create a counter variable
+        Instantiate Integer^ As <counter> = Integer::Constructor(0);
+
+        Run Console::printLine(String::Constructor("Initial counter: "));
+        Run Console::printLine(counter.toString());
+
+        // Lambda that captures counter by reference and increments it
+        Instantiate F(Integer^)()^ As <increment> = [ Lambda [&counter] Returns Integer^ Parameters () {
+            // Load the value, add 1, store back
+            Instantiate Integer^ As <newVal> = counter.add(Integer::Constructor(1));
+            Return newVal;
+        }];
+
+        // Call increment 3 times
+        Instantiate Integer^ As <r1> = increment.call();
+        Run Console::printLine(String::Constructor("After increment 1: "));
+        Run Console::printLine(r1.toString());
+
+        Instantiate Integer^ As <r2> = increment.call();
+        Run Console::printLine(String::Constructor("After increment 2: "));
+        Run Console::printLine(r2.toString());
+
+        Instantiate Integer^ As <r3> = increment.call();
+        Run Console::printLine(String::Constructor("After increment 3: "));
+        Run Console::printLine(r3.toString());
+
+        Run Console::printLine(String::Constructor("=== Test Complete ==="));
+        Exit(0);
+    }
+]

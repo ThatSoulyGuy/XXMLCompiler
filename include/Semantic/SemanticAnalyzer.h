@@ -146,6 +146,23 @@ private:
     std::set<std::string> validNamespaces_;  // Track all valid namespaces
     std::set<std::string> importedNamespaces_;  // Track imported namespaces for unqualified name lookup
 
+    // Move tracking for ownership safety
+    std::set<std::string> movedVariables_;  // Variables that have been moved from (owned capture or owned param)
+
+    // Function type tracking for lambda .call() ownership validation
+    // Maps variable name -> vector of parameter ownership types
+    std::unordered_map<std::string, std::vector<Parser::OwnershipType>> functionTypeParams_;
+
+    // Move tracking helpers
+    void markVariableMoved(const std::string& varName, const Common::SourceLocation& loc);
+    bool isVariableMoved(const std::string& varName) const;
+    void checkVariableNotMoved(const std::string& varName, const Common::SourceLocation& loc);
+    void resetMovedVariables();  // Called when entering new scope
+
+    // Function type tracking helpers
+    void registerFunctionType(const std::string& varName, Parser::FunctionTypeRef* funcType);
+    std::vector<Parser::OwnershipType>* getFunctionTypeParams(const std::string& varName);
+
     // Helper for templates
     void recordTemplateInstantiation(const std::string& templateName, const std::vector<Parser::TemplateArgument>& args);
     void recordMethodTemplateInstantiation(const std::string& className, const std::string& methodName, const std::vector<Parser::TemplateArgument>& args);
@@ -294,8 +311,10 @@ public:
     void visit(Parser::CallExpr& node) override;
     void visit(Parser::BinaryExpr& node) override;
     void visit(Parser::TypeOfExpr& node) override;
+    void visit(Parser::LambdaExpr& node) override;
 
     void visit(Parser::TypeRef& node) override;
+    void visit(Parser::FunctionTypeRef& node) override;
 };
 
 } // namespace Semantic

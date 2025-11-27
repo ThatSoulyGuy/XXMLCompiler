@@ -1,0 +1,56 @@
+#import Language::Core;
+
+// Comprehensive Ownership Test
+
+[ Entrypoint
+    {
+        Run Console::printLine(String::Constructor("=== Comprehensive Ownership Test ==="));
+
+        // Test 1: Copy capture - no move
+        Instantiate Integer^ As <v1> = Integer::Constructor(100);
+        Instantiate F(Integer^)()^ As <f1> = [ Lambda [%v1] Returns Integer^ Parameters () {
+            Return v1;
+        }];
+        Run Console::printLine(String::Constructor("Copy capture:"));
+        Run Console::printLine(v1.toString());
+        Instantiate Integer^ As <r1> = f1.call();
+        Run Console::printLine(r1.toString());
+
+        // Test 2: Reference capture - no move
+        Instantiate Integer^ As <v2> = Integer::Constructor(200);
+        Instantiate F(Integer^)()^ As <f2> = [ Lambda [&v2] Returns Integer^ Parameters () {
+            Return v2;
+        }];
+        Run Console::printLine(String::Constructor("Reference capture:"));
+        Run Console::printLine(v2.toString());
+        Instantiate Integer^ As <r2> = f2.call();
+        Run Console::printLine(r2.toString());
+
+        // Test 3: Copy parameter - no move
+        Instantiate Integer^ As <v3> = Integer::Constructor(300);
+        Instantiate F(Integer^)(Integer%)^ As <f3> = [ Lambda [] Returns Integer^ Parameters (
+            Parameter <x> Types Integer%
+        ) {
+            Return x;
+        }];
+        Run Console::printLine(String::Constructor("Copy parameter:"));
+        Instantiate Integer^ As <r3> = f3.call(v3);
+        Run Console::printLine(r3.toString());
+        Run Console::printLine(v3.toString());
+
+        // Test 4: Reference parameter - no move
+        Instantiate Integer^ As <v4> = Integer::Constructor(400);
+        Instantiate F(Integer^)(Integer&)^ As <f4> = [ Lambda [] Returns Integer^ Parameters (
+            Parameter <x> Types Integer&
+        ) {
+            Return x;
+        }];
+        Run Console::printLine(String::Constructor("Reference parameter:"));
+        Instantiate Integer^ As <r4> = f4.call(v4);
+        Run Console::printLine(r4.toString());
+        Run Console::printLine(v4.toString());
+
+        Run Console::printLine(String::Constructor("=== All Tests Passed ==="));
+        Exit(0);
+    }
+]

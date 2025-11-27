@@ -1,0 +1,41 @@
+#import Language::Core;
+
+[ Entrypoint
+    {
+        Run Console::printLine(String::Constructor("=== Multiple Parameter Test ==="));
+
+        // Lambda with two parameters
+        Instantiate F(Integer^)(Integer&, Integer&)^ As <addThem> = [ Lambda [] Returns Integer^ Parameters (
+            Parameter <x> Types Integer&,
+            Parameter <y> Types Integer&
+        ) {
+            Return x.add(y);
+        }];
+
+        // Call with 15 and 7: 15 + 7 = 22
+        Instantiate Integer^ As <result> = addThem.call(Integer::Constructor(15), Integer::Constructor(7));
+
+        Run Console::printLine(String::Constructor("15 + 7 = "));
+        Run Console::printLine(result.toString());
+
+        // Lambda with capture and two parameters
+        Instantiate Integer^ As <scale> = Integer::Constructor(100);
+        Instantiate F(Integer^)(Integer&, Integer&)^ As <scaledAdd> = [ Lambda [%scale] Returns Integer^ Parameters (
+            Parameter <x> Types Integer&,
+            Parameter <y> Types Integer&
+        ) {
+            // Returns (x + y) * scale
+            Instantiate Integer^ As <sum> = x.add(y);
+            Return sum.multiply(scale);
+        }];
+
+        // Call with 3 and 4: (3 + 4) * 100 = 700
+        Instantiate Integer^ As <result2> = scaledAdd.call(Integer::Constructor(3), Integer::Constructor(4));
+
+        Run Console::printLine(String::Constructor("(3 + 4) * 100 = "));
+        Run Console::printLine(result2.toString());
+
+        Run Console::printLine(String::Constructor("=== Test Complete ==="));
+        Exit(0);
+    }
+]

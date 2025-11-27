@@ -71,6 +71,9 @@ std::string LLVMBackend::generate(Parser::Program& program) {
     labelCounter_ = 0;
     stringLiterals_.clear();
     declaredFunctions_.clear();  // Reset declared functions tracking
+    lambdaCounter_ = 0;  // Reset lambda counter
+    lambdaInfos_.clear();  // Clear lambda tracking
+    pendingLambdaDefinitions_.clear();  // Clear pending lambda definitions
 
     // Generate preamble (legacy - will be replaced)
     std::string preamble = generatePreamble();
@@ -205,6 +208,16 @@ std::string LLVMBackend::generate(Parser::Program& program) {
     }
 
     finalOutput << generatedCode;
+
+    // Emit pending lambda function definitions
+    if (!pendingLambdaDefinitions_.empty()) {
+        finalOutput << "\n; ============================================\n";
+        finalOutput << "; Lambda Function Definitions\n";
+        finalOutput << "; ============================================\n";
+        for (const auto& lambdaDef : pendingLambdaDefinitions_) {
+            finalOutput << lambdaDef;
+        }
+    }
 
     // === IR Infrastructure Debug Output ===
     // When useNewIR_ is enabled, append the new IR output for comparison
@@ -2434,6 +2447,8 @@ void LLVMBackend::visit(Parser::IdentifierExpr& node) {
             registerTypes_[valueReg] = varIt->second.type;
         } else {
             // Fallback: just use the register (for backwards compatibility)
+            // Note: Reference parameters (Integer&) receive object pointers directly
+            // like owned parameters - the & is semantic only (no ownership transfer)
             valueMap_["__last_expr"] = it->second;
         }
     } else if (!currentClassName_.empty()) {
@@ -2703,6 +2718,70 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
     }
     struct DepthGuard { ~DepthGuard() { callExprDepth--; } } guard;
 
+    // Check for lambda .call() invocation: lambdaVar.call(args)
+    if (auto* memberAccess = dynamic_cast<Parser::MemberAccessExpr*>(node.callee.get())) {
+        if (memberAccess->member == "call") {
+            if (auto* ident = dynamic_cast<Parser::IdentifierExpr*>(memberAccess->object.get())) {
+                // Check if the identifier is a lambda/function variable
+                auto varIt = variables_.find(ident->name);
+                if (varIt != variables_.end()) {
+                    // Check if the variable's type is __function (may be wrapped in ptr_to<>)
+                    auto typeIt = registerTypes_.find(varIt->second.llvmRegister);
+                    bool isFunction = false;
+                    if (typeIt != registerTypes_.end()) {
+                        std::string typeName = typeIt->second;
+                        // Check for both direct __function and ptr_to<__function>
+                        isFunction = (typeName == "__function" ||
+                                     typeName.find("__function") != std::string::npos);
+                    }
+                    // Also check the variable's declared type
+                    if (!isFunction && varIt->second.type == "__function") {
+                        isFunction = true;
+                    }
+
+                    if (isFunction) {
+                        emitLine(format("; Lambda call: {}.call()", ident->name));
+
+                        // Load the closure pointer from the variable
+                        std::string closurePtrReg = varIt->second.llvmRegister;
+                        std::string closureReg = allocateRegister();
+                        emitLine(format("{} = load ptr, ptr {}", closureReg, closurePtrReg));
+
+                        // Load function pointer from closure (offset 0)
+                        std::string funcPtrSlot = allocateRegister();
+                        std::string funcPtr = allocateRegister();
+                        emitLine(format("{} = getelementptr inbounds {{ ptr }}, ptr {}, i32 0, i32 0",
+                                       funcPtrSlot, closureReg));
+                        emitLine(format("{} = load ptr, ptr {}", funcPtr, funcPtrSlot));
+
+                        // Build argument list: closure + actual args
+                        std::vector<std::string> argRegs;
+                        argRegs.push_back(closureReg);  // First arg is closure pointer
+
+                        for (const auto& arg : node.arguments) {
+                            arg->accept(*this);
+                            argRegs.push_back(valueMap_["__last_expr"]);
+                        }
+
+                        // Generate indirect call with all pointer arguments
+                        std::stringstream callArgs;
+                        for (size_t i = 0; i < argRegs.size(); ++i) {
+                            if (i > 0) callArgs << ", ";
+                            callArgs << "ptr " << argRegs[i];
+                        }
+
+                        // Call returns ptr (function type returns are always objects)
+                        std::string resultReg = allocateRegister();
+                        emitLine(format("{} = call ptr {}({})", resultReg, funcPtr, callArgs.str()));
+                        valueMap_["__last_expr"] = resultReg;
+                        registerTypes_[resultReg] = "ptr";
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
     // Extract function name from callee
     std::string functionName;
     std::string instanceRegister;  // For instance method calls
@@ -2859,6 +2938,8 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
                     }
 
                     // Strip ownership modifiers (^, %, &) before mangling for function name
+                    // Note: Reference parameters (&) receive object pointers directly
+                    // like owned parameters - the & is semantic only (no ownership transfer)
                     if (!className.empty() && (className.back() == '^' ||
                                                className.back() == '%' ||
                                                className.back() == '&')) {
@@ -4050,6 +4131,252 @@ void LLVMBackend::visit(Parser::TypeOfExpr& node) {
     // TypeOf is a compile-time feature, emit a comment
     emitLine("; typeof expression (compile-time only)");
     valueMap_["__last_expr"] = "null";  // Placeholder
+}
+
+void LLVMBackend::visit(Parser::LambdaExpr& node) {
+    // Generate unique names for this lambda
+    int lambdaId = lambdaCounter_++;
+    std::string closureTypeName = "%closure." + std::to_string(lambdaId);
+    std::string lambdaFuncName = "@lambda." + std::to_string(lambdaId);
+
+    emitLine(format("; Lambda expression #{}", lambdaId));
+
+    // Determine return type
+    std::string returnType = "ptr";  // Default to ptr for objects
+    if (node.returnType) {
+        returnType = getLLVMType(node.returnType->typeName);
+    }
+
+    // Build parameter types list (closure ptr + actual params)
+    std::vector<std::string> paramTypes;
+    paramTypes.push_back("ptr");  // First param is always closure pointer
+    for (const auto& param : node.parameters) {
+        std::string paramType = getLLVMType(param->type->typeName);
+        paramTypes.push_back(paramType);
+    }
+
+    // Build closure struct type: { ptr (func), ptr (capture0), ptr (capture1), ... }
+    std::stringstream closureTypeFields;
+    closureTypeFields << "{ ptr";  // Function pointer
+    for (size_t i = 0; i < node.captures.size(); ++i) {
+        closureTypeFields << ", ptr";  // Each capture is a ptr
+    }
+    closureTypeFields << " }";
+    std::string closureTypeStr = closureTypeFields.str();
+
+    // Track lambda info for .call() invocations
+    LambdaInfo info;
+    info.closureTypeName = closureTypeName;
+    info.functionName = lambdaFuncName;
+    info.returnType = returnType;
+    info.paramTypes = paramTypes;
+    for (const auto& capture : node.captures) {
+        info.captures.push_back({capture.varName, capture.mode});
+    }
+
+    // Generate lambda function definition (deferred until end of current function)
+    // The lambda function takes closure as first parameter
+    std::stringstream lambdaDef;
+    lambdaDef << "\n; Lambda function " << lambdaId << "\n";
+    lambdaDef << closureTypeName << " = type " << closureTypeStr << "\n";
+    lambdaDef << "define " << returnType << " " << lambdaFuncName << "(ptr %closure";
+    for (size_t i = 0; i < node.parameters.size(); ++i) {
+        lambdaDef << ", " << paramTypes[i + 1] << " %" << node.parameters[i]->name;
+    }
+    lambdaDef << ") {\n";
+    lambdaDef << "entry:\n";
+
+    // Load captured values from closure struct
+    for (size_t i = 0; i < node.captures.size(); ++i) {
+        const auto& capture = node.captures[i];
+        std::string captureReg = "%capture." + capture.varName;
+        lambdaDef << "  " << captureReg << ".ptr = getelementptr inbounds "
+                  << closureTypeName << ", ptr %closure, i32 0, i32 " << (i + 1) << "\n";
+        if (capture.isReference()) {
+            // Reference (&): closure stores pointer to the variable's alloca
+            // First load gives us the alloca ptr, second load gives us the value
+            lambdaDef << "  " << captureReg << ".ref = load ptr, ptr " << captureReg << ".ptr\n";
+            lambdaDef << "  " << captureReg << " = load ptr, ptr " << captureReg << ".ref\n";
+        } else {
+            // Owned (^) or Copy (%): closure stores the value directly
+            lambdaDef << "  " << captureReg << " = load ptr, ptr " << captureReg << ".ptr\n";
+        }
+    }
+
+    // Look up captured variable types BEFORE saving/clearing context
+    std::unordered_map<std::string, std::string> captureTypes;
+    for (const auto& capture : node.captures) {
+        auto varIt = variables_.find(capture.varName);
+        if (varIt != variables_.end()) {
+            captureTypes[capture.varName] = varIt->second.type;
+        } else {
+            // Fallback to checking registerTypes via valueMap
+            auto valIt = valueMap_.find(capture.varName);
+            if (valIt != valueMap_.end()) {
+                auto regIt = registerTypes_.find(valIt->second);
+                if (regIt != registerTypes_.end()) {
+                    captureTypes[capture.varName] = regIt->second;
+                }
+            }
+        }
+    }
+
+    // Save current context
+    auto savedVariables = variables_;
+    auto savedValueMap = valueMap_;
+    auto savedRegisterTypes = registerTypes_;
+    auto savedOutput = output_.str();
+    auto savedReturnType = currentFunctionReturnType_;
+    output_.str("");
+
+    // Set return type for lambda body
+    currentFunctionReturnType_ = returnType;
+
+    // Set up parameter and capture mappings for lambda body
+    valueMap_.clear();
+    variables_.clear();
+
+    // Map captured variables with their actual types
+    for (const auto& capture : node.captures) {
+        std::string captureReg = "%capture." + capture.varName;
+        valueMap_[capture.varName] = captureReg;
+        // Use the actual type if found, otherwise fall back to "ptr"
+        auto typeIt = captureTypes.find(capture.varName);
+        if (typeIt != captureTypes.end()) {
+            registerTypes_[captureReg] = typeIt->second;
+        } else {
+            registerTypes_[captureReg] = "ptr";
+        }
+    }
+
+    // Map parameters with ownership modifiers
+    for (const auto& param : node.parameters) {
+        valueMap_[param->name] = "%" + param->name;
+        // Include ownership modifier in the type string for proper handling
+        std::string typeWithOwnership = param->type->typeName;
+        switch (param->type->ownership) {
+            case Parser::OwnershipType::Reference: typeWithOwnership += "&"; break;
+            case Parser::OwnershipType::Owned: typeWithOwnership += "^"; break;
+            case Parser::OwnershipType::Copy: typeWithOwnership += "%"; break;
+            default: break;
+        }
+        registerTypes_["%" + param->name] = typeWithOwnership;
+    }
+
+    // Check if body contains a return statement
+    bool hasReturn = false;
+    for (const auto& stmt : node.body) {
+        if (dynamic_cast<Parser::ReturnStmt*>(stmt.get())) {
+            hasReturn = true;
+            break;
+        }
+    }
+
+    // Generate lambda body statements
+    for (const auto& stmt : node.body) {
+        stmt->accept(*this);
+    }
+
+    // Get generated body and add to lambda definition
+    std::string bodyCode = output_.str();
+    // Split by lines and add proper indentation
+    std::istringstream iss(bodyCode);
+    std::string line;
+    while (std::getline(iss, line)) {
+        if (!line.empty()) {
+            lambdaDef << "  " << line << "\n";
+        }
+    }
+
+    // Only add default return if body doesn't have one
+    if (!hasReturn) {
+        if (returnType == "ptr") {
+            lambdaDef << "  ret ptr null\n";
+        } else if (returnType == "void") {
+            lambdaDef << "  ret void\n";
+        } else if (returnType == "i64") {
+            lambdaDef << "  ret i64 0\n";
+        } else if (returnType == "i1") {
+            lambdaDef << "  ret i1 false\n";
+        } else {
+            lambdaDef << "  ret " << returnType << " zeroinitializer\n";
+        }
+    }
+    lambdaDef << "}\n";
+
+    // Store lambda definition for later emission
+    pendingLambdaDefinitions_.push_back(lambdaDef.str());
+
+    // Restore context - use clear() and seekp() to ensure proper positioning
+    output_.str(savedOutput);
+    output_.clear();  // Clear any error flags
+    output_.seekp(0, std::ios_base::end);  // Seek to end for appending
+    variables_ = savedVariables;
+    valueMap_ = savedValueMap;
+    registerTypes_ = savedRegisterTypes;
+    currentFunctionReturnType_ = savedReturnType;
+
+    // Now generate closure allocation and initialization at the call site
+    // Allocate closure on stack
+    std::string closureReg = allocateRegister();
+    emitLine(format("{} = alloca {}, align 8", closureReg, closureTypeStr));
+
+    // Store function pointer at offset 0
+    std::string funcPtrSlot = allocateRegister();
+    emitLine(format("{} = getelementptr inbounds {}, ptr {}, i32 0, i32 0",
+                    funcPtrSlot, closureTypeStr, closureReg));
+    emitLine(format("store ptr {}, ptr {}", lambdaFuncName, funcPtrSlot));
+
+    // Store captured values at offsets 1, 2, ...
+    for (size_t i = 0; i < node.captures.size(); ++i) {
+        const auto& capture = node.captures[i];
+        std::string captureSlot = allocateRegister();
+        emitLine(format("{} = getelementptr inbounds {}, ptr {}, i32 0, i32 {}",
+                        captureSlot, closureTypeStr, closureReg, i + 1));
+
+        // Get the captured variable's value based on capture mode
+        std::string capturedValue;
+        auto varIt = variables_.find(capture.varName);
+        if (varIt != variables_.end()) {
+            if (capture.isReference()) {
+                // Reference (&): store the pointer itself (alloca address)
+                capturedValue = varIt->second.llvmRegister;
+            } else if (capture.isOwned()) {
+                // Owned (^): move the value into the closure
+                std::string loadReg = allocateRegister();
+                emitLine(format("{} = load ptr, ptr {}", loadReg, varIt->second.llvmRegister));
+                capturedValue = loadReg;
+                // Note: In a full implementation, we'd invalidate the original variable here
+            } else {
+                // Copy (%): copy the value into the closure
+                std::string loadReg = allocateRegister();
+                emitLine(format("{} = load ptr, ptr {}", loadReg, varIt->second.llvmRegister));
+                capturedValue = loadReg;
+            }
+        } else {
+            auto paramIt = valueMap_.find(capture.varName);
+            if (paramIt != valueMap_.end()) {
+                capturedValue = paramIt->second;
+            } else {
+                emitLine(format("; Warning: captured variable '{}' not found", capture.varName));
+                capturedValue = "null";
+            }
+        }
+
+        emitLine(format("store ptr {}, ptr {}", capturedValue, captureSlot));
+    }
+
+    // Store lambda info keyed by closure register
+    lambdaInfos_[closureReg] = info;
+
+    // The closure pointer is the result
+    valueMap_["__last_expr"] = closureReg;
+    registerTypes_[closureReg] = "__function";  // Mark as lambda/function type
+}
+
+void LLVMBackend::visit(Parser::FunctionTypeRef& node) {
+    // FunctionTypeRef is handled during type resolution
+    emitLine("; function type reference");
 }
 
 void LLVMBackend::visit(Parser::ConstraintDecl& node) {

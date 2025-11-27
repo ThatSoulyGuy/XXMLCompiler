@@ -1,0 +1,40 @@
+#import Language::Core;
+
+[ Entrypoint
+    {
+        // Test 1: Simple lambda with capture
+        Run Console::printLine(String::Constructor("=== Lambda Test ==="));
+
+        // Create a variable to capture
+        Instantiate Integer^ As <multiplier> = Integer::Constructor(5);
+
+        // Create a lambda that captures the multiplier by copy
+        // Syntax: F(ReturnType)(ParamTypes...) As <varName>
+        Instantiate F(Integer^)(Integer&)^ As <multiply> = [ Lambda [%multiplier] Returns Integer^ Parameters (
+            Parameter <n> Types Integer&
+        ) {
+            Return n.multiply(multiplier);
+        }];
+
+        // Call the lambda with argument 3
+        Instantiate Integer^ As <result> = multiply.call(Integer::Constructor(3));
+
+        // Print the result (should be 15)
+        Run Console::printLine(String::Constructor("5 * 3 = "));
+        Run Console::printLine(result.toString());
+
+        // Test 2: Lambda with no captures
+        Instantiate F(Integer^)(Integer&)^ As <double> = [ Lambda [] Returns Integer^ Parameters (
+            Parameter <x> Types Integer&
+        ) {
+            Return x.multiply(Integer::Constructor(2));
+        }];
+
+        Instantiate Integer^ As <doubled> = double.call(Integer::Constructor(7));
+        Run Console::printLine(String::Constructor("7 * 2 = "));
+        Run Console::printLine(doubled.toString());
+
+        Run Console::printLine(String::Constructor("=== Lambda Test Complete ==="));
+        Exit(0);
+    }
+]

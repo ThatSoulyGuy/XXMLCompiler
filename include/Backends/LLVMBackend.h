@@ -124,7 +124,9 @@ public:
     void visit(Parser::CallExpr& node) override;
     void visit(Parser::BinaryExpr& node) override;
     void visit(Parser::TypeOfExpr& node) override;
+    void visit(Parser::LambdaExpr& node) override;
     void visit(Parser::TypeRef& node) override;
+    void visit(Parser::FunctionTypeRef& node) override;
 
 private:
     // === New IR Infrastructure ===
@@ -213,6 +215,18 @@ private:
 
     // String literal storage
     std::vector<std::pair<std::string, std::string>> stringLiterals_;  // label -> content
+
+    // Lambda/closure tracking
+    int lambdaCounter_ = 0;  // Unique ID for each lambda
+    struct LambdaInfo {
+        std::string closureTypeName;       // e.g., %closure.0
+        std::string functionName;          // e.g., @lambda.0
+        std::string returnType;            // LLVM return type
+        std::vector<std::string> paramTypes;  // LLVM param types
+        std::vector<std::pair<std::string, Parser::LambdaExpr::CaptureMode>> captures;  // varName, mode
+    };
+    std::unordered_map<std::string, LambdaInfo> lambdaInfos_;  // closure register -> info
+    std::vector<std::string> pendingLambdaDefinitions_;  // Lambda function definitions to emit later
 
     std::string allocateRegister();
     std::string allocateLabel(std::string_view prefix);

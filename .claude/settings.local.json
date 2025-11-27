@@ -22,7 +22,9 @@
       "Bash(cmd.exe /c:*)",
       "Bash(\"D:\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\":*)",
       "Bash(\"D:\\VisualStudio\\Projects\\XXMLCompiler\\simple_test.exe\")",
-      "Bash(\"D:\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" \"D:\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\Hello.XXML\" hello_test.exe)"
+      "Bash(\"D:\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" \"D:\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\Hello.XXML\" hello_test.exe)",
+      "Bash(\"D:\\VisualStudio\\Projects\\XXMLCompiler\\lambda_test.exe\")",
+      "Bash(D:VisualStudioProjectsXXMLCompilerhello_new.exe)"
     ],
     "deny": [],
     "ask": []

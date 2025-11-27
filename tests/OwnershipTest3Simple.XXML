@@ -1,0 +1,33 @@
+#import Language::Core;
+
+// Test 3: Nested lambda captures
+
+[ Entrypoint
+    {
+        Run Console::printLine(String::Constructor("=== Ownership Test 3: Nested Lambdas ==="));
+
+        Instantiate Integer^ As <outer> = Integer::Constructor(10);
+        Instantiate Integer^ As <inner> = Integer::Constructor(5);
+
+        // Lambda that captures both values and adds them
+        Instantiate F(Integer^)()^ As <addLambda> = [ Lambda [%outer, %inner] Returns Integer^ Parameters () {
+            Return outer.add(inner);
+        }];
+
+        Instantiate Integer^ As <r1> = addLambda.call();
+        Run Console::printLine(String::Constructor("outer(10) + inner(5) = "));
+        Run Console::printLine(r1.toString());
+
+        // Lambda that captures by reference and modifies nothing
+        Instantiate F(Integer^)()^ As <refLambda> = [ Lambda [&outer, &inner] Returns Integer^ Parameters () {
+            Return outer.add(inner);
+        }];
+
+        Instantiate Integer^ As <r2> = refLambda.call();
+        Run Console::printLine(String::Constructor("ref outer(10) + ref inner(5) = "));
+        Run Console::printLine(r2.toString());
+
+        Run Console::printLine(String::Constructor("=== Test Complete ==="));
+        Exit(0);
+    }
+]

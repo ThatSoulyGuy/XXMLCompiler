@@ -1918,5 +1918,14 @@ void CodeGenerator::visit(Parser::TypeOfExpr& node) {
     errorReporter.reportError(Common::ErrorCode::CodeGenError, "TypeOf should not appear in runtime code", node.location);
 }
 
+void CodeGenerator::visit(Parser::LambdaExpr& node) {
+    // TODO: Implement lambda code generation
+    errorReporter.reportError(Common::ErrorCode::CodeGenError, "Lambda expressions not yet implemented", node.location);
+}
+
+void CodeGenerator::visit(Parser::FunctionTypeRef& node) {
+    // FunctionTypeRef is handled during type resolution
+}
+
 } // namespace CodeGen
 } // namespace XXML

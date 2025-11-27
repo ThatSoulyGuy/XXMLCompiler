@@ -52,6 +52,7 @@ enum class TokenType {
     Do,               // Do
     This,             // this
     Set,              // Set
+    Lambda,           // Lambda
 
     // Identifiers and literals
     Identifier,       // variable names, type names, etc.

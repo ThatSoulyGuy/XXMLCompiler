@@ -1,0 +1,23 @@
+#import Language::Core;
+
+[ Entrypoint
+    {
+        Run Console::printLine(String::Constructor("=== Capture By Reference (Read) Test ==="));
+
+        // Create a value to capture
+        Instantiate Integer^ As <value> = Integer::Constructor(42);
+
+        // Lambda that captures by reference and reads the value
+        Instantiate F(Integer^)()^ As <readValue> = [ Lambda [&value] Returns Integer^ Parameters () {
+            Return value;
+        }];
+
+        // Call should return 42
+        Instantiate Integer^ As <result> = readValue.call();
+        Run Console::printLine(String::Constructor("Captured value: "));
+        Run Console::printLine(result.toString());
+
+        Run Console::printLine(String::Constructor("=== Test Complete ==="));
+        Exit(0);
+    }
+]

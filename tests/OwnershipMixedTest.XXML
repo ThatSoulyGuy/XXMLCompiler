@@ -1,0 +1,186 @@
+#import Language::Core;
+
+// Mixed Ownership Test Suite
+// Tests various ownership edge cases to detect undefined behavior
+
+[ Entrypoint
+    {
+        Run Console::printLine(String::Constructor("=== Mixed Ownership Test Suite ==="));
+
+        // ============================================
+        // Test 1: Owned passed to Reference parameter
+        // ============================================
+        Run Console::printLine(String::Constructor(""));
+        Run Console::printLine(String::Constructor("Test 1: Owned to Reference parameter"));
+
+        Instantiate Integer^ As <owned1> = Integer::Constructor(100);
+
+        // Lambda takes reference parameter
+        Instantiate F(Integer^)(Integer&)^ As <refParam> = [ Lambda [] Returns Integer^ Parameters (
+            Parameter <x> Types Integer&
+        ) {
+            Return x.add(Integer::Constructor(1));
+        }];
+
+        // Pass owned to reference - should borrow without moving
+        Instantiate Integer^ As <result1> = refParam.call(owned1);
+        Run Console::printLine(String::Constructor("refParam(100) = "));
+        Run Console::printLine(result1.toString());
+
+        // owned1 should still be valid
+        Run Console::printLine(String::Constructor("owned1 after call: "));
+        Run Console::printLine(owned1.toString());
+
+        // ============================================
+        // Test 2: Owned passed to Copy parameter
+        // ============================================
+        Run Console::printLine(String::Constructor(""));
+        Run Console::printLine(String::Constructor("Test 2: Owned to Copy parameter"));
+
+        Instantiate Integer^ As <owned2> = Integer::Constructor(200);
+
+        // Lambda takes copy parameter
+        Instantiate F(Integer^)(Integer%)^ As <copyParam> = [ Lambda [] Returns Integer^ Parameters (
+            Parameter <x> Types Integer%
+        ) {
+            Return x.add(Integer::Constructor(2));
+        }];
+
+        Instantiate Integer^ As <result2> = copyParam.call(owned2);
+        Run Console::printLine(String::Constructor("copyParam(200) = "));
+        Run Console::printLine(result2.toString());
+
+        // owned2 should still be valid (was copied, not moved)
+        Run Console::printLine(String::Constructor("owned2 after call: "));
+        Run Console::printLine(owned2.toString());
+
+        // ============================================
+        // Test 3: Chained ownership - ref returns owned
+        // ============================================
+        Run Console::printLine(String::Constructor(""));
+        Run Console::printLine(String::Constructor("Test 3: Ref parameter returns Owned"));
+
+        Instantiate Integer^ As <owned3> = Integer::Constructor(50);
+
+        // Lambda takes ref, returns owned (new value)
+        Instantiate F(Integer^)(Integer&)^ As <refToOwned> = [ Lambda [] Returns Integer^ Parameters (
+            Parameter <x> Types Integer&
+        ) {
+            // Create new owned from ref
+            Return Integer::Constructor(999);
+        }];
+
+        Instantiate Integer^ As <result3> = refToOwned.call(owned3);
+        Run Console::printLine(String::Constructor("refToOwned(50) = "));
+        Run Console::printLine(result3.toString());
+        Run Console::printLine(String::Constructor("owned3 unchanged: "));
+        Run Console::printLine(owned3.toString());
+
+        // ============================================
+        // Test 4: Reference capture - value changes
+        // ============================================
+        Run Console::printLine(String::Constructor(""));
+        Run Console::printLine(String::Constructor("Test 4: Reference capture sees changes"));
+
+        Instantiate Integer^ As <changing> = Integer::Constructor(10);
+
+        // Lambda captures by reference
+        Instantiate F(Integer^)()^ As <readRef> = [ Lambda [&changing] Returns Integer^ Parameters () {
+            Return changing;
+        }];
+
+        // First read
+        Instantiate Integer^ As <first> = readRef.call();
+        Run Console::printLine(String::Constructor("First read: "));
+        Run Console::printLine(first.toString());
+
+        // ============================================
+        // Test 5: Copy capture - value is snapshot
+        // ============================================
+        Run Console::printLine(String::Constructor(""));
+        Run Console::printLine(String::Constructor("Test 5: Copy capture is snapshot"));
+
+        Instantiate Integer^ As <snapshot> = Integer::Constructor(1000);
+
+        // Lambda captures by copy (snapshot)
+        Instantiate F(Integer^)()^ As <readCopy> = [ Lambda [%snapshot] Returns Integer^ Parameters () {
+            Return snapshot;
+        }];
+
+        Instantiate Integer^ As <snap1> = readCopy.call();
+        Run Console::printLine(String::Constructor("Copy capture reads: "));
+        Run Console::printLine(snap1.toString());
+
+        // ============================================
+        // Test 6: Multiple lambdas capturing same variable
+        // ============================================
+        Run Console::printLine(String::Constructor(""));
+        Run Console::printLine(String::Constructor("Test 6: Multiple lambdas same variable"));
+
+        Instantiate Integer^ As <shared> = Integer::Constructor(42);
+
+        // Two lambdas capture by copy
+        Instantiate F(Integer^)()^ As <lambda1> = [ Lambda [%shared] Returns Integer^ Parameters () {
+            Return shared;
+        }];
+
+        Instantiate F(Integer^)()^ As <lambda2> = [ Lambda [%shared] Returns Integer^ Parameters () {
+            Return shared.add(Integer::Constructor(1));
+        }];
+
+        Instantiate Integer^ As <l1result> = lambda1.call();
+        Instantiate Integer^ As <l2result> = lambda2.call();
+
+        Run Console::printLine(String::Constructor("lambda1 (copy): "));
+        Run Console::printLine(l1result.toString());
+        Run Console::printLine(String::Constructor("lambda2 (copy + 1): "));
+        Run Console::printLine(l2result.toString());
+
+        // ============================================
+        // Test 7: Multiple reference captures
+        // ============================================
+        Run Console::printLine(String::Constructor(""));
+        Run Console::printLine(String::Constructor("Test 7: Multiple reference captures"));
+
+        Instantiate Integer^ As <refTarget> = Integer::Constructor(77);
+
+        Instantiate F(Integer^)()^ As <ref1> = [ Lambda [&refTarget] Returns Integer^ Parameters () {
+            Return refTarget;
+        }];
+
+        Instantiate F(Integer^)()^ As <ref2> = [ Lambda [&refTarget] Returns Integer^ Parameters () {
+            Return refTarget;
+        }];
+
+        Instantiate Integer^ As <r1> = ref1.call();
+        Instantiate Integer^ As <r2> = ref2.call();
+
+        Run Console::printLine(String::Constructor("ref1: "));
+        Run Console::printLine(r1.toString());
+        Run Console::printLine(String::Constructor("ref2: "));
+        Run Console::printLine(r2.toString());
+
+        // ============================================
+        // Test 8: Mixed capture modes
+        // ============================================
+        Run Console::printLine(String::Constructor(""));
+        Run Console::printLine(String::Constructor("Test 8: Mixed capture modes"));
+
+        Instantiate Integer^ As <a> = Integer::Constructor(10);
+        Instantiate Integer^ As <b> = Integer::Constructor(20);
+
+        // Mix copy and reference captures
+        Instantiate F(Integer^)()^ As <mixed> = [ Lambda [%a, &b] Returns Integer^ Parameters () {
+            // a is copy, b is reference
+            Return a.add(b);
+        }];
+
+        Instantiate Integer^ As <mixedResult> = mixed.call();
+        Run Console::printLine(String::Constructor("mixed (copy a=10, ref b=20): "));
+        Run Console::printLine(mixedResult.toString());
+
+        Run Console::printLine(String::Constructor(""));
+        Run Console::printLine(String::Constructor("=== All Tests Complete ==="));
+        Exit(0);
+    }
+]

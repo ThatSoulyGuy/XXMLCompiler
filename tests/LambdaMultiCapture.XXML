@@ -1,0 +1,29 @@
+#import Language::Core;
+
+[ Entrypoint
+    {
+        Run Console::printLine(String::Constructor("=== Multiple Capture Test ==="));
+
+        // Create two variables to capture
+        Instantiate Integer^ As <a> = Integer::Constructor(10);
+        Instantiate Integer^ As <b> = Integer::Constructor(3);
+
+        // Lambda that captures both a and b by copy
+        Instantiate F(Integer^)(Integer&)^ As <compute> = [ Lambda [%a, %b] Returns Integer^ Parameters (
+            Parameter <x> Types Integer&
+        ) {
+            // Returns (a + b) * x
+            Instantiate Integer^ As <sum> = a.add(b);
+            Return sum.multiply(x);
+        }];
+
+        // Call with x = 2: (10 + 3) * 2 = 26
+        Instantiate Integer^ As <result> = compute.call(Integer::Constructor(2));
+
+        Run Console::printLine(String::Constructor("(10 + 3) * 2 = "));
+        Run Console::printLine(result.toString());
+
+        Run Console::printLine(String::Constructor("=== Test Complete ==="));
+        Exit(0);
+    }
+]

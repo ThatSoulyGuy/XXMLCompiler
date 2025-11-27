@@ -9,6 +9,8 @@ namespace Parser {
 
 // Forward declarations
 class ASTVisitor;
+class Statement;
+class ParameterDecl;
 
 // Base AST node
 class ASTNode {
@@ -90,6 +92,24 @@ public:
             templateArgs.emplace_back(arg, loc);
         }
     }
+
+    void accept(ASTVisitor& visitor) override;
+    std::unique_ptr<ASTNode> clone() const override;
+    std::unique_ptr<TypeRef> cloneType() const;
+};
+
+// Function type reference - for function reference types like F(Integer^)(name)(Integer&, String&)
+class FunctionTypeRef : public TypeRef {
+public:
+    std::unique_ptr<TypeRef> returnType;
+    std::vector<std::unique_ptr<TypeRef>> paramTypes;
+
+    FunctionTypeRef(std::unique_ptr<TypeRef> retType,
+                    std::vector<std::unique_ptr<TypeRef>> params,
+                    OwnershipType own,
+                    const Common::SourceLocation& loc)
+        : TypeRef("__function", own, loc), returnType(std::move(retType)),
+          paramTypes(std::move(params)) {}
 
     void accept(ASTVisitor& visitor) override;
     std::unique_ptr<ASTNode> clone() const override;
@@ -248,6 +268,49 @@ public:
 
     TypeOfExpr(std::unique_ptr<TypeRef> t, const Common::SourceLocation& loc)
         : Expression(loc), type(std::move(t)) {}
+
+    void accept(ASTVisitor& visitor) override;
+    std::unique_ptr<ASTNode> clone() const override;
+    std::unique_ptr<Expression> cloneExpr() const override;
+};
+
+// Lambda expression - [ Lambda [captures] Returns Type Parameters (...) { body } ]
+class LambdaExpr : public Expression {
+public:
+    // Capture ownership modes (matches XXML ownership semantics)
+    enum class CaptureMode {
+        Reference,  // &var - borrow reference to variable
+        Owned,      // ^var - move ownership into lambda
+        Copy        // %var - copy the value
+    };
+
+    // Capture specification
+    struct CaptureSpec {
+        std::string varName;
+        CaptureMode mode;
+
+        CaptureSpec(const std::string& name, CaptureMode m)
+            : varName(name), mode(m) {}
+
+        // Helper methods
+        bool isReference() const { return mode == CaptureMode::Reference; }
+        bool isOwned() const { return mode == CaptureMode::Owned; }
+        bool isCopy() const { return mode == CaptureMode::Copy; }
+    };
+
+    std::vector<CaptureSpec> captures;
+    std::vector<std::unique_ptr<ParameterDecl>> parameters;
+    std::unique_ptr<TypeRef> returnType;
+    std::vector<std::unique_ptr<Statement>> body;
+
+    LambdaExpr(std::vector<CaptureSpec> caps,
+               std::vector<std::unique_ptr<ParameterDecl>> params,
+               std::unique_ptr<TypeRef> retType,
+               std::vector<std::unique_ptr<Statement>> bodyStmts,
+               const Common::SourceLocation& loc)
+        : Expression(loc), captures(std::move(caps)),
+          parameters(std::move(params)), returnType(std::move(retType)),
+          body(std::move(bodyStmts)) {}
 
     void accept(ASTVisitor& visitor) override;
     std::unique_ptr<ASTNode> clone() const override;
@@ -680,8 +743,10 @@ public:
     virtual void visit(CallExpr& node) = 0;
     virtual void visit(BinaryExpr& node) = 0;
     virtual void visit(TypeOfExpr& node) = 0;
+    virtual void visit(LambdaExpr& node) = 0;
 
     virtual void visit(TypeRef& node) = 0;
+    virtual void visit(FunctionTypeRef& node) = 0;
 };
 
 } // namespace Parser

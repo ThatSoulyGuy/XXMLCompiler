@@ -676,14 +676,15 @@ void SemanticAnalyzer::visit(Parser::PropertyDecl& node) {
         bool isTemplateParam = (inTemplateDefinition &&
                                 templateTypeParameters.find(node.type->typeName) != templateTypeParameters.end());
 
-        // Only error if it's not a NativeType, builtin type, or template parameter
+        // Only error if it's not a NativeType, builtin type, function type, or template parameter
         if (!isTemplateParam &&
             node.type->typeName != "Integer" &&
             node.type->typeName != "String" &&
             node.type->typeName != "Bool" &&
             node.type->typeName != "Float" &&
             node.type->typeName != "Double" &&
-            node.type->typeName != "None") {
+            node.type->typeName != "None" &&
+            node.type->typeName != "__function") {
             errorReporter.reportError(
                 Common::ErrorCode::UndefinedType,
                 "Type '" + node.type->typeName + "' not found",
@@ -754,6 +755,9 @@ void SemanticAnalyzer::visit(Parser::MethodDecl& node) {
     // Enter method scope
     symbolTable_->enterScope(node.name);
 
+    // Reset move tracking for this function scope
+    resetMovedVariables();
+
     // ✅ Phase 5: Set template context for template methods
     bool wasInTemplateDefinition = inTemplateDefinition;
     std::set<std::string> previousTemplateParams = templateTypeParameters;
@@ -822,6 +826,9 @@ void SemanticAnalyzer::visit(Parser::ParameterDecl& node) {
 void SemanticAnalyzer::visit(Parser::EntrypointDecl& node) {
     symbolTable_->enterScope("Entrypoint");
 
+    // Reset move tracking for entrypoint scope
+    resetMovedVariables();
+
     for (auto& stmt : node.body) {
         stmt->accept(*this);
     }
@@ -882,7 +889,8 @@ void SemanticAnalyzer::visit(Parser::InstantiateStmt& node) {
             node.type->typeName != "Bool" &&
             node.type->typeName != "Float" &&
             node.type->typeName != "Double" &&
-            node.type->typeName != "None") {
+            node.type->typeName != "None" &&
+            node.type->typeName != "__function") {
             errorReporter.reportError(
                 Common::ErrorCode::UndefinedType,
                 "Type '" + node.type->typeName + "' not found",
@@ -1021,6 +1029,11 @@ void SemanticAnalyzer::visit(Parser::InstantiateStmt& node) {
 
     // Register variable type in TypeContext for code generation
     registerVariableType(node.variableName, fullTypeName, node.type->ownership);
+
+    // If this is a function type, register it for .call() ownership validation
+    if (auto* funcTypeRef = dynamic_cast<Parser::FunctionTypeRef*>(node.type.get())) {
+        registerFunctionType(node.variableName, funcTypeRef);
+    }
 }
 
 void SemanticAnalyzer::visit(Parser::AssignmentStmt& node) {
@@ -1294,6 +1307,11 @@ void SemanticAnalyzer::visit(Parser::IdentifierExpr& node) {
         return;
     }
 
+    // Check if variable has been moved
+    if (enableValidation) {
+        checkVariableNotMoved(node.name, node.location);
+    }
+
     // Register in TypeContext for C++ type understanding
     registerExpressionType(&node, sym->typeName, sym->ownership);
 }
@@ -1404,15 +1422,19 @@ void SemanticAnalyzer::visit(Parser::CallExpr& node) {
                 // Check if this is a template instantiation (contains <...>)
                 bool isTemplateInstantiation = (className.find('<') != std::string::npos);
 
-                // Only exempt Syscall, Mem, Console, Language namespaces, and template instantiations from validation
+                // Only exempt Syscall, Mem, Console, Language namespaces, function types, and template instantiations from validation
                 bool isIntrinsic = (className == "Syscall" || className == "Mem" ||
                                     className == "Console" || className == "System::Console" ||
+                                    className == "__function" ||
                                     className.find("Language::") == 0);
 
                 // Skip validation if the class is a template parameter (will be validated at instantiation)
                 bool isTemplateParameter = (templateTypeParameters.find(className) != templateTypeParameters.end());
 
-                if (!method && !isIntrinsic && !isTemplateInstantiation && !isTemplateParameter) {
+                // Special handling for function type .call() method
+                bool isFunctionCall = (className == "__function" && methodName == "call");
+
+                if (!method && !isIntrinsic && !isTemplateInstantiation && !isTemplateParameter && !isFunctionCall) {
                     errorReporter.reportError(
                         Common::ErrorCode::UndeclaredIdentifier,
                         "Method '" + methodName + "' not found in class '" + className + "'",
@@ -1487,6 +1509,17 @@ void SemanticAnalyzer::visit(Parser::CallExpr& node) {
                                     "': Expected type '" + expectedType + "', but got '" + argType + "'",
                                     node.arguments[i]->location
                                 );
+                            }
+
+                            // Check move semantics for owned parameters
+                            if (expectedOwnership == Parser::OwnershipType::Owned) {
+                                // If argument is an identifier, mark it as moved
+                                if (auto* identExpr = dynamic_cast<Parser::IdentifierExpr*>(node.arguments[i].get())) {
+                                    // Check if variable was already moved
+                                    checkVariableNotMoved(identExpr->name, node.arguments[i]->location);
+                                    // Mark variable as moved
+                                    markVariableMoved(identExpr->name, node.arguments[i]->location);
+                                }
                             }
                         }
                     }
@@ -1568,15 +1601,19 @@ void SemanticAnalyzer::visit(Parser::CallExpr& node) {
 
             // Only validate if validation is enabled
             if (enableValidation) {
-                // Only exempt Syscall, Mem, Console, Language namespaces from validation (intrinsic functions / stubs)
+                // Only exempt Syscall, Mem, Console, Language namespaces, function types from validation (intrinsic functions / stubs)
                 bool isIntrinsic = (objectType == "Syscall" || objectType == "Mem" ||
                                     objectType == "Console" || objectType == "System::Console" ||
+                                    objectType == "__function" || baseType == "__function" ||
                                     objectType.find("Language::") == 0 || baseType.find("Language::") == 0);
                 bool isTemplateInstantiation = !templateSubstitutions.empty();
                 // Skip validation if the object is a template parameter (will be validated at instantiation)
                 bool isTemplateParameter = (templateTypeParameters.find(baseType) != templateTypeParameters.end());
 
-                if (!method && !isIntrinsic && !isTemplateInstantiation && !isTemplateParameter) {
+                // Special handling for function type .call() method
+                bool isFunctionCall = ((objectType == "__function" || baseType == "__function") && methodName == "call");
+
+                if (!method && !isIntrinsic && !isTemplateInstantiation && !isTemplateParameter && !isFunctionCall) {
                     errorReporter.reportError(
                         Common::ErrorCode::UndeclaredIdentifier,
                         "Method '" + methodName + "' not found in class '" + objectType + "'",
@@ -1660,6 +1697,17 @@ void SemanticAnalyzer::visit(Parser::CallExpr& node) {
                                     node.arguments[i]->location
                                 );
                             }
+
+                            // Check move semantics for owned parameters
+                            if (expectedOwnership == Parser::OwnershipType::Owned) {
+                                // If argument is an identifier, mark it as moved
+                                if (auto* identExpr = dynamic_cast<Parser::IdentifierExpr*>(node.arguments[i].get())) {
+                                    // Check if variable was already moved
+                                    checkVariableNotMoved(identExpr->name, node.arguments[i]->location);
+                                    // Mark variable as moved
+                                    markVariableMoved(identExpr->name, node.arguments[i]->location);
+                                }
+                            }
                         }
                     }
                 }
@@ -1675,6 +1723,39 @@ void SemanticAnalyzer::visit(Parser::CallExpr& node) {
 
                 registerExpressionType(&node, returnType, method->returnOwnership);
             } else {
+                // Check if this is a function type .call()
+                bool isFunctionCall = ((objectType == "__function" || baseType == "__function") && methodName == "call");
+
+                if (isFunctionCall && enableValidation) {
+                    // Try to get function type parameter info from the callee
+                    if (auto* identExpr = dynamic_cast<Parser::IdentifierExpr*>(memberExpr->object.get())) {
+                        auto* paramOwnerships = getFunctionTypeParams(identExpr->name);
+                        if (paramOwnerships) {
+                            // Validate arguments against function type parameters
+                            size_t numParams = paramOwnerships->size();
+                            if (node.arguments.size() != numParams) {
+                                errorReporter.reportError(
+                                    Common::ErrorCode::InvalidMethodCall,
+                                    "Function '" + identExpr->name + "' expects " +
+                                    std::to_string(numParams) + " argument(s), but " +
+                                    std::to_string(node.arguments.size()) + " provided",
+                                    node.location
+                                );
+                            } else {
+                                // Check move semantics for owned parameters
+                                for (size_t i = 0; i < node.arguments.size(); ++i) {
+                                    if ((*paramOwnerships)[i] == Parser::OwnershipType::Owned) {
+                                        if (auto* argIdent = dynamic_cast<Parser::IdentifierExpr*>(node.arguments[i].get())) {
+                                            checkVariableNotMoved(argIdent->name, node.arguments[i]->location);
+                                            markVariableMoved(argIdent->name, node.arguments[i]->location);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // Builtin type - assume valid
                 registerExpressionType(&node, "Unknown", Parser::OwnershipType::Owned);
             }
@@ -2696,6 +2777,120 @@ void SemanticAnalyzer::visit(Parser::TypeOfExpr& node) {
     if (node.type) {
         expressionTypes[&node] = node.type->typeName;
     }
+}
+
+void SemanticAnalyzer::visit(Parser::LambdaExpr& node) {
+    // Validate captures and check ownership semantics
+    for (const auto& capture : node.captures) {
+        // Check variable exists
+        if (!symbolTable_->resolve(capture.varName)) {
+            errorReporter.reportError(
+                Common::ErrorCode::UndeclaredIdentifier,
+                "Captured variable '" + capture.varName + "' not found in scope",
+                node.location
+            );
+            continue;
+        }
+
+        // Check if variable was already moved before this capture
+        checkVariableNotMoved(capture.varName, node.location);
+
+        // Mark variable as moved if captured by owned (^)
+        if (capture.mode == Parser::LambdaExpr::CaptureMode::Owned) {
+            markVariableMoved(capture.varName, node.location);
+        }
+    }
+
+    // Create new scope for lambda body
+    symbolTable_->enterScope("Lambda");
+
+    // Save the current moved variables state and reset for lambda body
+    // (captured variables are valid inside the lambda, even if moved outside)
+    std::set<std::string> savedMovedVariables = movedVariables_;
+    movedVariables_.clear();
+
+    // Add parameters to scope
+    for (const auto& param : node.parameters) {
+        param->accept(*this);
+    }
+
+    // Analyze body
+    for (const auto& stmt : node.body) {
+        stmt->accept(*this);
+    }
+
+    // Restore moved variables state (lambda body is isolated)
+    movedVariables_ = savedMovedVariables;
+
+    symbolTable_->exitScope();
+
+    // Store lambda expression type as function type
+    expressionTypes[&node] = "__function";
+}
+
+void SemanticAnalyzer::visit(Parser::FunctionTypeRef& node) {
+    // Validate return type
+    if (node.returnType) {
+        node.returnType->accept(*this);
+    }
+
+    // Validate parameter types
+    for (const auto& param : node.paramTypes) {
+        param->accept(*this);
+    }
+}
+
+// ============================================================================
+// Move Tracking Implementation
+// ============================================================================
+
+void SemanticAnalyzer::markVariableMoved(const std::string& varName, const Common::SourceLocation& loc) {
+    // Check if already moved (double move error)
+    if (movedVariables_.find(varName) != movedVariables_.end()) {
+        errorReporter.reportError(
+            Common::ErrorCode::InvalidOwnership,
+            "Variable '" + varName + "' has already been moved and cannot be moved again",
+            loc
+        );
+        return;
+    }
+    movedVariables_.insert(varName);
+}
+
+bool SemanticAnalyzer::isVariableMoved(const std::string& varName) const {
+    return movedVariables_.find(varName) != movedVariables_.end();
+}
+
+void SemanticAnalyzer::checkVariableNotMoved(const std::string& varName, const Common::SourceLocation& loc) {
+    if (isVariableMoved(varName)) {
+        errorReporter.reportError(
+            Common::ErrorCode::InvalidOwnership,
+            "Use of moved variable '" + varName + "'. Variable was moved and can no longer be used.",
+            loc
+        );
+    }
+}
+
+void SemanticAnalyzer::resetMovedVariables() {
+    movedVariables_.clear();
+}
+
+void SemanticAnalyzer::registerFunctionType(const std::string& varName, Parser::FunctionTypeRef* funcType) {
+    if (!funcType) return;
+
+    std::vector<Parser::OwnershipType> paramOwnerships;
+    for (const auto& paramType : funcType->paramTypes) {
+        paramOwnerships.push_back(paramType->ownership);
+    }
+    functionTypeParams_[varName] = std::move(paramOwnerships);
+}
+
+std::vector<Parser::OwnershipType>* SemanticAnalyzer::getFunctionTypeParams(const std::string& varName) {
+    auto it = functionTypeParams_.find(varName);
+    if (it != functionTypeParams_.end()) {
+        return &it->second;
+    }
+    return nullptr;
 }
 
 } // namespace Semantic

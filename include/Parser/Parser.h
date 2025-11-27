@@ -69,8 +69,10 @@ private:
     std::unique_ptr<Expression> parsePrimary();
     std::unique_ptr<Expression> parseCallOrMemberAccess(std::unique_ptr<Expression> expr);
     std::unique_ptr<Expression> parseTypeOfExpression();
+    std::unique_ptr<Expression> parseLambda();
 
     std::unique_ptr<TypeRef> parseTypeRef();
+    std::unique_ptr<TypeRef> parseFunctionTypeRef();
     OwnershipType parseOwnershipType();
     std::vector<TemplateParameter> parseTemplateParameters();
     std::string parseQualifiedIdentifier();

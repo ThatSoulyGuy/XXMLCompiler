@@ -1,0 +1,51 @@
+#import Language::Core;
+
+[ Entrypoint
+    {
+        Run Console::printLine(String::Constructor("=== Lambda Capture Modes Test ==="));
+
+        // Test 1: Copy capture (%)
+        Run Console::printLine(String::Constructor("Test 1: Copy capture (%)"));
+        Instantiate Integer^ As <value1> = Integer::Constructor(10);
+        Instantiate F(Integer^)()^ As <copyCap> = [ Lambda [%value1] Returns Integer^ Parameters () {
+            Return value1;
+        }];
+        Instantiate Integer^ As <r1> = copyCap.call();
+        Run Console::printLine(String::Constructor("Copy captured 10: "));
+        Run Console::printLine(r1.toString());
+
+        // Test 2: Owned/Move capture (^)
+        Run Console::printLine(String::Constructor("Test 2: Owned capture (^)"));
+        Instantiate Integer^ As <value2> = Integer::Constructor(20);
+        Instantiate F(Integer^)()^ As <ownedCap> = [ Lambda [^value2] Returns Integer^ Parameters () {
+            Return value2;
+        }];
+        Instantiate Integer^ As <r2> = ownedCap.call();
+        Run Console::printLine(String::Constructor("Owned captured 20: "));
+        Run Console::printLine(r2.toString());
+
+        // Test 3: Reference capture (&)
+        Run Console::printLine(String::Constructor("Test 3: Reference capture (&)"));
+        Instantiate Integer^ As <value3> = Integer::Constructor(30);
+        Instantiate F(Integer^)()^ As <refCap> = [ Lambda [&value3] Returns Integer^ Parameters () {
+            Return value3;
+        }];
+        Instantiate Integer^ As <r3> = refCap.call();
+        Run Console::printLine(String::Constructor("Reference captured 30: "));
+        Run Console::printLine(r3.toString());
+
+        // Test 4: Multiple captures with different modes
+        Run Console::printLine(String::Constructor("Test 4: Multiple captures"));
+        Instantiate Integer^ As <a> = Integer::Constructor(5);
+        Instantiate Integer^ As <b> = Integer::Constructor(7);
+        Instantiate F(Integer^)()^ As <multiCap> = [ Lambda [%a, %b] Returns Integer^ Parameters () {
+            Return a.add(b);
+        }];
+        Instantiate Integer^ As <r4> = multiCap.call();
+        Run Console::printLine(String::Constructor("5 + 7 = "));
+        Run Console::printLine(r4.toString());
+
+        Run Console::printLine(String::Constructor("=== All Tests Complete ==="));
+        Exit(0);
+    }
+]
