@@ -2,6 +2,7 @@
 #include "../../include/Core/CompilationContext.h"
 #include "../../include/Core/TypeRegistry.h"
 #include "../../include/Core/FormatCompat.h"
+#include "../../include/Common/Debug.h"
 #include <iostream>
 
 namespace XXML {
@@ -413,23 +414,34 @@ void SemanticAnalyzer::visit(Parser::ClassDecl& node) {
     // Record template class if it has template parameters
     if (!node.templateParams.empty()) {
         std::string qualifiedTemplateName = currentNamespace.empty() ? node.name : currentNamespace + "::" + node.name;
-        templateClasses[qualifiedTemplateName] = &node;
+
+        // ✅ SAFE: Create TemplateClassInfo with COPIED data, not raw pointers
+        TemplateClassInfo templateInfo;
+        templateInfo.qualifiedName = qualifiedTemplateName;
+        templateInfo.templateParams = node.templateParams;  // Copy template params
+        templateInfo.baseClassName = node.baseClass;  // Copy base class name
+        templateInfo.astNode = &node;  // Only valid for same-module access
+
+        templateClasses[qualifiedTemplateName] = templateInfo;
         // Also register without namespace for convenience
         if (!currentNamespace.empty()) {
-            templateClasses[node.name] = &node;
+            templateClasses[node.name] = templateInfo;
         }
 
         // Also register in global template registry for cross-module access
         if (context_) {
-            auto* globalTemplates = context_->getCustomData<std::unordered_map<std::string, Parser::ClassDecl*>>("globalTemplateClasses");
+            auto* globalTemplates = context_->getCustomData<std::unordered_map<std::string, TemplateClassInfo>>("globalTemplateClasses");
             if (!globalTemplates) {
-                context_->setCustomData("globalTemplateClasses", std::unordered_map<std::string, Parser::ClassDecl*>{});
-                globalTemplates = context_->getCustomData<std::unordered_map<std::string, Parser::ClassDecl*>>("globalTemplateClasses");
+                context_->setCustomData("globalTemplateClasses", std::unordered_map<std::string, TemplateClassInfo>{});
+                globalTemplates = context_->getCustomData<std::unordered_map<std::string, TemplateClassInfo>>("globalTemplateClasses");
             }
             if (globalTemplates) {
-                (*globalTemplates)[qualifiedTemplateName] = &node;
+                // For global registry, don't set astNode since it may become invalid
+                TemplateClassInfo globalInfo = templateInfo;
+                globalInfo.astNode = nullptr;  // Clear astNode for cross-module safety
+                (*globalTemplates)[qualifiedTemplateName] = globalInfo;
                 if (!currentNamespace.empty()) {
-                    (*globalTemplates)[node.name] = &node;
+                    (*globalTemplates)[node.name] = globalInfo;
                 }
             }
         }
@@ -498,7 +510,11 @@ void SemanticAnalyzer::visit(Parser::ClassDecl& node) {
     std::string qualifiedClassName = currentNamespace.empty() ? node.name : currentNamespace + "::" + node.name;
     ClassInfo classInfo;
     classInfo.qualifiedName = qualifiedClassName;
-    classInfo.astNode = &node;
+    // ✅ SAFE: Copy data from AST instead of storing raw pointer
+    classInfo.baseClassName = node.baseClass;  // Copy base class name
+    classInfo.templateParams = node.templateParams;  // Copy template params
+    classInfo.isTemplate = !node.templateParams.empty();
+    classInfo.astNode = &node;  // Only valid for same-module access
 
     // Collect methods and properties by processing sections
     for (auto& section : node.sections) {
@@ -507,7 +523,13 @@ void SemanticAnalyzer::visit(Parser::ClassDecl& node) {
                 // Register template methods
                 if (!methodDecl->templateParams.empty()) {
                     std::string methodKey = qualifiedClassName + "::" + methodDecl->name;
-                    templateMethods[methodKey] = methodDecl;
+                    // ✅ SAFE: Create TemplateMethodInfo with COPIED data
+                    TemplateMethodInfo methodInfo;
+                    methodInfo.className = qualifiedClassName;
+                    methodInfo.methodName = methodDecl->name;
+                    methodInfo.templateParams = methodDecl->templateParams;  // Copy params
+                    methodInfo.astNode = methodDecl;  // Only valid for same-module access
+                    templateMethods[methodKey] = methodInfo;
                 }
 
                 MethodInfo methodInfo;
@@ -554,9 +576,12 @@ void SemanticAnalyzer::visit(Parser::ClassDecl& node) {
             globalRegistry = context_->getCustomData<std::unordered_map<std::string, ClassInfo>>("globalClassRegistry");
         }
         if (globalRegistry) {
-            (*globalRegistry)[qualifiedClassName] = classInfo;
+            // ✅ SAFE: Create copy with astNode cleared for cross-module safety
+            ClassInfo globalCopy = classInfo;
+            globalCopy.astNode = nullptr;  // Clear raw pointer for cross-module safety
+            (*globalRegistry)[qualifiedClassName] = globalCopy;
             if (!currentNamespace.empty()) {
-                (*globalRegistry)[node.name] = classInfo;
+                (*globalRegistry)[node.name] = globalCopy;
             }
         }
     }
@@ -890,41 +915,43 @@ void SemanticAnalyzer::visit(Parser::InstantiateStmt& node) {
     // Check if this is a template class that requires template parameters
     if (node.type->templateArgs.empty()) {
         // Look up if this is a template class (check local first, then global)
-        Parser::ClassDecl* templateClass = nullptr;
+        // ✅ SAFE: Use TemplateClassInfo pointer instead of raw ClassDecl pointer
+        const TemplateClassInfo* templateInfo = nullptr;
 
         auto it = templateClasses.find(baseTypeName);
         if (it != templateClasses.end()) {
-            templateClass = it->second;
+            templateInfo = &it->second;
         } else if (lastColon != std::string::npos) {
             // Try without namespace
             it = templateClasses.find(simpleTypeName);
             if (it != templateClasses.end()) {
-                templateClass = it->second;
+                templateInfo = &it->second;
             }
         }
 
         // Check global registry if not found locally
-        if (!templateClass && context_) {
-            auto* globalTemplates = context_->getCustomData<std::unordered_map<std::string, Parser::ClassDecl*>>("globalTemplateClasses");
+        if (!templateInfo && context_) {
+            auto* globalTemplates = context_->getCustomData<std::unordered_map<std::string, TemplateClassInfo>>("globalTemplateClasses");
             if (globalTemplates) {
                 auto git = globalTemplates->find(baseTypeName);
                 if (git != globalTemplates->end()) {
-                    templateClass = git->second;
+                    templateInfo = &git->second;
                 } else if (lastColon != std::string::npos) {
                     git = globalTemplates->find(simpleTypeName);
                     if (git != globalTemplates->end()) {
-                        templateClass = git->second;
+                        templateInfo = &git->second;
                     }
                 }
             }
         }
 
-        if (templateClass && !templateClass->templateParams.empty()) {
+        // ✅ SAFE: Access copied templateParams from TemplateClassInfo
+        if (templateInfo && !templateInfo->templateParams.empty()) {
             // This is a template class that requires parameters but none were provided
             std::string paramList = "<";
-            for (size_t i = 0; i < templateClass->templateParams.size(); ++i) {
+            for (size_t i = 0; i < templateInfo->templateParams.size(); ++i) {
                 if (i > 0) paramList += ", ";
-                paramList += templateClass->templateParams[i].name;
+                paramList += templateInfo->templateParams[i].name;
             }
             paramList += ">";
 
@@ -1307,7 +1334,7 @@ void SemanticAnalyzer::visit(Parser::CallExpr& node) {
 
     // DEBUG: Print the full name and parsing results
     if (!fullName.empty()) {
-        std::cerr << "DEBUG: fullName = '" << fullName << "'" << std::endl;
+        DEBUG_OUT("DEBUG: fullName = '" << fullName << "'" << std::endl);
     }
 
     // Check if this is a qualified static call like Class::method()
@@ -1316,7 +1343,7 @@ void SemanticAnalyzer::visit(Parser::CallExpr& node) {
         className = extractClassName(fullName);
         methodName = extractMethodName(fullName);
 
-        std::cerr << "DEBUG: className = '" << className << "', methodName = '" << methodName << "'" << std::endl;
+        DEBUG_OUT("DEBUG: className = '" << className << "', methodName = '" << methodName << "'" << std::endl);
 
         // Only treat it as a static call if we successfully extracted a class name
         if (!className.empty()) {
@@ -1325,11 +1352,11 @@ void SemanticAnalyzer::visit(Parser::CallExpr& node) {
             if (angleBracketPos != std::string::npos) {
                 // Extract template name and arguments
                 std::string templateName = className.substr(0, angleBracketPos);
-                std::cerr << "DEBUG: Found template instantiation, templateName = '" << templateName << "'" << std::endl;
+                DEBUG_OUT("DEBUG: Found template instantiation, templateName = '" << templateName << "'" << std::endl);
 
                 // Check if it's a template class
                 bool isTemplate = isTemplateClass(templateName);
-                std::cerr << "DEBUG: isTemplateClass('" << templateName << "') = " << isTemplate << std::endl;
+                DEBUG_OUT("DEBUG: isTemplateClass('" << templateName << "') = " << isTemplate << std::endl);
                 if (isTemplate) {
                     // Parse template arguments from the string
                     size_t endBracket = className.rfind('>');
@@ -1503,21 +1530,23 @@ void SemanticAnalyzer::visit(Parser::CallExpr& node) {
                 baseType = objectType.substr(0, angleBracketPos);
 
                 // Find the template definition (check local first, then global)
-                Parser::ClassDecl* templateClass = nullptr;
+                // ✅ SAFE: Use TemplateClassInfo pointer instead of raw ClassDecl pointer
+                const TemplateClassInfo* templateInfo = nullptr;
                 auto localIt = templateClasses.find(baseType);
                 if (localIt != templateClasses.end()) {
-                    templateClass = localIt->second;
+                    templateInfo = &localIt->second;
                 } else if (context_) {
-                    auto* globalTemplates = context_->getCustomData<std::unordered_map<std::string, Parser::ClassDecl*>>("globalTemplateClasses");
+                    auto* globalTemplates = context_->getCustomData<std::unordered_map<std::string, TemplateClassInfo>>("globalTemplateClasses");
                     if (globalTemplates) {
                         auto globalIt = globalTemplates->find(baseType);
                         if (globalIt != globalTemplates->end()) {
-                            templateClass = globalIt->second;
+                            templateInfo = &globalIt->second;
                         }
                     }
                 }
 
-                if (templateClass) {
+                // ✅ SAFE: Access copied templateParams from TemplateClassInfo
+                if (templateInfo) {
                     // Extract template arguments from the type string
                     size_t endBracket = objectType.rfind('>');
                     if (endBracket != std::string::npos) {
@@ -1528,8 +1557,8 @@ void SemanticAnalyzer::visit(Parser::CallExpr& node) {
                         args.push_back(argsStr); // For now, handle single template arg
 
                         // Build substitution map (T -> Integer, etc.)
-                        for (size_t i = 0; i < templateClass->templateParams.size() && i < args.size(); ++i) {
-                            templateSubstitutions[templateClass->templateParams[i].name] = args[i];
+                        for (size_t i = 0; i < templateInfo->templateParams.size() && i < args.size(); ++i) {
+                            templateSubstitutions[templateInfo->templateParams[i].name] = args[i];
                         }
                     }
                 }
@@ -1712,41 +1741,42 @@ void SemanticAnalyzer::visit(Parser::TypeRef& node) {
 
 void SemanticAnalyzer::recordTemplateInstantiation(const std::string& templateName, const std::vector<Parser::TemplateArgument>& args) {
     // Check if this template class exists (check local first, then global)
-    Parser::ClassDecl* templateClass = nullptr;
+    // ✅ SAFE: Use TemplateClassInfo pointer instead of raw ClassDecl pointer
+    const TemplateClassInfo* templateInfo = nullptr;
 
     auto localIt = templateClasses.find(templateName);
     if (localIt != templateClasses.end()) {
-        templateClass = localIt->second;
+        templateInfo = &localIt->second;
     } else if (context_) {
         // Check global registry
-        auto* globalTemplates = context_->getCustomData<std::unordered_map<std::string, Parser::ClassDecl*>>("globalTemplateClasses");
+        auto* globalTemplates = context_->getCustomData<std::unordered_map<std::string, TemplateClassInfo>>("globalTemplateClasses");
         if (globalTemplates) {
             auto globalIt = globalTemplates->find(templateName);
             if (globalIt != globalTemplates->end()) {
-                templateClass = globalIt->second;
+                templateInfo = &globalIt->second;
             }
         }
     }
 
-    if (!templateClass) {
+    if (!templateInfo) {
         // Not a template class - maybe it's a regular class or error will be caught elsewhere
         return;
     }
 
     // ✅ Phase 7: Improved error message for argument count mismatch
-    // Validate argument count
-    if (templateClass->templateParams.size() != args.size()) {
+    // Validate argument count using copied templateParams
+    if (templateInfo->templateParams.size() != args.size()) {
         // Build parameter list for better error message
         std::string paramList;
-        for (size_t i = 0; i < templateClass->templateParams.size(); ++i) {
+        for (size_t i = 0; i < templateInfo->templateParams.size(); ++i) {
             if (i > 0) paramList += ", ";
-            paramList += templateClass->templateParams[i].name;
+            paramList += templateInfo->templateParams[i].name;
         }
 
         errorReporter.reportError(
             Common::ErrorCode::TypeMismatch,
             "Template '" + templateName + "' expects " +
-            std::to_string(templateClass->templateParams.size()) +
+            std::to_string(templateInfo->templateParams.size()) +
             " argument(s) <" + paramList + "> but got " +
             std::to_string(args.size()),
             args.empty() ? Common::SourceLocation{} : args[0].location
@@ -1760,9 +1790,10 @@ void SemanticAnalyzer::recordTemplateInstantiation(const std::string& templateNa
     inst.arguments = args;
 
     // Evaluate constant expressions for non-type parameters
+    // ✅ SAFE: Access copied templateParams from TemplateClassInfo
     for (size_t i = 0; i < args.size(); ++i) {
         const auto& arg = args[i];
-        const auto& param = templateClass->templateParams[i];
+        const auto& param = templateInfo->templateParams[i];
 
         // ✅ Phase 7: Improved wildcard error message
         // Wildcard can match any type parameter
@@ -2122,11 +2153,11 @@ std::string SemanticAnalyzer::buildQualifiedName(Parser::Expression* expr) {
     // Recursively build qualified name from expression tree
     // Only works for static calls (::), not instance calls (.)
     if (auto* identExpr = dynamic_cast<Parser::IdentifierExpr*>(expr)) {
-        std::cerr << "DEBUG buildQualifiedName: IdentifierExpr = '" << identExpr->name << "'" << std::endl;
+        DEBUG_OUT("DEBUG buildQualifiedName: IdentifierExpr = '" << identExpr->name << "'" << std::endl);
         return identExpr->name;
     } else if (auto* memberExpr = dynamic_cast<Parser::MemberAccessExpr*>(expr)) {
         std::string member = memberExpr->member;
-        std::cerr << "DEBUG buildQualifiedName: MemberAccessExpr member = '" << member << "'" << std::endl;
+        DEBUG_OUT("DEBUG buildQualifiedName: MemberAccessExpr member = '" << member << "'" << std::endl);
 
         // Check if this is a static call (member starts with ::)
         if (member.length() >= 2 && member[0] == ':' && member[1] == ':') {
@@ -2137,15 +2168,15 @@ std::string SemanticAnalyzer::buildQualifiedName(Parser::Expression* expr) {
             std::string objectName = buildQualifiedName(memberExpr->object.get());
 
             std::string result = objectName.empty() ? member : (objectName + "::" + member);
-            std::cerr << "DEBUG buildQualifiedName: returning '" << result << "'" << std::endl;
+            DEBUG_OUT("DEBUG buildQualifiedName: returning '" << result << "'" << std::endl);
             return result;
         } else {
             // This is an instance call (dot access), not a static call
-            std::cerr << "DEBUG buildQualifiedName: instance call, returning empty" << std::endl;
+            DEBUG_OUT("DEBUG buildQualifiedName: instance call, returning empty" << std::endl);
             return "";
         }
     }
-    std::cerr << "DEBUG buildQualifiedName: unknown expression type, returning empty" << std::endl;
+    DEBUG_OUT("DEBUG buildQualifiedName: unknown expression type, returning empty" << std::endl);
     return "";
 }
 
@@ -2195,19 +2226,21 @@ void SemanticAnalyzer::recordMethodTemplateInstantiation(const std::string& clas
     std::string methodKey = className + "::" + methodName;
 
     // Check if this template method exists
-    if (templateMethods.find(methodKey) == templateMethods.end()) {
+    auto it = templateMethods.find(methodKey);
+    if (it == templateMethods.end()) {
         // Not a template method - might be a regular method or error caught elsewhere
         return;
     }
 
-    auto* templateMethod = templateMethods[methodKey];
+    // ✅ SAFE: Access TemplateMethodInfo struct (copied data)
+    const TemplateMethodInfo& methodInfo = it->second;
 
-    // Validate argument count
-    if (templateMethod->templateParams.size() != args.size()) {
+    // Validate argument count using copied templateParams
+    if (methodInfo.templateParams.size() != args.size()) {
         errorReporter.reportError(
             Common::ErrorCode::TypeMismatch,
             "Method template '" + methodName + "' expects " +
-            std::to_string(templateMethod->templateParams.size()) +
+            std::to_string(methodInfo.templateParams.size()) +
             " arguments but got " + std::to_string(args.size()),
             args.empty() ? Common::SourceLocation{} : args[0].location
         );
@@ -2221,9 +2254,10 @@ void SemanticAnalyzer::recordMethodTemplateInstantiation(const std::string& clas
     inst.arguments = args;
 
     // Evaluate constant expressions for non-type parameters
+    // ✅ SAFE: Access copied templateParams from TemplateMethodInfo
     for (size_t i = 0; i < args.size(); ++i) {
         const auto& arg = args[i];
-        const auto& param = templateMethod->templateParams[i];
+        const auto& param = methodInfo.templateParams[i];
 
         // Wildcard can match any type parameter
         if (arg.kind == Parser::TemplateArgument::Kind::Wildcard) {
@@ -2301,13 +2335,13 @@ bool SemanticAnalyzer::isTypeCompatible(const std::string& actualType, const std
     }
 
     // Check inheritance - does actualType extend constraintType?
-    // For now, simple check: if actualClass has a base class, check it
-    if (actualClass->astNode && !actualClass->astNode->baseClass.empty()) {
-        if (actualClass->astNode->baseClass == constraintType) {
+    // ✅ SAFE: Use copied baseClassName instead of astNode pointer
+    if (!actualClass->baseClassName.empty()) {
+        if (actualClass->baseClassName == constraintType) {
             return true;
         }
         // Recursive check up the inheritance chain
-        return isTypeCompatible(actualClass->astNode->baseClass, constraintType);
+        return isTypeCompatible(actualClass->baseClassName, constraintType);
     }
 
     return false;

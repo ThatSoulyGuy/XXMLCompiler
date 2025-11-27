@@ -51,8 +51,9 @@ file(GLOB_RECURSE XXML_HEADERS CONFIGURE_DEPENDS
     ${CMAKE_SOURCE_DIR}/include/*.hpp
 )
 
-# Exclude main.cpp from library sources
+# Exclude main.cpp and test files from library sources
 list(FILTER XXML_SOURCES EXCLUDE REGEX ".*main\\.cpp$")
+list(FILTER XXML_SOURCES EXCLUDE REGEX ".*IRTest\\.cpp$")
 
 # Create the main compiler library
 add_library(XXMLLib STATIC ${XXML_SOURCES} ${XXML_HEADERS})

@@ -1,4 +1,5 @@
 #include "../../include/Parser/Parser.h"
+#include "../../include/Common/Debug.h"
 #include <sstream>
 #include <iostream>
 
@@ -1043,8 +1044,8 @@ std::unique_ptr<Expression> Parser::parseCallOrMemberAccess(std::unique_ptr<Expr
                                 // Use parseQualifiedIdentifier to handle :: properly
                                 std::string argName = (check(Lexer::TokenType::Constructor)) ?
                                     advance().lexeme : parseQualifiedIdentifier();
-                                std::cerr << "DEBUG parseCall: template arg parsed as '" << argName << "'" << std::endl;
-                                std::cerr << "DEBUG parseCall: next token is " << peek().lexeme << " (type " << static_cast<int>(peek().type) << ")" << std::endl;
+                                DEBUG_OUT("DEBUG parseCall: template arg parsed as '" << argName << "'" << std::endl);
+                                DEBUG_OUT("DEBUG parseCall: next token is " << peek().lexeme << " (type " << static_cast<int>(peek().type) << ")" << std::endl);
                                 member += argName;
                             } else if (check(Lexer::TokenType::IntegerLiteral)) {
                                 member += std::to_string(advance().intValue);
@@ -1086,7 +1087,7 @@ std::unique_ptr<Expression> Parser::parseCallOrMemberAccess(std::unique_ptr<Expr
                 }
 
                 // Treat :: as special member access
-                std::cerr << "DEBUG Parser: Creating MemberAccessExpr with member = '::"+member<<"'" << std::endl;
+                DEBUG_OUT("DEBUG Parser: Creating MemberAccessExpr with member = '::"+member<<"'" << std::endl);
                 expr = std::make_unique<MemberAccessExpr>(std::move(expr), "::" + member, previous().location);
             } else {
                 error("Expected identifier after '::'");
@@ -1134,14 +1135,14 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
     if (match(Lexer::TokenType::None)) {
         std::string name = "None";
         auto loc = previous().location;
-        std::cerr << "DEBUG Parser parsePrimary: got None keyword as identifier" << std::endl;
+        DEBUG_OUT("DEBUG Parser parsePrimary: got None keyword as identifier" << std::endl);
         return std::make_unique<IdentifierExpr>(name, loc);
     }
 
     if (match(Lexer::TokenType::Identifier)) {
         std::string name = previous().lexeme;
         auto loc = previous().location;
-        std::cerr << "DEBUG Parser parsePrimary: got identifier '" << name << "'" << std::endl;
+        DEBUG_OUT("DEBUG Parser parsePrimary: got identifier '" << name << "'" << std::endl);
 
         // ✅ Check for template arguments using < > syntax: List<Integer>
         // We need to be careful here - < could be a comparison operator
@@ -1172,7 +1173,7 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
             if (looksLikeTemplate) {
                 advance(); // consume <
                 name += "<";
-                std::cerr << "DEBUG Parser parsePrimary: found <, parsing template args" << std::endl;
+                DEBUG_OUT("DEBUG Parser parsePrimary: found <, parsing template args" << std::endl);
 
                 // Parse template arguments
                 bool first = true;
@@ -1190,7 +1191,7 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
                     else if (check(Lexer::TokenType::Identifier)) {
                         // Use parseQualifiedIdentifier to handle :: properly
                         std::string argName = parseQualifiedIdentifier();
-                        std::cerr << "DEBUG Parser parsePrimary: template arg identifier = '" << argName << "'" << std::endl;
+                        DEBUG_OUT("DEBUG Parser parsePrimary: template arg identifier = '" << argName << "'" << std::endl);
                         name += argName;
                     } else if (check(Lexer::TokenType::IntegerLiteral)) {
                         name += std::to_string(advance().intValue);
@@ -1202,14 +1203,14 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
 
                 consume(Lexer::TokenType::RightAngle, "Expected '>' after template arguments");
                 name += ">";
-                std::cerr << "DEBUG Parser parsePrimary: final name with template = '" << name << "'" << std::endl;
+                DEBUG_OUT("DEBUG Parser parsePrimary: final name with template = '" << name << "'" << std::endl);
             }
         }
 
         // Check for template arguments using @ syntax: List@Integer (alternative)
         if (match(Lexer::TokenType::At)) {
             name += "<";
-            std::cerr << "DEBUG Parser parsePrimary: found @, parsing template args" << std::endl;
+            DEBUG_OUT("DEBUG Parser parsePrimary: found @, parsing template args" << std::endl);
 
             // Parse template arguments
             bool first = true;
@@ -1222,7 +1223,7 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
                 // Parse type or value argument
                 if (check(Lexer::TokenType::Identifier)) {
                     std::string argName = advance().lexeme;
-                    std::cerr << "DEBUG Parser parsePrimary: template arg identifier = '" << argName << "'" << std::endl;
+                    DEBUG_OUT("DEBUG Parser parsePrimary: template arg identifier = '" << argName << "'" << std::endl);
                     name += argName;
                 } else if (check(Lexer::TokenType::IntegerLiteral)) {
                     name += std::to_string(advance().intValue);
@@ -1233,10 +1234,10 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
             } while (match(Lexer::TokenType::Comma));
 
             name += ">";
-            std::cerr << "DEBUG Parser parsePrimary: final name with template = '" << name << "'" << std::endl;
+            DEBUG_OUT("DEBUG Parser parsePrimary: final name with template = '" << name << "'" << std::endl);
         }
 
-        std::cerr << "DEBUG Parser parsePrimary: Creating IdentifierExpr with name = '" << name << "'" << std::endl;
+        DEBUG_OUT("DEBUG Parser parsePrimary: Creating IdentifierExpr with name = '" << name << "'" << std::endl);
         return std::make_unique<IdentifierExpr>(name, loc);
     }
 

@@ -1733,7 +1733,12 @@ void CodeGenerator::generateTemplateInstantiations() {
             continue;
         }
 
-        Parser::ClassDecl* templateClass = it->second;
+        // ✅ SAFE: Access TemplateClassInfo struct (copied data)
+        const auto& templateInfo = it->second;
+        Parser::ClassDecl* templateClass = templateInfo.astNode;
+        if (!templateClass) {
+            continue; // AST node not available (cross-module access without astNode)
+        }
 
         // Clone the template class
         auto instantiatedClass = cloneClassDecl(templateClass);
@@ -1743,8 +1748,9 @@ void CodeGenerator::generateTemplateInstantiations() {
         std::vector<std::string> typeArgsAsStrings;
         size_t valueIndex = 0;
 
-        for (size_t i = 0; i < templateClass->templateParams.size() && i < inst.arguments.size(); ++i) {
-            const auto& param = templateClass->templateParams[i];
+        // ✅ SAFE: Use copied templateParams from TemplateClassInfo
+        for (size_t i = 0; i < templateInfo.templateParams.size() && i < inst.arguments.size(); ++i) {
+            const auto& param = templateInfo.templateParams[i];
             const auto& arg = inst.arguments[i];
 
             if (arg.kind == Parser::TemplateArgument::Kind::Type) {
@@ -1807,7 +1813,12 @@ void CodeGenerator::generateTemplateInstantiations() {
             continue;
         }
 
-        Parser::MethodDecl* templateMethod = it->second;
+        // ✅ SAFE: Access TemplateMethodInfo struct (copied data)
+        const auto& methodInfo = it->second;
+        Parser::MethodDecl* templateMethod = methodInfo.astNode;
+        if (!templateMethod) {
+            continue; // AST node not available (cross-module access without astNode)
+        }
 
         // Clone the template method
         auto instantiatedMethod = cloneMethodDecl(templateMethod);
@@ -1817,8 +1828,9 @@ void CodeGenerator::generateTemplateInstantiations() {
         std::vector<std::string> typeArgsAsStrings;
         size_t valueIndex = 0;
 
-        for (size_t i = 0; i < templateMethod->templateParams.size() && i < inst.arguments.size(); ++i) {
-            const auto& param = templateMethod->templateParams[i];
+        // ✅ SAFE: Use copied templateParams from TemplateMethodInfo
+        for (size_t i = 0; i < methodInfo.templateParams.size() && i < inst.arguments.size(); ++i) {
+            const auto& param = methodInfo.templateParams[i];
             const auto& arg = inst.arguments[i];
 
             if (arg.kind == Parser::TemplateArgument::Kind::Type) {

@@ -1,0 +1,17 @@
+#import Language::Core;
+#import Language::Reflection;
+
+[ Entrypoint
+    {
+        Instantiate Integer^ As <myInt> = Integer::Constructor(67);
+
+        Instantiate String^ As <reflectedString> = String::Constructor("hi");
+
+        Instantiate Language::Reflection::GetType<String>^ As <getter> = Language::Reflection::GetType<String>::Constructor();
+        Instantiate Language::Reflection::Type^ As <type> = getter.get();
+
+        Run Console::printLine(String::Constructor("Property count: ").append(type.getPropertyCount().toString()));
+
+        Run Console::printLine(String::Constructor("Hello world!").append(myInt.toString()));
+    }
+]

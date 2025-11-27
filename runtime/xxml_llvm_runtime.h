@@ -40,6 +40,8 @@ void* Integer_add(void* self, void* other);
 void* Integer_sub(void* self, void* other);
 void* Integer_mul(void* self, void* other);
 void* Integer_div(void* self, void* other);
+void* Integer_negate(void* self);
+void* Integer_mod(void* self, void* other);
 bool Integer_eq(void* self, void* other);
 bool Integer_ne(void* self, void* other);
 bool Integer_lt(void* self, void* other);
@@ -89,6 +91,7 @@ void* String_Constructor(const char* cstr);
 void* String_FromCString(const char* cstr);
 const char* String_toCString(void* self);
 size_t String_length(void* self);
+bool String_isEmpty(void* self);
 void* String_concat(void* self, void* other);
 void* String_append(void* self, void* other);
 bool String_equals(void* self, void* other);
@@ -104,6 +107,8 @@ bool Bool_getValue(void* self);
 void* Bool_and(void* self, void* other);
 void* Bool_or(void* self, void* other);
 void* Bool_not(void* self);
+void* Bool_xor(void* self, void* other);
+void* Bool_toInteger(void* self);
 
 // ============================================
 // None Operations (for void returns)

@@ -13,6 +13,24 @@ namespace Core { class CompilationContext; }
 namespace Semantic {
 
 class SemanticAnalyzer : public Parser::ASTVisitor {
+public:
+    // ✅ SAFE: Template class info stores COPIES of template parameters, not raw pointers
+    // Made public for cross-module template registration
+    struct TemplateClassInfo {
+        std::string qualifiedName;
+        std::vector<Parser::TemplateParameter> templateParams;  // COPIED from AST
+        std::string baseClassName;  // COPIED from AST
+        Parser::ClassDecl* astNode = nullptr;  // Optional: only valid for same-module access
+    };
+
+    // ✅ SAFE: Template method info stores COPIES of template parameters
+    struct TemplateMethodInfo {
+        std::string className;
+        std::string methodName;
+        std::vector<Parser::TemplateParameter> templateParams;  // COPIED from AST
+        Parser::MethodDecl* astNode = nullptr;  // Optional: only valid for same-module access
+    };
+
 private:
     SymbolTable* symbolTable_;  // Now points to context's symbol table
     Core::CompilationContext* context_;  // ✅ Use context instead of static state
@@ -98,11 +116,11 @@ private:
         }
     };
 
-    std::unordered_map<std::string, Parser::ClassDecl*> templateClasses;  // Template class name -> definition
+    std::unordered_map<std::string, TemplateClassInfo> templateClasses;  // Template class name -> info
     std::set<TemplateInstantiation> templateInstantiations;  // Set of template instantiations
 
-    // Method template tracking (key: className::methodName -> MethodDecl*)
-    std::unordered_map<std::string, Parser::MethodDecl*> templateMethods;
+    // Method template tracking (key: className::methodName -> info)
+    std::unordered_map<std::string, TemplateMethodInfo> templateMethods;
     std::set<MethodTemplateInstantiation> methodTemplateInstantiations;
 
     // Class member registry for validation
@@ -117,7 +135,10 @@ private:
         std::string qualifiedName;  // Full name including namespace
         std::unordered_map<std::string, MethodInfo> methods;
         std::unordered_map<std::string, std::pair<std::string, Parser::OwnershipType>> properties; // name -> (type, ownership)
-        Parser::ClassDecl* astNode;
+        std::string baseClassName;  // ✅ SAFE: COPIED from AST, not pointer
+        std::vector<Parser::TemplateParameter> templateParams;  // ✅ SAFE: COPIED from AST
+        bool isTemplate = false;  // Whether this is a template class
+        Parser::ClassDecl* astNode = nullptr;  // Optional: only valid for same-module access
     };
 
     // ✅ REMOVED STATIC STATE - now instance-based in context
@@ -173,7 +194,7 @@ public:
     const std::set<TemplateInstantiation>& getTemplateInstantiations() const {
         return templateInstantiations;
     }
-    const std::unordered_map<std::string, Parser::ClassDecl*>& getTemplateClasses() const {
+    const std::unordered_map<std::string, TemplateClassInfo>& getTemplateClasses() const {
         return templateClasses;
     }
     const std::set<MethodTemplateInstantiation>& getMethodTemplateInstantiations() const {
@@ -187,13 +208,23 @@ public:
     const Core::TypeContext& getTypeContext() const {
         return typeContext_;
     }
-    const std::unordered_map<std::string, Parser::MethodDecl*>& getTemplateMethods() const {
+    const std::unordered_map<std::string, TemplateMethodInfo>& getTemplateMethods() const {
         return templateMethods;
     }
 
     // Register template classes and instantiations from other modules
-    void registerTemplateClass(const std::string& name, Parser::ClassDecl* classDecl) {
-        templateClasses[name] = classDecl;
+    void registerTemplateClass(const std::string& name, const TemplateClassInfo& info) {
+        templateClasses[name] = info;
+    }
+
+    // Helper to create TemplateClassInfo from a ClassDecl (for same-module registration)
+    static TemplateClassInfo createTemplateClassInfo(const std::string& qualifiedName, Parser::ClassDecl* classDecl) {
+        TemplateClassInfo info;
+        info.qualifiedName = qualifiedName;
+        info.templateParams = classDecl->templateParams;  // Copy template params
+        info.baseClassName = classDecl->baseClass;  // Copy base class name
+        info.astNode = classDecl;  // Keep reference for same-module access
+        return info;
     }
 
     void mergeTemplateInstantiation(const TemplateInstantiation& inst) {

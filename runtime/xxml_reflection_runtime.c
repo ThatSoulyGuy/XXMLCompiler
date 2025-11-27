@@ -50,9 +50,17 @@ ReflectionTypeInfo* Reflection_getTypeInfo(const char* typeName) {
         return NULL;
     }
 
-    // Linear search through registry
+    // First try exact match on fullName
     for (int32_t i = 0; i < typeRegistryCount; i++) {
         if (strcmp(typeRegistry[i]->fullName, typeName) == 0) {
+            return typeRegistry[i];
+        }
+    }
+
+    // If no exact match, try matching just the simple name
+    // This allows GetType<String> to find Language::Core::String
+    for (int32_t i = 0; i < typeRegistryCount; i++) {
+        if (strcmp(typeRegistry[i]->name, typeName) == 0) {
             return typeRegistry[i];
         }
     }

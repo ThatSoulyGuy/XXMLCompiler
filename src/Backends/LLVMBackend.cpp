@@ -1,4 +1,5 @@
 #include "Backends/LLVMBackend.h"
+#include "Backends/IR/IR.h"  // New IR infrastructure
 #include "Core/CompilationContext.h"
 #include "Core/TypeRegistry.h"
 #include "Core/OperatorRegistry.h"
@@ -10,12 +11,20 @@
 #include <iostream>
 #include <iomanip>    // For std::setprecision
 #include <algorithm>  // For std::replace
+#include <functional> // For std::function
 #include <cctype>     // For std::isdigit
 #include <cstring>    // For std::memcpy
 #include <cstdint>    // For uint32_t
 
 #ifdef _WIN32
 #include <windows.h>  // For GetShortPathNameA
+#endif
+
+// Debug output macro - define XXML_DEBUG to enable debug output
+#ifdef XXML_DEBUG
+#define DEBUG_OUT(x) std::cout << x
+#else
+#define DEBUG_OUT(x)
 #endif
 
 namespace XXML::Backends {
@@ -43,19 +52,89 @@ void LLVMBackend::initialize(Core::CompilationContext& context) {
 }
 
 std::string LLVMBackend::generate(Parser::Program& program) {
+    // === Initialize IR Infrastructure ===
+    module_ = std::make_unique<IR::Module>("xxml_module");
+    module_->setTargetTriple(getTargetTriple());
+    module_->setDataLayout(getDataLayout());
+    builder_ = std::make_unique<IR::IRBuilder>(*module_);
+
+    // Clear tracking state
+    irValues_.clear();
+    localAllocas_.clear();
+    currentFunction_ = nullptr;
+    currentBlock_ = nullptr;
+
+    // === Legacy initialization (for compatibility during transition) ===
     output_.str("");
     output_.clear();
     registerCounter_ = 0;
     labelCounter_ = 0;
-    stringLiterals_.clear();  // Clear string literals from previous runs
+    stringLiterals_.clear();
+    declaredFunctions_.clear();  // Reset declared functions tracking
 
-    // Generate preamble
+    // Generate preamble (legacy - will be replaced)
     std::string preamble = generatePreamble();
+
+    // Forward declare all user-defined functions before code generation
+    // Must come BEFORE template instantiations to avoid declare-after-define errors
+    // Process imported modules first (for standard library functions), then main program
+    for (auto* importedModule : importedModules_) {
+        if (importedModule) {
+            generateFunctionDeclarations(*importedModule);
+        }
+    }
+    generateFunctionDeclarations(program);
 
     // Generate template instantiations (monomorphization) before main code
     generateTemplateInstantiations();
 
-    // Visit program (this collects string literals and reflection metadata)
+    // NOTE: Template AST ownership issues were fixed (TemplateClassInfo/TemplateMethodInfo
+    // now store copied data instead of raw pointers). Imported module code generation is
+    // now enabled with careful filtering - we skip Language:: modules that are provided
+    // by the runtime library, and only generate code for user-defined imported modules.
+    //
+    // IMPORTANT: We need to collect reflection metadata from ALL modules (including runtime)
+    // so that GetType<T> can access property/method info for standard library classes.
+    //
+    for (auto* importedModule : importedModules_) {
+        if (importedModule) {
+            // Check if this is a Language:: or System:: module (provided by runtime, skip code gen)
+            bool isRuntimeModule = false;
+            std::string moduleName = "unknown";
+
+            for (auto& decl : importedModule->declarations) {
+                if (auto* ns = dynamic_cast<Parser::NamespaceDecl*>(decl.get())) {
+                    moduleName = ns->name;
+                    // Skip standard library modules that are provided by runtime
+                    // Use prefix matching since namespace name could be "Language::Core" etc.
+                    if (ns->name.find("Language") == 0 || ns->name.find("System") == 0 ||
+                        ns->name.find("Syscall") == 0 || ns->name.find("Mem") == 0 ||
+                        ns->name == "Collections") {
+                        isRuntimeModule = true;
+                        break;
+                    }
+                } else if (auto* importDecl = dynamic_cast<Parser::ImportDecl*>(decl.get())) {
+                    // Check import path for Language:: prefix
+                    if (importDecl->modulePath.find("Language::") == 0 ||
+                        importDecl->modulePath.find("System::") == 0) {
+                        isRuntimeModule = true;
+                        break;
+                    }
+                }
+            }
+
+            // ALWAYS collect reflection metadata, even for runtime modules
+            // This is needed for GetType<T> to work with standard library classes
+            collectReflectionMetadataFromModule(*importedModule);
+
+            if (!isRuntimeModule) {
+                // Only generate code for non-runtime modules (user-defined modules)
+                generateImportedModuleCode(*importedModule);
+            }
+        }
+    }
+
+    // Visit main program (this collects string literals and reflection metadata)
     program.accept(*this);
 
     // Generate reflection metadata after all classes are visited
@@ -127,6 +206,21 @@ std::string LLVMBackend::generate(Parser::Program& program) {
 
     finalOutput << generatedCode;
 
+    // === IR Infrastructure Debug Output ===
+    // When useNewIR_ is enabled, append the new IR output for comparison
+    if (useNewIR_ && module_) {
+        finalOutput << "\n; ============================================\n";
+        finalOutput << "; DEBUG: New IR Infrastructure Output\n";
+        finalOutput << "; ============================================\n";
+
+        std::string irOutput = IR::emitModuleUnchecked(*module_);
+        finalOutput << irOutput;
+    }
+
+    // Note: Once the full migration is complete, we can replace the entire method with:
+    // IR::Emitter emitter;
+    // return emitter.emit(*module_);
+
     return finalOutput.str();
 }
 
@@ -144,7 +238,12 @@ void LLVMBackend::generateTemplateInstantiations() {
             continue; // Template class not found, skip
         }
 
-        Parser::ClassDecl* templateClass = it->second;
+        // ✅ SAFE: Access TemplateClassInfo struct (copied data, not raw pointer)
+        const auto& templateInfo = it->second;
+        Parser::ClassDecl* templateClassDecl = templateInfo.astNode;
+        if (!templateClassDecl) {
+            continue; // AST node not available (cross-module access without astNode)
+        }
 
         // Generate mangled class name for LLVM
         // Replace < > and , with underscores: SomeClass<Integer> -> SomeClass_Integer
@@ -169,10 +268,11 @@ void LLVMBackend::generateTemplateInstantiations() {
         }
 
         // Build type substitution map (template params -> concrete types/values)
+        // ✅ SAFE: Use copied templateParams from TemplateClassInfo
         std::unordered_map<std::string, std::string> typeMap;
         valueIndex = 0;
-        for (size_t i = 0; i < templateClass->templateParams.size() && i < inst.arguments.size(); ++i) {
-            const auto& param = templateClass->templateParams[i];
+        for (size_t i = 0; i < templateInfo.templateParams.size() && i < inst.arguments.size(); ++i) {
+            const auto& param = templateInfo.templateParams[i];
             const auto& arg = inst.arguments[i];
 
             if (param.kind == Parser::TemplateParameter::Kind::Type) {
@@ -189,11 +289,337 @@ void LLVMBackend::generateTemplateInstantiations() {
         }
 
         // Clone the template class and substitute types
-        auto instantiated = cloneAndSubstituteClassDecl(templateClass, mangledName, typeMap);
+        auto instantiated = cloneAndSubstituteClassDecl(templateClassDecl, mangledName, typeMap);
 
         // Generate code for the instantiated class
         if (instantiated) {
             instantiated->accept(*this);
+        }
+    }
+}
+
+void LLVMBackend::generateFunctionDeclarations(Parser::Program& program) {
+    // Forward declare all user-defined functions to avoid "undefined value" errors
+    // when the main function calls methods before their definitions are emitted
+
+    // Only emit header once (check if any declarations have been made)
+    if (declaredFunctions_.empty()) {
+        emitLine("; ============================================");
+        emitLine("; User-defined function declarations");
+        emitLine("; ============================================");
+    }
+
+    // Helper lambda to process a class and emit declarations for its methods
+    std::function<void(Parser::ClassDecl*, const std::string&)> processClass =
+        [&](Parser::ClassDecl* classDecl, const std::string& namespacePrefix) {
+        if (!classDecl) return;
+
+        // Skip template declarations (only process instantiations)
+        if (!classDecl->templateParams.empty() && classDecl->name.find('<') == std::string::npos) {
+            return;
+        }
+
+        // Build the full class name with namespace
+        std::string fullClassName = namespacePrefix.empty() ?
+            classDecl->name : namespacePrefix + "_" + classDecl->name;
+
+        // Mangle template arguments in class name
+        std::string mangledClassName = fullClassName;
+        size_t pos = 0;
+        while ((pos = mangledClassName.find("::")) != std::string::npos) {
+            mangledClassName.replace(pos, 2, "_");
+        }
+        while ((pos = mangledClassName.find("<")) != std::string::npos) {
+            mangledClassName.replace(pos, 1, "_");
+        }
+        while ((pos = mangledClassName.find(">")) != std::string::npos) {
+            mangledClassName.erase(pos, 1);
+        }
+        while ((pos = mangledClassName.find(",")) != std::string::npos) {
+            mangledClassName.replace(pos, 1, "_");
+        }
+        while ((pos = mangledClassName.find(" ")) != std::string::npos) {
+            mangledClassName.erase(pos, 1);
+        }
+
+        // Process constructors and methods from sections
+        for (const auto& section : classDecl->sections) {
+            if (!section) continue;
+            for (const auto& decl : section->declarations) {
+                // Check for constructors
+                if (auto* ctor = dynamic_cast<Parser::ConstructorDecl*>(decl.get())) {
+                    if (ctor->isDefault) continue;
+
+                    // Build parameter list for declaration
+                    std::stringstream params;
+                    params << "ptr";  // 'this' pointer
+                    for (size_t i = 0; i < ctor->parameters.size(); ++i) {
+                        params << ", ";
+                        std::string paramType = getLLVMType(ctor->parameters[i]->type->typeName);
+                        // void is not valid as a parameter type - use ptr instead
+                        if (paramType == "void") paramType = "ptr";
+                        params << paramType;
+                    }
+
+                    // Mangle constructor name with parameter count
+                    std::string funcName = mangledClassName + "_Constructor_" +
+                        std::to_string(ctor->parameters.size());
+
+                    // Skip if already declared
+                    if (declaredFunctions_.find(funcName) == declaredFunctions_.end()) {
+                        declaredFunctions_.insert(funcName);
+                        emitLine("declare ptr @" + funcName + "(" + params.str() + ")");
+                    }
+                }
+                // Check for methods
+                else if (auto* method = dynamic_cast<Parser::MethodDecl*>(decl.get())) {
+                    // Build parameter list for declaration
+                    std::stringstream params;
+                    params << "ptr";  // 'this' pointer
+                    for (size_t i = 0; i < method->parameters.size(); ++i) {
+                        params << ", ";
+                        std::string paramType = getLLVMType(method->parameters[i]->type->typeName);
+                        // void is not valid as a parameter type - use ptr instead
+                        if (paramType == "void") paramType = "ptr";
+                        params << paramType;
+                    }
+
+                    std::string funcName = mangledClassName + "_" + method->name;
+                    std::string returnType = getLLVMType(method->returnType->typeName);
+
+                    // Skip if already declared
+                    if (declaredFunctions_.find(funcName) == declaredFunctions_.end()) {
+                        declaredFunctions_.insert(funcName);
+                        emitLine("declare " + returnType + " @" + funcName + "(" + params.str() + ")");
+                    }
+                }
+            }
+        }
+    };
+
+    // Helper lambda to process namespace declarations recursively
+    std::function<void(Parser::NamespaceDecl*, const std::string&)> processNamespace =
+        [&](Parser::NamespaceDecl* ns, const std::string& prefix) {
+        if (!ns) return;
+
+        std::string newPrefix = prefix.empty() ? ns->name : prefix + "_" + ns->name;
+
+        for (const auto& decl : ns->declarations) {
+            if (auto* classDecl = dynamic_cast<Parser::ClassDecl*>(decl.get())) {
+                processClass(classDecl, newPrefix);
+            } else if (auto* nestedNs = dynamic_cast<Parser::NamespaceDecl*>(decl.get())) {
+                processNamespace(nestedNs, newPrefix);
+            }
+        }
+    };
+
+    // Process all declarations in the program
+    for (const auto& decl : program.declarations) {
+        if (auto* classDecl = dynamic_cast<Parser::ClassDecl*>(decl.get())) {
+            processClass(classDecl, "");
+        } else if (auto* ns = dynamic_cast<Parser::NamespaceDecl*>(decl.get())) {
+            processNamespace(ns, "");
+        }
+    }
+
+    // NOTE: Template instantiation functions are NOT declared here because
+    // they will be defined by generateTemplateInstantiations().
+    // Only functions that are called but NOT defined in this module need declarations.
+    // Standard library functions like Type_forName are handled by processing imports.
+
+    emitLine("");
+}
+
+void LLVMBackend::generateImportedModuleCode(Parser::Program& program) {
+    // Generate code for imported modules safely by processing classes directly.
+    // This avoids issues with the full visitor pattern by:
+    // 1. Skipping entrypoints (imported modules shouldn't have them)
+    // 2. Properly managing state between class generations
+    // 3. Not relying on the visitor pattern for top-level iteration
+
+
+    emitLine("; ============================================");
+    emitLine("; Imported module code");
+    emitLine("; ============================================");
+
+    // Save current state
+    std::string savedNamespace = currentNamespace_;
+    std::string savedClassName = currentClassName_;
+
+    // Helper to process a namespace (recursively visits nested namespaces and classes)
+    std::function<void(Parser::NamespaceDecl*)> processNamespace;
+    processNamespace = [&](Parser::NamespaceDecl* ns) {
+        if (!ns) {
+            return;
+        }
+
+
+        // Set namespace context
+        std::string previousNamespace = currentNamespace_;
+        if (currentNamespace_.empty()) {
+            currentNamespace_ = ns->name;
+        } else {
+            currentNamespace_ = currentNamespace_ + "::" + ns->name;
+        }
+
+        emitLine(format("; namespace {}", ns->name));
+
+        for (auto& decl : ns->declarations) {
+            if (!decl) {
+                continue;
+            }
+
+            if (auto* classDecl = dynamic_cast<Parser::ClassDecl*>(decl.get())) {
+                // Process class - use the visitor for class declarations
+                // Reset class-specific state before visiting
+                currentClassName_ = "";
+                variables_.clear();
+                try {
+                    classDecl->accept(*this);
+                } catch (const std::exception& e) {
+                    std::cerr << "[ERROR] Exception visiting class " << classDecl->name << ": " << e.what() << "\n";
+                }
+            } else if (auto* nestedNs = dynamic_cast<Parser::NamespaceDecl*>(decl.get())) {
+                // Recursively process nested namespace
+                processNamespace(nestedNs);
+            }
+            // Skip ImportDecl and EntrypointDecl
+        }
+
+        // Restore namespace context
+        currentNamespace_ = previousNamespace;
+    };
+
+    // Process all declarations in the program
+    for (auto& decl : program.declarations) {
+        if (!decl) {
+            continue;
+        }
+
+        if (auto* classDecl = dynamic_cast<Parser::ClassDecl*>(decl.get())) {
+            // Process top-level class
+            currentNamespace_ = "";
+            currentClassName_ = "";
+            variables_.clear();
+            try {
+                classDecl->accept(*this);
+            } catch (const std::exception& e) {
+                std::cerr << "[ERROR] Exception visiting class " << classDecl->name << ": " << e.what() << "\n";
+            }
+        } else if (auto* ns = dynamic_cast<Parser::NamespaceDecl*>(decl.get())) {
+            // Process namespace
+            currentNamespace_ = "";
+            processNamespace(ns);
+        }
+        // Skip ImportDecl and EntrypointDecl
+    }
+
+    // Restore saved state
+    currentNamespace_ = savedNamespace;
+    currentClassName_ = savedClassName;
+
+    emitLine("");
+}
+
+void LLVMBackend::collectReflectionMetadataFromModule(Parser::Program& program) {
+    // Collect reflection metadata from a module WITHOUT generating any code.
+    // This is used for runtime modules (Language::*, System::*, etc.) where we need
+    // reflection info but the actual implementations are provided by the runtime library.
+
+    // Helper to convert OwnershipType to string character
+    auto ownershipToString = [](Parser::OwnershipType ownership) -> std::string {
+        switch (ownership) {
+            case Parser::OwnershipType::Owned: return "^";
+            case Parser::OwnershipType::Reference: return "&";
+            case Parser::OwnershipType::Copy: return "%";
+            case Parser::OwnershipType::None: return "";
+            default: return "";
+        }
+    };
+
+    // Helper to collect metadata from a class
+    auto collectClassMetadata = [&](Parser::ClassDecl* classDecl, const std::string& namespaceName) {
+        if (!classDecl) return;
+
+        ReflectionClassMetadata metadata;
+        metadata.name = classDecl->name;
+        metadata.namespaceName = namespaceName;
+        if (!namespaceName.empty()) {
+            metadata.fullName = namespaceName + "::" + classDecl->name;
+        } else {
+            metadata.fullName = classDecl->name;
+        }
+        metadata.isTemplate = !classDecl->templateParams.empty();
+        for (const auto& param : classDecl->templateParams) {
+            metadata.templateParams.push_back(param.name);
+        }
+        metadata.instanceSize = 0;  // Will be calculated later if needed
+        metadata.astNode = classDecl;
+
+        // Collect properties with ownership
+        for (auto& section : classDecl->sections) {
+            for (auto& decl : section->declarations) {
+                if (auto* prop = dynamic_cast<Parser::PropertyDecl*>(decl.get())) {
+                    metadata.properties.push_back({prop->name, prop->type->typeName});
+                    metadata.propertyOwnerships.push_back(ownershipToString(prop->type->ownership));
+                }
+            }
+        }
+
+        // Collect methods with parameters
+        for (auto& section : classDecl->sections) {
+            for (auto& decl : section->declarations) {
+                if (auto* method = dynamic_cast<Parser::MethodDecl*>(decl.get())) {
+                    metadata.methods.push_back({method->name, method->returnType ? method->returnType->typeName : "None"});
+                    metadata.methodReturnOwnerships.push_back(method->returnType ? ownershipToString(method->returnType->ownership) : "");
+
+                    std::vector<std::tuple<std::string, std::string, std::string>> params;
+                    for (const auto& param : method->parameters) {
+                        params.push_back(std::make_tuple(param->name, param->type->typeName, ownershipToString(param->type->ownership)));
+                    }
+                    metadata.methodParameters.push_back(params);
+                } else if (auto* ctor = dynamic_cast<Parser::ConstructorDecl*>(decl.get())) {
+                    // Constructors are special methods
+                    metadata.methods.push_back({"Constructor", classDecl->name});
+                    metadata.methodReturnOwnerships.push_back("^");
+
+                    std::vector<std::tuple<std::string, std::string, std::string>> params;
+                    for (const auto& param : ctor->parameters) {
+                        params.push_back(std::make_tuple(param->name, param->type->typeName, ownershipToString(param->type->ownership)));
+                    }
+                    metadata.methodParameters.push_back(params);
+                }
+            }
+        }
+
+        // Store metadata (don't overwrite if already exists)
+        if (reflectionMetadata_.find(metadata.fullName) == reflectionMetadata_.end()) {
+            reflectionMetadata_[metadata.fullName] = metadata;
+        }
+    };
+
+    // Recursive helper to process namespaces
+    std::function<void(Parser::NamespaceDecl*, const std::string&)> processNamespace;
+    processNamespace = [&](Parser::NamespaceDecl* ns, const std::string& parentNamespace) {
+        if (!ns) return;
+
+        std::string currentNs = parentNamespace.empty() ? ns->name : (parentNamespace + "::" + ns->name);
+
+        for (auto& decl : ns->declarations) {
+            if (auto* classDecl = dynamic_cast<Parser::ClassDecl*>(decl.get())) {
+                collectClassMetadata(classDecl, currentNs);
+            } else if (auto* nestedNs = dynamic_cast<Parser::NamespaceDecl*>(decl.get())) {
+                processNamespace(nestedNs, currentNs);
+            }
+        }
+    };
+
+    // Process all declarations in the program
+    for (auto& decl : program.declarations) {
+        if (auto* classDecl = dynamic_cast<Parser::ClassDecl*>(decl.get())) {
+            collectClassMetadata(classDecl, "");
+        } else if (auto* ns = dynamic_cast<Parser::NamespaceDecl*>(decl.get())) {
+            processNamespace(ns, "");
         }
     }
 }
@@ -315,6 +741,8 @@ std::string LLVMBackend::generatePreamble() {
     preamble << "declare ptr @Integer_sub(ptr, ptr)\n";
     preamble << "declare ptr @Integer_mul(ptr, ptr)\n";
     preamble << "declare ptr @Integer_div(ptr, ptr)\n";
+    preamble << "declare ptr @Integer_negate(ptr)\n";
+    preamble << "declare ptr @Integer_mod(ptr, ptr)\n";
     preamble << "declare i1 @Integer_eq(ptr, ptr)\n";
     preamble << "declare i1 @Integer_ne(ptr, ptr)\n";
     preamble << "declare i1 @Integer_lt(ptr, ptr)\n";
@@ -362,6 +790,7 @@ std::string LLVMBackend::generatePreamble() {
     preamble << "declare ptr @String_concat(ptr, ptr)\n";
     preamble << "declare ptr @String_append(ptr, ptr)\n";
     preamble << "declare i1 @String_equals(ptr, ptr)\n";
+    preamble << "declare i1 @String_isEmpty(ptr)\n";
     preamble << "declare void @String_destroy(ptr)\n";
     preamble << "\n";
 
@@ -372,6 +801,8 @@ std::string LLVMBackend::generatePreamble() {
     preamble << "declare ptr @Bool_and(ptr, ptr)\n";
     preamble << "declare ptr @Bool_or(ptr, ptr)\n";
     preamble << "declare ptr @Bool_not(ptr)\n";
+    preamble << "declare ptr @Bool_xor(ptr, ptr)\n";
+    preamble << "declare ptr @Bool_toInteger(ptr)\n";
     preamble << "\n";
 
     // None Operations (for void returns)
@@ -489,7 +920,7 @@ void LLVMBackend::emitLine(const std::string& line) {
 
 std::string LLVMBackend::getLLVMType(const std::string& xxmlType) const {
     // Debug: output what we're trying to convert
-    std::cerr << "DEBUG getLLVMType: input type = '" << xxmlType << "'" << std::endl;
+    DEBUG_OUT("DEBUG getLLVMType: input type = '" << xxmlType << "'" << std::endl);
 
     // Handle ptr_to<T> marker (from alloca results)
     if (xxmlType.find("ptr_to<") == 0) {
@@ -546,10 +977,11 @@ std::string LLVMBackend::getLLVMType(const std::string& xxmlType) const {
                 else if (nativeType == "uint32") nativeType = "i32";
                 else if (nativeType == "uint16") nativeType = "i16";
                 else if (nativeType == "uint8") nativeType = "i8";
+                else if (nativeType == "bool") nativeType = "i1";  // bool -> i1
                 else if (nativeType == "cstr") nativeType = "ptr";
                 else if (nativeType == "string_ptr") nativeType = "ptr";
 
-                std::cerr << "DEBUG: Mapped to LLVM type = '" << nativeType << "'" << std::endl;
+                DEBUG_OUT("DEBUG: Mapped to LLVM type = '" << nativeType << "'" << std::endl);
                 return nativeType;  // Return the LLVM type (e.g., "ptr", "i64", "i32")
             }
         }
@@ -849,6 +1281,18 @@ void LLVMBackend::visit(Parser::NamespaceDecl& node) {
 }
 
 void LLVMBackend::visit(Parser::ClassDecl& node) {
+    std::cerr.flush();
+
+    // DEBUG: Track recursion depth
+    static int classDepth = 0;
+    classDepth++;
+    if (classDepth > 50) {
+        std::cerr << "ERROR: ClassDecl recursion depth exceeded 50! Class: " << node.name << "\n";
+        classDepth--;
+        return;
+    }
+    struct ClassDepthGuard { ~ClassDepthGuard() { classDepth--; } } classGuard;
+
     // Skip template declarations (only generate code for instantiations)
     // Template declarations have templateParams but no '<' in name (e.g., "SomeClass<T>")
     // Template instantiations have '<' in name (e.g., "SomeClass<Integer>")
@@ -900,7 +1344,13 @@ void LLVMBackend::visit(Parser::ClassDecl& node) {
 
     // First pass: collect properties from all access sections
     for (auto& section : node.sections) {
+        if (!section) {
+            continue;
+        }
         for (auto& decl : section->declarations) {
+            if (!decl) {
+                continue;
+            }
             if (auto* prop = dynamic_cast<Parser::PropertyDecl*>(decl.get())) {
                 std::string propType = getLLVMType(prop->type->typeName);
                 classInfo.properties.push_back({prop->name, propType});
@@ -931,8 +1381,12 @@ void LLVMBackend::visit(Parser::ClassDecl& node) {
     // Second pass: generate methods and constructors
     bool hasConstructor = false;
     for (auto& section : node.sections) {
+        if (!section) {
+            continue;
+        }
         // Check if this section has a constructor
         for (const auto& decl : section->declarations) {
+            if (!decl) continue;
             if (dynamic_cast<Parser::ConstructorDecl*>(decl.get())) {
                 hasConstructor = true;
                 break;
@@ -940,6 +1394,7 @@ void LLVMBackend::visit(Parser::ClassDecl& node) {
         }
         section->accept(*this);
     }
+
 
     // If no constructor was defined, generate a default one
     if (!hasConstructor) {
@@ -1026,6 +1481,15 @@ void LLVMBackend::visit(Parser::ClassDecl& node) {
 
 void LLVMBackend::visit(Parser::AccessSection& node) {
     for (auto& decl : node.declarations) {
+        if (!decl) {
+            continue;
+        }
+        // Debug: identify which type of declaration
+        if (dynamic_cast<Parser::PropertyDecl*>(decl.get())) {
+        } else if (auto* ctor = dynamic_cast<Parser::ConstructorDecl*>(decl.get())) {
+        } else if (auto* method = dynamic_cast<Parser::MethodDecl*>(decl.get())) {
+        } else {
+        }
         decl->accept(*this);
     }
 }
@@ -1175,27 +1639,36 @@ void LLVMBackend::visit(Parser::DestructorDecl& node) {
 }
 
 void LLVMBackend::visit(Parser::MethodDecl& node) {
+    std::cerr.flush();
+
     // Clear local variables from previous method
     variables_.clear();
+    localAllocas_.clear();  // Clear IR allocas
 
     // Determine function name (qualified if inside a class)
     std::string funcName;
     bool isInstanceMethod = !currentClassName_.empty();  // All class methods are instance methods
+
 
     if (!currentClassName_.empty()) {
         funcName = getQualifiedName(currentClassName_, node.name);
     } else {
         funcName = node.name;
     }
+    std::cerr.flush();
 
     // Build parameter list and collect parameter types for name mangling
     std::stringstream params;
     std::vector<std::string> paramTypes;
+    std::vector<std::pair<std::string, IR::Type*>> irParams;  // For IR function
 
     // Add implicit 'this' parameter for instance methods
     if (isInstanceMethod) {
         params << "ptr %this";
         valueMap_["this"] = "%this";
+        if (builder_) {
+            irParams.push_back({"this", builder_->getPtrTy()});
+        }
     }
 
     for (size_t i = 0; i < node.parameters.size(); ++i) {
@@ -1208,6 +1681,12 @@ void LLVMBackend::visit(Parser::MethodDecl& node) {
         // Store parameter in value map and track its type
         valueMap_[param->name] = "%" + param->name;
         registerTypes_["%" + param->name] = param->type->typeName;
+
+        // Add to IR params
+        if (builder_) {
+            IR::Type* irType = getIRType(param->type->typeName);
+            irParams.push_back({param->name, irType});
+        }
     }
 
     // Mangle constructor names to support overloading
@@ -1216,21 +1695,49 @@ void LLVMBackend::visit(Parser::MethodDecl& node) {
         // Add parameter count suffix: Constructor_0, Constructor_1, Constructor_2, etc.
         std::string suffix = "_" + std::to_string(paramTypes.size());
         funcName += suffix;
-        std::cerr << "DEBUG: Mangling constructor '" << funcName << "' with " << paramTypes.size() << " params" << std::endl;
+        DEBUG_OUT("DEBUG: Mangling constructor '" << funcName << "' with " << paramTypes.size() << " params" << std::endl);
     }
 
     // Generate function definition
-    std::cerr << "DEBUG MethodDecl: method=" << node.name << " returnTypeName='" << node.returnType->typeName << "'" << std::endl;
-    std::string returnType = getLLVMType(node.returnType->typeName);
-    std::cerr << "DEBUG MethodDecl: getLLVMType returned '" << returnType << "'" << std::endl;
+    DEBUG_OUT("DEBUG MethodDecl: method=" << node.name << " returnTypeName='" << node.returnType->typeName << "'" << std::endl);
+    std::string returnTypeName = node.returnType ? node.returnType->typeName : "void";
+    std::string returnType = getLLVMType(returnTypeName);
+    DEBUG_OUT("DEBUG MethodDecl: getLLVMType returned '" << returnType << "'" << std::endl);
     currentFunctionReturnType_ = returnType;  // Track for return statements
+    std::cerr.flush();
 
     emitLine("; Method: " + node.name);
     emitLine("define " + returnType + " @" + funcName + "(" + params.str() + ") #1 {");
     indent();
 
+    // IR generation: Create function
+    // Skip IR infrastructure for now - it's a work-in-progress and causing issues
+    // with imported module code generation. The textual LLVM IR output works correctly.
+    IR::Function* irFunc = nullptr;
+    IR::BasicBlock* entryBlock = nullptr;
+    if (useNewIR_ && builder_ && module_) {
+        IR::Type* irReturnType = getIRType(node.returnType->typeName);
+        irFunc = createIRFunction(funcName, irReturnType, irParams);
+        entryBlock = irFunc->createBasicBlock("entry");
+        builder_->setInsertPoint(entryBlock);
+        currentFunction_ = irFunc;
+        currentBlock_ = entryBlock;
+
+        // Map IR function parameters to irValues_
+        for (size_t i = 0; i < irFunc->getNumArgs(); ++i) {
+            IR::Argument* arg = irFunc->getArg(static_cast<unsigned>(i));
+            if (arg) {
+                irValues_[arg->getName()] = arg;
+            }
+        }
+    }
+
     // Generate body
-    for (auto& stmt : node.body) {
+    for (size_t stmtIdx = 0; stmtIdx < node.body.size(); ++stmtIdx) {
+        auto& stmt = node.body[stmtIdx];
+        if (!stmt) {
+            continue;
+        }
         stmt->accept(*this);
     }
 
@@ -1238,10 +1745,20 @@ void LLVMBackend::visit(Parser::MethodDecl& node) {
     if (node.body.empty() || dynamic_cast<Parser::ReturnStmt*>(node.body.back().get()) == nullptr) {
         if (returnType == "void") {
             emitLine("ret void");
+            if (builder_ && currentBlock_ && !currentBlock_->getTerminator()) {
+                builder_->CreateRetVoid();
+            }
         } else if (returnType == "ptr") {
             emitLine("ret ptr null  ; implicit return");
+            if (builder_ && currentBlock_ && !currentBlock_->getTerminator()) {
+                builder_->CreateRet(builder_->getNullPtr());
+            }
         } else {
             emitLine("ret " + returnType + " 0  ; implicit return");
+            if (builder_ && currentBlock_ && !currentBlock_->getTerminator()) {
+                // Use IRBuilder to create integer constant
+                builder_->CreateRet(builder_->getInt64(0));
+            }
         }
     }
 
@@ -1256,6 +1773,12 @@ void LLVMBackend::visit(Parser::MethodDecl& node) {
     if (isInstanceMethod) {
         valueMap_.erase("this");
     }
+
+    // Clear IR context
+    currentFunction_ = nullptr;
+    currentBlock_ = nullptr;
+    irValues_.clear();
+    localAllocas_.clear();
 }
 
 void LLVMBackend::visit(Parser::ParameterDecl& node) {}
@@ -1267,6 +1790,21 @@ void LLVMBackend::visit(Parser::EntrypointDecl& node) {
     emitLine("define i32 @main() #1 {");
     indent();
 
+    // IR generation: Create main function
+    IR::Function* mainFunc = nullptr;
+    IR::BasicBlock* entryBlock = nullptr;
+    if (builder_ && module_) {
+        // main() takes no parameters and returns i32
+        std::vector<std::pair<std::string, IR::Type*>> emptyParams;
+        mainFunc = createIRFunction("main", builder_->getInt32Ty(), emptyParams);
+        if (mainFunc) {
+            entryBlock = mainFunc->createBasicBlock("entry");
+            builder_->setInsertPoint(entryBlock);
+            currentFunction_ = mainFunc;
+            currentBlock_ = entryBlock;
+        }
+    }
+
     for (auto& stmt : node.body) {
         stmt->accept(*this);
     }
@@ -1274,6 +1812,15 @@ void LLVMBackend::visit(Parser::EntrypointDecl& node) {
     emitLine("ret i32 0");
     dedent();
     emitLine("}");
+
+    // IR generation: Add return if block doesn't have terminator
+    if (builder_ && currentBlock_ && !currentBlock_->getTerminator()) {
+        builder_->CreateRet(builder_->getInt32(0));
+    }
+
+    // Clear IR function context
+    currentFunction_ = nullptr;
+    currentBlock_ = nullptr;
 }
 
 void LLVMBackend::visit(Parser::InstantiateStmt& node) {
@@ -1305,6 +1852,14 @@ void LLVMBackend::visit(Parser::InstantiateStmt& node) {
     std::string varReg = allocateRegister();
     emitLine(varReg + " = alloca " + varType);
 
+    // IR generation: Create alloca instruction
+    IR::AllocaInst* irAlloca = nullptr;
+    if (builder_ && currentBlock_) {
+        IR::Type* irType = getIRType(node.type->typeName);
+        irAlloca = builder_->CreateAlloca(irType, node.variableName);
+        localAllocas_[node.variableName] = irAlloca;
+    }
+
     // Register variable with ownership tracking
     registerVariable(node.variableName, node.type->typeName, varReg, ownership);
 
@@ -1333,8 +1888,29 @@ void LLVMBackend::visit(Parser::InstantiateStmt& node) {
             initValue = "null";
         }
 
+        // FIX: When storing to a Bool variable, check if the initializer is an i1 (from comparison)
+        // If so, wrap it with Bool_Constructor to create a proper Bool object
+        std::string storeType = varType;
+        std::string storeValue = initValue;
+
+        if (node.type->typeName == "Bool" && varType == "ptr") {
+            // Check if initializer is a native boolean (i1) from comparison operations
+            auto initTypeIt = registerTypes_.find(initValue);
+            if (initTypeIt != registerTypes_.end() && initTypeIt->second == "NativeType<\"bool\">") {
+                // Wrap i1 value with Bool_Constructor to create a Bool object
+                std::string boolObjReg = allocateRegister();
+                emitLine(format("{} = call ptr @Bool_Constructor(i1 {})", boolObjReg, initValue));
+                storeValue = boolObjReg;
+            }
+        }
+
         // Store the initialized value (use the actual type from getLLVMType)
-        emitLine("store " + varType + " " + initValue + ", ptr " + varReg);
+        emitLine("store " + storeType + " " + storeValue + ", ptr " + varReg);
+
+        // IR generation: Store initial value to alloca
+        if (builder_ && irAlloca && lastExprValue_) {
+            builder_->CreateStore(lastExprValue_, irAlloca);
+        }
 
         // The type is already tracked from the declaration above
     }
@@ -1522,6 +2098,14 @@ void LLVMBackend::visit(Parser::ForStmt& node) {
 
 void LLVMBackend::visit(Parser::ExitStmt& node) {
     emitLine("call void @exit(i32 0)");
+
+    // IR generation: Generate call to exit
+    if (builder_ && currentBlock_) {
+        // Exit is typically handled as a call to the runtime exit function
+        // For now, generate a return 0 as a placeholder
+        auto* zero = builder_->getInt32(0);
+        builder_->CreateRet(zero);
+    }
 }
 
 void LLVMBackend::visit(Parser::ReturnStmt& node) {
@@ -1537,8 +2121,18 @@ void LLVMBackend::visit(Parser::ReturnStmt& node) {
             // Use the tracked return type from the current function
             emitLine(format("ret {} {}", currentFunctionReturnType_, returnValue));
         }
+
+        // IR generation: Generate return with value
+        if (builder_ && currentBlock_ && lastExprValue_) {
+            builder_->CreateRet(lastExprValue_);
+        }
     } else {
         emitLine("ret void");
+
+        // IR generation: Generate void return
+        if (builder_ && currentBlock_) {
+            builder_->CreateRetVoid();
+        }
     }
 }
 
@@ -1589,6 +2183,49 @@ void LLVMBackend::visit(Parser::IfStmt& node) {
 
     // End label
     emitLine(format("{}:", endLabel));
+
+    // IR generation: Generate if/else using basic blocks
+    if (builder_ && currentFunction_) {
+        IR::Value* condIR = lastExprValue_;
+
+        // Create basic blocks for then, else, and merge
+        IR::BasicBlock* thenBB = currentFunction_->createBasicBlock(thenLabel);
+        IR::BasicBlock* elseBB = currentFunction_->createBasicBlock(elseLabel);
+        IR::BasicBlock* mergeBB = currentFunction_->createBasicBlock(endLabel);
+
+        // Create conditional branch
+        if (condIR) {
+            builder_->CreateCondBr(condIR, thenBB, elseBB);
+        }
+
+        // Generate then block
+        builder_->setInsertPoint(thenBB);
+        currentBlock_ = thenBB;
+        for (auto& stmt : node.thenBranch) {
+            stmt->accept(*this);
+        }
+        // Only add branch if block doesn't already have a terminator
+        if (!thenBB->getTerminator()) {
+            builder_->CreateBr(mergeBB);
+        }
+
+        // Generate else block
+        builder_->setInsertPoint(elseBB);
+        currentBlock_ = elseBB;
+        if (!node.elseBranch.empty()) {
+            for (auto& stmt : node.elseBranch) {
+                stmt->accept(*this);
+            }
+        }
+        // Only add branch if block doesn't already have a terminator
+        if (!elseBB->getTerminator()) {
+            builder_->CreateBr(mergeBB);
+        }
+
+        // Continue with merge block
+        builder_->setInsertPoint(mergeBB);
+        currentBlock_ = mergeBB;
+    }
 }
 
 void LLVMBackend::visit(Parser::WhileStmt& node) {
@@ -1596,15 +2233,34 @@ void LLVMBackend::visit(Parser::WhileStmt& node) {
     std::string bodyLabel = allocateLabel("while_body");
     std::string endLabel = allocateLabel("while_end");
 
+    // IR generation: Create basic blocks for while loop
+    IR::BasicBlock* condBB = nullptr;
+    IR::BasicBlock* bodyBB = nullptr;
+    IR::BasicBlock* endBB = nullptr;
+    if (builder_ && currentFunction_) {
+        condBB = currentFunction_->createBasicBlock(condLabel);
+        bodyBB = currentFunction_->createBasicBlock(bodyLabel);
+        endBB = currentFunction_->createBasicBlock(endLabel);
+    }
+
     // Push loop labels for break/continue
-    loopStack_.push_back({condLabel, endLabel});
+    loopStack_.push_back({condLabel, endLabel, condBB, endBB});
 
     // Jump to condition check
     emitLine(format("br label %{}", condLabel));
+    if (builder_ && condBB) {
+        builder_->CreateBr(condBB);
+    }
 
     // Condition label
     emitLine(format("{}:", condLabel));
     indent();
+
+    // IR: Set insert point to condition block
+    if (builder_ && condBB) {
+        builder_->setInsertPoint(condBB);
+        currentBlock_ = condBB;
+    }
 
     // Evaluate condition
     node.condition->accept(*this);
@@ -1615,9 +2271,21 @@ void LLVMBackend::visit(Parser::WhileStmt& node) {
                         condValue, bodyLabel, endLabel));
     dedent();
 
+    // IR: Create conditional branch
+    if (builder_ && lastExprValue_ && bodyBB && endBB) {
+        builder_->CreateCondBr(lastExprValue_, bodyBB, endBB);
+    }
+
     // Body label
     emitLine(format("{}:", bodyLabel));
     indent();
+
+    // IR: Set insert point to body block
+    if (builder_ && bodyBB) {
+        builder_->setInsertPoint(bodyBB);
+        currentBlock_ = bodyBB;
+    }
+
     for (auto& stmt : node.body) {
         stmt->accept(*this);
     }
@@ -1625,8 +2293,19 @@ void LLVMBackend::visit(Parser::WhileStmt& node) {
     emitLine(format("br label %{}", condLabel));
     dedent();
 
+    // IR: Branch back to condition
+    if (builder_ && bodyBB && condBB && !bodyBB->getTerminator()) {
+        builder_->CreateBr(condBB);
+    }
+
     // End label
     emitLine(format("{}:", endLabel));
+
+    // IR: Set insert point to end block
+    if (builder_ && endBB) {
+        builder_->setInsertPoint(endBB);
+        currentBlock_ = endBB;
+    }
 
     // Pop loop labels
     loopStack_.pop_back();
@@ -1635,6 +2314,11 @@ void LLVMBackend::visit(Parser::WhileStmt& node) {
 void LLVMBackend::visit(Parser::BreakStmt& node) {
     if (!loopStack_.empty()) {
         emitLine(format("br label %{}  ; break", loopStack_.back().endLabel));
+
+        // IR generation: Branch to end block
+        if (builder_ && loopStack_.back().endBlock) {
+            builder_->CreateBr(loopStack_.back().endBlock);
+        }
     } else {
         emitLine("; ERROR: break outside of loop");
     }
@@ -1643,6 +2327,11 @@ void LLVMBackend::visit(Parser::BreakStmt& node) {
 void LLVMBackend::visit(Parser::ContinueStmt& node) {
     if (!loopStack_.empty()) {
         emitLine(format("br label %{}  ; continue", loopStack_.back().condLabel));
+
+        // IR generation: Branch to condition block
+        if (builder_ && loopStack_.back().condBlock) {
+            builder_->CreateBr(loopStack_.back().condBlock);
+        }
     } else {
         emitLine("; ERROR: continue outside of loop");
     }
@@ -1653,6 +2342,11 @@ void LLVMBackend::visit(Parser::IntegerLiteralExpr& node) {
     // Store the result so parent expressions can use it
     std::string reg = format("{}", node.value);
     valueMap_["__last_expr"] = reg;
+
+    // New IR infrastructure
+    if (builder_) {
+        lastExprValue_ = builder_->getInt64(node.value);
+    }
 }
 
 void LLVMBackend::visit(Parser::FloatLiteralExpr& node) {
@@ -1666,6 +2360,11 @@ void LLVMBackend::visit(Parser::FloatLiteralExpr& node) {
     std::ostringstream oss;
     oss << "0x" << std::hex << std::uppercase << std::setfill('0') << std::setw(16) << bits << "f";
     valueMap_["__last_expr"] = oss.str();
+
+    // New IR infrastructure
+    if (builder_) {
+        lastExprValue_ = builder_->getFloat(node.value);
+    }
 }
 
 void LLVMBackend::visit(Parser::DoubleLiteralExpr& node) {
@@ -1673,6 +2372,11 @@ void LLVMBackend::visit(Parser::DoubleLiteralExpr& node) {
     std::ostringstream oss;
     oss << std::scientific << std::setprecision(17) << node.value;
     valueMap_["__last_expr"] = oss.str();
+
+    // New IR infrastructure
+    if (builder_) {
+        lastExprValue_ = builder_->getDouble(node.value);
+    }
 }
 
 void LLVMBackend::visit(Parser::StringLiteralExpr& node) {
@@ -1686,17 +2390,33 @@ void LLVMBackend::visit(Parser::StringLiteralExpr& node) {
     // The reference should be of type ptr, not i64
     std::string reg = format("@.{}", strLabel);
     valueMap_["__last_expr"] = reg;
+
+    // New IR infrastructure - create global string constant
+    if (module_) {
+        lastExprValue_ = module_->getOrCreateStringLiteral(node.value);
+    }
 }
 
 void LLVMBackend::visit(Parser::BoolLiteralExpr& node) {
     // Boolean literals are constants
     std::string reg = format("{}", node.value ? "1" : "0");
     valueMap_["__last_expr"] = reg;
+
+    // New IR infrastructure
+    if (builder_) {
+        lastExprValue_ = builder_->getInt1(node.value);
+    }
 }
 
 void LLVMBackend::visit(Parser::ThisExpr& node) {
     // 'this' pointer in LLVM IR
     valueMap_["__last_expr"] = "%this";
+
+    // New IR infrastructure - get 'this' from function arguments
+    if (currentFunction_ && currentFunction_->getNumArgs() > 0) {
+        // Convention: first argument is 'this' pointer for methods
+        lastExprValue_ = currentFunction_->getArg(0);
+    }
 }
 
 void LLVMBackend::visit(Parser::IdentifierExpr& node) {
@@ -1749,6 +2469,17 @@ void LLVMBackend::visit(Parser::IdentifierExpr& node) {
                     } else {
                         registerTypes_[valueReg] = node.name; // Fallback to property name
                     }
+
+                    // New IR: GEP + Load for property access
+                    if (builder_ && currentFunction_) {
+                        IR::StructType* classTy = getOrCreateClassType(currentClassName_);
+                        if (classTy && currentFunction_->getNumArgs() > 0) {
+                            IR::Value* thisPtr = currentFunction_->getArg(0);
+                            IR::Value* fieldPtr = builder_->CreateStructGEP(classTy, thisPtr, i, node.name + "_ptr");
+                            IR::Type* fieldTy = getIRType(properties[i].second);
+                            lastExprValue_ = builder_->CreateLoad(fieldTy, fieldPtr, node.name);
+                        }
+                    }
                     return;
                 }
             }
@@ -1759,6 +2490,11 @@ void LLVMBackend::visit(Parser::IdentifierExpr& node) {
     } else {
         // No current class context - must be a global identifier
         valueMap_["__last_expr"] = format("@{}", node.name);
+    }
+
+    // New IR infrastructure: try to get value using helper
+    if (builder_) {
+        lastExprValue_ = getIRValue(node.name);
     }
 }
 
@@ -1956,6 +2692,17 @@ void LLVMBackend::visit(Parser::MemberAccessExpr& node) {
 }
 
 void LLVMBackend::visit(Parser::CallExpr& node) {
+    // DEBUG: Track recursion depth
+    static int callExprDepth = 0;
+    callExprDepth++;
+    if (callExprDepth > 100) {
+        std::cerr << "ERROR: CallExpr recursion depth exceeded 100! Breaking infinite loop.\n";
+        callExprDepth--;
+        valueMap_["__last_expr"] = "null";
+        return;
+    }
+    struct DepthGuard { ~DepthGuard() { callExprDepth--; } } guard;
+
     // Extract function name from callee
     std::string functionName;
     std::string instanceRegister;  // For instance method calls
@@ -2466,12 +3213,19 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
 
     // Map Integer XXML methods to runtime function names
     if (functionName.find("Integer_") == 0) {
+        // Comparison operations
         if (functionName == "Integer_lessThan") functionName = "Integer_lt";
         else if (functionName == "Integer_lessThanOrEqual") functionName = "Integer_le";
         else if (functionName == "Integer_greaterThan") functionName = "Integer_gt";
         else if (functionName == "Integer_greaterThanOrEqual") functionName = "Integer_ge";
         else if (functionName == "Integer_equals") functionName = "Integer_eq";
         else if (functionName == "Integer_notEquals") functionName = "Integer_ne";
+        // Arithmetic operations
+        else if (functionName == "Integer_subtract") functionName = "Integer_sub";
+        else if (functionName == "Integer_multiply") functionName = "Integer_mul";
+        else if (functionName == "Integer_divide") functionName = "Integer_div";
+        else if (functionName == "Integer_lessOrEqual") functionName = "Integer_le";
+        else if (functionName == "Integer_greaterOrEqual") functionName = "Integer_ge";
     }
 
     // CRITICAL FIX: Detect constructor calls and allocate memory with malloc
@@ -2620,13 +3374,15 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
                             // Find template parameter name from base template
                             const auto& templateClasses = semanticAnalyzer_->getTemplateClasses();
                             auto templateIt = templateClasses.find(baseTemplate);
-                            if (templateIt != templateClasses.end() && !templateIt->second->templateParams.empty()) {
+                            // ✅ SAFE: Access TemplateClassInfo struct (copied data)
+                            if (templateIt != templateClasses.end() && !templateIt->second.templateParams.empty()) {
                                 // For now, assume single template parameter (T)
-                                std::string templateParam = templateIt->second->templateParams[0].name;
+                                std::string templateParam = templateIt->second.templateParams[0].name;
 
                                 // Replace all occurrences of T with the concrete type
+                                // FIX: Pass pos to find() to continue from current position
                                 size_t pos = 0;
-                                while ((pos = returnType.find(templateParam)) != std::string::npos) {
+                                while ((pos = returnType.find(templateParam, pos)) != std::string::npos) {
                                     // Only replace if it's a standalone identifier (not part of another word)
                                     bool isBoundary = (pos == 0 || !std::isalnum(returnType[pos - 1])) &&
                                                      (pos + templateParam.length() >= returnType.length() ||
@@ -2895,8 +3651,18 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
                 std::string className = functionName.substr(0, underscorePos);
                 std::string methodName = functionName.substr(underscorePos + 1);
 
+                // Special handling for comparison methods that return i1 (native bool)
+                if (methodName == "eq" || methodName == "ne" || methodName == "lt" ||
+                    methodName == "le" || methodName == "gt" || methodName == "ge" ||
+                    methodName == "equals" || methodName == "lessThan" ||
+                    methodName == "lessThanOrEqual" || methodName == "greaterThan" ||
+                    methodName == "greaterThanOrEqual" || methodName == "notEquals" ||
+                    methodName == "isEmpty" ||
+                    (methodName == "getValue" && className == "Bool")) {
+                    returnType = "NativeType<\"bool\">";
+                }
                 // Special handling for collection methods that return element types
-                if (isInstanceMethod && (methodName == "get" || methodName == "pop")) {
+                else if (isInstanceMethod && (methodName == "get" || methodName == "pop")) {
                     // For List<T>::get() or similar, return type is T (element type)
                     auto typeIt = registerTypes_.find(instanceRegister);
                     if (typeIt != registerTypes_.end()) {
@@ -2975,16 +3741,16 @@ void LLVMBackend::visit(Parser::BinaryExpr& node) {
     auto leftRegType = registerTypes_.find(leftValue);
     if (leftRegType != registerTypes_.end()) {
         leftType = getLLVMType(leftRegType->second);
-        std::cout << "DEBUG BinaryExpr: leftValue=" << leftValue << " has type=" << leftRegType->second << " -> LLVM type=" << leftType << "\n";
+        DEBUG_OUT("DEBUG BinaryExpr: leftValue=" << leftValue << " has type=" << leftRegType->second << " -> LLVM type=" << leftType << "\n");
     } else {
-        std::cout << "DEBUG BinaryExpr: leftValue=" << leftValue << " NOT FOUND in registerTypes_\n";
+        DEBUG_OUT("DEBUG BinaryExpr: leftValue=" << leftValue << " NOT FOUND in registerTypes_\n");
     }
     auto rightRegType = registerTypes_.find(rightValue);
     if (rightRegType != registerTypes_.end()) {
         rightType = getLLVMType(rightRegType->second);
-        std::cout << "DEBUG BinaryExpr: rightValue=" << rightValue << " has type=" << rightRegType->second << " -> LLVM type=" << rightType << "\n";
+        DEBUG_OUT("DEBUG BinaryExpr: rightValue=" << rightValue << " has type=" << rightRegType->second << " -> LLVM type=" << rightType << "\n");
     } else {
-        std::cout << "DEBUG BinaryExpr: rightValue=" << rightValue << " NOT FOUND in registerTypes_\n";
+        DEBUG_OUT("DEBUG BinaryExpr: rightValue=" << rightValue << " NOT FOUND in registerTypes_\n");
     }
 
     // Handle pointer arithmetic: ptr + i64 or i64 + ptr
@@ -3052,25 +3818,25 @@ void LLVMBackend::visit(Parser::BinaryExpr& node) {
         // Normal arithmetic or comparison - use the determined types
         // Determine the operation type (prefer floating-point if either operand is float/double)
         std::string opType = "i64";
-        std::cout << "DEBUG BinaryExpr: leftType='" << leftType << "' rightType='" << rightType << "'\n";
+        DEBUG_OUT("DEBUG BinaryExpr: leftType='" << leftType << "' rightType='" << rightType << "'\n");
         if (leftType == "double" || rightType == "double") {
             opType = "double";
-            std::cout << "DEBUG BinaryExpr: Setting opType to double\n";
+            DEBUG_OUT("DEBUG BinaryExpr: Setting opType to double\n");
         } else if (leftType == "float" || rightType == "float") {
             opType = "float";
-            std::cout << "DEBUG BinaryExpr: Setting opType to float\n";
+            DEBUG_OUT("DEBUG BinaryExpr: Setting opType to float\n");
         } else if (leftType == "i64" || rightType == "i64") {
             opType = "i64";
-            std::cout << "DEBUG BinaryExpr: Setting opType to i64\n";
+            DEBUG_OUT("DEBUG BinaryExpr: Setting opType to i64\n");
         } else if (leftType == "i32" || rightType == "i32") {
             opType = "i32";
-            std::cout << "DEBUG BinaryExpr: Setting opType to i32\n";
+            DEBUG_OUT("DEBUG BinaryExpr: Setting opType to i32\n");
         }
-        std::cout << "DEBUG BinaryExpr: Final opType='" << opType << "' for op='" << node.op << "'\n";
+        DEBUG_OUT("DEBUG BinaryExpr: Final opType='" << opType << "' for op='" << node.op << "'\n");
 
         std::string resultReg = allocateRegister();
         std::string opCode = generateBinaryOp(node.op, leftValue, rightValue, opType);
-        std::cout << "DEBUG BinaryExpr: Generated opCode='" << opCode << "'\n";
+        DEBUG_OUT("DEBUG BinaryExpr: Generated opCode='" << opCode << "'\n");
         emitLine(format("{} = {}", resultReg, opCode));
         valueMap_["__last_expr"] = resultReg;
 
@@ -3088,6 +3854,56 @@ void LLVMBackend::visit(Parser::BinaryExpr& node) {
             }
         }
     }
+
+    // New IR infrastructure: generate binary operations using IRBuilder
+    if (builder_) {
+        // Re-visit operands to get IR values
+        node.left->accept(*this);
+        IR::Value* leftIR = lastExprValue_;
+        node.right->accept(*this);
+        IR::Value* rightIR = lastExprValue_;
+
+        if (leftIR && rightIR) {
+            // Generate appropriate binary operation
+            if (node.op == "+") {
+                lastExprValue_ = builder_->CreateAdd(leftIR, rightIR, "add");
+            } else if (node.op == "-") {
+                lastExprValue_ = builder_->CreateSub(leftIR, rightIR, "sub");
+            } else if (node.op == "*") {
+                lastExprValue_ = builder_->CreateMul(leftIR, rightIR, "mul");
+            } else if (node.op == "/") {
+                lastExprValue_ = builder_->CreateSDiv(leftIR, rightIR, "div");
+            } else if (node.op == "%") {
+                lastExprValue_ = builder_->CreateSRem(leftIR, rightIR, "rem");
+            } else if (node.op == "==") {
+                lastExprValue_ = builder_->CreateICmpEQ(leftIR, rightIR, "eq");
+            } else if (node.op == "!=") {
+                lastExprValue_ = builder_->CreateICmpNE(leftIR, rightIR, "ne");
+            } else if (node.op == "<") {
+                lastExprValue_ = builder_->CreateICmpSLT(leftIR, rightIR, "lt");
+            } else if (node.op == "<=") {
+                lastExprValue_ = builder_->CreateICmpSLE(leftIR, rightIR, "le");
+            } else if (node.op == ">") {
+                lastExprValue_ = builder_->CreateICmpSGT(leftIR, rightIR, "gt");
+            } else if (node.op == ">=") {
+                lastExprValue_ = builder_->CreateICmpSGE(leftIR, rightIR, "ge");
+            } else if (node.op == "&&") {
+                lastExprValue_ = builder_->CreateAnd(leftIR, rightIR, "and");
+            } else if (node.op == "||") {
+                lastExprValue_ = builder_->CreateOr(leftIR, rightIR, "or");
+            } else if (node.op == "&") {
+                lastExprValue_ = builder_->CreateAnd(leftIR, rightIR, "bitand");
+            } else if (node.op == "|") {
+                lastExprValue_ = builder_->CreateOr(leftIR, rightIR, "bitor");
+            } else if (node.op == "^") {
+                lastExprValue_ = builder_->CreateXor(leftIR, rightIR, "xor");
+            } else if (node.op == "<<") {
+                lastExprValue_ = builder_->CreateShl(leftIR, rightIR, "shl");
+            } else if (node.op == ">>") {
+                lastExprValue_ = builder_->CreateAShr(leftIR, rightIR, "shr");
+            }
+        }
+    }
 }
 
 void LLVMBackend::visit(Parser::TypeRef& node) {
@@ -3100,6 +3916,9 @@ void LLVMBackend::visit(Parser::AssignmentStmt& node) {
     node.value->accept(*this);
     std::string valueReg = valueMap_["__last_expr"];
 
+    // Capture IR value from expression
+    IR::Value* valueIR = lastExprValue_;
+
     // Handle different types of lvalue expressions
     if (auto* identExpr = dynamic_cast<Parser::IdentifierExpr*>(node.target.get())) {
         // Simple variable assignment: Set x = value;
@@ -3109,9 +3928,25 @@ void LLVMBackend::visit(Parser::AssignmentStmt& node) {
         if (targetIt != variables_.end()) {
             // Store the value to the variable's memory location
             emitLine("store i64 " + valueReg + ", ptr " + targetIt->second.llvmRegister);
+
+            // IR generation: Store to local alloca
+            if (builder_ && valueIR) {
+                auto allocaIt = localAllocas_.find(varName);
+                if (allocaIt != localAllocas_.end()) {
+                    builder_->CreateStore(valueIR, allocaIt->second);
+                }
+            }
         } else if (valueMap_.find(varName) != valueMap_.end()) {
             // Fallback for variables not in ownership tracking
             emitLine("store i64 " + valueReg + ", ptr " + valueMap_[varName]);
+
+            // IR generation: Store to local alloca
+            if (builder_ && valueIR) {
+                auto allocaIt = localAllocas_.find(varName);
+                if (allocaIt != localAllocas_.end()) {
+                    builder_->CreateStore(valueIR, allocaIt->second);
+                }
+            }
         } else if (!currentClassName_.empty()) {
             // Check if it's a class property (implicit this.propertyName)
             auto classIt = classes_.find(currentClassName_);
@@ -3987,6 +4822,152 @@ void LLVMBackend::generateReflectionMetadata() {
     emitLine("  { i32, ptr, ptr } { i32 65535, ptr @__reflection_init, ptr null }");
     emitLine("]");
     emitLine("");
+}
+
+// ============================================================================
+// IR Infrastructure Helper Methods
+// ============================================================================
+
+IR::Type* LLVMBackend::getIRType(const std::string& xxmlType) {
+    if (!module_) return nullptr;
+    auto& ctx = module_->getContext();
+
+    // Handle primitive types
+    if (xxmlType == "Integer" || xxmlType == "i64" || xxmlType == "Int64") {
+        return ctx.getInt64Ty();
+    }
+    if (xxmlType == "Int32" || xxmlType == "i32") {
+        return ctx.getInt32Ty();
+    }
+    if (xxmlType == "Int16" || xxmlType == "i16") {
+        return ctx.getInt16Ty();
+    }
+    if (xxmlType == "Int8" || xxmlType == "i8" || xxmlType == "Byte") {
+        return ctx.getInt8Ty();
+    }
+    if (xxmlType == "Bool" || xxmlType == "Boolean" || xxmlType == "i1") {
+        return ctx.getInt1Ty();
+    }
+    if (xxmlType == "Float" || xxmlType == "f32") {
+        return ctx.getFloatTy();
+    }
+    if (xxmlType == "Double" || xxmlType == "f64") {
+        return ctx.getDoubleTy();
+    }
+    if (xxmlType == "Void" || xxmlType == "void") {
+        return ctx.getVoidTy();
+    }
+
+    // For pointer types (String, object references, etc.)
+    if (xxmlType == "String" || xxmlType == "ptr") {
+        return ctx.getPtrTy();
+    }
+
+    // For class types, return a pointer (objects are heap-allocated)
+    return ctx.getPtrTy();
+}
+
+IR::StructType* LLVMBackend::getOrCreateClassType(const std::string& className) {
+    if (!module_) return nullptr;
+    auto& ctx = module_->getContext();
+
+    // Check if already exists
+    IR::StructType* existing = ctx.getNamedStructTy(className);
+    if (existing) {
+        return existing;
+    }
+
+    // Create new named struct
+    IR::StructType* structTy = ctx.createStructTy("class." + className);
+
+    // Look up class info
+    auto it = classes_.find(className);
+    if (it != classes_.end()) {
+        std::vector<IR::Type*> fieldTypes;
+        for (const auto& [propName, propType] : it->second.properties) {
+            fieldTypes.push_back(getIRType(propType));
+        }
+        if (!fieldTypes.empty()) {
+            structTy->setBody(fieldTypes);
+        }
+    }
+
+    return structTy;
+}
+
+IR::Function* LLVMBackend::createIRFunction(
+    const std::string& name,
+    IR::Type* returnType,
+    const std::vector<std::pair<std::string, IR::Type*>>& params) {
+
+    if (!module_) return nullptr;
+    auto& ctx = module_->getContext();
+
+    // Build parameter types
+    std::vector<IR::Type*> paramTypes;
+    for (const auto& [paramName, paramType] : params) {
+        paramTypes.push_back(paramType);
+    }
+
+    // Create function type
+    IR::FunctionType* funcTy = ctx.getFunctionTy(returnType, paramTypes);
+
+    // Create function
+    IR::Function* func = module_->createFunction(funcTy, name);
+
+    // Set parameter names
+    for (size_t i = 0; i < params.size(); ++i) {
+        func->getArg(i)->setName(params[i].first);
+    }
+
+    return func;
+}
+
+IR::Value* LLVMBackend::generateExprIR(Parser::Expression* expr) {
+    // For now, just visit the expression and return the last value
+    // This will be expanded as we convert each visitor
+    if (!expr) return nullptr;
+
+    // Visit the expression (which should set up irValues_)
+    expr->accept(*this);
+
+    // Return the value for this expression if it was stored
+    // For now, return nullptr - this will be implemented per visitor
+    return nullptr;
+}
+
+void LLVMBackend::generateStmtIR(Parser::Statement* stmt) {
+    if (!stmt) return;
+    stmt->accept(*this);
+}
+
+IR::Value* LLVMBackend::getIRValue(const std::string& name) {
+    // Check if we have this value
+    auto it = irValues_.find(name);
+    if (it != irValues_.end()) {
+        return it->second;
+    }
+
+    // Check if it's a local variable that needs loading
+    auto allocaIt = localAllocas_.find(name);
+    if (allocaIt != localAllocas_.end() && builder_) {
+        return builder_->CreateLoad(allocaIt->second->getAllocatedType(),
+                                    allocaIt->second, name);
+    }
+
+    return nullptr;
+}
+
+void LLVMBackend::storeIRValue(const std::string& name, IR::Value* value) {
+    // Check if it's a local variable
+    auto allocaIt = localAllocas_.find(name);
+    if (allocaIt != localAllocas_.end() && builder_) {
+        builder_->CreateStore(value, allocaIt->second);
+        return;
+    }
+
+    // Otherwise just track the value
+    irValues_[name] = value;
 }
 
 } // namespace XXML::Backends

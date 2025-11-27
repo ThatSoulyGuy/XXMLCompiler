@@ -2,12 +2,12 @@
 
 ## Overview
 
-The XXML compiler is a multi-stage transpiler that converts XXML source code to C++. It follows a traditional compiler architecture with distinct phases.
+The XXML compiler is a multi-stage compiler that converts XXML source code to native executables via LLVM IR. It follows a traditional compiler architecture with distinct phases.
 
 ## Compilation Pipeline
 
 ```
-Source Code (.xxml)
+Source Code (.XXML)
        ↓
    [Lexer] ← Error Reporter
        ↓
@@ -21,14 +21,43 @@ Source Code (.xxml)
        ↓
   Validated AST
        ↓
-[Code Generator] ← Error Reporter
+[LLVM Backend] ← Error Reporter
        ↓
-  C++ Code (.cpp)
+  LLVM IR (.ll)
        ↓
-[C++ Compiler]
+[Clang/LLVM]
        ↓
-  Executable
+  Object Code (.obj)
+       ↓
+[Platform Linker] + Runtime Library
+       ↓
+  Native Executable
 ```
+
+## LLVM Backend Architecture
+
+The LLVM backend (`src/Backends/LLVMBackend.cpp`) generates LLVM IR from the validated AST:
+
+### IR Infrastructure (`include/Backends/IR/`)
+
+The compiler includes a custom LLVM-style IR infrastructure:
+
+- **Types** (`Types.h`) - Type system (VoidType, IntegerType, PointerType, StructType, etc.)
+- **Values** (`Values.h`) - Value hierarchy (Constant, GlobalVariable, Function, Argument)
+- **Instructions** (`Instructions.h`) - All IR instructions (Load, Store, Call, Branch, etc.)
+- **BasicBlock** (`Function.h`) - Basic blocks with terminators
+- **Function** (`Function.h`) - Functions with arguments and basic blocks
+- **Module** (`Module.h`) - Top-level container
+- **IRBuilder** (`IRBuilder.h`) - Type-safe instruction construction
+- **Emitter** (`Emitter.h`) - LLVM IR text generation
+
+### Runtime Integration
+
+Compiled programs link against `libXXMLLLVMRuntime`:
+- Memory management (`xxml_malloc`, `xxml_free`)
+- Core types (Integer, String, Bool, Float, Double)
+- Console I/O (`Console_printLine`, etc.)
+- Reflection runtime for type introspection
 
 ## Phase 1: Lexical Analysis
 

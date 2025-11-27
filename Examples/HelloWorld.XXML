@@ -1,5 +1,6 @@
 // Simple hello world test
+#import Language::System;
 
 [ Entrypoint {
-	Run System::PrintLine(String::Constructor("Hello world!"));
+	Run System::Console::printLine(String::Constructor("Hello world!"));
 }]

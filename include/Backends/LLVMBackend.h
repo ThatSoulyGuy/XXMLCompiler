@@ -2,9 +2,11 @@
 
 #include "../Core/IBackend.h"
 #include "../Parser/AST.h"
+#include "IR/IR.h"  // New IR infrastructure
 #include <sstream>
 #include <unordered_map>
 #include <set>
+#include <memory>
 
 namespace XXML {
 
@@ -49,6 +51,16 @@ public:
     void setSemanticAnalyzer(Semantic::SemanticAnalyzer* analyzer) {
         semanticAnalyzer_ = analyzer;
     }
+
+    // Set imported modules for code generation
+    // These modules' classes will have their code generated before the main program
+    void setImportedModules(const std::vector<Parser::Program*>& modules) {
+        importedModules_ = modules;
+    }
+
+    // Collect reflection metadata from a module without generating code
+    // This is needed for runtime modules where we want reflection info but not code
+    void collectReflectionMetadataFromModule(Parser::Program& program);
 
     std::string generate(Parser::Program& program) override;
     std::string generateHeader(Parser::Program& program) override;
@@ -115,6 +127,25 @@ public:
     void visit(Parser::TypeRef& node) override;
 
 private:
+    // === New IR Infrastructure ===
+    std::unique_ptr<IR::Module> module_;           // IR Module being built
+    std::unique_ptr<IR::IRBuilder> builder_;       // IR instruction builder
+    IR::Function* currentFunction_ = nullptr;      // Current function being generated
+    IR::BasicBlock* currentBlock_ = nullptr;       // Current basic block
+
+    // Value tracking: XXML variable name -> IR Value
+    std::unordered_map<std::string, IR::Value*> irValues_;
+
+    // Alloca tracking for local variables (name -> alloca instruction)
+    std::unordered_map<std::string, IR::AllocaInst*> localAllocas_;
+
+    // Expression result tracking (set by expression visitors, consumed by statement visitors)
+    IR::Value* lastExprValue_ = nullptr;
+
+    // Flag to determine whether to use new IR or legacy string generation
+    bool useNewIR_ = false;  // Set to true when ready to switch
+
+    // === Legacy members (being phased out) ===
     std::stringstream output_;
     std::unordered_map<std::string, std::string> valueMap_;  // XXML var -> LLVM register
     std::unordered_map<std::string, std::string> registerTypes_;  // LLVM register -> type name
@@ -123,6 +154,12 @@ private:
 
     // Semantic analyzer for template instantiation
     Semantic::SemanticAnalyzer* semanticAnalyzer_ = nullptr;
+
+    // Imported modules for code generation
+    std::vector<Parser::Program*> importedModules_;
+
+    // Track declared functions to avoid duplicates
+    std::set<std::string> declaredFunctions_;
 
     // Target platform support
     enum class TargetPlatform {
@@ -140,6 +177,9 @@ private:
     struct LoopLabels {
         std::string condLabel;
         std::string endLabel;
+        // IR basic blocks for break/continue
+        IR::BasicBlock* condBlock = nullptr;
+        IR::BasicBlock* endBlock = nullptr;
     };
     std::vector<LoopLabels> loopStack_;
 
@@ -210,6 +250,12 @@ private:
 
     /// Template instantiation (monomorphization)
     void generateTemplateInstantiations();
+
+    /// Forward declare all user-defined functions before code generation
+    void generateFunctionDeclarations(Parser::Program& program);
+
+    /// Generate code for imported modules (safely processes classes without entrypoints)
+    void generateImportedModuleCode(Parser::Program& program);
     std::unique_ptr<Parser::ClassDecl> cloneAndSubstituteClassDecl(
         Parser::ClassDecl* original,
         const std::string& newName,
@@ -240,6 +286,30 @@ private:
 
     /// Calculate size in bytes for a given class
     size_t calculateClassSize(const std::string& className) const;
+
+    // === IR Infrastructure Helpers ===
+
+    /// Convert XXML type to IR Type
+    IR::Type* getIRType(const std::string& xxmlType);
+
+    /// Get or create IR struct type for a class
+    IR::StructType* getOrCreateClassType(const std::string& className);
+
+    /// Create function in IR module
+    IR::Function* createIRFunction(const std::string& name, IR::Type* returnType,
+                                   const std::vector<std::pair<std::string, IR::Type*>>& params);
+
+    /// Generate IR for an expression, returning the IR Value
+    IR::Value* generateExprIR(Parser::Expression* expr);
+
+    /// Generate IR for a statement
+    void generateStmtIR(Parser::Statement* stmt);
+
+    /// Get IR value for a variable (load if needed)
+    IR::Value* getIRValue(const std::string& name);
+
+    /// Store IR value to a variable
+    void storeIRValue(const std::string& name, IR::Value* value);
 
     /// Reflection metadata generation
     void generateReflectionMetadata();

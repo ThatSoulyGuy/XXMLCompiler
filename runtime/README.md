@@ -1,12 +1,36 @@
 # XXML Runtime Library
 
-This directory contains the complete XXML standard library implementation.
+This directory contains the complete XXML runtime library implementation.
 
 The library is implemented in two layers:
-1. **C++ Runtime** (`xxml_runtime.h`) - High-performance core implementations
+1. **LLVM Runtime** (`xxml_llvm_runtime.c/h`) - C runtime for LLVM IR generated code
 2. **XXML Library Files** (`Language/`) - XXML interface definitions and wrappers
 
-## C++ Runtime (`xxml_runtime.h`)
+## LLVM Runtime (`xxml_llvm_runtime.c/h`)
+
+The LLVM runtime provides the C functions that are called by compiled XXML programs:
+
+### Memory Management
+- `xxml_malloc`, `xxml_free` - Memory allocation
+- `xxml_memcpy`, `xxml_memset` - Memory operations
+- `xxml_ptr_read`, `xxml_ptr_write` - Pointer operations
+
+### Core Types
+- **Integer** - 64-bit signed integers with full arithmetic and comparison
+- **Float/Double** - Floating point types
+- **String** - Dynamic strings with all standard operations
+- **Bool** - Boolean with logical operations (`and`, `or`, `not`, `xor`, `toInteger`)
+
+### Console I/O
+- `Console_print`, `Console_printLine` - Output operations
+- `Console_printInt`, `Console_printBool` - Type-specific output
+
+### Reflection Runtime (`xxml_reflection_runtime.c/h`)
+- Type metadata registration and lookup
+- Property and method introspection
+- Instance size calculation
+
+## Legacy C++ Runtime (`xxml_runtime.h`)
 
 The C++ runtime provides optimized implementations for all standard library features:
 

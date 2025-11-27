@@ -297,10 +297,11 @@ int main(int argc, char* argv[]) {
         }
 
         // Collect template classes
-        std::unordered_map<std::string, XXML::Parser::ClassDecl*> allTemplateClasses;
+        // ✅ SAFE: Use TemplateClassInfo instead of raw ClassDecl pointers
+        std::unordered_map<std::string, XXML::Semantic::SemanticAnalyzer::TemplateClassInfo> allTemplateClasses;
         for (const auto& [moduleName, analyzer] : analyzerMap) {
-            for (const auto& [name, classDecl] : analyzer->getTemplateClasses()) {
-                allTemplateClasses[name] = classDecl;
+            for (const auto& [name, templateInfo] : analyzer->getTemplateClasses()) {
+                allTemplateClasses[name] = templateInfo;
             }
         }
 
@@ -312,8 +313,8 @@ int main(int argc, char* argv[]) {
                 auto validator = std::make_unique<XXML::Semantic::SemanticAnalyzer>(compilationContext, errorReporter);
                 validator->setValidationEnabled(true);
                 validator->setModuleName(moduleName);
-                for (const auto& [name, classDecl] : allTemplateClasses) {
-                    validator->registerTemplateClass(name, classDecl);
+                for (const auto& [name, templateInfo] : allTemplateClasses) {
+                    validator->registerTemplateClass(name, templateInfo);
                 }
                 validator->analyze(*it->second->ast);
                 if (errorReporter.hasErrors()) {
@@ -328,8 +329,8 @@ int main(int argc, char* argv[]) {
         mainAnalyzer = std::make_unique<XXML::Semantic::SemanticAnalyzer>(compilationContext, errorReporter);
         mainAnalyzer->setValidationEnabled(true);
         mainAnalyzer->setModuleName("__main__");
-        for (const auto& [name, classDecl] : allTemplateClasses) {
-            mainAnalyzer->registerTemplateClass(name, classDecl);
+        for (const auto& [name, templateInfo] : allTemplateClasses) {
+            mainAnalyzer->registerTemplateClass(name, templateInfo);
         }
         mainAnalyzer->analyze(*mainModule->ast);
         if (errorReporter.hasErrors()) {
@@ -339,8 +340,8 @@ int main(int argc, char* argv[]) {
 
         // Merge template info
         for (const auto& [moduleName, analyzer] : analyzerMap) {
-            for (const auto& [name, classDecl] : analyzer->getTemplateClasses()) {
-                mainAnalyzer->registerTemplateClass(name, classDecl);
+            for (const auto& [name, templateInfo] : analyzer->getTemplateClasses()) {
+                mainAnalyzer->registerTemplateClass(name, templateInfo);
             }
             for (const auto& inst : analyzer->getTemplateInstantiations()) {
                 mainAnalyzer->mergeTemplateInstantiation(inst);
@@ -351,8 +352,21 @@ int main(int argc, char* argv[]) {
         std::cout << "Generating LLVM IR...\n";
         auto* backend = compilationContext.getActiveBackend();
         auto* llvmBackend = dynamic_cast<XXML::Backends::LLVMBackend*>(backend);
-        if (llvmBackend && mainAnalyzer) {
-            llvmBackend->setSemanticAnalyzer(mainAnalyzer.get());
+        if (llvmBackend) {
+            if (mainAnalyzer) {
+                llvmBackend->setSemanticAnalyzer(mainAnalyzer.get());
+            }
+
+            // Pass imported modules to backend for code generation
+            // This ensures standard library classes are included in the output
+            std::vector<XXML::Parser::Program*> importedASTs;
+            for (const auto& moduleName : compilationOrder) {
+                auto it = moduleMap.find(moduleName);
+                if (it != moduleMap.end() && it->second != mainModule.get() && it->second->ast) {
+                    importedASTs.push_back(it->second->ast.get());
+                }
+            }
+            llvmBackend->setImportedModules(importedASTs);
         }
 
         std::string llvmIR = backend->generate(*mainModule->ast);

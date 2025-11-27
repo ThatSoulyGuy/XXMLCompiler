@@ -92,6 +92,23 @@ void* Integer_div(void* self, void* other) {
     return Integer_Constructor(result);
 }
 
+void* Integer_negate(void* self) {
+    if (!self) return NULL;
+    int64_t result = -((Integer*)self)->value;
+    return Integer_Constructor(result);
+}
+
+void* Integer_mod(void* self, void* other) {
+    if (!self || !other) return NULL;
+    int64_t otherVal = ((Integer*)other)->value;
+    if (otherVal == 0) {
+        fprintf(stderr, "Error: Modulo by zero\n");
+        exit(1);
+    }
+    int64_t result = ((Integer*)self)->value % otherVal;
+    return Integer_Constructor(result);
+}
+
 // Assignment operations (modify in place)
 void* Integer_addAssign(void* self, void* other) {
     if (!self || !other) return NULL;
@@ -218,6 +235,11 @@ size_t String_length(void* self) {
     return ((String*)self)->length;
 }
 
+bool String_isEmpty(void* self) {
+    if (!self) return true;
+    return ((String*)self)->length == 0;
+}
+
 void* String_concat(void* self, void* other) {
     if (!self || !other) return NULL;
 
@@ -305,6 +327,18 @@ void* Bool_not(void* self) {
     if (!self) return Bool_Constructor(true);
     bool result = !((Bool*)self)->value;
     return Bool_Constructor(result);
+}
+
+void* Bool_xor(void* self, void* other) {
+    if (!self || !other) return Bool_Constructor(false);
+    bool result = ((Bool*)self)->value != ((Bool*)other)->value;
+    return Bool_Constructor(result);
+}
+
+void* Bool_toInteger(void* self) {
+    if (!self) return Integer_Constructor(0);
+    int64_t result = ((Bool*)self)->value ? 1 : 0;
+    return Integer_Constructor(result);
 }
 
 // ============================================
@@ -715,3 +749,181 @@ int64_t Syscall_reflection_parameter_getOwnership(void* paramInfo) {
     ReflectionParameterInfo* info = (ReflectionParameterInfo*)paramInfo;
     return info ? info->ownership : 0;
 }
+
+// ============================================
+// Language::Reflection Module Implementation
+// These are the XXML class methods compiled to C
+// ============================================
+
+// Internal Type structure (mirrors XXML Language::Reflection::Type)
+typedef struct {
+    void* typeInfoPtr;
+} Language_Reflection_Type;
+
+// Language::Reflection::Type::Constructor
+void* Language_Reflection_Type_Constructor(void* infoPtr) {
+    Language_Reflection_Type* type = (Language_Reflection_Type*)xxml_malloc(sizeof(Language_Reflection_Type));
+    if (type) {
+        type->typeInfoPtr = infoPtr;
+    }
+    return type;
+}
+
+// Language::Reflection::Type::forName (static method)
+void* Language_Reflection_Type_forName(void* nameStr) {
+    // nameStr is a String* object, get the C string
+    const char* cstr = String_toCString(nameStr);
+    void* typeInfo = xxml_reflection_getTypeByName(cstr);
+    if (!typeInfo) {
+        return NULL;  // None
+    }
+    return Language_Reflection_Type_Constructor(typeInfo);
+}
+
+// Language::Reflection::Type::getName
+void* Language_Reflection_Type_getName(void* self) {
+    Language_Reflection_Type* type = (Language_Reflection_Type*)self;
+    if (!type) return String_Constructor("");
+    const char* name = xxml_reflection_type_getName(type->typeInfoPtr);
+    return String_Constructor(name);
+}
+
+// Language::Reflection::Type::getFullName
+void* Language_Reflection_Type_getFullName(void* self) {
+    Language_Reflection_Type* type = (Language_Reflection_Type*)self;
+    if (!type) return String_Constructor("");
+    const char* fullName = xxml_reflection_type_getFullName(type->typeInfoPtr);
+    return String_Constructor(fullName);
+}
+
+// Language::Reflection::Type::getNamespace
+void* Language_Reflection_Type_getNamespace(void* self) {
+    Language_Reflection_Type* type = (Language_Reflection_Type*)self;
+    if (!type) return String_Constructor("");
+    const char* ns = xxml_reflection_type_getNamespace(type->typeInfoPtr);
+    return String_Constructor(ns);
+}
+
+// Language::Reflection::Type::isTemplate
+void* Language_Reflection_Type_isTemplate(void* self) {
+    Language_Reflection_Type* type = (Language_Reflection_Type*)self;
+    if (!type) return Bool_Constructor(false);
+    int64_t isTemplate = xxml_reflection_type_isTemplate(type->typeInfoPtr);
+    return Bool_Constructor(isTemplate != 0);
+}
+
+// Language::Reflection::Type::getPropertyCount
+void* Language_Reflection_Type_getPropertyCount(void* self) {
+    Language_Reflection_Type* type = (Language_Reflection_Type*)self;
+    if (!type) return Integer_Constructor(0);
+    int64_t count = xxml_reflection_type_getPropertyCount(type->typeInfoPtr);
+    return Integer_Constructor(count);
+}
+
+// Language::Reflection::Type::getMethodCount
+void* Language_Reflection_Type_getMethodCount(void* self) {
+    Language_Reflection_Type* type = (Language_Reflection_Type*)self;
+    if (!type) return Integer_Constructor(0);
+    int64_t count = xxml_reflection_type_getMethodCount(type->typeInfoPtr);
+    return Integer_Constructor(count);
+}
+
+// Language::Reflection::Type::getInstanceSize
+void* Language_Reflection_Type_getInstanceSize(void* self) {
+    Language_Reflection_Type* type = (Language_Reflection_Type*)self;
+    if (!type) return Integer_Constructor(0);
+    int64_t size = xxml_reflection_type_getInstanceSize(type->typeInfoPtr);
+    return Integer_Constructor(size);
+}
+
+// Internal PropertyInfo structure
+typedef struct {
+    void* propInfoPtr;
+} Language_Reflection_PropertyInfo;
+
+// Language::Reflection::PropertyInfo::Constructor
+void* Language_Reflection_PropertyInfo_Constructor(void* infoPtr) {
+    Language_Reflection_PropertyInfo* info = (Language_Reflection_PropertyInfo*)xxml_malloc(sizeof(Language_Reflection_PropertyInfo));
+    if (info) {
+        info->propInfoPtr = infoPtr;
+    }
+    return info;
+}
+
+// Language::Reflection::PropertyInfo::getName
+void* Language_Reflection_PropertyInfo_getName(void* self) {
+    Language_Reflection_PropertyInfo* info = (Language_Reflection_PropertyInfo*)self;
+    if (!info) return String_Constructor("");
+    const char* name = xxml_reflection_property_getName(info->propInfoPtr);
+    return String_Constructor(name);
+}
+
+// Language::Reflection::PropertyInfo::getTypeName
+void* Language_Reflection_PropertyInfo_getTypeName(void* self) {
+    Language_Reflection_PropertyInfo* info = (Language_Reflection_PropertyInfo*)self;
+    if (!info) return String_Constructor("");
+    const char* typeName = xxml_reflection_property_getTypeName(info->propInfoPtr);
+    return String_Constructor(typeName);
+}
+
+// Internal MethodInfo structure
+typedef struct {
+    void* methodInfoPtr;
+} Language_Reflection_MethodInfo;
+
+// Language::Reflection::MethodInfo::Constructor
+void* Language_Reflection_MethodInfo_Constructor(void* infoPtr) {
+    Language_Reflection_MethodInfo* info = (Language_Reflection_MethodInfo*)xxml_malloc(sizeof(Language_Reflection_MethodInfo));
+    if (info) {
+        info->methodInfoPtr = infoPtr;
+    }
+    return info;
+}
+
+// Language::Reflection::MethodInfo::getName
+void* Language_Reflection_MethodInfo_getName(void* self) {
+    Language_Reflection_MethodInfo* info = (Language_Reflection_MethodInfo*)self;
+    if (!info) return String_Constructor("");
+    const char* name = xxml_reflection_method_getName(info->methodInfoPtr);
+    return String_Constructor(name);
+}
+
+// Language::Reflection::MethodInfo::getReturnType
+void* Language_Reflection_MethodInfo_getReturnType(void* self) {
+    Language_Reflection_MethodInfo* info = (Language_Reflection_MethodInfo*)self;
+    if (!info) return String_Constructor("");
+    const char* retType = xxml_reflection_method_getReturnType(info->methodInfoPtr);
+    return String_Constructor(retType);
+}
+
+// Language::Reflection::MethodInfo::getParameterCount
+void* Language_Reflection_MethodInfo_getParameterCount(void* self) {
+    Language_Reflection_MethodInfo* info = (Language_Reflection_MethodInfo*)self;
+    if (!info) return Integer_Constructor(0);
+    int64_t count = xxml_reflection_method_getParameterCount(info->methodInfoPtr);
+    return Integer_Constructor(count);
+}
+
+// Language::Reflection::Type::getPropertyAt
+void* Language_Reflection_Type_getPropertyAt(void* self, void* index) {
+    Language_Reflection_Type* type = (Language_Reflection_Type*)self;
+    if (!type) return NULL;
+    int64_t idx = Integer_getValue(index);
+    void* propPtr = xxml_reflection_type_getProperty(type->typeInfoPtr, idx);
+    if (!propPtr) return NULL;
+    return Language_Reflection_PropertyInfo_Constructor(propPtr);
+}
+
+// Language::Reflection::Type::getMethodAt
+void* Language_Reflection_Type_getMethodAt(void* self, void* index) {
+    Language_Reflection_Type* type = (Language_Reflection_Type*)self;
+    if (!type) return NULL;
+    int64_t idx = Integer_getValue(index);
+    void* methodPtr = xxml_reflection_type_getMethod(type->typeInfoPtr, idx);
+    if (!methodPtr) return NULL;
+    return Language_Reflection_MethodInfo_Constructor(methodPtr);
+}
+
+// NOTE: Language::Reflection::GetType<T> template implementations are NOT included here
+// because the compiler generates them. We only provide the base Type/PropertyInfo/MethodInfo
+// class implementations which the compiler cannot generate due to AST corruption issues.
