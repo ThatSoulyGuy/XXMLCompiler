@@ -1,0 +1,36 @@
+// InlineProcessorTest.XXML - Tests inline annotation processor validation
+// This file tests the semantic validation of processor onAnnotate method signature
+
+#import Language::Core;
+
+// Define annotation with inline processor (correct signature)
+[ Annotation <Review> Allows (AnnotationAllow::Classes, AnnotationAllow::Methods)
+    Annotate (String^)(message);
+
+    [ Processor
+        [ Public <>
+            Method <onAnnotate> Returns None Parameters (
+                Parameter <ctx> Types ReflectionContext&,
+                Parameter <comp> Types CompilationContext&
+            ) -> {
+                // Processor body - will be auto-compiled to DLL
+                // For now, just verify the signature is accepted
+            }
+        ]
+    ]
+]
+
+// Use the annotation - processor should run automatically when implemented
+@Review(message = "Under review")
+[ Class <TestClass> Final Extends None
+    [ Public <>
+        Constructor = default;
+
+        @Review(message = "Consider refactoring")
+        Method <oldMethod> Returns None Parameters () -> {
+            // Just a placeholder method
+        }
+    ]
+]
+
+[ Entrypoint { Exit(0); } ]

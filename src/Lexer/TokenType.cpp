@@ -47,6 +47,12 @@ static const std::unordered_map<std::string, TokenType> keywords = {
     {"this", TokenType::This},
     {"Set", TokenType::Set},
     {"Lambda", TokenType::Lambda},
+    {"Annotation", TokenType::Annotation},
+    {"Annotate", TokenType::Annotate},
+    {"Allows", TokenType::Allows},
+    {"Processor", TokenType::Processor},
+    {"Retain", TokenType::Retain},
+    {"AnnotationAllow", TokenType::AnnotationAllow},
     {"true", TokenType::BoolLiteral},
     {"false", TokenType::BoolLiteral}
 };
@@ -97,6 +103,12 @@ std::string tokenTypeToString(TokenType type) {
         case TokenType::This: return "This";
         case TokenType::Set: return "Set";
         case TokenType::Lambda: return "Lambda";
+        case TokenType::Annotation: return "Annotation";
+        case TokenType::Annotate: return "Annotate";
+        case TokenType::Allows: return "Allows";
+        case TokenType::Processor: return "Processor";
+        case TokenType::Retain: return "Retain";
+        case TokenType::AnnotationAllow: return "AnnotationAllow";
         case TokenType::Identifier: return "Identifier";
         case TokenType::AngleBracketId: return "AngleBracketId";
         case TokenType::IntegerLiteral: return "IntegerLiteral";

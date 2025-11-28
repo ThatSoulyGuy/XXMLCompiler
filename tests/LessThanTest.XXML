@@ -1,0 +1,18 @@
+#import Language::Core;
+
+[ Entrypoint
+    {
+        Run Console::printLine(String::Constructor("Starting..."));
+
+        Instantiate Integer^ As <one> = Integer::Constructor(1);
+        Run Console::printLine(String::Constructor("Created one"));
+
+        Instantiate Integer^ As <two> = Integer::Constructor(2);
+        Run Console::printLine(String::Constructor("Created two"));
+
+        Instantiate Bool^ As <result> = one.lessThan(two);
+        Run Console::printLine(String::Constructor("lessThan returned"));
+
+        Run Console::printLine(String::Constructor("Done"));
+    }
+]

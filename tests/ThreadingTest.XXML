@@ -1,132 +1,152 @@
+// Threading Test - Tests the new class-based threading API
 #import Language::Core;
-#import Concurrent;
-
-// Threading Test - Tests atomic operations and mutex synchronization
+#import Language::Concurrent;
 
 [ Entrypoint
-	{
-		Run Console::printLine(String::Constructor("=== Threading Test ==="));
+    {
+        Run Console::printLine(String::Constructor("=== Threading Class Test ==="));
 
-		// Test 1: Atomic operations
-		Run Console::printLine(String::Constructor("Test 1: Atomic operations"));
+        // Test 1: Basic Thread Spawn
+        Run Console::printLine(String::Constructor("1. Testing Thread::spawn..."));
+        Instantiate F(None^)()^ As <worker> = [ Lambda [] Returns None^ Parameters () {
+            Run Console::printLine(String::Constructor("   Hello from worker thread!"));
+            Return None::Constructor();
+        }];
 
-		Instantiate Concurrent::Atomic^ As <counter> = Concurrent::Atomic::Constructor();
-		Run counter.init(Integer::Constructor(0));
+        Instantiate Concurrent::Thread^ As <t1> = Concurrent::Thread::spawn(worker);
+        Run t1.join();
+        Run Console::printLine(String::Constructor("   Thread joined."));
 
-		// Test increment
-		Instantiate Integer^ As <v1> = counter.increment();
-		Run Console::printLine(String::Constructor("After increment: "));
-		Run Console::printLine(v1.toString());
+        // Test 2: Mutex
+        Run Console::printLine(String::Constructor("2. Testing Mutex..."));
+        Instantiate Concurrent::Mutex^ As <mutex> = Concurrent::Mutex::Constructor();
 
-		Instantiate Integer^ As <v2> = counter.increment();
-		Run Console::printLine(String::Constructor("After second increment: "));
-		Run Console::printLine(v2.toString());
+        If (mutex.isValid()) -> {
+            Run Console::printLine(String::Constructor("   Mutex created successfully."));
+        }
 
-		// Test add
-		Instantiate Integer^ As <v3> = counter.add(Integer::Constructor(10));
-		Run Console::printLine(String::Constructor("After add(10): "));
-		Run Console::printLine(v3.toString());
+        Run mutex.lock();
+        Run Console::printLine(String::Constructor("   Mutex locked."));
+        Run mutex.unlock();
+        Run Console::printLine(String::Constructor("   Mutex unlocked."));
 
-		// Test get
-		Instantiate Integer^ As <v4> = counter.get();
-		Run Console::printLine(String::Constructor("Current value: "));
-		Run Console::printLine(v4.toString());
+        // Test 3: Atomic
+        Run Console::printLine(String::Constructor("3. Testing Atomic..."));
+        Instantiate Concurrent::Atomic^ As <counter> = Concurrent::Atomic::Constructor();
 
-		// Test set
-		Run counter.set(Integer::Constructor(100));
-		Instantiate Integer^ As <v5> = counter.get();
-		Run Console::printLine(String::Constructor("After set(100): "));
-		Run Console::printLine(v5.toString());
+        Run counter.increment();
+        Run counter.increment();
+        Run counter.increment();
 
-		// Test compare and swap
-		Instantiate Bool^ As <swapped> = counter.compareAndSwap(Integer::Constructor(100), Integer::Constructor(200));
-		Run Console::printLine(String::Constructor("CAS(100, 200) succeeded: "));
-		If (swapped == Bool::Constructor(true)) -> {
-			Run Console::printLine(String::Constructor("true"));
-		} Else -> {
-			Run Console::printLine(String::Constructor("false"));
-		}
+        Instantiate Integer^ As <val> = counter.get();
+        Run Console::printLine(String::Constructor("   Counter value after 3 increments: "));
+        Run Console::printLine(val.toString());
 
-		Instantiate Integer^ As <v6> = counter.get();
-		Run Console::printLine(String::Constructor("Value after CAS: "));
-		Run Console::printLine(v6.toString());
+        // Test 4: Atomic with initial value
+        Run Console::printLine(String::Constructor("4. Testing Atomic with initial value..."));
+        Instantiate Concurrent::Atomic^ As <counter2> = Concurrent::Atomic::Constructor(Integer::Constructor(100));
 
-		// CAS should fail when expected doesn't match
-		Instantiate Bool^ As <swapped2> = counter.compareAndSwap(Integer::Constructor(100), Integer::Constructor(300));
-		Run Console::printLine(String::Constructor("CAS(100, 300) succeeded (should be false): "));
-		If (swapped2 == Bool::Constructor(true)) -> {
-			Run Console::printLine(String::Constructor("true"));
-		} Else -> {
-			Run Console::printLine(String::Constructor("false"));
-		}
+        Run counter2.add(Integer::Constructor(50));
+        Instantiate Integer^ As <val2> = counter2.get();
+        Run Console::printLine(String::Constructor("   Counter (100 + 50): "));
+        Run Console::printLine(val2.toString());
 
-		Run counter.destroy();
-		Run Console::printLine(String::Constructor("Atomic tests passed!"));
+        // Test 5: Thread utilities
+        Run Console::printLine(String::Constructor("5. Testing Thread utilities..."));
+        Instantiate Integer^ As <tid> = Concurrent::Thread::currentId();
+        Run Console::printLine(String::Constructor("   Current thread ID: "));
+        Run Console::printLine(tid.toString());
 
-		// Test 2: Mutex operations
-		Run Console::printLine(String::Constructor(""));
-		Run Console::printLine(String::Constructor("Test 2: Mutex operations"));
+        Run Console::printLine(String::Constructor("   Sleeping for 100ms..."));
+        Run Concurrent::Thread::sleep(Integer::Constructor(100));
+        Run Console::printLine(String::Constructor("   Done sleeping."));
 
-		Instantiate Concurrent::Mutex^ As <mutex> = Concurrent::Mutex::Constructor();
-		Instantiate Bool^ As <initOk> = mutex.init();
-		Run Console::printLine(String::Constructor("Mutex init: "));
-		If (initOk == Bool::Constructor(true)) -> {
-			Run Console::printLine(String::Constructor("success"));
-		} Else -> {
-			Run Console::printLine(String::Constructor("failed"));
-		}
+        // Test 6: LockGuard
+        Run Console::printLine(String::Constructor("6. Testing LockGuard..."));
+        Instantiate Concurrent::Mutex^ As <mutex2> = Concurrent::Mutex::Constructor();
+        {
+            Instantiate Concurrent::LockGuard^ As <guard> = Concurrent::LockGuard::Constructor(mutex2);
+            If (guard.ownsTheLock()) -> {
+                Run Console::printLine(String::Constructor("   LockGuard acquired lock."));
+            }
+        }
+        Run Console::printLine(String::Constructor("   LockGuard released (out of scope)."));
 
-		// Lock and unlock
-		Instantiate Bool^ As <lockOk> = mutex.lock();
-		Run Console::printLine(String::Constructor("Mutex lock: "));
-		If (lockOk == Bool::Constructor(true)) -> {
-			Run Console::printLine(String::Constructor("success"));
-		} Else -> {
-			Run Console::printLine(String::Constructor("failed"));
-		}
+        // Test 7: Parallel counter with atomic
+        Run Console::printLine(String::Constructor("7. Testing parallel atomic counter..."));
+        Instantiate Concurrent::Atomic^ As <sharedCounter> = Concurrent::Atomic::Constructor();
 
-		Instantiate Bool^ As <unlockOk> = mutex.unlock();
-		Run Console::printLine(String::Constructor("Mutex unlock: "));
-		If (unlockOk == Bool::Constructor(true)) -> {
-			Run Console::printLine(String::Constructor("success"));
-		} Else -> {
-			Run Console::printLine(String::Constructor("failed"));
-		}
+        Instantiate F(None^)()^ As <adder1> = [ Lambda [&sharedCounter] Returns None^ Parameters () {
+            Run sharedCounter.increment();
+            Run sharedCounter.increment();
+            Run sharedCounter.increment();
+            Return None::Constructor();
+        }];
 
-		// Try lock
-		Instantiate Bool^ As <tryOk> = mutex.tryLock();
-		Run Console::printLine(String::Constructor("Mutex tryLock: "));
-		If (tryOk == Bool::Constructor(true)) -> {
-			Run Console::printLine(String::Constructor("success"));
-			Run mutex.unlock();
-		} Else -> {
-			Run Console::printLine(String::Constructor("failed"));
-		}
+        Instantiate F(None^)()^ As <adder2> = [ Lambda [&sharedCounter] Returns None^ Parameters () {
+            Run sharedCounter.increment();
+            Run sharedCounter.increment();
+            Run sharedCounter.increment();
+            Return None::Constructor();
+        }];
 
-		Run mutex.destroy();
-		Run Console::printLine(String::Constructor("Mutex tests passed!"));
+        Instantiate Concurrent::Thread^ As <thread1> = Concurrent::Thread::spawn(adder1);
+        Instantiate Concurrent::Thread^ As <thread2> = Concurrent::Thread::spawn(adder2);
 
-		// Test 3: Thread static utilities
-		Run Console::printLine(String::Constructor(""));
-		Run Console::printLine(String::Constructor("Test 3: Thread utilities"));
+        Run thread1.join();
+        Run thread2.join();
 
-		// Get current thread ID
-		Instantiate Integer^ As <tid> = Concurrent::Thread::currentId();
-		Run Console::printLine(String::Constructor("Current thread ID: "));
-		Run Console::printLine(tid.toString());
+        Instantiate Integer^ As <finalCount> = sharedCounter.get();
+        Run Console::printLine(String::Constructor("   Final counter (should be 6): "));
+        Run Console::printLine(finalCount.toString());
 
-		// Test sleep
-		Run Console::printLine(String::Constructor("Sleeping for 100ms..."));
-		Run Concurrent::Thread::sleep(Integer::Constructor(100));
-		Run Console::printLine(String::Constructor("Woke up!"));
+        // Test 8: Compare and Swap
+        Run Console::printLine(String::Constructor("8. Testing Compare and Swap..."));
+        Instantiate Concurrent::Atomic^ As <casCounter> = Concurrent::Atomic::Constructor(Integer::Constructor(100));
 
-		// Test yield
-		Run Console::printLine(String::Constructor("Yielding..."));
-		Run Concurrent::Thread::yield();
-		Run Console::printLine(String::Constructor("Continued after yield."));
+        Instantiate Bool^ As <success> = casCounter.compareAndSwap(Integer::Constructor(100), Integer::Constructor(200));
+        If (success) -> {
+            Run Console::printLine(String::Constructor("   CAS(100->200) succeeded"));
+        } Else -> {
+            Run Console::printLine(String::Constructor("   CAS(100->200) failed"));
+        }
 
-		Run Console::printLine(String::Constructor(""));
-		Run Console::printLine(String::Constructor("=== All Threading Tests Passed ==="));
-		Exit(0);
-	}
+        // This should fail because value is now 200, not 100
+        Instantiate Bool^ As <fail> = casCounter.compareAndSwap(Integer::Constructor(100), Integer::Constructor(300));
+        If (fail) -> {
+            Run Console::printLine(String::Constructor("   CAS(100->300) succeeded (unexpected)"));
+        } Else -> {
+            Run Console::printLine(String::Constructor("   CAS(100->300) failed as expected"));
+        }
+
+        Instantiate Integer^ As <casVal> = casCounter.get();
+        Run Console::printLine(String::Constructor("   Final CAS value: "));
+        Run Console::printLine(casVal.toString());
+
+        // Test 9: TryLock
+        Run Console::printLine(String::Constructor("9. Testing tryLock..."));
+        Instantiate Concurrent::Mutex^ As <mutex3> = Concurrent::Mutex::Constructor();
+
+        Instantiate Bool^ As <got1> = mutex3.tryLock();
+        If (got1) -> {
+            Run Console::printLine(String::Constructor("   First tryLock succeeded"));
+
+            // Try to lock again (should succeed on Windows with CRITICAL_SECTION)
+            // On some systems this may deadlock - we unlock before trying again
+            Run mutex3.unlock();
+
+            Instantiate Bool^ As <got2> = mutex3.tryLock();
+            If (got2) -> {
+                Run Console::printLine(String::Constructor("   Second tryLock succeeded"));
+                Run mutex3.unlock();
+            } Else -> {
+                Run Console::printLine(String::Constructor("   Second tryLock failed"));
+            }
+        } Else -> {
+            Run Console::printLine(String::Constructor("   First tryLock failed"));
+        }
+
+        Run Console::printLine(String::Constructor("=== Threading Test Complete ==="));
+        Exit(0);
+    }
 ]

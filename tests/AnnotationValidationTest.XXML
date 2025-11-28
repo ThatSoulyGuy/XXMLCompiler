@@ -1,0 +1,24 @@
+// AnnotationValidationTest.XXML - Tests annotation validation errors
+// This file should produce ERRORS when compiled
+
+#import Language::Core;
+#import Language::IO;
+
+// Define an annotation only allowed on methods
+[ Annotation <MethodOnly> Allows (AnnotationAllow::Methods)
+    Annotate (String^)(reason);  // Required parameter
+]
+
+// ERROR TEST 1: Using @MethodOnly on a class (wrong target)
+@MethodOnly(reason = "This should fail")
+[ Class <InvalidTarget> Final Extends None
+    [ Public <>
+        Constructor = default;
+    ]
+]
+
+[ Entrypoint
+    {
+        Exit(0);
+    }
+]

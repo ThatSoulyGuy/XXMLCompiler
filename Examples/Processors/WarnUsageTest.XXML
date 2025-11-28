@@ -1,0 +1,40 @@
+// WarnUsageTest.XXML - Test file for @Warn processor
+// Compile with: xxml --use-processor=warn_processor.dll WarnUsageTest.XXML test.exe
+
+#import Language::Core;
+#import Language::IO;
+
+// Define the @Warn annotation (must match the processor)
+[ Annotation <Warn> Allows (AnnotationAllow::Classes, AnnotationAllow::Methods, AnnotationAllow::Properties)
+    Annotate (String^)(message);
+]
+
+@Warn(message = "This class is under review")
+[ Class <TestClass> Final Extends None
+    [ Public <>
+        Constructor = default;
+
+        @Warn(message = "Consider using processData instead")
+        Method <oldProcess> Returns None Parameters () ->
+        {
+            Run Console::printLine(String::Constructor("Old process called"));
+        }
+
+        Method <processData> Returns None Parameters () ->
+        {
+            Run Console::printLine(String::Constructor("Processing data"));
+        }
+    ]
+]
+
+[ Entrypoint
+    {
+        Run Console::printLine(String::Constructor("Testing @Warn processor"));
+
+        Instantiate TestClass^ As <test> = TestClass::Constructor();
+        Run test.processData();
+        Run test.oldProcess();
+
+        Exit(0);
+    }
+]

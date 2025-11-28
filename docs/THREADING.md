@@ -1,503 +1,570 @@
 # XXML Threading and Concurrency
 
-XXML provides comprehensive multithreading support through low-level syscalls that map directly to platform-native threading primitives. On Windows, these use `_beginthreadex`, `CRITICAL_SECTION`, and `CONDITION_VARIABLE`. On POSIX systems (Linux, macOS), they use pthreads.
+XXML provides comprehensive multithreading support through high-level classes that wrap platform-native threading primitives. On Windows, these use `_beginthreadex`, `CRITICAL_SECTION`, and `CONDITION_VARIABLE`. On POSIX systems (Linux, macOS), they use pthreads.
 
 ## Table of Contents
 
-1. [Thread Utilities](#thread-utilities)
-2. [Atomic Operations](#atomic-operations)
-3. [Mutexes](#mutexes)
-4. [Condition Variables](#condition-variables)
-5. [Thread-Local Storage](#thread-local-storage)
-6. [Thread Creation](#thread-creation)
-7. [Best Practices](#best-practices)
-8. [Examples](#examples)
+1. [Quick Start](#quick-start)
+2. [Thread Class](#thread-class)
+3. [Mutex Class](#mutex-class)
+4. [LockGuard Class](#lockguard-class)
+5. [Atomic Class](#atomic-class)
+6. [ConditionVariable Class](#conditionvariable-class)
+7. [Semaphore Class](#semaphore-class)
+8. [ThreadLocal Class](#threadlocal-class)
+9. [Best Practices](#best-practices)
+10. [Examples](#examples)
 
 ---
 
-## Thread Utilities
+## Quick Start
 
-Basic thread control functions available via syscalls.
+```xxml
+#import Language::Core;
+#import Language::Concurrent;
 
-### Sleep
+[ Entrypoint
+    {
+        // Create and start a thread with a lambda
+        Instantiate F(None^)()^ As <work> = [ Lambda [] Returns None^ Parameters () {
+            Run Console::printLine(String::Constructor("Hello from thread!"));
+            Return None::Constructor();
+        }];
 
-Suspends the current thread for a specified number of milliseconds.
+        Instantiate Concurrent::Thread^ As <t> = Concurrent::Thread::spawn(work);
+
+        // Wait for thread to complete
+        Run t.join();
+
+        Run Console::printLine(String::Constructor("Thread finished!"));
+        Exit(0);
+    }
+]
+```
+
+---
+
+## Thread Class
+
+The `Thread` class represents an execution thread.
+
+### Creating Threads
+
+```xxml
+#import Language::Concurrent;
+
+// Create a thread with a lambda
+Instantiate F(None^)()^ As <workerFunc> = [ Lambda [] Returns None^ Parameters () {
+    Run Console::printLine(String::Constructor("Working..."));
+    Return None::Constructor();
+}];
+
+// Option 1: Using spawn (static method)
+Instantiate Concurrent::Thread^ As <t1> = Concurrent::Thread::spawn(workerFunc);
+
+// Option 2: Using constructor directly
+Instantiate Concurrent::Thread^ As <t2> = Concurrent::Thread::Constructor(workerFunc);
+```
+
+### Thread Methods
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `spawn(func)` | `Thread^` | Static: Create and start a new thread |
+| `join()` | `Bool^` | Wait for thread to complete |
+| `detach()` | `Bool^` | Let thread run independently |
+| `isJoinable()` | `Bool^` | Check if thread can be joined |
+| `sleep(ms)` | `None` | Static: Sleep current thread for milliseconds |
+| `yield()` | `None` | Static: Yield time slice to other threads |
+| `currentId()` | `Integer^` | Static: Get current thread ID |
+
+### Thread Utilities
 
 ```xxml
 // Sleep for 100 milliseconds
-Instantiate NativeType<"int64">^ As <ms> = 100;
-Run Syscall::Thread_sleep(ms);
-```
+Run Concurrent::Thread::sleep(Integer::Constructor(100));
 
-### Yield
+// Yield to other threads
+Run Concurrent::Thread::yield();
 
-Voluntarily yields the current thread's time slice to allow other threads to run.
-
-```xxml
-Run Syscall::Thread_yield();
-```
-
-### Get Current Thread ID
-
-Returns the OS-level thread identifier for the current thread.
-
-```xxml
-Instantiate NativeType<"int64">^ As <threadId> = Syscall::Thread_currentId();
-Run Console::printLine(Integer::Constructor(threadId).toString());
+// Get current thread ID
+Instantiate Integer^ As <tid> = Concurrent::Thread::currentId();
+Run Console::printLine(tid.toString());
 ```
 
 ---
 
-## Atomic Operations
+## Mutex Class
 
-Atomic operations provide lock-free synchronization for simple integer values. These operations are guaranteed to be indivisible and are useful for counters, flags, and simple synchronization patterns.
+The `Mutex` class provides mutual exclusion for thread synchronization.
 
-### Creating and Destroying Atomics
+### Creating a Mutex
 
 ```xxml
-// Create an atomic with initial value 0
-Instantiate NativeType<"int64">^ As <initVal> = 0;
-Instantiate NativeType<"ptr">^ As <counter> = Syscall::Atomic_create(initVal);
+// Mutex is automatically initialized on construction
+Instantiate Concurrent::Mutex^ As <mutex> = Concurrent::Mutex::Constructor();
 
-// ... use the atomic ...
-
-// Clean up when done
-Run Syscall::Atomic_destroy(counter);
+// Mutex is automatically destroyed when it goes out of scope
 ```
 
-### Load and Store
+### Mutex Methods
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `lock()` | `Bool^` | Acquire the lock (blocking) |
+| `unlock()` | `Bool^` | Release the lock |
+| `tryLock()` | `Bool^` | Try to acquire without blocking |
+| `isValid()` | `Bool^` | Check if mutex was created successfully |
+
+### Basic Mutex Usage
 
 ```xxml
-// Atomically read the current value
-Instantiate NativeType<"int64">^ As <value> = Syscall::Atomic_load(counter);
+Instantiate Concurrent::Mutex^ As <mutex> = Concurrent::Mutex::Constructor();
 
-// Atomically write a new value
-Instantiate NativeType<"int64">^ As <newVal> = 42;
-Run Syscall::Atomic_store(counter, newVal);
-```
+// Lock the mutex
+Run mutex.lock();
 
-### Add and Subtract
-
-These operations atomically modify the value and return the new value.
-
-```xxml
-// Add 5 to the counter, returns new value (47)
-Instantiate NativeType<"int64">^ As <addAmount> = 5;
-Instantiate NativeType<"int64">^ As <afterAdd> = Syscall::Atomic_add(counter, addAmount);
-
-// Subtract 3 from the counter, returns new value (44)
-Instantiate NativeType<"int64">^ As <subAmount> = 3;
-Instantiate NativeType<"int64">^ As <afterSub> = Syscall::Atomic_sub(counter, subAmount);
-```
-
-### Exchange
-
-Atomically sets a new value and returns the old value.
-
-```xxml
-Instantiate NativeType<"int64">^ As <newVal> = 100;
-Instantiate NativeType<"int64">^ As <oldVal> = Syscall::Atomic_exchange(counter, newVal);
-// oldVal contains the previous value, counter now holds 100
-```
-
-### Compare and Swap (CAS)
-
-The fundamental building block for lock-free algorithms. Atomically compares the current value with `expected`, and if they match, sets the value to `desired`.
-
-```xxml
-Instantiate NativeType<"int64">^ As <expected> = 100;
-Instantiate NativeType<"int64">^ As <desired> = 200;
-Instantiate NativeType<"i1">^ As <success> = Syscall::Atomic_compareAndSwap(counter, expected, desired);
-
-// success is 1 (true) if the swap occurred, 0 (false) if current != expected
-```
-
----
-
-## Mutexes
-
-Mutexes (mutual exclusion locks) provide exclusive access to shared resources.
-
-### Creating and Destroying Mutexes
-
-```xxml
-// Create a mutex
-Instantiate NativeType<"ptr">^ As <mutex> = Syscall::Mutex_create();
-
-// ... use the mutex ...
-
-// Clean up when done
-Run Syscall::Mutex_destroy(mutex);
-```
-
-### Lock and Unlock
-
-```xxml
-// Acquire the lock (blocks if already held by another thread)
-Instantiate NativeType<"int64">^ As <lockResult> = Syscall::Mutex_lock(mutex);
-// lockResult is 0 on success
-
-// Critical section - only one thread can execute this at a time
+// Critical section - only one thread can execute this
 // ... protected code ...
 
-// Release the lock
-Instantiate NativeType<"int64">^ As <unlockResult> = Syscall::Mutex_unlock(mutex);
-// unlockResult is 0 on success
+// Unlock the mutex
+Run mutex.unlock();
 ```
 
 ### Try Lock (Non-blocking)
 
-Attempts to acquire the lock without blocking. Useful for avoiding deadlocks or implementing spin-wait patterns.
-
 ```xxml
-Instantiate NativeType<"i1">^ As <acquired> = Syscall::Mutex_tryLock(mutex);
-If (Bool::Constructor(acquired)) -> {
+Instantiate Bool^ As <acquired> = mutex.tryLock();
+If (acquired) -> {
     // Got the lock, do work
     // ...
-    Run Syscall::Mutex_unlock(mutex);
+    Run mutex.unlock();
 } Else -> {
     // Lock was held by another thread
     Run Console::printLine(String::Constructor("Could not acquire lock"));
 }
 ```
 
-> **Note**: On Windows, `CRITICAL_SECTION` is recursive, meaning the same thread can lock the same mutex multiple times (and must unlock the same number of times). On POSIX systems with default settings, this may cause a deadlock.
+---
+
+## LockGuard Class
+
+The `LockGuard` class provides RAII-style scoped locking. It automatically acquires the lock on construction and releases it on destruction.
+
+### Using LockGuard
+
+```xxml
+Instantiate Concurrent::Mutex^ As <mutex> = Concurrent::Mutex::Constructor();
+
+// Create scope for automatic lock management
+{
+    // Lock is acquired here
+    Instantiate Concurrent::LockGuard^ As <guard> = Concurrent::LockGuard::Constructor(mutex);
+
+    // Critical section - mutex is held
+    Run Console::printLine(String::Constructor("In critical section"));
+
+    // Lock is automatically released when guard goes out of scope
+}
+```
+
+### LockGuard Methods
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `ownsTheLock()` | `Bool^` | Check if lock is currently held |
+| `unlock()` | `None` | Manually release the lock early |
 
 ---
 
-## Condition Variables
+## Atomic Class
 
-Condition variables allow threads to wait for specific conditions to become true. They must always be used with a mutex.
+The `Atomic` class provides thread-safe atomic integer operations without locks.
 
-### Creating and Destroying Condition Variables
+### Creating an Atomic
 
 ```xxml
-Instantiate NativeType<"ptr">^ As <condVar> = Syscall::CondVar_create();
+// Default constructor - initializes to 0
+Instantiate Concurrent::Atomic^ As <counter> = Concurrent::Atomic::Constructor();
 
-// ... use the condition variable ...
-
-Run Syscall::CondVar_destroy(condVar);
+// Constructor with initial value
+Instantiate Concurrent::Atomic^ As <counter2> = Concurrent::Atomic::Constructor(Integer::Constructor(42));
 ```
 
-### Wait
+### Atomic Methods
 
-Atomically releases the mutex and waits for a signal. When signaled, re-acquires the mutex before returning.
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `get()` | `Integer^` | Atomically load value |
+| `set(value)` | `None` | Atomically store value |
+| `add(value)` | `Integer^` | Add and return new value |
+| `subtract(value)` | `Integer^` | Subtract and return new value |
+| `increment()` | `Integer^` | Add 1 and return new value |
+| `decrement()` | `Integer^` | Subtract 1 and return new value |
+| `compareAndSwap(expected, desired)` | `Bool^` | CAS operation |
+| `exchange(newValue)` | `Integer^` | Set new value, return old |
+| `isValid()` | `Bool^` | Check if atomic was created |
 
-```xxml
-// Must hold the mutex before calling wait
-Run Syscall::Mutex_lock(mutex);
-
-// Wait for condition (releases mutex while waiting, reacquires on return)
-Instantiate NativeType<"int64">^ As <waitResult> = Syscall::CondVar_wait(condVar, mutex);
-
-// At this point we hold the mutex again
-Run Syscall::Mutex_unlock(mutex);
-```
-
-### Wait with Timeout
-
-Same as wait, but returns after a timeout even if not signaled.
+### Atomic Operations
 
 ```xxml
-Instantiate NativeType<"int64">^ As <timeoutMs> = 5000;  // 5 seconds
-Instantiate NativeType<"int64">^ As <result> = Syscall::CondVar_waitTimeout(condVar, mutex, timeoutMs);
-// result: 0 = signaled, 1 = timed out, -1 = error
-```
+Instantiate Concurrent::Atomic^ As <counter> = Concurrent::Atomic::Constructor();
 
-### Signal and Broadcast
+// Increment atomically
+Instantiate Integer^ As <newVal> = counter.increment();
+Run Console::printLine(newVal.toString());  // Prints: 1
 
-```xxml
-// Wake up ONE waiting thread
-Instantiate NativeType<"int64">^ As <signalResult> = Syscall::CondVar_signal(condVar);
+// Add value
+Run counter.add(Integer::Constructor(5));   // Now 6
 
-// Wake up ALL waiting threads
-Instantiate NativeType<"int64">^ As <broadcastResult> = Syscall::CondVar_broadcast(condVar);
-```
+// Get current value
+Instantiate Integer^ As <current> = counter.get();
 
----
+// Compare and swap
+Instantiate Bool^ As <success> = counter.compareAndSwap(
+    Integer::Constructor(6),   // expected
+    Integer::Constructor(10)   // desired
+);
+// If counter was 6, it's now 10 and success is true
 
-## Thread-Local Storage
-
-Thread-local storage (TLS) allows each thread to have its own copy of a variable.
-
-### Creating and Destroying TLS Keys
-
-```xxml
-// Create a TLS key
-Instantiate NativeType<"ptr">^ As <tlsKey> = Syscall::TLS_create();
-
-// ... use TLS ...
-
-// Clean up
-Run Syscall::TLS_destroy(tlsKey);
-```
-
-### Get and Set Values
-
-Each thread sees its own independent value for the same key.
-
-```xxml
-// Store a value (typically a pointer to thread-specific data)
-Instantiate Integer^ As <myThreadData> = Integer::Constructor(42);
-Run Syscall::TLS_set(tlsKey, myThreadData);
-
-// Retrieve the value (in the same or different code path, same thread)
-Instantiate NativeType<"ptr">^ As <retrieved> = Syscall::TLS_get(tlsKey);
+// Exchange
+Instantiate Integer^ As <old> = counter.exchange(Integer::Constructor(20));
+// old is previous value, counter is now 20
 ```
 
 ---
 
-## Thread Creation
+## ConditionVariable Class
 
-Thread creation allows spawning new threads of execution with XXML lambdas.
+The `ConditionVariable` class allows threads to wait for specific conditions.
 
-### Spawning Threads with Lambdas
-
-The preferred way to spawn threads is using `Thread_spawn_lambda` with an XXML lambda:
+### Creating a ConditionVariable
 
 ```xxml
-// Create a lambda that will run in the new thread
-Instantiate F(None^)()^ As <threadFunc> = [ Lambda [] Returns None^ Parameters () {
-    Run Console::printLine(String::Constructor("Hello from worker thread!"));
+Instantiate Concurrent::ConditionVariable^ As <cond> = Concurrent::ConditionVariable::Constructor();
+```
+
+### ConditionVariable Methods
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `wait(mutex)` | `Bool^` | Wait on condition (must hold mutex) |
+| `waitTimeout(mutex, ms)` | `Integer^` | Wait with timeout (0=signaled, 1=timeout, -1=error) |
+| `signal()` | `Bool^` | Wake one waiting thread |
+| `broadcast()` | `Bool^` | Wake all waiting threads |
+| `isValid()` | `Bool^` | Check if created successfully |
+
+### Producer-Consumer Pattern
+
+```xxml
+// Shared state
+Instantiate Concurrent::Mutex^ As <mutex> = Concurrent::Mutex::Constructor();
+Instantiate Concurrent::ConditionVariable^ As <cond> = Concurrent::ConditionVariable::Constructor();
+Instantiate Concurrent::Atomic^ As <dataReady> = Concurrent::Atomic::Constructor();
+
+// Consumer thread
+Instantiate F(None^)()^ As <consumer> = [ Lambda [&mutex, &cond, &dataReady] Returns None^ Parameters () {
+    Run mutex.lock();
+
+    // Wait for data
+    Instantiate Integer^ As <ready> = dataReady.get();
+    While (ready.equals(Integer::Constructor(0))) -> {
+        Run cond.wait(mutex);
+        Set ready = dataReady.get();
+    }
+
+    Run Console::printLine(String::Constructor("Data received!"));
+    Run mutex.unlock();
     Return None::Constructor();
 }];
 
-// Spawn the thread
-Instantiate NativeType<"ptr">^ As <threadHandle> = Syscall::Thread_spawn_lambda(threadFunc);
+// Producer thread
+Instantiate F(None^)()^ As <producer> = [ Lambda [&mutex, &cond, &dataReady] Returns None^ Parameters () {
+    // Simulate producing data
+    Run Concurrent::Thread::sleep(Integer::Constructor(100));
 
-// Wait for thread completion
-Instantiate NativeType<"int64">^ As <joinResult> = Syscall::Thread_join(threadHandle);
-```
-
-### Capturing Variables in Thread Lambdas
-
-Lambdas can capture variables from the enclosing scope:
-
-```xxml
-// Create shared atomic counter
-Instantiate NativeType<"ptr">^ As <counter> = Syscall::Atomic_create(0);
-
-// Lambda captures counter by reference
-Instantiate F(None^)()^ As <workerFunc> = [ Lambda [&counter] Returns None^ Parameters () {
-    Instantiate NativeType<"int64">^ As <one> = 1;
-    Run Syscall::Atomic_add(counter, one);  // Safe: atomic operation
+    Run mutex.lock();
+    Run dataReady.set(Integer::Constructor(1));
+    Run cond.signal();
+    Run mutex.unlock();
     Return None::Constructor();
 }];
 
-Instantiate NativeType<"ptr">^ As <thread> = Syscall::Thread_spawn_lambda(workerFunc);
-Run Syscall::Thread_join(thread);
+Instantiate Concurrent::Thread^ As <t1> = Concurrent::Thread::spawn(consumer);
+Instantiate Concurrent::Thread^ As <t2> = Concurrent::Thread::spawn(producer);
+
+Run t1.join();
+Run t2.join();
 ```
 
-### Thread Management
+---
+
+## Semaphore Class
+
+The `Semaphore` class is a counting semaphore for resource limiting.
+
+### Creating a Semaphore
 
 ```xxml
-// Wait for thread completion (blocks until thread finishes)
-Instantiate NativeType<"int64">^ As <joinResult> = Syscall::Thread_join(threadHandle);
+// Semaphore with initial count of 3 (3 resources available)
+Instantiate Concurrent::Semaphore^ As <sem> = Concurrent::Semaphore::Constructor(Integer::Constructor(3));
 
-// Detach a thread (let it run independently, cannot join later)
-Instantiate NativeType<"int64">^ As <detachResult> = Syscall::Thread_detach(threadHandle);
-
-// Check if thread is joinable (still running and not detached)
-Instantiate NativeType<"i1">^ As <isJoinable> = Syscall::Thread_isJoinable(threadHandle);
+// Default constructor starts at 0
+Instantiate Concurrent::Semaphore^ As <sem2> = Concurrent::Semaphore::Constructor();
 ```
 
-### Low-Level Thread API
+### Semaphore Methods
 
-For advanced use cases, you can use the low-level `Thread_create`:
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `acquire()` | `None` | Decrement count, block if 0 |
+| `tryAcquire()` | `Bool^` | Try to acquire without blocking |
+| `release()` | `None` | Increment count, wake waiters |
+| `getCount()` | `Integer^` | Get current count (approximate) |
+
+### Resource Pool Example
 
 ```xxml
-// Create a thread with raw function pointer and argument
-// thread_handle = Syscall::Thread_create(function_ptr, arg);
+// Pool of 2 resources
+Instantiate Concurrent::Semaphore^ As <pool> = Concurrent::Semaphore::Constructor(Integer::Constructor(2));
+
+// Worker acquires a resource
+Run pool.acquire();
+// ... use the resource ...
+Run pool.release();
+```
+
+---
+
+## ThreadLocal Class
+
+The `ThreadLocal<T>` template class provides thread-local storage where each thread has its own independent copy of the value.
+
+### Creating ThreadLocal Storage
+
+```xxml
+// Create thread-local storage for Integer values
+Instantiate Concurrent::ThreadLocal<Integer>^ As <tls> = Concurrent::ThreadLocal@Integer::Constructor();
+```
+
+### ThreadLocal Methods
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `get()` | `T^` | Get thread-local value |
+| `set(value)` | `None` | Set thread-local value |
+| `isSet()` | `Bool^` | Check if value has been set for this thread |
+| `isValid()` | `Bool^` | Check if TLS key was created |
+
+### ThreadLocal Example
+
+```xxml
+Instantiate Concurrent::ThreadLocal<Integer>^ As <threadId> = Concurrent::ThreadLocal@Integer::Constructor();
+
+Instantiate F(None^)()^ As <worker> = [ Lambda [&threadId] Returns None^ Parameters () {
+    // Set thread-local value
+    Run threadId.set(Concurrent::Thread::currentId());
+
+    // Get thread-local value (each thread sees its own value)
+    Instantiate Integer^ As <myId> = threadId.get();
+    Run Console::printLine(myId.toString());
+    Return None::Constructor();
+}];
 ```
 
 ---
 
 ## Best Practices
 
-### 1. Always Clean Up Resources
+### 1. Use LockGuard for Exception Safety
 
 ```xxml
-// Always destroy threading primitives when done
-Run Syscall::Mutex_destroy(mutex);
-Run Syscall::Atomic_destroy(atomic);
-Run Syscall::CondVar_destroy(condVar);
-Run Syscall::TLS_destroy(tlsKey);
+// Good: Lock is always released
+{
+    Instantiate Concurrent::LockGuard^ As <guard> = Concurrent::LockGuard::Constructor(mutex);
+    // ... code that might fail ...
+}
+
+// Avoid: Manual lock/unlock can leave mutex locked on error
+Run mutex.lock();
+// ... if something fails here, mutex stays locked ...
+Run mutex.unlock();
 ```
 
-### 2. Use Mutexes for Shared Data
+### 2. Prefer Atomics for Simple Counters
 
 ```xxml
-// Protect shared data with a mutex
-Run Syscall::Mutex_lock(mutex);
-// ... modify shared data ...
-Run Syscall::Mutex_unlock(mutex);
+// Good: Lock-free counter
+Instantiate Concurrent::Atomic^ As <counter> = Concurrent::Atomic::Constructor();
+Run counter.increment();  // Fast, no locking
+
+// Slower: Mutex for simple counter
+Run mutex.lock();
+// ... increment ...
+Run mutex.unlock();
 ```
 
-### 3. Prefer Atomics for Simple Counters
-
-```xxml
-// Use atomics for simple increment/decrement operations
-Instantiate NativeType<"int64">^ As <one> = 1;
-Run Syscall::Atomic_add(counter, one);  // Lock-free!
-```
-
-### 4. Avoid Deadlocks
+### 3. Avoid Deadlocks
 
 - Always acquire locks in the same order across all threads
-- Use `tryLock` when appropriate
+- Use `tryLock()` when appropriate
 - Keep critical sections short
+- Use `LockGuard` for automatic release
 
-### 5. Condition Variable Pattern
+### 4. Condition Variable Pattern
+
+Always use condition variables with a loop to handle spurious wakeups:
 
 ```xxml
-// Producer pattern
-Run Syscall::Mutex_lock(mutex);
-// ... produce data ...
-Run Syscall::CondVar_signal(condVar);
-Run Syscall::Mutex_unlock(mutex);
+Run mutex.lock();
+While (conditionNotMet) -> {
+    Run cond.wait(mutex);
+}
+// Condition is now met
+Run mutex.unlock();
+```
 
-// Consumer pattern
-Run Syscall::Mutex_lock(mutex);
-// Wait in a loop to handle spurious wakeups
-// while (!condition) CondVar_wait(...)
-Run Syscall::CondVar_wait(condVar, mutex);
-// ... consume data ...
-Run Syscall::Mutex_unlock(mutex);
+### 5. Clean Up Resources
+
+While destructors handle cleanup automatically, be mindful of resource lifetime:
+
+```xxml
+// Mutex destroyed automatically when out of scope
+{
+    Instantiate Concurrent::Mutex^ As <localMutex> = Concurrent::Mutex::Constructor();
+    // ... use mutex ...
+}  // Mutex destroyed here
 ```
 
 ---
 
 ## Examples
 
-### Example 1: Atomic Counter
+### Example 1: Parallel Counter
 
 ```xxml
 #import Language::Core;
-
-[ Entrypoint
-    {
-        // Create atomic counter starting at 0
-        Instantiate NativeType<"int64">^ As <zero> = 0;
-        Instantiate NativeType<"ptr">^ As <counter> = Syscall::Atomic_create(zero);
-
-        // Increment multiple times
-        Instantiate NativeType<"int64">^ As <one> = 1;
-        Run Syscall::Atomic_add(counter, one);
-        Run Syscall::Atomic_add(counter, one);
-        Run Syscall::Atomic_add(counter, one);
-
-        // Read final value
-        Instantiate NativeType<"int64">^ As <final> = Syscall::Atomic_load(counter);
-        Run Console::printLine(String::Constructor("Counter value: "));
-        Run Console::printLine(Integer::Constructor(final).toString());
-        // Output: 3
-
-        Run Syscall::Atomic_destroy(counter);
-        Exit(0);
-    }
-]
-```
-
-### Example 2: Protected Resource with Mutex
-
-```xxml
-#import Language::Core;
-
-[ Entrypoint
-    {
-        Instantiate NativeType<"ptr">^ As <mutex> = Syscall::Mutex_create();
-
-        // Simulate protected access
-        Run Syscall::Mutex_lock(mutex);
-        Run Console::printLine(String::Constructor("Entered critical section"));
-
-        // ... do work with shared resource ...
-        Instantiate NativeType<"int64">^ As <delay> = 100;
-        Run Syscall::Thread_sleep(delay);
-
-        Run Console::printLine(String::Constructor("Leaving critical section"));
-        Run Syscall::Mutex_unlock(mutex);
-
-        Run Syscall::Mutex_destroy(mutex);
-        Exit(0);
-    }
-]
-```
-
-### Example 3: Thread Utilities Demo
-
-```xxml
-#import Language::Core;
-
-[ Entrypoint
-    {
-        // Get thread ID
-        Instantiate NativeType<"int64">^ As <tid> = Syscall::Thread_currentId();
-        Run Console::printLine(String::Constructor("Main thread ID: "));
-        Run Console::printLine(Integer::Constructor(tid).toString());
-
-        // Yield to other threads
-        Run Console::printLine(String::Constructor("Yielding..."));
-        Run Syscall::Thread_yield();
-
-        // Sleep
-        Run Console::printLine(String::Constructor("Sleeping for 500ms..."));
-        Instantiate NativeType<"int64">^ As <ms> = 500;
-        Run Syscall::Thread_sleep(ms);
-        Run Console::printLine(String::Constructor("Awake!"));
-
-        Exit(0);
-    }
-]
-```
-
-### Example 4: Multi-Threaded Counter
-
-```xxml
-#import Language::Core;
+#import Language::Concurrent;
 
 [ Entrypoint
     {
         // Shared atomic counter
-        Instantiate NativeType<"int64">^ As <zero> = 0;
-        Instantiate NativeType<"ptr">^ As <counter> = Syscall::Atomic_create(zero);
+        Instantiate Concurrent::Atomic^ As <counter> = Concurrent::Atomic::Constructor();
 
-        // Create worker thread 1
+        // Create worker 1
         Instantiate F(None^)()^ As <worker1> = [ Lambda [&counter] Returns None^ Parameters () {
             Run Console::printLine(String::Constructor("Worker 1 starting"));
-            Instantiate NativeType<"int64">^ As <one> = 1;
-            Run Syscall::Atomic_add(counter, one);
-            Run Syscall::Atomic_add(counter, one);
-            Run Syscall::Atomic_add(counter, one);
+            Run counter.increment();
+            Run counter.increment();
+            Run counter.increment();
             Run Console::printLine(String::Constructor("Worker 1 done"));
             Return None::Constructor();
         }];
 
-        // Create worker thread 2
+        // Create worker 2
         Instantiate F(None^)()^ As <worker2> = [ Lambda [&counter] Returns None^ Parameters () {
             Run Console::printLine(String::Constructor("Worker 2 starting"));
-            Instantiate NativeType<"int64">^ As <one> = 1;
-            Run Syscall::Atomic_add(counter, one);
-            Run Syscall::Atomic_add(counter, one);
-            Run Syscall::Atomic_add(counter, one);
+            Run counter.increment();
+            Run counter.increment();
+            Run counter.increment();
             Run Console::printLine(String::Constructor("Worker 2 done"));
             Return None::Constructor();
         }];
 
         // Spawn both threads
-        Instantiate NativeType<"ptr">^ As <t1> = Syscall::Thread_spawn_lambda(worker1);
-        Instantiate NativeType<"ptr">^ As <t2> = Syscall::Thread_spawn_lambda(worker2);
+        Instantiate Concurrent::Thread^ As <t1> = Concurrent::Thread::spawn(worker1);
+        Instantiate Concurrent::Thread^ As <t2> = Concurrent::Thread::spawn(worker2);
 
-        // Wait for both to complete
-        Run Syscall::Thread_join(t1);
-        Run Syscall::Thread_join(t2);
+        // Wait for both
+        Run t1.join();
+        Run t2.join();
 
-        // Final count should be 6 (3 + 3)
-        Instantiate NativeType<"int64">^ As <final> = Syscall::Atomic_load(counter);
+        // Final count should be 6
         Run Console::printLine(String::Constructor("Final count: "));
-        Run Console::printLine(Integer::Constructor(final).toString());
+        Run Console::printLine(counter.get().toString());
 
-        Run Syscall::Atomic_destroy(counter);
+        Exit(0);
+    }
+]
+```
+
+### Example 2: Protected Shared Data
+
+```xxml
+#import Language::Core;
+#import Language::Concurrent;
+
+[ Entrypoint
+    {
+        Instantiate Concurrent::Mutex^ As <mutex> = Concurrent::Mutex::Constructor();
+        Instantiate Integer^ As <sharedData> = Integer::Constructor(0);
+
+        Instantiate F(None^)()^ As <modifier> = [ Lambda [&mutex, &sharedData] Returns None^ Parameters () {
+            // Use LockGuard for automatic unlock
+            Instantiate Concurrent::LockGuard^ As <guard> = Concurrent::LockGuard::Constructor(mutex);
+
+            // Safely modify shared data
+            Set sharedData = sharedData.add(Integer::Constructor(10));
+            Run Console::printLine(String::Constructor("Modified data"));
+
+            Return None::Constructor();
+        }];
+
+        Instantiate Concurrent::Thread^ As <t1> = Concurrent::Thread::spawn(modifier);
+        Instantiate Concurrent::Thread^ As <t2> = Concurrent::Thread::spawn(modifier);
+
+        Run t1.join();
+        Run t2.join();
+
+        Run Console::printLine(String::Constructor("Final value: "));
+        Run Console::printLine(sharedData.toString());  // Should be 20
+
+        Exit(0);
+    }
+]
+```
+
+### Example 3: Thread Pool Pattern with Semaphore
+
+```xxml
+#import Language::Core;
+#import Language::Concurrent;
+
+[ Entrypoint
+    {
+        // Limit to 2 concurrent workers
+        Instantiate Concurrent::Semaphore^ As <pool> = Concurrent::Semaphore::Constructor(Integer::Constructor(2));
+        Instantiate Concurrent::Atomic^ As <completed> = Concurrent::Atomic::Constructor();
+
+        // Create 5 tasks
+        Instantiate F(None^)()^ As <task> = [ Lambda [&pool, &completed] Returns None^ Parameters () {
+            Run pool.acquire();  // Wait for a slot
+
+            Run Console::printLine(String::Constructor("Task running"));
+            Run Concurrent::Thread::sleep(Integer::Constructor(50));
+            Run Console::printLine(String::Constructor("Task done"));
+
+            Run completed.increment();
+            Run pool.release();  // Release the slot
+            Return None::Constructor();
+        }];
+
+        // Spawn all 5 tasks (only 2 will run at a time)
+        Instantiate Concurrent::Thread^ As <t1> = Concurrent::Thread::spawn(task);
+        Instantiate Concurrent::Thread^ As <t2> = Concurrent::Thread::spawn(task);
+        Instantiate Concurrent::Thread^ As <t3> = Concurrent::Thread::spawn(task);
+        Instantiate Concurrent::Thread^ As <t4> = Concurrent::Thread::spawn(task);
+        Instantiate Concurrent::Thread^ As <t5> = Concurrent::Thread::spawn(task);
+
+        Run t1.join();
+        Run t2.join();
+        Run t3.join();
+        Run t4.join();
+        Run t5.join();
+
+        Run Console::printLine(String::Constructor("All tasks completed: "));
+        Run Console::printLine(completed.get().toString());
+
         Exit(0);
     }
 ]
@@ -505,41 +572,17 @@ Run Syscall::Mutex_unlock(mutex);
 
 ---
 
-## Runtime Functions Reference
+## Class Reference
 
-| Function | Signature | Description |
-|----------|-----------|-------------|
-| `Thread_create` | `(ptr, ptr) -> ptr` | Create a new thread |
-| `Thread_join` | `(ptr) -> i64` | Wait for thread completion |
-| `Thread_detach` | `(ptr) -> i64` | Detach a thread |
-| `Thread_isJoinable` | `(ptr) -> i1` | Check if thread is joinable |
-| `Thread_sleep` | `(i64) -> void` | Sleep for milliseconds |
-| `Thread_yield` | `() -> void` | Yield time slice |
-| `Thread_currentId` | `() -> i64` | Get current thread ID |
-| `Thread_spawn_lambda` | `(ptr) -> ptr` | Spawn thread with lambda |
-| `Mutex_create` | `() -> ptr` | Create a mutex |
-| `Mutex_destroy` | `(ptr) -> void` | Destroy a mutex |
-| `Mutex_lock` | `(ptr) -> i64` | Lock (blocking) |
-| `Mutex_unlock` | `(ptr) -> i64` | Unlock |
-| `Mutex_tryLock` | `(ptr) -> i1` | Try to lock (non-blocking) |
-| `CondVar_create` | `() -> ptr` | Create condition variable |
-| `CondVar_destroy` | `(ptr) -> void` | Destroy condition variable |
-| `CondVar_wait` | `(ptr, ptr) -> i64` | Wait on condition |
-| `CondVar_waitTimeout` | `(ptr, ptr, i64) -> i64` | Wait with timeout |
-| `CondVar_signal` | `(ptr) -> i64` | Signal one waiter |
-| `CondVar_broadcast` | `(ptr) -> i64` | Signal all waiters |
-| `Atomic_create` | `(i64) -> ptr` | Create atomic integer |
-| `Atomic_destroy` | `(ptr) -> void` | Destroy atomic |
-| `Atomic_load` | `(ptr) -> i64` | Load value |
-| `Atomic_store` | `(ptr, i64) -> void` | Store value |
-| `Atomic_add` | `(ptr, i64) -> i64` | Add and return new value |
-| `Atomic_sub` | `(ptr, i64) -> i64` | Subtract and return new value |
-| `Atomic_compareAndSwap` | `(ptr, i64, i64) -> i1` | CAS operation |
-| `Atomic_exchange` | `(ptr, i64) -> i64` | Exchange values |
-| `TLS_create` | `() -> ptr` | Create TLS key |
-| `TLS_destroy` | `(ptr) -> void` | Destroy TLS key |
-| `TLS_get` | `(ptr) -> ptr` | Get thread-local value |
-| `TLS_set` | `(ptr, ptr) -> void` | Set thread-local value |
+| Class | Description |
+|-------|-------------|
+| `Thread` | Execution thread with lambda support |
+| `Mutex` | Mutual exclusion lock |
+| `LockGuard` | RAII scoped lock |
+| `Atomic` | Thread-safe atomic integer |
+| `ConditionVariable` | Thread coordination/signaling |
+| `Semaphore` | Counting semaphore |
+| `ThreadLocal<T>` | Per-thread storage |
 
 ---
 

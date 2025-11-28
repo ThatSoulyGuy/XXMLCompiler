@@ -1,0 +1,20 @@
+// Annotation Error Test - Tests that semantic errors are caught
+#import Language::Core;
+
+// Define annotation for properties only
+[ Annotation <PropertyOnly> Allows (AnnotationAllow::Properties)
+]
+
+// ERROR: Using PropertyOnly on a class (wrong target)
+@PropertyOnly
+[ Class <BadClass> Final Extends None
+    [ Public <>
+        Constructor = default;
+    ]
+]
+
+[ Entrypoint
+    {
+        Exit(0);
+    }
+]

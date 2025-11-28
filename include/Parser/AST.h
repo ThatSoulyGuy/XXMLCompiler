@@ -11,6 +11,10 @@ namespace Parser {
 class ASTVisitor;
 class Statement;
 class ParameterDecl;
+class AnnotationUsage;
+class AnnotationDecl;
+class AnnotateDecl;
+class ProcessorDecl;
 
 // Base AST node
 class ASTNode {
@@ -331,6 +335,7 @@ public:
     std::unique_ptr<TypeRef> type;
     std::string variableName;
     std::unique_ptr<Expression> initializer;
+    std::vector<std::unique_ptr<AnnotationUsage>> annotations;  // Applied annotations
 
     InstantiateStmt(std::unique_ptr<TypeRef> t, const std::string& name,
                     std::unique_ptr<Expression> init, const Common::SourceLocation& loc)
@@ -502,6 +507,7 @@ class PropertyDecl : public Declaration {
 public:
     std::string name;
     std::unique_ptr<TypeRef> type;
+    std::vector<std::unique_ptr<AnnotationUsage>> annotations;  // Applied annotations
 
     PropertyDecl(const std::string& n, std::unique_ptr<TypeRef> t, const Common::SourceLocation& loc)
         : Declaration(loc), name(n), type(std::move(t)) {}
@@ -544,6 +550,7 @@ public:
     std::unique_ptr<TypeRef> returnType;
     std::vector<std::unique_ptr<ParameterDecl>> parameters;
     std::vector<std::unique_ptr<Statement>> body;
+    std::vector<std::unique_ptr<AnnotationUsage>> annotations;  // Applied annotations
 
     MethodDecl(const std::string& n, std::unique_ptr<TypeRef> retType,
                std::vector<std::unique_ptr<ParameterDecl>> params,
@@ -588,6 +595,7 @@ public:
     bool isFinal;
     std::string baseClass;  // Empty string if no base class (Extends None)
     std::vector<std::unique_ptr<AccessSection>> sections;
+    std::vector<std::unique_ptr<AnnotationUsage>> annotations;  // Applied annotations
 
     ClassDecl(const std::string& n, const std::vector<TemplateParameter>& tparams,
               bool final, const std::string& base,
@@ -690,6 +698,79 @@ public:
     std::unique_ptr<Declaration> cloneDecl() const override;
 };
 
+// Annotation target types
+enum class AnnotationTarget {
+    Properties,
+    Variables,
+    Classes,
+    Methods
+};
+
+// Annotation parameter definition (Annotate statement inside annotation definition)
+class AnnotateDecl : public Declaration {
+public:
+    std::string name;
+    std::unique_ptr<TypeRef> type;
+    std::unique_ptr<Expression> defaultValue;  // nullable - optional default
+
+    AnnotateDecl(const std::string& n, std::unique_ptr<TypeRef> t,
+                 std::unique_ptr<Expression> def, const Common::SourceLocation& loc)
+        : Declaration(loc), name(n), type(std::move(t)), defaultValue(std::move(def)) {}
+
+    void accept(ASTVisitor& visitor) override;
+    std::unique_ptr<ASTNode> clone() const override;
+    std::unique_ptr<Declaration> cloneDecl() const override;
+};
+
+// Processor class definition (nested inside annotation)
+class ProcessorDecl : public Declaration {
+public:
+    std::vector<std::unique_ptr<AccessSection>> sections;
+
+    ProcessorDecl(std::vector<std::unique_ptr<AccessSection>> s, const Common::SourceLocation& loc)
+        : Declaration(loc), sections(std::move(s)) {}
+
+    void accept(ASTVisitor& visitor) override;
+    std::unique_ptr<ASTNode> clone() const override;
+    std::unique_ptr<Declaration> cloneDecl() const override;
+};
+
+// Annotation definition
+class AnnotationDecl : public Declaration {
+public:
+    std::string name;
+    std::vector<AnnotationTarget> allowedTargets;
+    std::vector<std::unique_ptr<AnnotateDecl>> parameters;
+    std::unique_ptr<ProcessorDecl> processor;  // nullable
+    bool retainAtRuntime;
+
+    AnnotationDecl(const std::string& n, std::vector<AnnotationTarget> targets,
+                   std::vector<std::unique_ptr<AnnotateDecl>> params,
+                   std::unique_ptr<ProcessorDecl> proc, bool retain,
+                   const Common::SourceLocation& loc)
+        : Declaration(loc), name(n), allowedTargets(std::move(targets)),
+          parameters(std::move(params)), processor(std::move(proc)), retainAtRuntime(retain) {}
+
+    void accept(ASTVisitor& visitor) override;
+    std::unique_ptr<ASTNode> clone() const override;
+    std::unique_ptr<Declaration> cloneDecl() const override;
+};
+
+// Annotation usage (@Name(...))
+class AnnotationUsage : public ASTNode {
+public:
+    std::string annotationName;
+    std::vector<std::pair<std::string, std::unique_ptr<Expression>>> arguments;
+
+    AnnotationUsage(const std::string& name,
+                    std::vector<std::pair<std::string, std::unique_ptr<Expression>>> args,
+                    const Common::SourceLocation& loc)
+        : ASTNode(loc), annotationName(name), arguments(std::move(args)) {}
+
+    void accept(ASTVisitor& visitor) override;
+    std::unique_ptr<ASTNode> clone() const override;
+};
+
 // Root node
 class Program : public ASTNode {
 public:
@@ -718,6 +799,10 @@ public:
     virtual void visit(ParameterDecl& node) = 0;
     virtual void visit(EntrypointDecl& node) = 0;
     virtual void visit(ConstraintDecl& node) = 0;
+    virtual void visit(AnnotateDecl& node) = 0;
+    virtual void visit(ProcessorDecl& node) = 0;
+    virtual void visit(AnnotationDecl& node) = 0;
+    virtual void visit(AnnotationUsage& node) = 0;
 
     virtual void visit(InstantiateStmt& node) = 0;
     virtual void visit(RequireStmt& node) = 0;

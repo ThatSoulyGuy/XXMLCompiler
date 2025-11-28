@@ -1,0 +1,101 @@
+#import Language::Core;
+
+[ Namespace <Language::Reflection>
+	// Annotation argument type constants
+	// These match AnnotationArgType enum in xxml_annotation_runtime.h
+	// 0 = Integer, 1 = String, 2 = Bool, 3 = Float, 4 = Double
+
+	[ Class <AnnotationArg> Final Extends None
+		[ Private <>
+			Property <argPtr> Types NativeType<"ptr">^;
+		]
+
+		[ Public <>
+			Constructor Parameters (
+				Parameter <infoPtr> Types NativeType<"ptr">%
+			) ->
+			{
+				Run Syscall::memcpy(&argPtr, &infoPtr, 8);
+			}
+
+			// Get argument name
+			Method <getName> Returns String^ Parameters () ->
+			{
+				Instantiate NativeType<"ptr">^ As <ptr> = argPtr;
+				Instantiate NativeType<"ptr">^ As <result> =
+					Syscall::Language_Reflection_AnnotationArg_getName(ptr);
+				Return result;
+			}
+
+			// Get argument type (0=Integer, 1=String, 2=Bool, 3=Float, 4=Double)
+			Method <getType> Returns Integer^ Parameters () ->
+			{
+				Instantiate NativeType<"ptr">^ As <ptr> = argPtr;
+				Instantiate NativeType<"int64">^ As <typeVal> =
+					Syscall::Language_Reflection_AnnotationArg_getType(ptr);
+				Return Integer::Constructor(typeVal);
+			}
+
+			// Get argument type as string
+			Method <getTypeString> Returns String^ Parameters () ->
+			{
+				Instantiate Integer^ As <typeVal> = getType();
+				Instantiate NativeType<"int64">^ As <t> = typeVal.toInt64();
+
+				If (t == 0) -> {
+					Return String::Constructor("Integer");
+				}
+				If (t == 1) -> {
+					Return String::Constructor("String");
+				}
+				If (t == 2) -> {
+					Return String::Constructor("Bool");
+				}
+				If (t == 3) -> {
+					Return String::Constructor("Float");
+				}
+				If (t == 4) -> {
+					Return String::Constructor("Double");
+				}
+
+				Return String::Constructor("Unknown");
+			}
+
+			// Get value as Integer (returns 0 if wrong type)
+			Method <asInteger> Returns Integer^ Parameters () ->
+			{
+				Instantiate NativeType<"ptr">^ As <ptr> = argPtr;
+				Instantiate NativeType<"int64">^ As <result> =
+					Syscall::Language_Reflection_AnnotationArg_asInteger(ptr);
+				Return Integer::Constructor(result);
+			}
+
+			// Get value as String (returns empty string if wrong type)
+			Method <asString> Returns String^ Parameters () ->
+			{
+				Instantiate NativeType<"ptr">^ As <ptr> = argPtr;
+				Instantiate NativeType<"ptr">^ As <result> =
+					Syscall::Language_Reflection_AnnotationArg_asString(ptr);
+				Return result;
+			}
+
+			// Get value as Bool (returns false if wrong type)
+			Method <asBool> Returns Bool^ Parameters () ->
+			{
+				Instantiate NativeType<"ptr">^ As <ptr> = argPtr;
+				Instantiate NativeType<"int64">^ As <result> =
+					Syscall::Language_Reflection_AnnotationArg_asBool(ptr);
+				Return Bool::Constructor(result != 0);
+			}
+
+			// Get value as Double (returns 0.0 if wrong type)
+			Method <asDouble> Returns Double^ Parameters () ->
+			{
+				Instantiate NativeType<"ptr">^ As <ptr> = argPtr;
+				Instantiate NativeType<"double">^ As <result> =
+					Syscall::Language_Reflection_AnnotationArg_asDouble(ptr);
+				Return Double::Constructor(result);
+			}
+		]
+	]
+]

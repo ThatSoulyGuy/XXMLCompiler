@@ -47,6 +47,10 @@ void NamespaceDecl::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void ImportDecl::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void EntrypointDecl::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void ConstraintDecl::accept(ASTVisitor& visitor) { visitor.visit(*this); }
+void AnnotateDecl::accept(ASTVisitor& visitor) { visitor.visit(*this); }
+void ProcessorDecl::accept(ASTVisitor& visitor) { visitor.visit(*this); }
+void AnnotationDecl::accept(ASTVisitor& visitor) { visitor.visit(*this); }
+void AnnotationUsage::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void Program::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 
 } // namespace Parser

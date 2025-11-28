@@ -1,0 +1,94 @@
+// ProcessorReflectionContext - XXML wrapper for annotation processor reflection API
+// Provides information about the annotated element to processors
+
+#import Language::Core;
+
+[ Namespace <Language::Processor>
+    [ Class <ProcessorReflectionContext> Final Extends None
+        [ Private <>
+            Property <ctxPtr> Types NativeType<"ptr">^;
+        ]
+
+        [ Public <>
+            Constructor Parameters (
+                Parameter <ptr> Types NativeType<"ptr">%
+            ) ->
+            {
+                Run Syscall::memcpy(&ctxPtr, &ptr, 8);
+            }
+
+            // Get the kind of the annotated target
+            // Returns: "class", "method", "property", or "variable"
+            Method <getTargetKind> Returns String^ Parameters () ->
+            {
+                Instantiate NativeType<"ptr">^ As <ptr> = ctxPtr;
+                Instantiate NativeType<"ptr">^ As <result> =
+                    Syscall::Processor_getTargetKind(ptr);
+                Return result;
+            }
+
+            // Get the name of the annotated target
+            Method <getTargetName> Returns String^ Parameters () ->
+            {
+                Instantiate NativeType<"ptr">^ As <ptr> = ctxPtr;
+                Instantiate NativeType<"ptr">^ As <result> =
+                    Syscall::Processor_getTargetName(ptr);
+                Return result;
+            }
+
+            // Get the type name of the annotated target (for properties/variables)
+            Method <getTypeName> Returns String^ Parameters () ->
+            {
+                Instantiate NativeType<"ptr">^ As <ptr> = ctxPtr;
+                Instantiate NativeType<"ptr">^ As <result> =
+                    Syscall::Processor_getTypeName(ptr);
+                Return result;
+            }
+
+            // Get the containing class name (for methods/properties)
+            Method <getClassName> Returns String^ Parameters () ->
+            {
+                Instantiate NativeType<"ptr">^ As <ptr> = ctxPtr;
+                Instantiate NativeType<"ptr">^ As <result> =
+                    Syscall::Processor_getClassName(ptr);
+                Return result;
+            }
+
+            // Get the containing namespace
+            Method <getNamespaceName> Returns String^ Parameters () ->
+            {
+                Instantiate NativeType<"ptr">^ As <ptr> = ctxPtr;
+                Instantiate NativeType<"ptr">^ As <result> =
+                    Syscall::Processor_getNamespaceName(ptr);
+                Return result;
+            }
+
+            // Get the source file path
+            Method <getSourceFile> Returns String^ Parameters () ->
+            {
+                Instantiate NativeType<"ptr">^ As <ptr> = ctxPtr;
+                Instantiate NativeType<"ptr">^ As <result> =
+                    Syscall::Processor_getSourceFile(ptr);
+                Return result;
+            }
+
+            // Get the line number
+            Method <getLineNumber> Returns Integer^ Parameters () ->
+            {
+                Instantiate NativeType<"ptr">^ As <ptr> = ctxPtr;
+                Instantiate NativeType<"int64">^ As <result> =
+                    Syscall::Processor_getLineNumber(ptr);
+                Return Integer::Constructor(result);
+            }
+
+            // Get the column number
+            Method <getColumnNumber> Returns Integer^ Parameters () ->
+            {
+                Instantiate NativeType<"ptr">^ As <ptr> = ctxPtr;
+                Instantiate NativeType<"int64">^ As <result> =
+                    Syscall::Processor_getColumnNumber(ptr);
+                Return Integer::Constructor(result);
+            }
+        ]
+    ]
+]

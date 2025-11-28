@@ -551,6 +551,74 @@ std::unique_ptr<Declaration> ConstraintDecl::cloneDecl() const {
 }
 
 // ============================================================================
+// Annotation Clones
+// ============================================================================
+
+std::unique_ptr<ASTNode> AnnotateDecl::clone() const {
+    return cloneDecl();
+}
+
+std::unique_ptr<Declaration> AnnotateDecl::cloneDecl() const {
+    return std::make_unique<AnnotateDecl>(
+        name,
+        type->cloneType(),
+        defaultValue ? defaultValue->cloneExpr() : nullptr,
+        location
+    );
+}
+
+std::unique_ptr<ASTNode> ProcessorDecl::clone() const {
+    return cloneDecl();
+}
+
+std::unique_ptr<Declaration> ProcessorDecl::cloneDecl() const {
+    std::vector<std::unique_ptr<AccessSection>> clonedSections;
+    for (const auto& section : sections) {
+        clonedSections.push_back(cloneAccessSection(*section));
+    }
+    return std::make_unique<ProcessorDecl>(std::move(clonedSections), location);
+}
+
+std::unique_ptr<ASTNode> AnnotationDecl::clone() const {
+    return cloneDecl();
+}
+
+std::unique_ptr<Declaration> AnnotationDecl::cloneDecl() const {
+    std::vector<std::unique_ptr<AnnotateDecl>> clonedParams;
+    for (const auto& param : parameters) {
+        clonedParams.push_back(
+            std::unique_ptr<AnnotateDecl>(
+                static_cast<AnnotateDecl*>(param->cloneDecl().release())
+            )
+        );
+    }
+
+    std::unique_ptr<ProcessorDecl> clonedProcessor;
+    if (processor) {
+        clonedProcessor = std::unique_ptr<ProcessorDecl>(
+            static_cast<ProcessorDecl*>(processor->cloneDecl().release())
+        );
+    }
+
+    return std::make_unique<AnnotationDecl>(
+        name,
+        allowedTargets,  // vector copy
+        std::move(clonedParams),
+        std::move(clonedProcessor),
+        retainAtRuntime,
+        location
+    );
+}
+
+std::unique_ptr<ASTNode> AnnotationUsage::clone() const {
+    std::vector<std::pair<std::string, std::unique_ptr<Expression>>> clonedArgs;
+    for (const auto& arg : arguments) {
+        clonedArgs.push_back({arg.first, arg.second->cloneExpr()});
+    }
+    return std::make_unique<AnnotationUsage>(annotationName, std::move(clonedArgs), location);
+}
+
+// ============================================================================
 // Program Clone
 // ============================================================================
 

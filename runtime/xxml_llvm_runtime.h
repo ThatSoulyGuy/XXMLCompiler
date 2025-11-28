@@ -417,6 +417,33 @@ bool xxml_Path_isAbsolute(const char* path);
 // Get absolute path
 void* xxml_Path_getAbsolute(const char* path);
 
+// ============================================
+// Utility Functions for Syscall Namespace
+// ============================================
+
+// Create a new String from a C string literal
+void* xxml_string_create(const char* cstr);
+
+// Check if a pointer is null (returns 1 if null, 0 otherwise)
+int64_t xxml_ptr_is_null(void* ptr);
+
+// Get a null pointer
+void* xxml_ptr_null(void);
+
+// ============================================
+// Dynamic Value Methods (for __DynamicValue type)
+// Used by processor code when target type is unknown at compile time
+// ============================================
+
+void* __DynamicValue_toString(void* self);
+bool __DynamicValue_greaterThan(void* self, void* other);
+bool __DynamicValue_lessThan(void* self, void* other);
+bool __DynamicValue_equals(void* self, void* other);
+void* __DynamicValue_add(void* self, void* other);
+void* __DynamicValue_sub(void* self, void* other);
+void* __DynamicValue_mul(void* self, void* other);
+void* __DynamicValue_div(void* self, void* other);
+
 #ifdef __cplusplus
 }
 #endif

@@ -4,6 +4,7 @@
 #include "SymbolTable.h"
 #include "../Common/Error.h"
 #include "../Core/TypeContext.h"
+#include "../AnnotationProcessor/AnnotationProcessor.h"
 
 namespace XXML {
 
@@ -36,10 +37,14 @@ private:
     Core::CompilationContext* context_;  // ✅ Use context instead of static state
     Common::ErrorReporter& errorReporter;
     Core::TypeContext typeContext_;  // Type information for code generation
+    AnnotationProcessor::AnnotationProcessor annotationProcessor_;  // Annotation processor
     std::string currentClass;
     std::string currentNamespace;
     bool enableValidation;  // Controls whether to do full validation
     bool inTemplateDefinition;  // True when analyzing template class/method definition
+    bool inProcessorContext_ = false;  // True when visiting ProcessorDecl (enables intrinsic types)
+    std::string processorTargetType_;  // The type being annotated (for getTargetValue() return type)
+    std::string currentAnnotationName_;  // The annotation being processed (for getAnnotationArg() return type)
     std::set<std::string> templateTypeParameters;  // Template parameters in current scope
 
     // Type checking helpers
@@ -63,6 +68,9 @@ private:
     void validateMethodCall(Parser::CallExpr& node);
     void validateConstructorCall(Parser::CallExpr& node);
     bool isTemporaryExpression(Parser::Expression* expr);  // Check if expression is a temporary (rvalue)
+    void validateOnAnnotateSignature(Parser::MethodDecl& method);  // Validate processor onAnnotate method
+    bool isCompilerIntrinsicType(const std::string& typeName) const;  // Check for ReflectionContext, CompilationContext
+    void setProcessorTargetType(const std::string& typeName) { processorTargetType_ = typeName; }  // Set target type for getTargetValue()
 
     // Temporary storage for expression type information
     std::unordered_map<Parser::Expression*, std::string> expressionTypes;
@@ -145,6 +153,7 @@ private:
     std::unordered_map<std::string, ClassInfo> classRegistry_;  // Qualified class name -> ClassInfo
     std::set<std::string> validNamespaces_;  // Track all valid namespaces
     std::set<std::string> importedNamespaces_;  // Track imported namespaces for unqualified name lookup
+    std::vector<Parser::ClassDecl*> localClasses_;  // User-defined classes in the current file (for processor access)
 
     // Move tracking for ownership safety
     std::set<std::string> movedVariables_;  // Variables that have been moved from (owned capture or owned param)
@@ -180,6 +189,43 @@ private:
     };
 
     std::unordered_map<std::string, ConstraintInfo> constraintRegistry_;  // Constraint name -> info
+
+    // Annotation registry and validation
+    struct AnnotationParamInfo {
+        std::string name;
+        std::string typeName;
+        Parser::OwnershipType ownership;
+        bool hasDefault;
+    };
+
+    struct AnnotationInfo {
+        std::string name;
+        std::vector<Parser::AnnotationTarget> allowedTargets;
+        std::vector<AnnotationParamInfo> parameters;
+        bool retainAtRuntime;
+        Parser::AnnotationDecl* astNode;
+    };
+
+    // Pending processor compilation info (for inline processors)
+    struct PendingProcessorCompilation {
+        std::string annotationName;
+        Parser::AnnotationDecl* annotDecl;
+        Parser::ProcessorDecl* processorDecl;
+        std::vector<std::string> imports;  // Imports from the source file
+        std::vector<Parser::ClassDecl*> userClasses;  // User-defined classes from the same file
+    };
+
+    std::unordered_map<std::string, AnnotationInfo> annotationRegistry_;  // Annotation name -> info
+    std::vector<PendingProcessorCompilation> pendingProcessorCompilations_;  // Annotations with inline processors
+
+    // Annotation validation helpers
+    void validateAnnotationUsage(Parser::AnnotationUsage& usage,
+                                 Parser::AnnotationTarget targetKind,
+                                 const std::string& targetName,
+                                 const Common::SourceLocation& targetLoc,
+                                 Parser::ASTNode* astNode = nullptr);
+    bool isValidAnnotationTarget(const AnnotationInfo& annotation, Parser::AnnotationTarget target);
+    std::string annotationTargetToString(Parser::AnnotationTarget target);
 
     bool validateConstraint(const std::string& typeName, const std::vector<std::string>& constraints);
     bool validateConstraintRequirements(const std::string& typeName,
@@ -253,6 +299,16 @@ public:
         return getExpressionType(expr);
     }
 
+    // Get annotation processor for processing after semantic analysis
+    AnnotationProcessor::AnnotationProcessor& getAnnotationProcessor() {
+        return annotationProcessor_;
+    }
+
+    // Get pending processor compilations (inline processors in annotations)
+    const std::vector<PendingProcessorCompilation>& getPendingProcessorCompilations() const {
+        return pendingProcessorCompilations_;
+    }
+
 public:
     // ✅ NEW: Accept CompilationContext for registry access
     SemanticAnalyzer(Core::CompilationContext& context, Common::ErrorReporter& reporter);
@@ -286,6 +342,10 @@ public:
     void visit(Parser::ParameterDecl& node) override;
     void visit(Parser::EntrypointDecl& node) override;
     void visit(Parser::ConstraintDecl& node) override;
+    void visit(Parser::AnnotateDecl& node) override;
+    void visit(Parser::ProcessorDecl& node) override;
+    void visit(Parser::AnnotationDecl& node) override;
+    void visit(Parser::AnnotationUsage& node) override;
 
     void visit(Parser::InstantiateStmt& node) override;
     void visit(Parser::RequireStmt& node) override;

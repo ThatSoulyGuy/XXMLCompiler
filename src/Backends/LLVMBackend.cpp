@@ -80,6 +80,23 @@ std::string LLVMBackend::generate(Parser::Program& program) {
     // Generate preamble (legacy - will be replaced)
     std::string preamble = generatePreamble();
 
+    // Track preamble-declared functions to prevent duplicates when processing modules
+    // Annotation Info bindings
+    declaredFunctions_.insert("Language_Reflection_AnnotationInfo_Constructor");
+    declaredFunctions_.insert("Language_Reflection_AnnotationInfo_getName");
+    declaredFunctions_.insert("Language_Reflection_AnnotationInfo_getArgumentCount");
+    declaredFunctions_.insert("Language_Reflection_AnnotationInfo_getArgument");
+    declaredFunctions_.insert("Language_Reflection_AnnotationInfo_getArgumentByName");
+    declaredFunctions_.insert("Language_Reflection_AnnotationInfo_hasArgument");
+    // Annotation Arg bindings
+    declaredFunctions_.insert("Language_Reflection_AnnotationArg_Constructor");
+    declaredFunctions_.insert("Language_Reflection_AnnotationArg_getName");
+    declaredFunctions_.insert("Language_Reflection_AnnotationArg_getType");
+    declaredFunctions_.insert("Language_Reflection_AnnotationArg_asInteger");
+    declaredFunctions_.insert("Language_Reflection_AnnotationArg_asString");
+    declaredFunctions_.insert("Language_Reflection_AnnotationArg_asBool");
+    declaredFunctions_.insert("Language_Reflection_AnnotationArg_asDouble");
+
     // Forward declare all user-defined functions before code generation
     // Must come BEFORE template instantiations to avoid declare-after-define errors
     // Process imported modules first (for standard library functions), then main program
@@ -111,7 +128,10 @@ std::string LLVMBackend::generate(Parser::Program& program) {
             }
         }
     }
-    generateFunctionDeclarations(program);
+    // NOTE: Don't generate declarations for the main program!
+    // The main program's functions will be DEFINED later, and recent versions of LLVM/clang
+    // reject 'declare' followed by 'define' for the same function (treats it as redefinition).
+    // We only generate declarations for runtime modules whose code is in the runtime library.
 
     // Generate template instantiations (monomorphization) before main code
     generateTemplateInstantiations();
@@ -167,6 +187,14 @@ std::string LLVMBackend::generate(Parser::Program& program) {
 
     // Generate reflection metadata after all classes are visited
     generateReflectionMetadata();
+
+    // Generate annotation metadata for retained annotations
+    generateAnnotationMetadata();
+
+    // Generate processor entry points if in processor mode
+    if (processorMode_) {
+        generateProcessorEntryPoints(program);
+    }
 
     // Get the generated code
     std::string generatedCode = output_.str();
@@ -909,6 +937,135 @@ std::string LLVMBackend::generatePreamble() {
     preamble << "declare i64 @xxml_reflection_parameter_getOwnership(ptr)\n";
     preamble << "\n";
 
+    // Annotation runtime functions
+    preamble << "; Annotation Runtime Functions\n";
+    preamble << "declare void @Annotation_registerForType(ptr, i32, ptr)\n";
+    preamble << "declare void @Annotation_registerForMethod(ptr, ptr, i32, ptr)\n";
+    preamble << "declare void @Annotation_registerForProperty(ptr, ptr, i32, ptr)\n";
+    preamble << "declare i32 @Annotation_getCountForType(ptr)\n";
+    preamble << "declare ptr @Annotation_getForType(ptr, i32)\n";
+    preamble << "declare i32 @Annotation_getCountForMethod(ptr, ptr)\n";
+    preamble << "declare ptr @Annotation_getForMethod(ptr, ptr, i32)\n";
+    preamble << "declare i32 @Annotation_getCountForProperty(ptr, ptr)\n";
+    preamble << "declare ptr @Annotation_getForProperty(ptr, ptr, i32)\n";
+    preamble << "declare i1 @Annotation_typeHas(ptr, ptr)\n";
+    preamble << "declare i1 @Annotation_methodHas(ptr, ptr, ptr)\n";
+    preamble << "declare i1 @Annotation_propertyHas(ptr, ptr, ptr)\n";
+    preamble << "declare ptr @Annotation_getByNameForType(ptr, ptr)\n";
+    preamble << "declare ptr @Annotation_getByNameForMethod(ptr, ptr, ptr)\n";
+    preamble << "declare ptr @Annotation_getByNameForProperty(ptr, ptr, ptr)\n";
+    preamble << "declare ptr @Annotation_getArgument(ptr, ptr)\n";
+    preamble << "declare i64 @Annotation_getIntArg(ptr, ptr, i64)\n";
+    preamble << "declare ptr @Annotation_getStringArg(ptr, ptr, ptr)\n";
+    preamble << "declare i1 @Annotation_getBoolArg(ptr, ptr, i1)\n";
+    preamble << "declare double @Annotation_getDoubleArg(ptr, ptr, double)\n";
+    preamble << "\n";
+
+    // Language::Reflection::AnnotationInfo class bindings
+    preamble << "; Annotation Info Language Bindings\n";
+    preamble << "declare ptr @Language_Reflection_AnnotationInfo_Constructor(ptr)\n";
+    preamble << "declare ptr @Language_Reflection_AnnotationInfo_getName(ptr)\n";
+    preamble << "declare ptr @Language_Reflection_AnnotationInfo_getArgumentCount(ptr)\n";
+    preamble << "declare ptr @Language_Reflection_AnnotationInfo_getArgument(ptr, ptr)\n";
+    preamble << "declare ptr @Language_Reflection_AnnotationInfo_getArgumentByName(ptr, ptr)\n";
+    preamble << "declare ptr @Language_Reflection_AnnotationInfo_hasArgument(ptr, ptr)\n";
+    preamble << "\n";
+
+    // Language::Reflection::AnnotationArg class bindings
+    preamble << "; Annotation Arg Language Bindings\n";
+    preamble << "declare ptr @Language_Reflection_AnnotationArg_Constructor(ptr)\n";
+    preamble << "declare ptr @Language_Reflection_AnnotationArg_getName(ptr)\n";
+    preamble << "declare ptr @Language_Reflection_AnnotationArg_getType(ptr)\n";
+    preamble << "declare ptr @Language_Reflection_AnnotationArg_asInteger(ptr)\n";
+    preamble << "declare ptr @Language_Reflection_AnnotationArg_asString(ptr)\n";
+    preamble << "declare ptr @Language_Reflection_AnnotationArg_asBool(ptr)\n";
+    preamble << "declare ptr @Language_Reflection_AnnotationArg_asDouble(ptr)\n";
+    preamble << "\n";
+
+    // Annotation Processor API bindings (for user-defined processors)
+    preamble << "; Annotation Processor API\n";
+    // ReflectionContext basic methods
+    preamble << "declare ptr @Processor_getTargetKind(ptr)\n";
+    preamble << "declare ptr @Processor_getTargetName(ptr)\n";
+    preamble << "declare ptr @Processor_getTypeName(ptr)\n";
+    preamble << "declare ptr @Processor_getClassName(ptr)\n";
+    preamble << "declare ptr @Processor_getNamespaceName(ptr)\n";
+    preamble << "declare ptr @Processor_getSourceFile(ptr)\n";
+    preamble << "declare i64 @Processor_getLineNumber(ptr)\n";
+    preamble << "declare i64 @Processor_getColumnNumber(ptr)\n";
+    // ReflectionContext class inspection methods
+    preamble << "declare i64 @Processor_getPropertyCount(ptr)\n";
+    preamble << "declare ptr @Processor_getPropertyNameAt(ptr, i64)\n";
+    preamble << "declare ptr @Processor_getPropertyTypeAt(ptr, i64)\n";
+    preamble << "declare ptr @Processor_getPropertyOwnershipAt(ptr, i64)\n";
+    preamble << "declare i64 @Processor_getMethodCount(ptr)\n";
+    preamble << "declare ptr @Processor_getMethodNameAt(ptr, i64)\n";
+    preamble << "declare ptr @Processor_getMethodReturnTypeAt(ptr, i64)\n";
+    preamble << "declare i64 @Processor_hasMethod(ptr, ptr)\n";
+    preamble << "declare i64 @Processor_hasProperty(ptr, ptr)\n";
+    preamble << "declare ptr @Processor_getBaseClassName(ptr)\n";
+    preamble << "declare i64 @Processor_isClassFinal(ptr)\n";
+    // ReflectionContext method inspection methods
+    preamble << "declare i64 @Processor_getParameterCount(ptr)\n";
+    preamble << "declare ptr @Processor_getParameterNameAt(ptr, i64)\n";
+    preamble << "declare ptr @Processor_getParameterTypeAt(ptr, i64)\n";
+    preamble << "declare ptr @Processor_getReturnTypeName(ptr)\n";
+    preamble << "declare i64 @Processor_isMethodStatic(ptr)\n";
+    // ReflectionContext property inspection methods
+    preamble << "declare i64 @Processor_hasDefaultValue(ptr)\n";
+    preamble << "declare ptr @Processor_getOwnership(ptr)\n";
+    // Target value access
+    preamble << "declare ptr @Processor_getTargetValue(ptr)\n";
+    preamble << "declare i64 @Processor_hasTargetValue(ptr)\n";
+    preamble << "declare i64 @Processor_getTargetValueType(ptr)\n";
+    // CompilationContext methods
+    preamble << "declare void @Processor_message(ptr, ptr)\n";
+    preamble << "declare void @Processor_warning(ptr, ptr)\n";
+    preamble << "declare void @Processor_warningAt(ptr, ptr, ptr, i64, i64)\n";
+    preamble << "declare void @Processor_error(ptr, ptr)\n";
+    preamble << "declare void @Processor_errorAt(ptr, ptr, ptr, i64, i64)\n";
+    // AnnotationArg methods
+    preamble << "declare ptr @Processor_argGetName(ptr)\n";
+    preamble << "declare i64 @Processor_argAsInt(ptr)\n";
+    preamble << "declare ptr @Processor_argAsString(ptr)\n";
+    preamble << "declare i64 @Processor_argAsBool(ptr)\n";
+    preamble << "declare double @Processor_argAsDouble(ptr)\n";
+    // AnnotationArgs methods
+    preamble << "declare i64 @Processor_getArgCount(ptr)\n";
+    preamble << "declare ptr @Processor_getArgAt(ptr, i64)\n";
+    preamble << "declare ptr @Processor_getArg(ptr, ptr)\n";
+    // Annotation argument access through ReflectionContext
+    preamble << "declare i64 @Processor_getAnnotationArgCount(ptr)\n";
+    preamble << "declare ptr @Processor_getAnnotationArg(ptr, ptr)\n";  // Type-aware generic access
+    preamble << "declare ptr @Processor_getAnnotationArgNameAt(ptr, i64)\n";
+    preamble << "declare i64 @Processor_getAnnotationArgTypeAt(ptr, i64)\n";
+    preamble << "declare i64 @Processor_hasAnnotationArg(ptr, ptr)\n";
+    preamble << "declare i64 @Processor_getAnnotationIntArg(ptr, ptr, i64)\n";
+    preamble << "declare ptr @Processor_getAnnotationStringArg(ptr, ptr, ptr)\n";
+    preamble << "declare i64 @Processor_getAnnotationBoolArg(ptr, ptr, i64)\n";
+    preamble << "declare double @Processor_getAnnotationDoubleArg(ptr, ptr, double)\n";
+    preamble << "\n";
+
+    // Dynamic value methods (for __DynamicValue type from processor target values)
+    // These perform runtime type dispatch to call the appropriate method
+    preamble << "; Dynamic Value Methods (runtime type dispatch)\n";
+    preamble << "declare ptr @__DynamicValue_toString(ptr)\n";
+    preamble << "declare i1 @__DynamicValue_greaterThan(ptr, ptr)\n";
+    preamble << "declare i1 @__DynamicValue_lessThan(ptr, ptr)\n";
+    preamble << "declare i1 @__DynamicValue_equals(ptr, ptr)\n";
+    preamble << "declare ptr @__DynamicValue_add(ptr, ptr)\n";
+    preamble << "declare ptr @__DynamicValue_sub(ptr, ptr)\n";
+    preamble << "declare ptr @__DynamicValue_mul(ptr, ptr)\n";
+    preamble << "declare ptr @__DynamicValue_div(ptr, ptr)\n";
+    preamble << "\n";
+
+    // Utility functions for Syscall:: namespace (xxml_ prefixed)
+    preamble << "; Utility Functions\n";
+    preamble << "declare ptr @xxml_string_create(ptr)\n";
+    preamble << "declare i64 @xxml_ptr_is_null(ptr)\n";
+    preamble << "declare ptr @xxml_ptr_null()\n";
+    preamble << "\n";
+
     // Threading runtime functions (xxml_ prefix added by Syscall:: translation)
     preamble << "; Threading functions\n";
     preamble << "declare ptr @xxml_Thread_create(ptr, ptr)\n";
@@ -1058,6 +1215,11 @@ std::string LLVMBackend::getLLVMType(const std::string& xxmlType) const {
         return "ptr";  // alloca always returns ptr
     }
 
+    // __DynamicValue is a runtime-typed value - use ptr
+    if (xxmlType == "__DynamicValue") {
+        return "ptr";
+    }
+
     // IMPORTANT: In XXML's LLVM backend, ALL objects are heap-allocated
     // Therefore, all user-defined types (Integer, String, etc.) are represented as ptr
     // Only use primitive LLVM types for special cases
@@ -1124,30 +1286,11 @@ std::string LLVMBackend::getLLVMType(const std::string& xxmlType) const {
     }
 
     // Check for template types (containing '<')
+    // Template class instances are heap-allocated objects, so they should be ptr
     if (xxmlType.find('<') != std::string::npos) {
-        // Extract base name and template args
-        size_t anglePos = xxmlType.find('<');
-        std::string baseName = xxmlType.substr(0, anglePos);
-
-        // For regular template types, return a mangled struct name
-        // The actual struct will be generated when we visit the ClassDecl
-        std::string cleanName = xxmlType;
-        // Replace problematic characters for LLVM
-        size_t pos = 0;
-        while ((pos = cleanName.find("::")) != std::string::npos) {
-            cleanName.replace(pos, 2, "_");
-        }
-        while ((pos = cleanName.find("<")) != std::string::npos) {
-            cleanName.replace(pos, 1, "_");
-        }
-        while ((pos = cleanName.find(">")) != std::string::npos) {
-            cleanName.erase(pos, 1);
-        }
-        while ((pos = cleanName.find(",")) != std::string::npos) {
-            cleanName.replace(pos, 1, "_");
-        }
-
-        return "%class." + cleanName;
+        // All XXML objects (including template instances) are heap-allocated
+        // So they should be represented as ptr, not struct types
+        return "ptr";
     }
 
     // ✅ USE TYPE REGISTRY for LLVM type mapping
@@ -1482,6 +1625,9 @@ void LLVMBackend::visit(Parser::ClassDecl& node) {
     ClassInfo& classInfo = classes_[currentClassName_];
     classInfo.properties.clear();
 
+    // Collect retained annotations for this class
+    collectRetainedAnnotations(node);
+
     // First pass: collect properties from all access sections
     for (auto& section : node.sections) {
         if (!section) {
@@ -1636,8 +1782,13 @@ void LLVMBackend::visit(Parser::AccessSection& node) {
 }
 
 void LLVMBackend::visit(Parser::PropertyDecl& node) {
+    // Collect retained annotations for this property
+    if (!currentClassName_.empty()) {
+        collectRetainedAnnotations(node, currentClassName_);
+    }
+
     // Properties are already collected in ClassDecl
-    // Nothing to emit here
+    // Nothing else to emit here
 }
 
 void LLVMBackend::visit(Parser::ConstructorDecl& node) {
@@ -1799,6 +1950,11 @@ void LLVMBackend::visit(Parser::MethodDecl& node) {
     // Clear local variables from previous method
     variables_.clear();
     localAllocas_.clear();  // Clear IR allocas
+
+    // Collect retained annotations for this method
+    if (!currentClassName_.empty()) {
+        collectRetainedAnnotations(node, currentClassName_);
+    }
 
     // Determine function name (qualified if inside a class)
     std::string funcName;
@@ -3064,6 +3220,11 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
                 }
 
                 // Generate qualified method name
+                // Special handling for compiler intrinsic types (ReflectionContext, CompilationContext)
+                if (className == "ReflectionContext" || className == "CompilationContext") {
+                    className = "Processor";
+                }
+
                 functionName = className + "_" + memberAccess->member;
             } else if (paramIt != valueMap_.end() && paramIt->second[0] == '%') {
                 // Instance method on parameter: param.method
@@ -3097,6 +3258,11 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
                     size_t pos = 0;
                     while ((pos = className.find("::")) != std::string::npos) {
                         className.replace(pos, 2, "_");
+                    }
+
+                    // Special handling for compiler intrinsic types (ReflectionContext, CompilationContext)
+                    if (className == "ReflectionContext" || className == "CompilationContext") {
+                        className = "Processor";
                     }
 
                     functionName = className + "_" + memberAccess->member;
@@ -3195,6 +3361,7 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
                 if (memberName.substr(0, 2) == "::") {
                     memberName = memberName.substr(2);
                 }
+
                 functionName = className + "_" + memberName;
             } else {
                 // Could be either:
@@ -3448,7 +3615,17 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
     // Map Syscall namespace methods to xxml runtime functions
     if (functionName.find("Syscall_") == 0) {
         std::string syscallMethod = functionName.substr(8);  // Remove "Syscall_" prefix
-        functionName = "xxml_" + syscallMethod;  // Replace with "xxml_" prefix
+
+        // Language_Reflection_* and Processor_* functions don't use xxml_ prefix
+        if (syscallMethod.find("Language_Reflection_") == 0 ||
+            syscallMethod.find("Processor_") == 0) {
+            functionName = syscallMethod;  // Use directly without xxml_ prefix
+        } else if (syscallMethod.find("xxml_") == 0) {
+            // Already has xxml_ prefix (e.g., Syscall::xxml_string_create)
+            functionName = syscallMethod;
+        } else {
+            functionName = "xxml_" + syscallMethod;  // Replace with "xxml_" prefix
+        }
     }
 
     // Map System::Console methods to Console runtime functions
@@ -3459,20 +3636,34 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
     }
 
     // Map Integer XXML methods to runtime function names
-    if (functionName.find("Integer_") == 0) {
-        // Comparison operations
-        if (functionName == "Integer_lessThan") functionName = "Integer_lt";
-        else if (functionName == "Integer_lessThanOrEqual") functionName = "Integer_le";
-        else if (functionName == "Integer_greaterThan") functionName = "Integer_gt";
-        else if (functionName == "Integer_greaterThanOrEqual") functionName = "Integer_ge";
-        else if (functionName == "Integer_equals") functionName = "Integer_eq";
-        else if (functionName == "Integer_notEquals") functionName = "Integer_ne";
+    // Comparison methods are mapped to i1-returning runtime functions
+    // The result will be wrapped in a Bool object after the call
+    bool needsBoolWrapping = false;
+    if (functionName.find("Integer_") == 0 || functionName.find("Language_Core_Integer_") == 0) {
+        std::string baseName = functionName;
+        // Strip Language_Core_ prefix if present
+        if (baseName.find("Language_Core_") == 0) {
+            baseName = baseName.substr(14);  // Remove "Language_Core_"
+        }
+
+        // Comparison operations - map to i1-returning runtime functions
+        if (baseName == "Integer_lessThan") { functionName = "Integer_lt"; needsBoolWrapping = true; }
+        else if (baseName == "Integer_lessThanOrEqual" || baseName == "Integer_lessOrEqual") { functionName = "Integer_le"; needsBoolWrapping = true; }
+        else if (baseName == "Integer_greaterThan") { functionName = "Integer_gt"; needsBoolWrapping = true; }
+        else if (baseName == "Integer_greaterThanOrEqual" || baseName == "Integer_greaterOrEqual") { functionName = "Integer_ge"; needsBoolWrapping = true; }
+        else if (baseName == "Integer_equals") { functionName = "Integer_eq"; needsBoolWrapping = true; }
+        else if (baseName == "Integer_notEquals") { functionName = "Integer_ne"; needsBoolWrapping = true; }
         // Arithmetic operations
-        else if (functionName == "Integer_subtract") functionName = "Integer_sub";
-        else if (functionName == "Integer_multiply") functionName = "Integer_mul";
-        else if (functionName == "Integer_divide") functionName = "Integer_div";
-        else if (functionName == "Integer_lessOrEqual") functionName = "Integer_le";
-        else if (functionName == "Integer_greaterOrEqual") functionName = "Integer_ge";
+        else if (baseName == "Integer_subtract") functionName = "Integer_sub";
+        else if (baseName == "Integer_multiply") functionName = "Integer_mul";
+        else if (baseName == "Integer_divide") functionName = "Integer_div";
+    }
+
+    // __DynamicValue comparison methods also return i1 and need Bool wrapping
+    if (functionName == "__DynamicValue_greaterThan" ||
+        functionName == "__DynamicValue_lessThan" ||
+        functionName == "__DynamicValue_equals") {
+        needsBoolWrapping = true;
     }
 
     // CRITICAL FIX: Detect constructor calls and allocate memory with malloc
@@ -3563,8 +3754,18 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
     std::string returnType = "";
     bool fromSemanticAnalyzer = false;
 
+    // FIRST: Try to get expression type directly from semantic analyzer
+    // This handles special cases like __DynamicValue from getTargetValue()
+    if (semanticAnalyzer_) {
+        std::string exprType = semanticAnalyzer_->getExpressionTypePublic(&node);
+        if (exprType != "Unknown" && !exprType.empty()) {
+            returnType = exprType;
+            fromSemanticAnalyzer = true;
+        }
+    }
+
     // Try to get actual return type from semantic analyzer for instance methods
-    if (semanticAnalyzer_ && isInstanceMethod) {
+    if (semanticAnalyzer_ && isInstanceMethod && !fromSemanticAnalyzer) {
         // Get the actual type of the instance
         auto typeIt = registerTypes_.find(instanceRegister);
         if (typeIt != registerTypes_.end()) {
@@ -3660,7 +3861,10 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
     std::string llvmReturnType = "ptr";  // Default to pointer
     bool isVoidReturn = false;
 
-    if (fromSemanticAnalyzer && !returnType.empty()) {
+    // For comparison methods that need Bool wrapping, the underlying call returns i1
+    if (needsBoolWrapping) {
+        llvmReturnType = "i1";
+    } else if (fromSemanticAnalyzer && !returnType.empty()) {
         // Use semantic analyzer's return type - this handles None -> void correctly
         llvmReturnType = getLLVMType(returnType);
         if (llvmReturnType == "void") {
@@ -3748,6 +3952,10 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
                    functionName == "Integer_gt" || functionName == "Integer_ge" ||
                    functionName == "Integer_eq" || functionName == "Integer_ne" ||
                    functionName == "Bool_getValue" ||
+                   // __DynamicValue comparison functions
+                   functionName == "__DynamicValue_greaterThan" ||
+                   functionName == "__DynamicValue_lessThan" ||
+                   functionName == "__DynamicValue_equals" ||
                    // Threading i1-returning functions
                    functionName == "xxml_Thread_isJoinable" ||
                    functionName == "xxml_Mutex_tryLock" ||
@@ -3952,6 +4160,23 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
     callInstr << ")";
     emitLine(callInstr.str());
 
+    // If we called a comparison function that returns i1 but needs Bool^ wrapping,
+    // allocate a Bool object and set its value
+    if (needsBoolWrapping) {
+        // First allocate memory for Bool object
+        std::string boolMemReg = allocateRegister();
+        emitLine(format("{} = call ptr @xxml_malloc(i64 8)", boolMemReg));
+
+        // Store the i1 result as a byte in the Bool object's value field
+        std::string boolValReg = allocateRegister();
+        emitLine(format("{} = zext i1 {} to i8", boolValReg, resultReg));
+        emitLine(format("store i8 {}, ptr {}", boolValReg, boolMemReg));
+
+        // The Bool^ is now our result
+        resultReg = boolMemReg;
+        llvmReturnType = "ptr";
+    }
+
     // For void functions, set last_expr to empty/null
     if (isVoidReturn) {
         valueMap_["__last_expr"] = "";
@@ -3962,8 +4187,12 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
     // Track the return type for the result register
     // We already queried semantic analyzer earlier and have returnType if available
     if (!isVoidReturn && !resultReg.empty()) {
+        // If we wrapped the result in a Bool object, set the return type to Bool^
+        if (needsBoolWrapping) {
+            returnType = "Bool^";
+        }
         // If we didn't get returnType from semantic analyzer, infer it from function name
-        if (!fromSemanticAnalyzer || returnType.empty()) {
+        else if (!fromSemanticAnalyzer || returnType.empty()) {
             size_t underscorePos = functionName.rfind('_');
             if (underscorePos != std::string::npos) {
                 std::string className = functionName.substr(0, underscorePos);
@@ -4132,6 +4361,43 @@ void LLVMBackend::visit(Parser::BinaryExpr& node) {
         std::string opCode = generateBinaryOp(node.op, leftCmp, rightCmp, "i64");
         emitLine(format("{} = {}", resultReg, opCode));
         valueMap_["__last_expr"] = resultReg;
+    } else if (node.op == "||" || node.op == "&&") {
+        // Logical operators - need to convert Bool objects to i1 if necessary
+        std::string leftBool = leftValue;
+        std::string rightBool = rightValue;
+
+        // Get XXML types to check if we have Bool objects
+        auto leftXXMLType = registerTypes_.find(leftValue);
+        auto rightXXMLType = registerTypes_.find(rightValue);
+
+        // Convert left operand to i1 if it's a Bool object (ptr)
+        if (leftType == "ptr" || (leftXXMLType != registerTypes_.end() &&
+            (leftXXMLType->second == "Bool" || leftXXMLType->second == "Bool^" ||
+             leftXXMLType->second.find("Bool") != std::string::npos))) {
+            leftBool = allocateRegister();
+            emitLine(format("{} = call i1 @Bool_getValue(ptr {})", leftBool, leftValue));
+        }
+
+        // Convert right operand to i1 if it's a Bool object (ptr)
+        if (rightType == "ptr" || (rightXXMLType != registerTypes_.end() &&
+            (rightXXMLType->second == "Bool" || rightXXMLType->second == "Bool^" ||
+             rightXXMLType->second.find("Bool") != std::string::npos))) {
+            rightBool = allocateRegister();
+            emitLine(format("{} = call i1 @Bool_getValue(ptr {})", rightBool, rightValue));
+        }
+
+        // Perform logical operation
+        std::string resultReg = allocateRegister();
+        if (node.op == "||") {
+            emitLine(format("{} = or i1 {}, {}", resultReg, leftBool, rightBool));
+        } else {
+            emitLine(format("{} = and i1 {}, {}", resultReg, leftBool, rightBool));
+        }
+
+        valueMap_["__last_expr"] = resultReg;
+        registerTypes_[resultReg] = "NativeType<\"bool\">";
+        // Skip the IR infrastructure section to avoid re-visiting operands
+        return;
     } else {
         // Normal arithmetic or comparison - use the determined types
         // Determine the operation type (prefer floating-point if either operand is float/double)
@@ -4624,6 +4890,455 @@ void LLVMBackend::visit(Parser::ConstraintDecl& node) {
 void LLVMBackend::visit(Parser::RequireStmt& node) {
     // Require statements are compile-time only
     emitLine("; require statement (compile-time only)");
+}
+
+void LLVMBackend::visit(Parser::AnnotateDecl& node) {
+    // Annotate declarations are part of annotation definitions (compile-time only)
+    emitLine(format("; annotate parameter: {}", node.name));
+}
+
+void LLVMBackend::visit(Parser::ProcessorDecl& node) {
+    if (!processorMode_) {
+        // Processor declarations are compile-time only in normal mode
+        emitLine("; annotation processor (compile-time only)");
+        return;
+    }
+
+    // In processor mode, generate code for the processor class
+    // The processor class name is based on the annotation name
+    std::string processorClassName = processorAnnotationName_ + "_Processor";
+
+    emitLine("");
+    emitLine(format("; Processor class: {}", processorClassName));
+
+    // Generate methods from the processor block
+    for (const auto& section : node.sections) {
+        for (const auto& decl : section->declarations) {
+            if (auto* methodDecl = dynamic_cast<Parser::MethodDecl*>(decl.get())) {
+                // Generate the method
+                std::string savedClassName = currentClassName_;
+                currentClassName_ = processorClassName;
+
+                methodDecl->accept(*this);
+
+                currentClassName_ = savedClassName;
+            }
+        }
+    }
+}
+
+void LLVMBackend::visit(Parser::AnnotationDecl& node) {
+    // Track retained annotations for code generation
+    if (node.retainAtRuntime) {
+        retainedAnnotations_.insert(node.name);
+        emitLine(format("; annotation definition (retained): {}", node.name));
+    } else {
+        emitLine(format("; annotation definition: {}", node.name));
+    }
+
+    // In processor mode, generate code for the processor block
+    if (processorMode_ && node.processor) {
+        processorAnnotationName_ = node.name;
+        node.processor->accept(*this);
+    }
+}
+
+void LLVMBackend::visit(Parser::AnnotationUsage& node) {
+    // Annotation usages are compile-time only (unless retained)
+    emitLine(format("; annotation usage: @{}", node.annotationName));
+}
+
+// ============================================
+// Annotation Code Generation
+// ============================================
+
+bool LLVMBackend::isAnnotationRetained(const std::string& annotationName) const {
+    return retainedAnnotations_.find(annotationName) != retainedAnnotations_.end();
+}
+
+LLVMBackend::AnnotationArgValue LLVMBackend::evaluateAnnotationArg(Parser::Expression* expr) {
+    AnnotationArgValue result;
+    result.kind = AnnotationArgValue::Integer;
+    result.intValue = 0;
+
+    if (!expr) return result;
+
+    // Handle integer literals
+    if (auto* intLit = dynamic_cast<Parser::IntegerLiteralExpr*>(expr)) {
+        result.kind = AnnotationArgValue::Integer;
+        result.intValue = intLit->value;
+        return result;
+    }
+
+    // Handle string literals
+    if (auto* strLit = dynamic_cast<Parser::StringLiteralExpr*>(expr)) {
+        result.kind = AnnotationArgValue::String;
+        result.stringValue = strLit->value;
+        return result;
+    }
+
+    // Handle bool literals
+    if (auto* boolLit = dynamic_cast<Parser::BoolLiteralExpr*>(expr)) {
+        result.kind = AnnotationArgValue::Bool;
+        result.boolValue = boolLit->value;
+        return result;
+    }
+
+    // Handle float literals
+    if (auto* floatLit = dynamic_cast<Parser::FloatLiteralExpr*>(expr)) {
+        result.kind = AnnotationArgValue::Float;
+        result.floatValue = floatLit->value;
+        return result;
+    }
+
+    // Handle double literals
+    if (auto* doubleLit = dynamic_cast<Parser::DoubleLiteralExpr*>(expr)) {
+        result.kind = AnnotationArgValue::Double;
+        result.doubleValue = doubleLit->value;
+        return result;
+    }
+
+    // Handle String::Constructor("...") pattern
+    if (auto* callExpr = dynamic_cast<Parser::CallExpr*>(expr)) {
+        if (!callExpr->arguments.empty()) {
+            if (auto* strLit = dynamic_cast<Parser::StringLiteralExpr*>(callExpr->arguments[0].get())) {
+                result.kind = AnnotationArgValue::String;
+                result.stringValue = strLit->value;
+                return result;
+            }
+            if (auto* intLit = dynamic_cast<Parser::IntegerLiteralExpr*>(callExpr->arguments[0].get())) {
+                result.kind = AnnotationArgValue::Integer;
+                result.intValue = intLit->value;
+                return result;
+            }
+        }
+    }
+
+    return result;
+}
+
+void LLVMBackend::collectRetainedAnnotations(Parser::ClassDecl& node) {
+    std::string fullClassName = currentNamespace_.empty() ? node.name : currentNamespace_ + "::" + node.name;
+
+    for (const auto& annotation : node.annotations) {
+        if (isAnnotationRetained(annotation->annotationName)) {
+            PendingAnnotationMetadata metadata;
+            metadata.annotationName = annotation->annotationName;
+            metadata.targetType = "type";
+            metadata.typeName = fullClassName;
+            metadata.memberName = "";
+
+            for (const auto& arg : annotation->arguments) {
+                metadata.arguments.push_back({arg.first, evaluateAnnotationArg(arg.second.get())});
+            }
+
+            pendingAnnotationMetadata_.push_back(metadata);
+        }
+    }
+}
+
+void LLVMBackend::collectRetainedAnnotations(Parser::MethodDecl& node, const std::string& className) {
+    for (const auto& annotation : node.annotations) {
+        if (isAnnotationRetained(annotation->annotationName)) {
+            PendingAnnotationMetadata metadata;
+            metadata.annotationName = annotation->annotationName;
+            metadata.targetType = "method";
+            metadata.typeName = className;
+            metadata.memberName = node.name;
+
+            for (const auto& arg : annotation->arguments) {
+                metadata.arguments.push_back({arg.first, evaluateAnnotationArg(arg.second.get())});
+            }
+
+            pendingAnnotationMetadata_.push_back(metadata);
+        }
+    }
+}
+
+void LLVMBackend::collectRetainedAnnotations(Parser::PropertyDecl& node, const std::string& className) {
+    for (const auto& annotation : node.annotations) {
+        if (isAnnotationRetained(annotation->annotationName)) {
+            PendingAnnotationMetadata metadata;
+            metadata.annotationName = annotation->annotationName;
+            metadata.targetType = "property";
+            metadata.typeName = className;
+            metadata.memberName = node.name;
+
+            for (const auto& arg : annotation->arguments) {
+                metadata.arguments.push_back({arg.first, evaluateAnnotationArg(arg.second.get())});
+            }
+
+            pendingAnnotationMetadata_.push_back(metadata);
+        }
+    }
+}
+
+void LLVMBackend::generateAnnotationMetadata() {
+    if (pendingAnnotationMetadata_.empty()) return;
+
+    emitLine("");
+    emitLine("; ============================================");
+    emitLine("; Annotation Metadata");
+    emitLine("; ============================================");
+    emitLine("");
+
+    // Group annotations by target (type, type+method, type+property)
+    struct TargetAnnotations {
+        std::string targetType;
+        std::string typeName;
+        std::string memberName;
+        std::vector<const PendingAnnotationMetadata*> annotations;
+    };
+
+    std::vector<TargetAnnotations> groupedAnnotations;
+
+    for (const auto& meta : pendingAnnotationMetadata_) {
+        bool found = false;
+        for (auto& group : groupedAnnotations) {
+            if (group.targetType == meta.targetType &&
+                group.typeName == meta.typeName &&
+                group.memberName == meta.memberName) {
+                group.annotations.push_back(&meta);
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            TargetAnnotations newGroup;
+            newGroup.targetType = meta.targetType;
+            newGroup.typeName = meta.typeName;
+            newGroup.memberName = meta.memberName;
+            newGroup.annotations.push_back(&meta);
+            groupedAnnotations.push_back(newGroup);
+        }
+    }
+
+    // Generate metadata for each target group
+    for (const auto& group : groupedAnnotations) {
+        int groupId = annotationMetadataCounter_++;
+
+        // Generate annotation argument arrays and annotation info structs
+        std::vector<std::string> annotationInfoNames;
+
+        for (size_t i = 0; i < group.annotations.size(); ++i) {
+            const auto* meta = group.annotations[i];
+            std::string prefix = format("@__annotation_{}_{}", groupId, i);
+
+            // Generate annotation name string
+            std::string nameStr = prefix + "_name";
+            emitLine(format("{} = private unnamed_addr constant [{} x i8] c\"{}\\00\"",
+                           nameStr, meta->annotationName.length() + 1, meta->annotationName));
+
+            // Generate arguments array if there are any
+            std::string argsArrayName = "null";
+            if (!meta->arguments.empty()) {
+                // Generate each argument
+                std::vector<std::string> argStructNames;
+                for (size_t j = 0; j < meta->arguments.size(); ++j) {
+                    const auto& arg = meta->arguments[j];
+                    std::string argPrefix = format("{}_arg_{}", prefix, j);
+
+                    // Generate argument name string
+                    std::string argNameStr = argPrefix + "_name";
+                    emitLine(format("{} = private unnamed_addr constant [{} x i8] c\"{}\\00\"",
+                                   argNameStr, arg.first.length() + 1, arg.first));
+
+                    // Generate argument value based on type
+                    // ReflectionAnnotationArg struct: { ptr name, i32 valueType, [24 x i8] value_union }
+                    std::string argStructName = argPrefix + "_struct";
+
+                    int valueType = static_cast<int>(arg.second.kind);
+                    std::string valueBytes;
+
+                    // For string values, we use a separate global and store the pointer
+                    // The ReflectionAnnotationArg struct uses a union that we represent as ptr
+                    std::string valueInit;
+                    switch (arg.second.kind) {
+                        case AnnotationArgValue::Integer:
+                            // Store integer value directly (it will be interpreted as int64)
+                            valueInit = format("i64 {}", arg.second.intValue);
+                            break;
+                        case AnnotationArgValue::String: {
+                            // Generate string constant and store pointer to it
+                            std::string strValName = argPrefix + "_strval";
+                            emitLine(format("{} = private unnamed_addr constant [{} x i8] c\"{}\\00\"",
+                                           strValName, arg.second.stringValue.length() + 1, arg.second.stringValue));
+                            valueInit = format("ptr {}", strValName);
+                            break;
+                        }
+                        case AnnotationArgValue::Bool:
+                            valueInit = format("i64 {}", arg.second.boolValue ? 1 : 0);
+                            break;
+                        case AnnotationArgValue::Float:
+                            // Store float bits as i32, zero-extended to i64
+                            valueInit = format("i64 {}", *reinterpret_cast<const uint32_t*>(&arg.second.floatValue));
+                            break;
+                        case AnnotationArgValue::Double:
+                            // Store double bits as i64
+                            valueInit = format("i64 {}", *reinterpret_cast<const uint64_t*>(&arg.second.doubleValue));
+                            break;
+                    }
+
+                    // ReflectionAnnotationArg: { ptr name, i32 valueType, ptr/i64 value }
+                    // Use a simpler struct layout: { ptr, i32, i64 } where value is stored as i64
+                    // For strings, the ptr is stored in the i64 field (pointer fits in i64 on 64-bit)
+                    std::string structType = (arg.second.kind == AnnotationArgValue::String)
+                        ? "{ ptr, i32, ptr }"
+                        : "{ ptr, i32, i64 }";
+                    emitLine(format("{} = private unnamed_addr constant {} {{ ptr {}, i32 {}, {} }}",
+                                   argStructName, structType, argNameStr, valueType, valueInit));
+
+                    argStructNames.push_back(argStructName);
+                }
+
+                // Generate array of argument pointers
+                argsArrayName = prefix + "_args";
+                std::stringstream argsInit;
+                argsInit << "[ ";
+                for (size_t j = 0; j < argStructNames.size(); ++j) {
+                    if (j > 0) argsInit << ", ";
+                    argsInit << "ptr " << argStructNames[j];
+                }
+                argsInit << " ]";
+                emitLine(format("{} = private unnamed_addr constant [{} x ptr] {}",
+                               argsArrayName, argStructNames.size(), argsInit.str()));
+            }
+
+            // Generate ReflectionAnnotationInfo struct
+            // { ptr annotationName, i32 argumentCount, ptr arguments }
+            std::string infoName = prefix + "_info";
+            emitLine(format("{} = private unnamed_addr constant {{ ptr, i32, ptr }} {{ ptr {}, i32 {}, ptr {} }}",
+                           infoName, nameStr, meta->arguments.size(),
+                           meta->arguments.empty() ? "null" : argsArrayName));
+
+            annotationInfoNames.push_back(infoName);
+        }
+
+        // Generate array of annotation infos for this target
+        std::string infosArrayName = format("@__annotation_{}_infos", groupId);
+        std::stringstream infosInit;
+        infosInit << "[ ";
+        for (size_t i = 0; i < annotationInfoNames.size(); ++i) {
+            if (i > 0) infosInit << ", ";
+            infosInit << "ptr " << annotationInfoNames[i];
+        }
+        infosInit << " ]";
+        emitLine(format("{} = private unnamed_addr constant [{} x ptr] {}",
+                       infosArrayName, annotationInfoNames.size(), infosInit.str()));
+
+        // Generate type name string
+        std::string typeNameStr = format("@__annotation_{}_typename", groupId);
+        emitLine(format("{} = private unnamed_addr constant [{} x i8] c\"{}\\00\"",
+                       typeNameStr, group.typeName.length() + 1, group.typeName));
+
+        // Generate member name string if needed
+        std::string memberNameStr = "null";
+        if (!group.memberName.empty()) {
+            memberNameStr = format("@__annotation_{}_membername", groupId);
+            emitLine(format("{} = private unnamed_addr constant [{} x i8] c\"{}\\00\"",
+                           memberNameStr, group.memberName.length() + 1, group.memberName));
+        }
+
+        // Generate registration call in init function
+        // This will be added to the module init section
+        emitLine(format("; Registration for {} {}::{}",
+                       group.targetType, group.typeName, group.memberName));
+    }
+
+    emitLine("");
+}
+
+// Processor entry point generation (for --processor mode)
+void LLVMBackend::generateProcessorEntryPoints(Parser::Program& program) {
+    emitLine("");
+    emitLine("; ============================================");
+    emitLine("; Annotation Processor Entry Points");
+    emitLine("; ============================================");
+    emitLine("");
+
+    // Find the annotation declaration with a processor block
+    Parser::AnnotationDecl* processorAnnotation = nullptr;
+    for (const auto& decl : program.declarations) {
+        if (auto* ns = dynamic_cast<Parser::NamespaceDecl*>(decl.get())) {
+            for (const auto& nsDecl : ns->declarations) {
+                if (auto* annotDecl = dynamic_cast<Parser::AnnotationDecl*>(nsDecl.get())) {
+                    if (annotDecl->processor) {
+                        processorAnnotation = annotDecl;
+                        break;
+                    }
+                }
+            }
+        } else if (auto* annotDecl = dynamic_cast<Parser::AnnotationDecl*>(decl.get())) {
+            if (annotDecl->processor) {
+                processorAnnotation = annotDecl;
+                break;
+            }
+        }
+    }
+
+    if (!processorAnnotation) {
+        emitLine("; No processor block found in annotation");
+        return;
+    }
+
+    std::string annotationName = processorAnnotationName_.empty() ?
+        processorAnnotation->name : processorAnnotationName_;
+
+    // Generate annotation name string constant
+    emitLine(format("@__processor_annotation_name = private unnamed_addr constant [{} x i8] c\"{}\\00\"",
+                   annotationName.length() + 1, annotationName));
+    emitLine("");
+
+    // Generate __xxml_processor_annotation_name function (returns annotation name)
+    emitLine("; Returns the annotation name this processor handles");
+    emitLine("define dllexport ptr @__xxml_processor_annotation_name() {");
+    emitLine(format("  ret ptr @__processor_annotation_name"));
+    emitLine("}");
+    emitLine("");
+
+    // Generate __xxml_processor_process entry point
+    // This wrapper function calls the processor's onAnnotate method
+    emitLine("; Processor entry point - called by compiler for each annotation usage");
+    emitLine("define dllexport void @__xxml_processor_process(ptr %reflection, ptr %compilation, ptr %args) {");
+
+    // Find the onAnnotate method in the processor block
+    bool hasOnAnnotate = false;
+    Parser::MethodDecl* onAnnotateMethod = nullptr;
+    std::string processorClassName = annotationName + "_Processor";
+
+    if (processorAnnotation->processor) {
+        for (const auto& section : processorAnnotation->processor->sections) {
+            for (const auto& decl : section->declarations) {
+                if (auto* methodDecl = dynamic_cast<Parser::MethodDecl*>(decl.get())) {
+                    if (methodDecl->name == "onAnnotate") {
+                        hasOnAnnotate = true;
+                        onAnnotateMethod = methodDecl;
+                        break;
+                    }
+                }
+            }
+            if (hasOnAnnotate) break;
+        }
+    }
+
+    if (hasOnAnnotate && onAnnotateMethod) {
+        // Generate call to the onAnnotate method
+        // The generated method has signature: onAnnotate(this, ctx, comp) where:
+        // - this: implicit self pointer for the Processor class (can be null for processors)
+        // - ctx: ReflectionContext (the %reflection parameter)
+        // - comp: CompilationContext (the %compilation parameter)
+        std::string methodName = getQualifiedName(processorClassName, "onAnnotate");
+
+        // Call the generated onAnnotate method
+        // Pass null for %this since processors don't need a real instance
+        emitLine(format("  call void @{}(ptr null, ptr %reflection, ptr %compilation)", methodName));
+    } else {
+        emitLine("  ; No onAnnotate method found in processor");
+    }
+
+    emitLine("  ret void");
+    emitLine("}");
+    emitLine("");
 }
 
 // Object file generation using external LLVM tools

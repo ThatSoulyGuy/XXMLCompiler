@@ -1126,6 +1126,7 @@ id ::= identifier | "<" identifier ">"
 
 ## See Also
 
+- [Annotations](ANNOTATIONS.md) - Java-style annotation system
 - [Templates](TEMPLATES.md) - Generic programming with templates
 - [Constraints](CONSTRAINTS.md) - Template constraints system
 - [Advanced Features](ADVANCED_FEATURES.md) - Destructors, native types, syscalls

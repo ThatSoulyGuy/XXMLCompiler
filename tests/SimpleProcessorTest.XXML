@@ -1,0 +1,33 @@
+// SimpleProcessorTest.XXML - Minimal processor test
+
+#import Language::Core;
+
+// Define annotation with inline processor (correct signature)
+[ Annotation <TestAnnot> Allows (AnnotationAllow::Variables)
+    Annotate (Integer^)(value);
+
+    [ Processor
+        [ Public <>
+            Method <onAnnotate> Returns None Parameters (
+                Parameter <ctx> Types ReflectionContext&,
+                Parameter <comp> Types CompilationContext&
+            ) -> {
+                // Test getTargetValue
+                Run Console::printLine(ctx.getTargetValue().toString());
+
+                // Test getAnnotationArg
+                Instantiate Integer^ As <val> = ctx.getAnnotationArg(String::Constructor("value"));
+                Run Console::printLine(val.toString());
+            }
+        ]
+    ]
+]
+
+[ Entrypoint
+    {
+        @TestAnnot(value = Integer::Constructor(42))
+        Instantiate Integer^ As <x> = Integer::Constructor(10);
+
+        Run Console::printLine(x.toString());
+    }
+]

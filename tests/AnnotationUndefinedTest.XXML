@@ -1,0 +1,18 @@
+// AnnotationUndefinedTest.XXML - Tests undefined annotation validation
+// This file should produce ERRORS when compiled
+
+#import Language::Core;
+
+// ERROR: Using undefined annotation @NotDefined
+@NotDefined(value = "test")
+[ Class <UndefinedAnnot> Final Extends None
+    [ Public <>
+        Constructor = default;
+    ]
+]
+
+[ Entrypoint
+    {
+        Exit(0);
+    }
+]

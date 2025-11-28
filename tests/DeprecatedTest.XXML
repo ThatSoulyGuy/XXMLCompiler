@@ -1,0 +1,43 @@
+// Deprecated Test - Tests @Deprecated annotation processing
+#import Language::Core;
+
+// Define Deprecated annotation
+[ Annotation <Deprecated> Allows (AnnotationAllow::Properties, AnnotationAllow::Methods, AnnotationAllow::Classes)
+    Annotate (String^)(reason) = "No reason provided";
+]
+
+// Test: Deprecated class
+@Deprecated(reason = "Use NewClass instead")
+[ Class <OldClass> Final Extends None
+    [ Public <>
+        Constructor = default;
+    ]
+]
+
+[ Class <TestClass> Final Extends None
+    [ Public <>
+        // Test: Deprecated property
+        @Deprecated(reason = "Use newValue instead")
+        Property <oldValue> Types Integer^;
+
+        Property <newValue> Types Integer^;
+
+        Constructor = default;
+
+        // Test: Deprecated method
+        @Deprecated(reason = "Use processNew instead")
+        Method <processOld> Returns None^ -> {
+            // Old implementation
+        }
+
+        Method <processNew> Returns None^ -> {
+            // New implementation
+        }
+    ]
+]
+
+[ Entrypoint
+    {
+        Exit(0);
+    }
+]

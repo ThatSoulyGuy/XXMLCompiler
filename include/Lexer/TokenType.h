@@ -54,6 +54,14 @@ enum class TokenType {
     Set,              // Set
     Lambda,           // Lambda
 
+    // Annotation keywords
+    Annotation,       // Annotation
+    Annotate,         // Annotate
+    Allows,           // Allows
+    Processor,        // Processor
+    Retain,           // Retain
+    AnnotationAllow,  // AnnotationAllow
+
     // Identifiers and literals
     Identifier,       // variable names, type names, etc.
     AngleBracketId,   // <identifier>

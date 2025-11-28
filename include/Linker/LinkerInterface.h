@@ -22,6 +22,7 @@ struct LinkConfig {
     // Platform-specific settings
     bool createConsoleApp = true;              // Windows: /SUBSYSTEM:CONSOLE vs WINDOWS
     bool staticLink = false;                   // Static vs dynamic linking
+    bool createDLL = false;                    // Create shared library (DLL on Windows, .so on Unix)
 };
 
 /**

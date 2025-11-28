@@ -1,0 +1,41 @@
+// Annotation Semantic Test - Tests semantic validation of annotations
+#import Language::Core;
+
+// Define annotation for properties only
+[ Annotation <PropertyOnly> Allows (AnnotationAllow::Properties)
+]
+
+// Define annotation with required parameter
+[ Annotation <RequiredParam> Allows (AnnotationAllow::Properties)
+    Annotate (Integer^)(value);
+]
+
+// Define annotation with default parameter
+[ Annotation <OptionalParam> Allows (AnnotationAllow::Classes)
+    Annotate (String^)(message) = String::Constructor("default");
+]
+
+// This should work - annotation on allowed target with required param
+[ Class <GoodClass> Final Extends None
+    [ Public <>
+        @RequiredParam(value = Integer::Constructor(42))
+        Property <goodProp> Types Integer^;
+
+        Constructor = default;
+    ]
+]
+
+// This should work - annotation with default param (not providing it)
+@OptionalParam
+[ Class <ClassWithDefault> Final Extends None
+    [ Public <>
+        Constructor = default;
+    ]
+]
+
+[ Entrypoint
+    {
+        Run Console::printLine(String::Constructor("Annotation semantic test passed!"));
+        Exit(0);
+    }
+]

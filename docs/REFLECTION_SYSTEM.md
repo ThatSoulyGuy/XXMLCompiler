@@ -502,7 +502,7 @@ Located in `tests/`:
 
 ### Information Disclosure
 - Reflection exposes all members (no access control)
-- Consider access control annotations in future
+- Consider access control in future (see [ANNOTATIONS.md](ANNOTATIONS.md) for annotation-based metadata)
 - May expose sensitive class structure
 
 ### Dynamic Invocation
@@ -518,7 +518,7 @@ Located in `tests/`:
 - [ ] Dynamic method invocation
 - [ ] Property get/set via reflection
 - [ ] Hash map type registry for O(1) lookup
-- [ ] Attribute/annotation support
+- [x] Attribute/annotation support (completed)
 
 ### Long Term
 - [ ] Reflection-based serialization/deserialization
@@ -543,6 +543,8 @@ Located in `tests/`:
 - `Language/Reflection/ParameterInfo.XXML` - Parameter introspection
 - `Language/Reflection/GetType.XXML` - Type-safe template accessor
 - `Language/Reflection.XXML` - Module aggregation
+
+> **Note:** Annotation-related classes (`AnnotationInfo.XXML`, `AnnotationArg.XXML`) and runtime files are documented in [ANNOTATIONS.md](ANNOTATIONS.md).
 
 ### Compiler Backend
 - `include/Backends/LLVMBackend.h` - ReflectionClassMetadata struct
@@ -570,6 +572,7 @@ When adding reflection features:
 
 ## See Also
 
+- [Annotations](ANNOTATIONS.md) - Java-style annotation system with runtime retention
 - [Language Specification](LANGUAGE_SPEC.md) - Complete language syntax
 - [Advanced Features](ADVANCED_FEATURES.md) - Native types and syscalls
 - [Templates](TEMPLATES.md) - Generic programming

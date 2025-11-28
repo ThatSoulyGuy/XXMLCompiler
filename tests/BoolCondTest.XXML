@@ -1,0 +1,19 @@
+#import Language::Core;
+
+[ Entrypoint
+    {
+        Run Console::printLine(String::Constructor("Starting..."));
+
+        Instantiate Integer^ As <one> = Integer::Constructor(1);
+        Instantiate Integer^ As <two> = Integer::Constructor(2);
+
+        Instantiate Bool^ As <t> = one.lessThan(two);
+        Run Console::printLine(String::Constructor("Got true Bool"));
+
+        If (t) -> {
+            Run Console::printLine(String::Constructor("Condition worked!"));
+        }
+
+        Run Console::printLine(String::Constructor("Done"));
+    }
+]

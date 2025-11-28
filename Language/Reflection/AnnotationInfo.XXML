@@ -1,0 +1,71 @@
+#import Language::Core;
+#import Language::Reflection::AnnotationArg;
+
+[ Namespace <Language::Reflection>
+	[ Class <AnnotationInfo> Final Extends None
+		[ Private <>
+			Property <infoPtr> Types NativeType<"ptr">^;
+		]
+
+		[ Public <>
+			Constructor Parameters (
+				Parameter <ptr> Types NativeType<"ptr">%
+			) ->
+			{
+				Run Syscall::memcpy(&infoPtr, &ptr, 8);
+			}
+
+			// Get annotation name (e.g., "Serializable", "Deprecated")
+			Method <getName> Returns String^ Parameters () ->
+			{
+				Instantiate NativeType<"ptr">^ As <ptr> = infoPtr;
+				Instantiate NativeType<"ptr">^ As <result> =
+					Syscall::Language_Reflection_AnnotationInfo_getName(ptr);
+				Return result;
+			}
+
+			// Get number of arguments in this annotation
+			Method <getArgumentCount> Returns Integer^ Parameters () ->
+			{
+				Instantiate NativeType<"ptr">^ As <ptr> = infoPtr;
+				Instantiate NativeType<"int64">^ As <count> =
+					Syscall::Language_Reflection_AnnotationInfo_getArgumentCount(ptr);
+				Return Integer::Constructor(count);
+			}
+
+			// Get argument at index (returns null if out of bounds)
+			Method <getArgumentAt> Returns AnnotationArg^ Parameters (
+				Parameter <index> Types Integer^
+			) ->
+			{
+				Instantiate NativeType<"ptr">^ As <ptr> = infoPtr;
+				Instantiate NativeType<"int64">^ As <idx> = index.toInt64();
+				Instantiate NativeType<"ptr">^ As <result> =
+					Syscall::Language_Reflection_AnnotationInfo_getArgument(ptr, idx);
+				Return result;
+			}
+
+			// Get argument by name (returns null if not found)
+			Method <getArgumentByName> Returns AnnotationArg^ Parameters (
+				Parameter <name> Types String^
+			) ->
+			{
+				Instantiate NativeType<"ptr">^ As <ptr> = infoPtr;
+				Instantiate NativeType<"ptr">^ As <result> =
+					Syscall::Language_Reflection_AnnotationInfo_getArgumentByName(ptr, name);
+				Return result;
+			}
+
+			// Check if annotation has an argument with the given name
+			Method <hasArgument> Returns Bool^ Parameters (
+				Parameter <name> Types String^
+			) ->
+			{
+				Instantiate NativeType<"ptr">^ As <ptr> = infoPtr;
+				Instantiate NativeType<"int64">^ As <result> =
+					Syscall::Language_Reflection_AnnotationInfo_hasArgument(ptr, name);
+				Return Bool::Constructor(result != 0);
+			}
+		]
+	]
+]

@@ -1,0 +1,19 @@
+// BadProcessorTest.XXML - Tests that bad processor signatures are rejected
+
+#import Language::Core;
+
+// Test 1: Wrong return type (should return None, not Integer)
+[ Annotation <WrongReturn> Allows (AnnotationAllow::Classes)
+    [ Processor
+        [ Public <>
+            Method <onAnnotate> Returns Integer^ Parameters (
+                Parameter <ctx> Types ReflectionContext&,
+                Parameter <comp> Types CompilationContext&
+            ) -> {
+                Return Integer::Constructor(0i);
+            }
+        ]
+    ]
+]
+
+[ Entrypoint { Exit(0); } ]

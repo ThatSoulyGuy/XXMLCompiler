@@ -1,0 +1,23 @@
+// Annotation Missing Arg Test - Tests missing required argument detection
+#import Language::Core;
+
+// Define annotation with required parameter
+[ Annotation <RequiredParam> Allows (AnnotationAllow::Properties)
+    Annotate (Integer^)(value);
+]
+
+[ Class <TestClass> Final Extends None
+    [ Public <>
+        // ERROR: Missing required argument 'value'
+        @RequiredParam
+        Property <badProp> Types Integer^;
+
+        Constructor = default;
+    ]
+]
+
+[ Entrypoint
+    {
+        Exit(0);
+    }
+]

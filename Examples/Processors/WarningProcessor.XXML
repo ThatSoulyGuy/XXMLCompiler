@@ -1,0 +1,45 @@
+// WarningProcessor.XXML - Example annotation processor
+// Demonstrates how to create a user-defined annotation processor in XXML
+// This processor emits a custom warning message for each annotated element
+
+// Annotation with a Processor block
+// When compiled with --processor flag, generates a DLL that can be used
+// with --use-processor during compilation of other XXML files
+
+[ Annotation <Warn> Allows (AnnotationAllow::Classes, AnnotationAllow::Methods, AnnotationAllow::Properties)
+    // Annotation parameters
+    Annotate (String^)(message);
+
+    // Processor block - executed at compile-time for each usage
+    [ Processor
+        [ Public <>
+            // Entry point called by compiler for each @Warn usage
+            // Parameters are raw pointers from the C API
+            Method <onAnnotate> Returns None Parameters (
+                Parameter <reflection> Types NativeType<"ptr">%,
+                Parameter <compilation> Types NativeType<"ptr">%,
+                Parameter <args> Types NativeType<"ptr">%
+            ) ->
+            {
+                // Get target information from reflection context
+                Instantiate NativeType<"ptr">^ As <targetKind> =
+                    Syscall::Processor_getTargetKind(reflection);
+                Instantiate NativeType<"ptr">^ As <targetName> =
+                    Syscall::Processor_getTargetName(reflection);
+
+                // Get the message argument
+                Instantiate NativeType<"ptr">^ As <msgArgName> =
+                    Syscall::xxml_string_create("message");
+                Instantiate NativeType<"ptr">^ As <msgArg> =
+                    Syscall::Processor_getArg(args, msgArgName);
+
+                // Get the message string value (or use default)
+                Instantiate NativeType<"ptr">^ As <message> =
+                    Syscall::Processor_argAsString(msgArg);
+
+                // Emit the warning
+                Run Syscall::Processor_warning(compilation, message);
+            }
+        ]
+    ]
+]

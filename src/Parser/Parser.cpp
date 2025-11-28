@@ -115,13 +115,22 @@ std::unique_ptr<Declaration> Parser::parseDeclaration() {
         }
     }
 
+    // Parse any annotation usages before the declaration
+    auto annotations = parseAnnotationUsages();
+
     if (match(Lexer::TokenType::LeftBracket)) {
         if (check(Lexer::TokenType::Namespace)) {
             return parseNamespace();
         } else if (check(Lexer::TokenType::Class)) {
-            return parseClass();
+            auto classDecl = parseClass();
+            if (classDecl) {
+                classDecl->annotations = std::move(annotations);
+            }
+            return classDecl;
         } else if (check(Lexer::TokenType::Constraint)) {
             return parseConstraint();
+        } else if (check(Lexer::TokenType::Annotation)) {
+            return parseAnnotationDecl();
         } else if (check(Lexer::TokenType::Entrypoint)) {
             return parseEntrypoint();
         } else if (check(Lexer::TokenType::Public) || check(Lexer::TokenType::Private) ||
@@ -237,14 +246,25 @@ std::unique_ptr<AccessSection> Parser::parseAccessSection() {
 
     // Parse declarations within the access section
     while (!check(Lexer::TokenType::RightBracket) && !isAtEnd()) {
+        // Parse any annotations before the member declaration
+        auto memberAnnotations = parseAnnotationUsages();
+
         if (check(Lexer::TokenType::Property)) {
-            section->declarations.push_back(parseProperty());
+            auto prop = parseProperty();
+            if (prop) {
+                prop->annotations = std::move(memberAnnotations);
+            }
+            section->declarations.push_back(std::move(prop));
         } else if (check(Lexer::TokenType::Constructor)) {
             section->declarations.push_back(parseConstructor());
         } else if (check(Lexer::TokenType::Destructor)) {
             section->declarations.push_back(parseDestructor());
         } else if (check(Lexer::TokenType::Method)) {
-            section->declarations.push_back(parseMethod());
+            auto method = parseMethod();
+            if (method) {
+                method->annotations = std::move(memberAnnotations);
+            }
+            section->declarations.push_back(std::move(method));
         } else {
             error("Expected Property, Constructor, Destructor, or Method in access section");
             synchronize();
@@ -601,6 +621,181 @@ std::unique_ptr<RequireStmt> Parser::parseRequireStatement() {
     }
 }
 
+// ============================================================================
+// Annotation Parsing
+// ============================================================================
+
+std::vector<std::unique_ptr<AnnotationUsage>> Parser::parseAnnotationUsages() {
+    std::vector<std::unique_ptr<AnnotationUsage>> annotations;
+    while (check(Lexer::TokenType::At)) {
+        annotations.push_back(parseAnnotationUsage());
+    }
+    return annotations;
+}
+
+std::unique_ptr<AnnotationUsage> Parser::parseAnnotationUsage() {
+    auto loc = peek().location;
+    consume(Lexer::TokenType::At, "Expected '@'");
+
+    std::string name = parseQualifiedIdentifier();
+
+    std::vector<std::pair<std::string, std::unique_ptr<Expression>>> args;
+    if (match(Lexer::TokenType::LeftParen)) {
+        // Parse named arguments: name = expression
+        if (!check(Lexer::TokenType::RightParen)) {
+            do {
+                // Argument name can be angle bracket identifier <name> or bare identifier
+                std::string argName;
+                if (check(Lexer::TokenType::AngleBracketId)) {
+                    argName = parseAngleBracketIdentifier();
+                } else if (check(Lexer::TokenType::Identifier)) {
+                    argName = advance().lexeme;
+                } else {
+                    error("Expected argument name");
+                    break;
+                }
+                consume(Lexer::TokenType::Equals, "Expected '=' after argument name");
+                auto value = parseExpression();
+                args.push_back({argName, std::move(value)});
+            } while (match(Lexer::TokenType::Comma));
+        }
+        consume(Lexer::TokenType::RightParen, "Expected ')' after annotation arguments");
+    }
+
+    return std::make_unique<AnnotationUsage>(name, std::move(args), loc);
+}
+
+std::vector<AnnotationTarget> Parser::parseAnnotationAllows() {
+    std::vector<AnnotationTarget> targets;
+
+    consume(Lexer::TokenType::LeftParen, "Expected '(' after 'Allows'");
+
+    do {
+        // Parse AnnotationAllow::Target
+        consume(Lexer::TokenType::AnnotationAllow, "Expected 'AnnotationAllow'");
+        consume(Lexer::TokenType::DoubleColon, "Expected '::'");
+
+        if (!check(Lexer::TokenType::Identifier)) {
+            error("Expected annotation target (Properties, Variables, Classes, or Methods)");
+            break;
+        }
+
+        std::string targetName = advance().lexeme;
+        if (targetName == "Properties") {
+            targets.push_back(AnnotationTarget::Properties);
+        } else if (targetName == "Variables") {
+            targets.push_back(AnnotationTarget::Variables);
+        } else if (targetName == "Classes") {
+            targets.push_back(AnnotationTarget::Classes);
+        } else if (targetName == "Methods") {
+            targets.push_back(AnnotationTarget::Methods);
+        } else {
+            error("Unknown annotation target: " + targetName);
+        }
+    } while (match(Lexer::TokenType::Comma));
+
+    consume(Lexer::TokenType::RightParen, "Expected ')' after allowed targets");
+
+    return targets;
+}
+
+std::unique_ptr<AnnotateDecl> Parser::parseAnnotateDecl() {
+    auto loc = peek().location;
+    consume(Lexer::TokenType::Annotate, "Expected 'Annotate'");
+
+    // Parse (Type^)
+    consume(Lexer::TokenType::LeftParen, "Expected '(' for annotate type");
+    auto type = parseTypeRef();
+    consume(Lexer::TokenType::RightParen, "Expected ')' after annotate type");
+
+    // Parse (name) - can be <name> or bare identifier
+    consume(Lexer::TokenType::LeftParen, "Expected '(' for annotate name");
+    std::string name;
+    if (check(Lexer::TokenType::AngleBracketId)) {
+        name = parseAngleBracketIdentifier();
+    } else if (check(Lexer::TokenType::Identifier)) {
+        name = advance().lexeme;
+    } else {
+        error("Expected parameter name in annotate declaration");
+    }
+    consume(Lexer::TokenType::RightParen, "Expected ')' after annotate name");
+
+    // Parse optional default value: = Expression
+    std::unique_ptr<Expression> defaultValue;
+    if (match(Lexer::TokenType::Equals)) {
+        defaultValue = parseExpression();
+    }
+
+    consume(Lexer::TokenType::Semicolon, "Expected ';' after annotate declaration");
+
+    return std::make_unique<AnnotateDecl>(name, std::move(type), std::move(defaultValue), loc);
+}
+
+std::unique_ptr<ProcessorDecl> Parser::parseProcessorDecl() {
+    auto loc = peek().location;
+    consume(Lexer::TokenType::LeftBracket, "Expected '[' before 'Processor'");
+    consume(Lexer::TokenType::Processor, "Expected 'Processor'");
+
+    std::vector<std::unique_ptr<AccessSection>> sections;
+
+    // Parse access sections (similar to class)
+    while (!check(Lexer::TokenType::RightBracket) && !isAtEnd()) {
+        if (check(Lexer::TokenType::LeftBracket)) {
+            auto accessSection = parseAccessSection();
+            if (accessSection) {
+                sections.push_back(std::move(accessSection));
+            }
+        } else {
+            error("Expected access section in processor");
+            synchronize();
+            break;
+        }
+    }
+
+    consume(Lexer::TokenType::RightBracket, "Expected ']' after processor");
+
+    return std::make_unique<ProcessorDecl>(std::move(sections), loc);
+}
+
+std::unique_ptr<AnnotationDecl> Parser::parseAnnotationDecl() {
+    auto loc = peek().location;
+    consume(Lexer::TokenType::Annotation, "Expected 'Annotation'");
+
+    std::string name = parseAngleBracketIdentifier();
+
+    // Parse Allows clause
+    consume(Lexer::TokenType::Allows, "Expected 'Allows' after annotation name");
+    auto targets = parseAnnotationAllows();
+
+    // Parse optional Retain
+    bool retain = match(Lexer::TokenType::Retain);
+
+    // Parse Annotate declarations
+    std::vector<std::unique_ptr<AnnotateDecl>> parameters;
+    while (check(Lexer::TokenType::Annotate)) {
+        parameters.push_back(parseAnnotateDecl());
+    }
+
+    // Parse optional Processor
+    std::unique_ptr<ProcessorDecl> processor;
+    if (check(Lexer::TokenType::LeftBracket)) {
+        // Peek ahead to check if it's a Processor
+        size_t savedPos = current;
+        advance(); // consume '['
+        if (check(Lexer::TokenType::Processor)) {
+            current = savedPos; // restore position
+            processor = parseProcessorDecl();
+        } else {
+            current = savedPos; // restore position
+        }
+    }
+
+    consume(Lexer::TokenType::RightBracket, "Expected ']' after annotation definition");
+
+    return std::make_unique<AnnotationDecl>(name, std::move(targets), std::move(parameters),
+                                            std::move(processor), retain, loc);
+}
+
 std::vector<std::unique_ptr<Statement>> Parser::parseBlock() {
     consume(Lexer::TokenType::LeftBrace, "Expected '{' to start block");
 
@@ -619,8 +814,15 @@ std::vector<std::unique_ptr<Statement>> Parser::parseBlock() {
 }
 
 std::unique_ptr<Statement> Parser::parseStatement() {
+    // Check for annotations before Instantiate
+    auto annotations = parseAnnotationUsages();
+
     if (match(Lexer::TokenType::Instantiate)) {
-        return parseInstantiate();
+        auto inst = parseInstantiate();
+        if (inst) {
+            inst->annotations = std::move(annotations);
+        }
+        return inst;
     } else if (match(Lexer::TokenType::Set)) {
         return parseAssignment();
     } else if (match(Lexer::TokenType::Run)) {

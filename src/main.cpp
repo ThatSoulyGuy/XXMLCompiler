@@ -18,6 +18,8 @@
 #include "Import/DependencyGraph.h"
 #include "Linker/LinkerInterface.h"
 #include "Utils/ProcessUtils.h"
+#include "AnnotationProcessor/ProcessorLoader.h"
+#include "AnnotationProcessor/ProcessorCompiler.h"
 
 std::string readFile(const std::string& filename) {
     std::ifstream file(filename);
@@ -73,14 +75,18 @@ bool parseModule(XXML::Import::Module* module, XXML::Common::ErrorReporter& erro
 
 void printUsage(const char* programName) {
     std::cerr << "XXML Compiler v2.0\n";
-    std::cerr << "Usage: " << programName << " <input.XXML> <output> [mode]\n\n";
-    std::cerr << "Arguments:\n";
-    std::cerr << "  <input.XXML>  - XXML source file to compile\n";
-    std::cerr << "  <output>      - Output file (.ll for IR, .exe/.out for executable)\n";
-    std::cerr << "  [mode]        - Optional: 2 = LLVM IR only (default compiles to executable)\n\n";
+    std::cerr << "Usage: " << programName << " [options] <input.XXML> -o <output>\n\n";
+    std::cerr << "Options:\n";
+    std::cerr << "  -o <file>              Output file (.ll for IR, .exe/.dll for binary)\n";
+    std::cerr << "  --ir                   Generate LLVM IR only (same as mode 2)\n";
+    std::cerr << "  --processor            Compile annotation processor to DLL\n";
+    std::cerr << "  --use-processor=<dll>  Load annotation processor DLL (can be used multiple times)\n";
+    std::cerr << "  2                      Legacy mode: LLVM IR only\n\n";
     std::cerr << "Examples:\n";
-    std::cerr << "  " << programName << " Hello.XXML hello.exe      # Compile to executable\n";
-    std::cerr << "  " << programName << " Hello.XXML hello.ll 2     # Generate LLVM IR only\n";
+    std::cerr << "  " << programName << " Hello.XXML -o hello.exe                    # Compile to executable\n";
+    std::cerr << "  " << programName << " Hello.XXML -o hello.ll --ir                # Generate LLVM IR only\n";
+    std::cerr << "  " << programName << " --processor MyAnnot.XXML -o MyAnnot.dll    # Compile processor DLL\n";
+    std::cerr << "  " << programName << " --use-processor=MyAnnot.dll App.XXML -o app.exe  # Use processor\n";
 }
 
 int main(int argc, char* argv[]) {
@@ -92,28 +98,54 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    std::string inputFile = argv[1];
+    std::string inputFile;
     std::string outputFile;
     bool llvmIROnly = false;
+    bool processorMode = false;
+    std::vector<std::string> processorDLLs;
 
     // Parse command-line arguments
-    for (int i = 2; i < argc; i++) {
+    for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
         if (arg == "-o" && i + 1 < argc) {
             outputFile = argv[i + 1];
             i++; // Skip the next argument
-        } else if (arg == "2") {
+        } else if (arg == "2" || arg == "--ir") {
             llvmIROnly = true;
-        } else if (outputFile.empty()) {
-            // If no -o flag, treat as direct output file
-            outputFile = arg;
+        } else if (arg == "--processor") {
+            processorMode = true;
+        } else if (arg.rfind("--use-processor=", 0) == 0) {
+            // Extract DLL path after '='
+            std::string dllPath = arg.substr(16);
+            if (!dllPath.empty()) {
+                processorDLLs.push_back(dllPath);
+            }
+        } else if (arg[0] != '-') {
+            // Positional argument - input file
+            if (inputFile.empty()) {
+                inputFile = arg;
+            } else if (outputFile.empty()) {
+                // Legacy: second positional arg is output
+                outputFile = arg;
+            }
         }
+    }
+
+    if (inputFile.empty()) {
+        std::cerr << "Error: No input file specified\n";
+        printUsage(argv[0]);
+        return 1;
     }
 
     if (outputFile.empty()) {
         std::cerr << "Error: No output file specified\n";
         printUsage(argv[0]);
         return 1;
+    }
+
+    // Processor mode: compile annotation to DLL
+    if (processorMode) {
+        std::cout << "Processor compilation mode\n\n";
     }
 
     try {
@@ -124,6 +156,73 @@ int main(int argc, char* argv[]) {
 
         XXML::Common::ErrorReporter errorReporter;
         XXML::Import::ImportResolver resolver;
+        XXML::AnnotationProcessor::ProcessorRegistry processorRegistry;
+
+        // Auto-discover and load processor DLLs from standard locations
+        std::vector<std::string> processorSearchPaths;
+
+        // Add source file's directory processors/
+        std::filesystem::path inputPath(inputFile);
+        if (inputPath.has_parent_path()) {
+            processorSearchPaths.push_back((inputPath.parent_path() / "processors").string());
+        }
+
+        // Add compiler's directory processors/
+        std::string exeDir = XXML::Utils::ProcessUtils::getExecutableDirectory();
+        processorSearchPaths.push_back(exeDir + "/processors");
+        processorSearchPaths.push_back(exeDir + "/../processors");
+
+        // Add current directory processors/
+        processorSearchPaths.push_back("./processors");
+        processorSearchPaths.push_back("processors");
+
+        // Auto-load processors from discovered directories
+        for (const auto& searchPath : processorSearchPaths) {
+            try {
+                if (std::filesystem::exists(searchPath) && std::filesystem::is_directory(searchPath)) {
+                    for (const auto& entry : std::filesystem::directory_iterator(searchPath)) {
+                        if (entry.is_regular_file()) {
+                            std::string ext = entry.path().extension().string();
+#ifdef _WIN32
+                            if (ext == ".dll" || ext == ".DLL") {
+#else
+                            if (ext == ".so") {
+#endif
+                                std::string dllPath = entry.path().string();
+                                // Check if not already loaded
+                                bool alreadyLoaded = false;
+                                for (const auto& loaded : processorDLLs) {
+                                    if (loaded == dllPath) {
+                                        alreadyLoaded = true;
+                                        break;
+                                    }
+                                }
+                                if (!alreadyLoaded) {
+                                    processorDLLs.push_back(dllPath);
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (const std::filesystem::filesystem_error&) {
+                // Ignore directory access errors
+            }
+        }
+
+        // Load user-specified and auto-discovered processor DLLs
+        if (!processorDLLs.empty()) {
+            std::cout << "Loading annotation processors...\n";
+            for (const auto& dllPath : processorDLLs) {
+                std::cout << "  Loading: " << dllPath << "\n";
+                if (!processorRegistry.loadProcessor(dllPath, errorReporter)) {
+                    std::cerr << "  Warning: Failed to load processor: " << dllPath << "\n";
+                    // Don't exit on failure - processor might be optional
+                    errorReporter.clear();  // Clear the error to continue
+                } else {
+                    std::cout << "  Loaded successfully\n";
+                }
+            }
+        }
 
         // Add source file directory to search paths
         resolver.addSourceFileDirectory(inputFile);
@@ -309,7 +408,8 @@ int main(int argc, char* argv[]) {
         std::cout << "Phase 2: Semantic analysis...\n";
         for (const auto& moduleName : compilationOrder) {
             auto it = moduleMap.find(moduleName);
-            if (it != moduleMap.end()) {
+            if (it != moduleMap.end() && it->second != mainModule.get()) {
+                // Process imported modules (not the main module)
                 auto validator = std::make_unique<XXML::Semantic::SemanticAnalyzer>(compilationContext, errorReporter);
                 validator->setValidationEnabled(true);
                 validator->setModuleName(moduleName);
@@ -321,11 +421,14 @@ int main(int argc, char* argv[]) {
                     errorReporter.printErrors();
                     return 1;
                 }
+                // Don't process annotations for library modules - they don't define annotations
+                // that need compile-time processing
                 it->second->isAnalyzed = true;
                 analyzerMap[moduleName] = std::move(validator);
             }
         }
 
+        // Process main module
         mainAnalyzer = std::make_unique<XXML::Semantic::SemanticAnalyzer>(compilationContext, errorReporter);
         mainAnalyzer->setValidationEnabled(true);
         mainAnalyzer->setModuleName("__main__");
@@ -336,6 +439,70 @@ int main(int argc, char* argv[]) {
         if (errorReporter.hasErrors()) {
             errorReporter.printErrors();
             return 1;
+        }
+
+        // Check for inline annotation processors and auto-compile them
+        // (Skip this when in processor mode to avoid infinite recursion)
+        const auto& pendingProcessors = mainAnalyzer->getPendingProcessorCompilations();
+        if (!pendingProcessors.empty() && !processorMode) {
+            std::cout << "Auto-compiling " << pendingProcessors.size() << " inline processor(s)...\n";
+
+            // Get compiler path for subprocess invocation
+            std::string exeDir = XXML::Utils::ProcessUtils::getExecutableDirectory();
+#ifdef _WIN32
+            std::string compilerPath = exeDir + "/xxml.exe";
+#else
+            std::string compilerPath = exeDir + "/xxml";
+#endif
+            XXML::AnnotationProcessor::ProcessorCompiler procCompiler(compilerPath);
+
+            for (const auto& pending : pendingProcessors) {
+                std::cout << "  Compiling @" << pending.annotationName << " processor...\n";
+
+                // Create ProcessorInfo for compilation
+                XXML::AnnotationProcessor::ProcessorCompiler::ProcessorInfo info;
+                info.annotationName = pending.annotationName;
+                info.annotDecl = pending.annotDecl;
+                info.processorDecl = pending.processorDecl;
+                info.imports = pending.imports;  // Pass imports so processor can access imported modules
+                info.userClasses = pending.userClasses;  // Pass user classes so processor can reference them
+
+                // Attempt to compile
+                auto result = procCompiler.compileProcessor(info, errorReporter);
+
+                if (result.success) {
+                    std::cout << "    ✓ Compiled successfully: " << result.dllPath << "\n";
+
+                    // Load the compiled processor
+                    if (processorRegistry.loadProcessor(result.dllPath, errorReporter)) {
+                        std::cout << "    ✓ Loaded into registry\n";
+                    } else {
+                        std::cerr << "    ✗ Warning: Failed to load compiled processor\n";
+                        errorReporter.clear();
+                    }
+                } else {
+                    std::cerr << "    ✗ Compilation failed: " << result.errorMessage << "\n";
+                    // Don't fail the overall compilation - just skip this processor
+                }
+            }
+            std::cout << "\n";
+
+            // Clean up temp files at end of compilation (optional)
+            // procCompiler.cleanup();
+        }
+
+        // Process annotations after semantic analysis
+        // Always set processor registry (even if no user DLLs loaded)
+        // This allows built-in processors to work without flags
+        mainAnalyzer->getAnnotationProcessor().setProcessorRegistry(&processorRegistry);
+        mainAnalyzer->getAnnotationProcessor().processAll();
+        if (errorReporter.hasErrors()) {
+            errorReporter.printErrors();
+            return 1;
+        }
+        // Print any warnings from annotation processing
+        if (errorReporter.hasWarnings()) {
+            errorReporter.printErrors();  // printErrors prints both errors and warnings
         }
 
         // Merge template info
@@ -367,6 +534,21 @@ int main(int argc, char* argv[]) {
                 }
             }
             llvmBackend->setImportedModules(importedASTs);
+
+            // Set processor mode if compiling annotation processor to DLL
+            if (processorMode) {
+                // Find the annotation name from the AST
+                std::string annotationName;
+                for (const auto& decl : mainModule->ast->declarations) {
+                    if (auto* annotDecl = dynamic_cast<XXML::Parser::AnnotationDecl*>(decl.get())) {
+                        if (annotDecl->processor) {
+                            annotationName = annotDecl->name;
+                            break;
+                        }
+                    }
+                }
+                llvmBackend->setProcessorMode(true, annotationName);
+            }
         }
 
         std::string llvmIR = backend->generate(*mainModule->ast);
@@ -380,11 +562,19 @@ int main(int argc, char* argv[]) {
             std::cout << "\n✓ Generated " << llvmIR.length() << " bytes of LLVM IR\n";
             std::cout << "\nTo compile: clang " << outputFile << " -o output\n";
         } else {
-            // Compile to executable
+            // Compile to executable (or DLL in processor mode)
             std::string executablePath = outputPath.string();
 #ifdef _WIN32
-            if (outputPath.extension() != ".exe") {
-                executablePath = outputPath.stem().string() + ".exe";
+            if (processorMode) {
+                // Processor mode: create DLL
+                if (outputPath.extension() != ".dll") {
+                    executablePath = outputPath.stem().string() + ".dll";
+                }
+            } else {
+                // Normal mode: create executable
+                if (outputPath.extension() != ".exe") {
+                    executablePath = outputPath.stem().string() + ".exe";
+                }
             }
 #endif
 
@@ -445,7 +635,8 @@ int main(int argc, char* argv[]) {
             linkConfig.objectFiles.push_back(objPath);
             if (!runtimeLibPath.empty()) linkConfig.libraries.push_back(runtimeLibPath);
             linkConfig.outputPath = executablePath;
-            linkConfig.createConsoleApp = true;
+            linkConfig.createConsoleApp = !processorMode;  // Console app unless creating DLL
+            linkConfig.createDLL = processorMode;          // Create DLL for processor mode
 
             auto linkResult = linker->link(linkConfig);
             if (!linkResult.success) {
@@ -454,7 +645,11 @@ int main(int argc, char* argv[]) {
             }
 
             std::cout << "\n✓ Compilation successful!\n";
-            std::cout << "  Executable: " << executablePath << "\n";
+            if (processorMode) {
+                std::cout << "  Processor DLL: " << executablePath << "\n";
+            } else {
+                std::cout << "  Executable: " << executablePath << "\n";
+            }
         }
 
         return 0;

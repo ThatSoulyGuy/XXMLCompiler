@@ -1927,5 +1927,40 @@ void CodeGenerator::visit(Parser::FunctionTypeRef& node) {
     // FunctionTypeRef is handled during type resolution
 }
 
+void CodeGenerator::visit(Parser::DestructorDecl& node) {
+    // Generate destructor code
+    writeLine("~" + currentClassName + "() {");
+    indentLevel++;
+    for (auto& stmt : node.body) {
+        stmt->accept(*this);
+    }
+    indentLevel--;
+    writeLine("}");
+}
+
+void CodeGenerator::visit(Parser::FloatLiteralExpr& node) {
+    write(std::to_string(node.value) + "f");
+}
+
+void CodeGenerator::visit(Parser::DoubleLiteralExpr& node) {
+    write(std::to_string(node.value));
+}
+
+void CodeGenerator::visit(Parser::AnnotateDecl& node) {
+    // No code generation - annotation parameters are compile-time only
+}
+
+void CodeGenerator::visit(Parser::ProcessorDecl& node) {
+    // No code generation - annotation processors are compile-time only
+}
+
+void CodeGenerator::visit(Parser::AnnotationDecl& node) {
+    // No code generation - annotation definitions are compile-time only
+}
+
+void CodeGenerator::visit(Parser::AnnotationUsage& node) {
+    // No code generation - annotation usages are compile-time only
+}
+
 } // namespace CodeGen
 } // namespace XXML

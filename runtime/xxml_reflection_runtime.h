@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include "xxml_annotation_runtime.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -26,6 +27,10 @@ struct ReflectionPropertyInfo {
     const char* typeName;
     int32_t ownership;  // 0=None, 1=Owned(^), 2=Reference(&), 3=Copy(%)
     size_t offset;      // Offset in bytes from object start
+
+    // Annotation support
+    int32_t annotationCount;
+    ReflectionAnnotationInfo* annotations;
 };
 
 // Parameter metadata
@@ -45,6 +50,10 @@ struct ReflectionMethodInfo {
     void* functionPointer;  // Pointer to actual method implementation
     bool isStatic;
     bool isConstructor;
+
+    // Annotation support
+    int32_t annotationCount;
+    ReflectionAnnotationInfo* annotations;
 };
 
 // Template parameter metadata
@@ -74,6 +83,10 @@ struct ReflectionTypeInfo {
 
     const char* baseClassName;  // NULL if no base class
     size_t instanceSize;        // Size in bytes
+
+    // Annotation support
+    int32_t annotationCount;
+    ReflectionAnnotationInfo* annotations;
 };
 
 // ============================================

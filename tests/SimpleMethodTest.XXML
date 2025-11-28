@@ -1,0 +1,23 @@
+// Simple method test without annotations
+#import Language::Core;
+
+[ Class <TestClass> Final Extends None
+    [ Public <>
+        Property <value> Types Integer^;
+        Constructor = default;
+
+        Method <getValue> Returns Integer^ Parameters () ->
+        {
+            Return Integer::Constructor(42);
+        }
+    ]
+]
+
+[ Entrypoint
+    {
+        Instantiate TestClass^ As <obj> = TestClass::Constructor();
+        Run Console::printLine(String::Constructor("Value: "));
+        Run Console::printLine(obj.getValue().toString());
+        Exit(0);
+    }
+]

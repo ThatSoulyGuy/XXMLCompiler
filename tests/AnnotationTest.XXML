@@ -1,0 +1,37 @@
+// Annotation Test - Tests the new annotation system
+#import Language::Core;
+
+// Define a simple annotation for properties
+[ Annotation <NotNull> Allows (AnnotationAllow::Properties)
+]
+
+// Define an annotation with parameters
+[ Annotation <Range> Allows (AnnotationAllow::Properties)
+    Annotate (Integer^)(min);
+    Annotate (Integer^)(max);
+]
+
+// Define an annotation that is retained at runtime
+[ Annotation <Deprecated> Allows (AnnotationAllow::Classes) Retain
+    Annotate (String^)(reason) = String::Constructor("No reason provided");
+]
+
+// Test class with annotated properties
+[ Class <TestClass> Final Extends None
+    [ Public <>
+        @NotNull
+        Property <name> Types String^;
+
+        @Range(min = Integer::Constructor(0), max = Integer::Constructor(100))
+        Property <value> Types Integer^;
+
+        Constructor = default;
+    ]
+]
+
+[ Entrypoint
+    {
+        Run Console::printLine(String::Constructor("Annotation test - parsing successful!"));
+        Exit(0);
+    }
+]

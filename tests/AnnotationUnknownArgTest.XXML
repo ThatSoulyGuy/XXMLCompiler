@@ -1,0 +1,24 @@
+// AnnotationUnknownArgTest.XXML - Tests unknown argument validation
+// This file should produce ERRORS when compiled
+
+#import Language::Core;
+
+// Define annotation with specific parameters
+[ Annotation <KnownArgs> Allows (AnnotationAllow::Classes)
+    Annotate (String^)(name);
+    Annotate (Integer^)(value) = 0;
+]
+
+// ERROR: Using unknown argument 'unknownArg'
+@KnownArgs(name = "test", unknownArg = "should fail")
+[ Class <BadArgs> Final Extends None
+    [ Public <>
+        Constructor = default;
+    ]
+]
+
+[ Entrypoint
+    {
+        Exit(0);
+    }
+]

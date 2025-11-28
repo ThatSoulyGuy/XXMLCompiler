@@ -1,0 +1,76 @@
+// ProcessorCompilationContext - XXML wrapper for annotation processor compilation API
+// Allows processors to emit messages, warnings, and errors during compilation
+
+#import Language::Core;
+
+[ Namespace <Language::Processor>
+    [ Class <ProcessorCompilationContext> Final Extends None
+        [ Private <>
+            Property <ctxPtr> Types NativeType<"ptr">^;
+        ]
+
+        [ Public <>
+            Constructor Parameters (
+                Parameter <ptr> Types NativeType<"ptr">%
+            ) ->
+            {
+                Run Syscall::memcpy(&ctxPtr, &ptr, 8);
+            }
+
+            // Emit an informational message during compilation
+            Method <message> Returns None Parameters (
+                Parameter <msg> Types String^
+            ) ->
+            {
+                Instantiate NativeType<"ptr">^ As <ptr> = ctxPtr;
+                Run Syscall::Processor_message(ptr, msg);
+            }
+
+            // Emit a warning at the annotation location
+            Method <warning> Returns None Parameters (
+                Parameter <msg> Types String^
+            ) ->
+            {
+                Instantiate NativeType<"ptr">^ As <ptr> = ctxPtr;
+                Run Syscall::Processor_warning(ptr, msg);
+            }
+
+            // Emit a warning at a specific location
+            Method <warningAt> Returns None Parameters (
+                Parameter <msg> Types String^,
+                Parameter <file> Types String^,
+                Parameter <line> Types Integer^,
+                Parameter <col> Types Integer^
+            ) ->
+            {
+                Instantiate NativeType<"ptr">^ As <ptr> = ctxPtr;
+                Instantiate NativeType<"int64">^ As <lineNum> = line.toInt64();
+                Instantiate NativeType<"int64">^ As <colNum> = col.toInt64();
+                Run Syscall::Processor_warningAt(ptr, msg, file, lineNum, colNum);
+            }
+
+            // Emit an error at the annotation location (will fail compilation)
+            Method <error> Returns None Parameters (
+                Parameter <msg> Types String^
+            ) ->
+            {
+                Instantiate NativeType<"ptr">^ As <ptr> = ctxPtr;
+                Run Syscall::Processor_error(ptr, msg);
+            }
+
+            // Emit an error at a specific location
+            Method <errorAt> Returns None Parameters (
+                Parameter <msg> Types String^,
+                Parameter <file> Types String^,
+                Parameter <line> Types Integer^,
+                Parameter <col> Types Integer^
+            ) ->
+            {
+                Instantiate NativeType<"ptr">^ As <ptr> = ctxPtr;
+                Instantiate NativeType<"int64">^ As <lineNum> = line.toInt64();
+                Instantiate NativeType<"int64">^ As <colNum> = col.toInt64();
+                Run Syscall::Processor_errorAt(ptr, msg, file, lineNum, colNum);
+            }
+        ]
+    ]
+]

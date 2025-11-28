@@ -1,0 +1,65 @@
+// ProcessorAnnotationArgs - XXML wrapper for annotation argument collection
+// Provides access to all arguments passed to an annotation usage
+
+#import Language::Core;
+#import Language::Processor::ProcessorAnnotationArg;
+
+[ Namespace <Language::Processor>
+    [ Class <ProcessorAnnotationArgs> Final Extends None
+        [ Private <>
+            Property <argsPtr> Types NativeType<"ptr">^;
+        ]
+
+        [ Public <>
+            Constructor Parameters (
+                Parameter <ptr> Types NativeType<"ptr">%
+            ) ->
+            {
+                Run Syscall::memcpy(&argsPtr, &ptr, 8);
+            }
+
+            // Get the number of arguments
+            Method <getCount> Returns Integer^ Parameters () ->
+            {
+                Instantiate NativeType<"ptr">^ As <ptr> = argsPtr;
+                Instantiate NativeType<"int64">^ As <result> =
+                    Syscall::Processor_getArgCount(ptr);
+                Return Integer::Constructor(result);
+            }
+
+            // Get an argument by index (returns null if out of range)
+            Method <getAt> Returns ProcessorAnnotationArg^ Parameters (
+                Parameter <index> Types Integer^
+            ) ->
+            {
+                Instantiate NativeType<"ptr">^ As <ptr> = argsPtr;
+                Instantiate NativeType<"int64">^ As <idx> = index.toInt64();
+                Instantiate NativeType<"ptr">^ As <result> =
+                    Syscall::Processor_getArgAt(ptr, idx);
+                Return result;
+            }
+
+            // Get an argument by name (returns null if not found)
+            Method <get> Returns ProcessorAnnotationArg^ Parameters (
+                Parameter <name> Types String^
+            ) ->
+            {
+                Instantiate NativeType<"ptr">^ As <ptr> = argsPtr;
+                Instantiate NativeType<"ptr">^ As <result> =
+                    Syscall::Processor_getArg(ptr, name);
+                Return result;
+            }
+
+            // Check if an argument with the given name exists
+            Method <has> Returns Bool^ Parameters (
+                Parameter <name> Types String^
+            ) ->
+            {
+                Instantiate NativeType<"ptr">^ As <ptr> = argsPtr;
+                Instantiate NativeType<"ptr">^ As <result> =
+                    Syscall::Processor_getArg(ptr, name);
+                Return Bool::Constructor(result != 0);
+            }
+        ]
+    ]
+]

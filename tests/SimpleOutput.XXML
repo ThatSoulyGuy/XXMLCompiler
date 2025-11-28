@@ -1,0 +1,7 @@
+#import Language::Core;
+
+[ Entrypoint
+    {
+        Run Console::printLine(String::Constructor("Simple test"));
+    }
+]

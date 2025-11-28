@@ -942,6 +942,63 @@ void* Language_Reflection_Type_getMethodAt(void* self, void* index) {
 // class implementations which the compiler cannot generate due to AST corruption issues.
 
 // ============================================
+// Dynamic Value Methods (for processor __DynamicValue type)
+// These provide runtime type dispatch for values whose types are unknown at compile time
+// ============================================
+
+// __DynamicValue_toString - calls toString on an XXML object
+// For now, assumes the object is Integer-compatible (has toString method)
+void* __DynamicValue_toString(void* self) {
+    if (!self) return String_Constructor("null");
+    // For simplicity, delegate to Integer_toString which works for Integer objects
+    // A more complete implementation would check the runtime type
+    return Integer_toString(self);
+}
+
+// __DynamicValue_greaterThan - compares two XXML objects
+int8_t __DynamicValue_greaterThan(void* self, void* other) {
+    if (!self || !other) return 0;
+    // Delegate to Integer_gt for integer comparison
+    return Integer_gt(self, other);
+}
+
+// __DynamicValue_lessThan - compares two XXML objects
+int8_t __DynamicValue_lessThan(void* self, void* other) {
+    if (!self || !other) return 0;
+    return Integer_lt(self, other);
+}
+
+// __DynamicValue_equals - compares two XXML objects for equality
+int8_t __DynamicValue_equals(void* self, void* other) {
+    if (!self || !other) return self == other;
+    return Integer_eq(self, other);
+}
+
+// __DynamicValue_add - adds two XXML objects
+void* __DynamicValue_add(void* self, void* other) {
+    if (!self || !other) return NULL;
+    return Integer_add(self, other);
+}
+
+// __DynamicValue_sub - subtracts two XXML objects
+void* __DynamicValue_sub(void* self, void* other) {
+    if (!self || !other) return NULL;
+    return Integer_sub(self, other);
+}
+
+// __DynamicValue_mul - multiplies two XXML objects
+void* __DynamicValue_mul(void* self, void* other) {
+    if (!self || !other) return NULL;
+    return Integer_mul(self, other);
+}
+
+// __DynamicValue_div - divides two XXML objects
+void* __DynamicValue_div(void* self, void* other) {
+    if (!self || !other) return NULL;
+    return Integer_div(self, other);
+}
+
+// ============================================
 // Threading Implementation
 // ============================================
 
@@ -1914,4 +1971,23 @@ void* xxml_Path_getAbsolute(const char* path) {
 #endif
     // If resolution fails, return the original path
     return String_Constructor(path);
+}
+
+// ============================================
+// Utility Functions for Syscall Namespace
+// ============================================
+
+// Create a new String from a C string literal
+void* xxml_string_create(const char* cstr) {
+    return String_Constructor(cstr ? cstr : "");
+}
+
+// Check if a pointer is null
+int64_t xxml_ptr_is_null(void* ptr) {
+    return ptr == NULL ? 1 : 0;
+}
+
+// Get a null pointer
+void* xxml_ptr_null(void) {
+    return NULL;
 }

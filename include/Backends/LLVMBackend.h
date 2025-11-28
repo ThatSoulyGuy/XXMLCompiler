@@ -58,6 +58,12 @@ public:
         importedModules_ = modules;
     }
 
+    // Set processor compilation mode (compiles annotation processor to DLL)
+    void setProcessorMode(bool enabled, const std::string& annotationName = "") {
+        processorMode_ = enabled;
+        processorAnnotationName_ = annotationName;
+    }
+
     // Collect reflection metadata from a module without generating code
     // This is needed for runtime modules where we want reflection info but not code
     void collectReflectionMetadataFromModule(Parser::Program& program);
@@ -111,6 +117,10 @@ public:
     void visit(Parser::ContinueStmt& node) override;
     void visit(Parser::RequireStmt& node) override;
     void visit(Parser::ConstraintDecl& node) override;
+    void visit(Parser::AnnotateDecl& node) override;
+    void visit(Parser::ProcessorDecl& node) override;
+    void visit(Parser::AnnotationDecl& node) override;
+    void visit(Parser::AnnotationUsage& node) override;
 
     void visit(Parser::IntegerLiteralExpr& node) override;
     void visit(Parser::FloatLiteralExpr& node) override;
@@ -159,6 +169,10 @@ private:
 
     // Imported modules for code generation
     std::vector<Parser::Program*> importedModules_;
+
+    // Processor compilation mode (for compiling annotation processors to DLLs)
+    bool processorMode_ = false;
+    std::string processorAnnotationName_;
 
     // Track declared functions to avoid duplicates
     std::set<std::string> declaredFunctions_;
@@ -333,6 +347,10 @@ private:
 
     /// Reflection metadata generation
     void generateReflectionMetadata();
+
+    /// Processor entry point generation (for --processor mode)
+    void generateProcessorEntryPoints(Parser::Program& program);
+
     struct ReflectionClassMetadata {
         std::string name;
         std::string namespaceName;
@@ -348,6 +366,41 @@ private:
         Parser::ClassDecl* astNode;
     };
     std::unordered_map<std::string, ReflectionClassMetadata> reflectionMetadata_;
+
+    // === Annotation Code Generation ===
+
+    // Track annotation definitions that have Retain keyword
+    std::set<std::string> retainedAnnotations_;
+
+    // Pending annotation metadata for retained annotations
+    struct AnnotationArgValue {
+        enum Kind { Integer, String, Bool, Float, Double } kind;
+        int64_t intValue = 0;
+        std::string stringValue;
+        bool boolValue = false;
+        float floatValue = 0.0f;
+        double doubleValue = 0.0;
+    };
+
+    struct PendingAnnotationMetadata {
+        std::string annotationName;
+        std::string targetType;      // "type", "method", or "property"
+        std::string typeName;        // Class name
+        std::string memberName;      // Method/property name (empty for type-level)
+        std::vector<std::pair<std::string, AnnotationArgValue>> arguments;
+    };
+    std::vector<PendingAnnotationMetadata> pendingAnnotationMetadata_;
+
+    // Counter for unique annotation metadata globals
+    int annotationMetadataCounter_ = 0;
+
+    // Helper methods for annotation code generation
+    void generateAnnotationMetadata();
+    void collectRetainedAnnotations(Parser::ClassDecl& node);
+    void collectRetainedAnnotations(Parser::MethodDecl& node, const std::string& className);
+    void collectRetainedAnnotations(Parser::PropertyDecl& node, const std::string& className);
+    AnnotationArgValue evaluateAnnotationArg(Parser::Expression* expr);
+    bool isAnnotationRetained(const std::string& annotationName) const;
 };
 
 } // namespace Backends

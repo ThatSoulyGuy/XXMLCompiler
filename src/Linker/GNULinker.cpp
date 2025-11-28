@@ -62,6 +62,18 @@ public:
         // Build arguments
         std::vector<std::string> args;
 
+        // Shared library/DLL mode
+        if (config.createDLL) {
+            args.push_back("-shared");
+#if defined(_WIN32) || defined(__MINGW32__) || defined(__MINGW64__)
+            // On Windows/MinGW, also need to export all symbols or use declspec
+            args.push_back("-Wl,--export-all-symbols");
+#else
+            // On Unix, position-independent code is required for shared libraries
+            args.push_back("-fPIC");
+#endif
+        }
+
         // Object files (must come first for GNU ld)
         for (const auto& obj : config.objectFiles) {
             args.push_back(obj);

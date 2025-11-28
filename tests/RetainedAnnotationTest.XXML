@@ -1,0 +1,25 @@
+// Retained Annotation Test - Tests annotation code generation with Retain keyword
+#import Language::Core;
+
+// Define annotation with Retain - this annotation will be available at runtime
+[ Annotation <Serializable> Allows (AnnotationAllow::Classes, AnnotationAllow::Properties) Retain
+    Annotate (String^)(format) = "json";
+]
+
+// Test class with retained annotation
+@Serializable(format = "xml")
+[ Class <DataClass> Final Extends None
+    [ Public <>
+        // Property with retained annotation
+        @Serializable
+        Property <value> Types Integer^;
+
+        Constructor = default;
+    ]
+]
+
+[ Entrypoint
+    {
+        Exit(0);
+    }
+]

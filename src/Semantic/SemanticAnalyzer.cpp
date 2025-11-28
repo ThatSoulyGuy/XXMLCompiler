@@ -15,6 +15,7 @@ SemanticAnalyzer::SemanticAnalyzer(Core::CompilationContext& context, Common::Er
     : symbolTable_(&context.symbolTable()),
       context_(&context),
       errorReporter(reporter),
+      annotationProcessor_(reporter),
       currentClass(""),
       currentNamespace(""),
       enableValidation(true),
@@ -38,6 +39,7 @@ SemanticAnalyzer::SemanticAnalyzer(Common::ErrorReporter& reporter)
     : symbolTable_(nullptr),
       context_(nullptr),
       errorReporter(reporter),
+      annotationProcessor_(reporter),
       currentClass(""),
       currentNamespace(""),
       enableValidation(true),
@@ -58,6 +60,9 @@ bool SemanticAnalyzer::isCompatibleType(const std::string& expected, const std::
 
     // None is compatible with everything (void/null)
     if (expected == "None" || actual == "None") return true;
+
+    // __DynamicValue is compatible with anything (used for processor target values)
+    if (expected == "__DynamicValue" || actual == "__DynamicValue") return true;
 
     // NativeType has special compatibility rules - check these FIRST before general template logic
 
@@ -411,6 +416,15 @@ void SemanticAnalyzer::visit(Parser::ClassDecl& node) {
     std::string previousClass = currentClass;
     currentClass = node.name;
 
+    // Track this class for processor compilation (allows processors to reference local classes)
+    localClasses_.push_back(&node);
+
+    // Validate annotations on this class
+    for (auto& annotation : node.annotations) {
+        annotation->accept(*this);
+        validateAnnotationUsage(*annotation, Parser::AnnotationTarget::Classes, node.name, node.location, &node);
+    }
+
     // Record template class if it has template parameters
     if (!node.templateParams.empty()) {
         std::string qualifiedTemplateName = currentNamespace.empty() ? node.name : currentNamespace + "::" + node.name;
@@ -631,6 +645,12 @@ void SemanticAnalyzer::visit(Parser::AccessSection& node) {
 }
 
 void SemanticAnalyzer::visit(Parser::PropertyDecl& node) {
+    // Validate annotations on this property
+    for (auto& annotation : node.annotations) {
+        annotation->accept(*this);
+        validateAnnotationUsage(*annotation, Parser::AnnotationTarget::Properties, node.name, node.location, &node);
+    }
+
     // Visit type to record template instantiations
     node.type->accept(*this);
 
@@ -676,8 +696,10 @@ void SemanticAnalyzer::visit(Parser::PropertyDecl& node) {
         bool isTemplateParam = (inTemplateDefinition &&
                                 templateTypeParameters.find(node.type->typeName) != templateTypeParameters.end());
 
-        // Only error if it's not a NativeType, builtin type, function type, or template parameter
-        if (!isTemplateParam &&
+        // Only error if it's not a NativeType, builtin type, function type, template parameter,
+        // or compiler intrinsic type (when in processor context)
+        bool isIntrinsicType = (inProcessorContext_ && isCompilerIntrinsicType(node.type->typeName));
+        if (!isTemplateParam && !isIntrinsicType &&
             node.type->typeName != "Integer" &&
             node.type->typeName != "String" &&
             node.type->typeName != "Bool" &&
@@ -734,6 +756,12 @@ void SemanticAnalyzer::visit(Parser::DestructorDecl& node) {
 }
 
 void SemanticAnalyzer::visit(Parser::MethodDecl& node) {
+    // Validate annotations on this method
+    for (auto& annotation : node.annotations) {
+        annotation->accept(*this);
+        validateAnnotationUsage(*annotation, Parser::AnnotationTarget::Methods, node.name, node.location, &node);
+    }
+
     // Visit return type to record template instantiations
     node.returnType->accept(*this);
 
@@ -838,6 +866,12 @@ void SemanticAnalyzer::visit(Parser::EntrypointDecl& node) {
 
 // Statement visitors
 void SemanticAnalyzer::visit(Parser::InstantiateStmt& node) {
+    // Validate annotations on this variable
+    for (auto& annotation : node.annotations) {
+        annotation->accept(*this);
+        validateAnnotationUsage(*annotation, Parser::AnnotationTarget::Variables, node.variableName, node.location, &node);
+    }
+
     // Check if variable already exists
     Symbol* existing = symbolTable_->getCurrentScope()->resolveLocal(node.variableName);
     if (existing) {
@@ -879,8 +913,11 @@ void SemanticAnalyzer::visit(Parser::InstantiateStmt& node) {
     bool isInKnownNamespace = !currentNamespace.empty() &&
         (currentNamespace.find("Language::") == 0 || validNamespaces_.count(currentNamespace) > 0);
 
-    // Don't error if type is qualified (contains ::), NativeType, template parameter, or a builtin type
-    if (!typeSym && !foundInClassRegistry && !isTemplateParam && !isInKnownNamespace &&
+    // Check for compiler intrinsic types when in processor context
+    bool isIntrinsicType = (inProcessorContext_ && isCompilerIntrinsicType(node.type->typeName));
+
+    // Don't error if type is qualified (contains ::), NativeType, template parameter, intrinsic, or a builtin type
+    if (!typeSym && !foundInClassRegistry && !isTemplateParam && !isInKnownNamespace && !isIntrinsicType &&
         node.type->typeName.find("::") == std::string::npos &&
         node.type->typeName.find("NativeType<") != 0) {
         // Only error for simple unqualified types that aren't found
@@ -1553,6 +1590,110 @@ void SemanticAnalyzer::visit(Parser::CallExpr& node) {
         std::string objectType = getExpressionType(memberExpr->object.get());
         methodName = memberExpr->member;
 
+        // Special handling for ReflectionContext.getTargetValue() - returns the annotated element's type
+        if (inProcessorContext_ && objectType == "ReflectionContext" && methodName == "getTargetValue") {
+            // Return type is the processor target type (set at annotation usage site)
+            if (!processorTargetType_.empty()) {
+                // We know the concrete type - use it
+                registerExpressionType(&node, processorTargetType_, Parser::OwnershipType::Reference);
+            } else {
+                // During processor compilation, we don't know the target type yet.
+                // Use "__DynamicValue" - a special type that allows any method call.
+                // Actual type checking happens at runtime.
+                registerExpressionType(&node, "__DynamicValue", Parser::OwnershipType::Reference);
+            }
+            return;
+        }
+
+        // Special handling for other ReflectionContext intrinsic methods
+        if (inProcessorContext_ && objectType == "ReflectionContext") {
+            // Most methods return String^ or Integer^
+            if (methodName == "getTargetKind" || methodName == "getTargetName" ||
+                methodName == "getTypeName" || methodName == "getClassName" ||
+                methodName == "getNamespaceName" || methodName == "getSourceFile" ||
+                methodName == "getPropertyNameAt" || methodName == "getPropertyTypeAt" ||
+                methodName == "getPropertyOwnershipAt" || methodName == "getMethodNameAt" ||
+                methodName == "getMethodReturnTypeAt" || methodName == "getBaseClassName" ||
+                methodName == "getParameterNameAt" || methodName == "getParameterTypeAt" ||
+                methodName == "getReturnTypeName" || methodName == "getOwnership") {
+                registerExpressionType(&node, "String", Parser::OwnershipType::Owned);
+                return;
+            }
+            if (methodName == "getLineNumber" || methodName == "getColumnNumber" ||
+                methodName == "getPropertyCount" || methodName == "getMethodCount" ||
+                methodName == "getParameterCount" || methodName == "getTargetValueType" ||
+                methodName == "getAnnotationArgCount") {
+                registerExpressionType(&node, "Integer", Parser::OwnershipType::Owned);
+                return;
+            }
+            if (methodName == "hasMethod" || methodName == "hasProperty" ||
+                methodName == "isClassFinal" || methodName == "isMethodStatic" ||
+                methodName == "hasDefaultValue" || methodName == "hasTargetValue") {
+                registerExpressionType(&node, "Bool", Parser::OwnershipType::Owned);
+                return;
+            }
+            // Type-aware annotation argument access: getAnnotationArg(name) returns the declared type
+            if (methodName == "getAnnotationArg" && !currentAnnotationName_.empty()) {
+                // Look up the annotation to get parameter types
+                auto annotIt = annotationRegistry_.find(currentAnnotationName_);
+                if (annotIt != annotationRegistry_.end()) {
+                    // Try to get the parameter name from the argument (must be a constant string)
+                    if (!node.arguments.empty()) {
+                        // Check if first argument is a string literal or String::Constructor("...")
+                        std::string paramName;
+                        if (auto* strLit = dynamic_cast<Parser::StringLiteralExpr*>(node.arguments[0].get())) {
+                            paramName = strLit->value;
+                        } else if (auto* callExpr = dynamic_cast<Parser::CallExpr*>(node.arguments[0].get())) {
+                            // String::Constructor("...")
+                            if (!callExpr->arguments.empty()) {
+                                if (auto* innerStr = dynamic_cast<Parser::StringLiteralExpr*>(callExpr->arguments[0].get())) {
+                                    paramName = innerStr->value;
+                                }
+                            }
+                        }
+
+                        if (!paramName.empty()) {
+                            // Find the parameter type in the annotation definition
+                            for (const auto& param : annotIt->second.parameters) {
+                                if (param.name == paramName) {
+                                    registerExpressionType(&node, param.typeName, param.ownership);
+                                    return;
+                                }
+                            }
+                            // Parameter not found - report error
+                            errorReporter.reportError(
+                                Common::ErrorCode::UnknownArgument,
+                                "Annotation '@" + currentAnnotationName_ + "' has no parameter named '" + paramName + "'",
+                                node.location
+                            );
+                        }
+                    }
+                }
+                // Fall through to generic handling if we couldn't determine the type
+                registerExpressionType(&node, "Unknown", Parser::OwnershipType::Owned);
+                return;
+            }
+
+            // Legacy type-specific methods (for backwards compatibility and C API usage)
+            if (methodName == "getAnnotationArgNameAt") {
+                registerExpressionType(&node, "String", Parser::OwnershipType::Owned);
+                return;
+            }
+        }
+
+        // Special handling for CompilationContext intrinsic methods
+        if (inProcessorContext_ && objectType == "CompilationContext") {
+            if (methodName == "message" || methodName == "warning" || methodName == "warningAt" ||
+                methodName == "error" || methodName == "errorAt") {
+                registerExpressionType(&node, "None", Parser::OwnershipType::None);
+                return;
+            }
+            if (methodName == "hasErrors") {
+                registerExpressionType(&node, "Bool", Parser::OwnershipType::Owned);
+                return;
+            }
+        }
+
         if (objectType != "Unknown") {
             // Check if this is a template instantiation (e.g., "List<Integer>")
             std::string baseType = objectType;
@@ -1603,9 +1744,11 @@ void SemanticAnalyzer::visit(Parser::CallExpr& node) {
             // Only validate if validation is enabled
             if (enableValidation) {
                 // Only exempt Syscall, Mem, Console, Language namespaces, function types from validation (intrinsic functions / stubs)
+                // Also exempt __DynamicValue (used for processor target values with unknown types at compile time)
                 bool isIntrinsic = (objectType == "Syscall" || objectType == "Mem" ||
                                     objectType == "Console" || objectType == "System::Console" ||
                                     objectType == "__function" || baseType == "__function" ||
+                                    objectType == "__DynamicValue" || baseType == "__DynamicValue" ||
                                     objectType.find("Language::") == 0 || baseType.find("Language::") == 0);
                 bool isTemplateInstantiation = !templateSubstitutions.empty();
                 // Skip validation if the object is a template parameter (will be validated at instantiation)
@@ -1757,6 +1900,33 @@ void SemanticAnalyzer::visit(Parser::CallExpr& node) {
                     }
                 }
 
+                // Special handling for __DynamicValue - return appropriate types for common methods
+                if (objectType == "__DynamicValue" || baseType == "__DynamicValue") {
+                    // Return type based on method name (common XXML type methods)
+                    if (methodName == "toString" || methodName == "append" || methodName == "concat") {
+                        registerExpressionType(&node, "String", Parser::OwnershipType::Owned);
+                    } else if (methodName == "greaterThan" || methodName == "lessThan" ||
+                               methodName == "equals" || methodName == "greaterThanOrEqual" ||
+                               methodName == "lessThanOrEqual" || methodName == "isEmpty" ||
+                               methodName == "contains" || methodName == "startsWith" ||
+                               methodName == "endsWith") {
+                        registerExpressionType(&node, "Bool", Parser::OwnershipType::Owned);
+                    } else if (methodName == "add" || methodName == "subtract" ||
+                               methodName == "multiply" || methodName == "divide" ||
+                               methodName == "modulo" || methodName == "negate" ||
+                               methodName == "length" || methodName == "size" ||
+                               methodName == "hashCode" || methodName == "toInteger" ||
+                               methodName == "compareTo") {
+                        registerExpressionType(&node, "Integer", Parser::OwnershipType::Owned);
+                    } else if (methodName == "toDouble") {
+                        registerExpressionType(&node, "Double", Parser::OwnershipType::Owned);
+                    } else {
+                        // Unknown method on dynamic value - return __DynamicValue to allow chaining
+                        registerExpressionType(&node, "__DynamicValue", Parser::OwnershipType::Owned);
+                    }
+                    return;
+                }
+
                 // Builtin type - assume valid
                 registerExpressionType(&node, "Unknown", Parser::OwnershipType::Owned);
             }
@@ -1780,8 +1950,21 @@ void SemanticAnalyzer::visit(Parser::BinaryExpr& node) {
         std::string leftType = getExpressionType(node.left.get());
         std::string rightType = getExpressionType(node.right.get());
 
+        // Check if types are compatible (NativeType with numeric types is allowed)
+        auto isNativeType = [](const std::string& type) {
+            return type.find("NativeType<") == 0;
+        };
+        auto isNumericType = [](const std::string& type) {
+            return type == "Integer" || type == "Double" || type == "Bool" ||
+                   type.find("NativeType<") == 0;
+        };
+
+        bool typesCompatible = (leftType == rightType) ||
+                               (isNativeType(leftType) && isNumericType(rightType)) ||
+                               (isNumericType(leftType) && isNativeType(rightType));
+
         // For arithmetic operators, both sides should be compatible
-        if (leftType != rightType && leftType != "Unknown" && rightType != "Unknown") {
+        if (!typesCompatible && leftType != "Unknown" && rightType != "Unknown") {
             errorReporter.reportWarning(
                 Common::ErrorCode::TypeMismatch,
                 "Type mismatch in binary operation: " + leftType + " " + node.op + " " + rightType,
@@ -2739,6 +2922,307 @@ void SemanticAnalyzer::visit(Parser::ConstraintDecl& node) {
     // Visit requirements to validate their syntax
     for (auto& req : node.requirements) {
         req->accept(*this);
+    }
+}
+
+void SemanticAnalyzer::visit(Parser::AnnotateDecl& node) {
+    // Visit the type
+    if (node.type) {
+        node.type->accept(*this);
+    }
+    // Visit the default value if present
+    if (node.defaultValue) {
+        node.defaultValue->accept(*this);
+    }
+}
+
+void SemanticAnalyzer::visit(Parser::ProcessorDecl& node) {
+    // Enable processor context - this allows ReflectionContext and CompilationContext types
+    inProcessorContext_ = true;
+
+    // Find and validate onAnnotate method
+    bool hasOnAnnotate = false;
+    for (auto& section : node.sections) {
+        if (!section) continue;
+        for (auto& decl : section->declarations) {
+            if (!decl) continue;
+            if (auto* method = dynamic_cast<Parser::MethodDecl*>(decl.get())) {
+                if (method->name == "onAnnotate") {
+                    hasOnAnnotate = true;
+                    validateOnAnnotateSignature(*method);
+                }
+            }
+        }
+    }
+
+    if (!hasOnAnnotate) {
+        errorReporter.reportError(
+            Common::ErrorCode::InvalidMethodCall,
+            "Processor must define 'onAnnotate' method with signature: "
+            "Returns None Parameters (ReflectionContext&, CompilationContext&)",
+            node.location
+        );
+    }
+
+    // Visit access sections
+    for (auto& section : node.sections) {
+        if (section) {
+            section->accept(*this);
+        }
+    }
+
+    // Disable processor context
+    inProcessorContext_ = false;
+}
+
+void SemanticAnalyzer::validateOnAnnotateSignature(Parser::MethodDecl& method) {
+    // Must return None
+    if (!method.returnType || method.returnType->typeName != "None") {
+        std::string actualReturn = method.returnType ? method.returnType->typeName : "unknown";
+        errorReporter.reportError(
+            Common::ErrorCode::TypeMismatch,
+            "onAnnotate must return None, but returns '" + actualReturn + "'",
+            method.location
+        );
+    }
+
+    // Must have exactly 2 parameters: ReflectionContext&, CompilationContext&
+    if (method.parameters.size() != 2) {
+        errorReporter.reportError(
+            Common::ErrorCode::TypeMismatch,
+            "onAnnotate must have exactly 2 parameters: (ReflectionContext&, CompilationContext&), "
+            "but has " + std::to_string(method.parameters.size()) + " parameter(s)",
+            method.location
+        );
+        return;
+    }
+
+    // Check first parameter: ReflectionContext&
+    auto& param1 = method.parameters[0];
+    if (!param1->type || param1->type->typeName != "ReflectionContext" ||
+        param1->type->ownership != Parser::OwnershipType::Reference) {
+        std::string actualType = param1->type ? param1->type->typeName : "unknown";
+        errorReporter.reportError(
+            Common::ErrorCode::TypeMismatch,
+            "First parameter of onAnnotate must be 'ReflectionContext&', but is '" + actualType + "'",
+            param1->location
+        );
+    }
+
+    // Check second parameter: CompilationContext&
+    auto& param2 = method.parameters[1];
+    if (!param2->type || param2->type->typeName != "CompilationContext" ||
+        param2->type->ownership != Parser::OwnershipType::Reference) {
+        std::string actualType = param2->type ? param2->type->typeName : "unknown";
+        errorReporter.reportError(
+            Common::ErrorCode::TypeMismatch,
+            "Second parameter of onAnnotate must be 'CompilationContext&', but is '" + actualType + "'",
+            param2->location
+        );
+    }
+}
+
+bool SemanticAnalyzer::isCompilerIntrinsicType(const std::string& typeName) const {
+    return typeName == "ReflectionContext" || typeName == "CompilationContext";
+}
+
+void SemanticAnalyzer::visit(Parser::AnnotationDecl& node) {
+    // Check for duplicate annotation definitions
+    if (annotationRegistry_.find(node.name) != annotationRegistry_.end()) {
+        errorReporter.reportError(
+            Common::ErrorCode::DuplicateSymbol,
+            "Annotation '" + node.name + "' is already defined",
+            node.location
+        );
+        return;
+    }
+
+    // Register the annotation
+    AnnotationInfo info;
+    info.name = node.name;
+    info.allowedTargets = node.allowedTargets;
+    info.retainAtRuntime = node.retainAtRuntime;
+    info.astNode = &node;
+
+    // Process parameters
+    for (auto& param : node.parameters) {
+        param->accept(*this);
+
+        AnnotationParamInfo paramInfo;
+        paramInfo.name = param->name;
+        if (param->type) {
+            paramInfo.typeName = param->type->typeName;
+            paramInfo.ownership = param->type->ownership;
+        }
+        paramInfo.hasDefault = (param->defaultValue != nullptr);
+        info.parameters.push_back(paramInfo);
+    }
+
+    // Register annotation BEFORE visiting processor so getAnnotationArg() can look up parameter types
+    annotationRegistry_[node.name] = info;
+
+    // Visit processor if present
+    if (node.processor) {
+        // Set current annotation name so processor can look up parameter types
+        currentAnnotationName_ = node.name;
+        node.processor->accept(*this);
+        currentAnnotationName_.clear();
+
+        // Queue for auto-compilation (validation passed if we got here)
+        PendingProcessorCompilation pending;
+        pending.annotationName = node.name;
+        pending.annotDecl = &node;
+        pending.processorDecl = node.processor.get();
+        // Copy imports from current file so processor can access imported modules
+        pending.imports.assign(importedNamespaces_.begin(), importedNamespaces_.end());
+        // Copy user-defined classes so processor can reference them
+        pending.userClasses = localClasses_;
+        pendingProcessorCompilations_.push_back(pending);
+    }
+}
+
+void SemanticAnalyzer::visit(Parser::AnnotationUsage& node) {
+    // Visit argument expressions first
+    for (auto& arg : node.arguments) {
+        if (arg.second) {
+            arg.second->accept(*this);
+        }
+    }
+
+    // Note: Full validation is done in validateAnnotationUsage() which is called
+    // by the parent declaration visitor with the appropriate target kind
+}
+
+std::string SemanticAnalyzer::annotationTargetToString(Parser::AnnotationTarget target) {
+    switch (target) {
+        case Parser::AnnotationTarget::Properties: return "properties";
+        case Parser::AnnotationTarget::Variables: return "variables";
+        case Parser::AnnotationTarget::Classes: return "classes";
+        case Parser::AnnotationTarget::Methods: return "methods";
+        default: return "unknown";
+    }
+}
+
+bool SemanticAnalyzer::isValidAnnotationTarget(const AnnotationInfo& annotation,
+                                               Parser::AnnotationTarget target) {
+    for (const auto& allowed : annotation.allowedTargets) {
+        if (allowed == target) return true;
+    }
+    return false;
+}
+
+void SemanticAnalyzer::validateAnnotationUsage(Parser::AnnotationUsage& usage,
+                                               Parser::AnnotationTarget targetKind,
+                                               const std::string& targetName,
+                                               const Common::SourceLocation& targetLoc,
+                                               Parser::ASTNode* astNode) {
+    // Look up the annotation definition
+    auto it = annotationRegistry_.find(usage.annotationName);
+    if (it == annotationRegistry_.end()) {
+        errorReporter.reportError(
+            Common::ErrorCode::UndefinedType,
+            "Unknown annotation '@" + usage.annotationName + "'",
+            usage.location
+        );
+        return;
+    }
+
+    const AnnotationInfo& annotation = it->second;
+
+    // Check if the annotation is allowed on this target
+    if (!isValidAnnotationTarget(annotation, targetKind)) {
+        std::string allowedStr;
+        for (size_t i = 0; i < annotation.allowedTargets.size(); ++i) {
+            if (i > 0) allowedStr += ", ";
+            allowedStr += annotationTargetToString(annotation.allowedTargets[i]);
+        }
+        errorReporter.reportError(
+            Common::ErrorCode::TypeMismatch,
+            "Annotation '@" + usage.annotationName + "' cannot be applied to " +
+            annotationTargetToString(targetKind) + ". Allowed targets: " + allowedStr,
+            usage.location
+        );
+        return;
+    }
+
+    // Build a set of provided argument names
+    std::set<std::string> providedArgs;
+    for (const auto& arg : usage.arguments) {
+        providedArgs.insert(arg.first);
+    }
+
+    // Check that all required parameters are provided
+    bool hasErrors = false;
+    for (const auto& param : annotation.parameters) {
+        if (!param.hasDefault && providedArgs.find(param.name) == providedArgs.end()) {
+            errorReporter.reportError(
+                Common::ErrorCode::MissingArgument,
+                "Missing required argument '" + param.name + "' for annotation '@" +
+                usage.annotationName + "'",
+                usage.location
+            );
+            hasErrors = true;
+        }
+    }
+
+    // Check for unknown arguments
+    std::set<std::string> knownParams;
+    for (const auto& param : annotation.parameters) {
+        knownParams.insert(param.name);
+    }
+    for (const auto& arg : usage.arguments) {
+        if (knownParams.find(arg.first) == knownParams.end()) {
+            errorReporter.reportError(
+                Common::ErrorCode::UnknownArgument,
+                "Unknown argument '" + arg.first + "' for annotation '@" +
+                usage.annotationName + "'",
+                usage.location
+            );
+            hasErrors = true;
+        }
+    }
+
+    // If validation passed, add to pending annotations for processing
+    if (!hasErrors) {
+        // Convert Parser::AnnotationTarget to AnnotationProcessor::AnnotationTarget::Kind
+        AnnotationProcessor::AnnotationTarget::Kind procTargetKind;
+        switch (targetKind) {
+            case Parser::AnnotationTarget::Classes:
+                procTargetKind = AnnotationProcessor::AnnotationTarget::Kind::Class;
+                break;
+            case Parser::AnnotationTarget::Methods:
+                procTargetKind = AnnotationProcessor::AnnotationTarget::Kind::Method;
+                break;
+            case Parser::AnnotationTarget::Properties:
+                procTargetKind = AnnotationProcessor::AnnotationTarget::Kind::Property;
+                break;
+            case Parser::AnnotationTarget::Variables:
+                procTargetKind = AnnotationProcessor::AnnotationTarget::Kind::Variable;
+                break;
+        }
+
+        // Create the annotation target info
+        AnnotationProcessor::AnnotationTarget target;
+        target.kind = procTargetKind;
+        target.name = targetName;
+        target.className = currentClass;
+        target.namespaceName = currentNamespace;
+        target.location = targetLoc;
+        target.astNode = astNode;
+
+        // Create the pending annotation
+        AnnotationProcessor::PendingAnnotation pending;
+        pending.annotationName = usage.annotationName;
+        pending.usage = &usage;
+        pending.target = target;
+
+        // Copy arguments (raw pointers to expression AST nodes)
+        for (const auto& arg : usage.arguments) {
+            pending.arguments.push_back({arg.first, arg.second.get()});
+        }
+
+        // Add to the processor
+        annotationProcessor_.addPendingAnnotation(pending);
     }
 }
 

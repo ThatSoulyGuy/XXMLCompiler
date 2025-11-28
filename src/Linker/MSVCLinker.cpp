@@ -190,11 +190,17 @@ public:
         // Output file
         args.push_back("/OUT:" + config.outputPath);
 
-        // Subsystem
-        if (config.createConsoleApp) {
-            args.push_back("/SUBSYSTEM:CONSOLE");
+        // DLL or executable mode
+        if (config.createDLL) {
+            args.push_back("/DLL");
+            // DLLs don't need a subsystem specification
         } else {
-            args.push_back("/SUBSYSTEM:WINDOWS");
+            // Subsystem for executables
+            if (config.createConsoleApp) {
+                args.push_back("/SUBSYSTEM:CONSOLE");
+            } else {
+                args.push_back("/SUBSYSTEM:WINDOWS");
+            }
         }
 
         // Object files

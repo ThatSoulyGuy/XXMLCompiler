@@ -1,0 +1,125 @@
+// AnnotationSystemTest.XXML - Comprehensive annotation system tests
+// Tests: annotation definitions, target validation, argument validation, built-in processors
+
+#import Language::Core;
+#import Language::IO;
+
+// ============================================================================
+// TEST 1: Define annotations with different target restrictions
+// ============================================================================
+
+// Annotation allowed only on classes
+[ Annotation <ClassOnly> Allows (AnnotationAllow::Classes)
+    Annotate (String^)(description) = "No description";
+]
+
+// Annotation allowed only on methods
+[ Annotation <MethodOnly> Allows (AnnotationAllow::Methods)
+    Annotate (String^)(reason);  // Required parameter (no default)
+]
+
+// Annotation allowed only on properties
+[ Annotation <PropertyOnly> Allows (AnnotationAllow::Properties)
+    Annotate (Integer^)(priority) = 0;
+]
+
+// Annotation allowed on multiple targets
+[ Annotation <MultiTarget> Allows (AnnotationAllow::Classes, AnnotationAllow::Methods, AnnotationAllow::Properties)
+    Annotate (String^)(tag) = "default";
+    Annotate (Integer^)(level) = 1;
+]
+
+// Built-in @Deprecated annotation (redefined to test)
+[ Annotation <Deprecated> Allows (AnnotationAllow::Classes, AnnotationAllow::Methods, AnnotationAllow::Properties)
+    Annotate (String^)(reason) = "No reason provided";
+]
+
+// ============================================================================
+// TEST 2: Use annotations on valid targets
+// ============================================================================
+
+@ClassOnly(description = "This is a test class")
+@MultiTarget(tag = "important", level = 5)
+@Deprecated(reason = "Use NewTestClass instead")
+[ Class <OldTestClass> Final Extends None
+    [ Public <>
+        Constructor = default;
+
+        @MethodOnly(reason = "This method is for testing")
+        @MultiTarget(tag = "test-method")
+        @Deprecated(reason = "Use newMethod instead")
+        Method <oldMethod> Returns None Parameters () ->
+        {
+            Run Console::printLine(String::Constructor("Old method called"));
+        }
+
+        @PropertyOnly(priority = 10)
+        @MultiTarget(tag = "test-property", level = 3)
+        Property <testValue> Types Integer^;
+
+        Method <newMethod> Returns None Parameters () ->
+        {
+            Run Console::printLine(String::Constructor("New method called"));
+        }
+    ]
+]
+
+// ============================================================================
+// TEST 3: Class without deprecated annotation (for comparison)
+// ============================================================================
+
+@ClassOnly(description = "The new implementation")
+@MultiTarget(tag = "production", level = 10)
+[ Class <NewTestClass> Final Extends None
+    [ Public <>
+        Constructor = default;
+
+        @MethodOnly(reason = "Production method")
+        Method <doWork> Returns None Parameters () ->
+        {
+            Run Console::printLine(String::Constructor("Doing work"));
+        }
+
+        @PropertyOnly(priority = 1)
+        Property <counter> Types Integer^;
+    ]
+]
+
+// ============================================================================
+// TEST 4: Test default parameter values
+// ============================================================================
+
+@ClassOnly  // Uses default description
+@MultiTarget  // Uses default tag and level
+[ Class <DefaultsTest> Final Extends None
+    [ Public <>
+        Constructor = default;
+
+        @PropertyOnly  // Uses default priority = 0
+        Property <data> Types String^;
+    ]
+]
+
+// ============================================================================
+// ENTRYPOINT
+// ============================================================================
+
+[ Entrypoint
+    {
+        Run Console::printLine(String::Constructor("=== Annotation System Test ==="));
+
+        Run Console::printLine(String::Constructor("Creating OldTestClass..."));
+        Instantiate OldTestClass^ As <old> = OldTestClass::Constructor();
+
+        Run Console::printLine(String::Constructor("Creating NewTestClass..."));
+        Instantiate NewTestClass^ As <new> = NewTestClass::Constructor();
+
+        Run Console::printLine(String::Constructor("Calling methods..."));
+        Run old.oldMethod();
+        Run old.newMethod();
+        Run new.doWork();
+
+        Run Console::printLine(String::Constructor("=== Test Complete ==="));
+        Exit(0);
+    }
+]

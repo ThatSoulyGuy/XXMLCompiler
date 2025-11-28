@@ -6,570 +6,631 @@
 
 [ Namespace <Concurrent>
 
-	// ============================================
-	// Thread Class
-	// Represents an execution thread
-	// ============================================
-	[ Class <Thread> Final Extends None
-
-		[ Private <>
-			// Thread handle (opaque pointer to native thread)
-			Property <threadHandle> Types NativeType<"ptr">^;
-		]
-
-		[ Public <>
-			Constructor = default;
-
-			// Initialize thread (call before start)
-			Method <init> Returns None Parameters () Do {
-				Instantiate NativeType<"ptr">^ As <zero> = 0;
-				Run Syscall::memcpy(&threadHandle, &zero, 8);
-			}
-
-			// Create and start a new thread with a function to execute
-			// The function takes a pointer argument and returns a pointer
-			Method <start> Returns Bool^ Parameters (
-				Parameter <func> Types NativeType<"ptr">^,
-				Parameter <arg> Types NativeType<"ptr">^
-			) Do {
-				Instantiate NativeType<"ptr">^ As <handle> = Syscall::Thread_create(func, arg);
-				Run Syscall::memcpy(&threadHandle, &handle, 8);
-
-				If (handle != 0) -> {
-					Return Bool::Constructor(true);
-				} Else -> {
-					Return Bool::Constructor(false);
-				}
-			}
-
-			// Wait for the thread to complete
-			Method <join> Returns Bool^ Parameters () Do {
-				Instantiate NativeType<"ptr">^ As <handle> = threadHandle;
-
-				If (handle == 0) -> {
-					Return Bool::Constructor(false);
-				}
-
-				Instantiate NativeType<"int64">^ As <result> = Syscall::Thread_join(handle);
-
-				// Clear handle after join
-				Instantiate NativeType<"ptr">^ As <zero> = 0;
-				Run Syscall::memcpy(&threadHandle, &zero, 8);
-
-				If (result == 0) -> {
-					Return Bool::Constructor(true);
-				} Else -> {
-					Return Bool::Constructor(false);
-				}
-			}
-
-			// Detach the thread (let it run independently)
-			Method <detach> Returns Bool^ Parameters () Do {
-				Instantiate NativeType<"ptr">^ As <handle> = threadHandle;
-
-				If (handle == 0) -> {
-					Return Bool::Constructor(false);
-				}
-
-				Instantiate NativeType<"int64">^ As <result> = Syscall::Thread_detach(handle);
-
-				// Clear handle after detach
-				Instantiate NativeType<"ptr">^ As <zero> = 0;
-				Run Syscall::memcpy(&threadHandle, &zero, 8);
-
-				If (result == 0) -> {
-					Return Bool::Constructor(true);
-				} Else -> {
-					Return Bool::Constructor(false);
-				}
-			}
-
-			// Check if thread is joinable
-			Method <isJoinable> Returns Bool^ Parameters () Do {
-				Instantiate NativeType<"ptr">^ As <handle> = threadHandle;
-
-				If (handle == 0) -> {
-					Return Bool::Constructor(false);
-				}
-
-				Instantiate NativeType<"int64">^ As <result> = Syscall::Thread_isJoinable(handle);
-
-				If (result != 0) -> {
-					Return Bool::Constructor(true);
-				} Else -> {
-					Return Bool::Constructor(false);
-				}
-			}
-		]
-
-		[ Public <>
-			// Static method: Sleep current thread for milliseconds
-			Method <sleep> Returns None Parameters (Parameter <milliseconds> Types Integer^) Do {
-				Instantiate NativeType<"int64">^ As <ms> = milliseconds;
-				Run Syscall::Thread_sleep(ms);
-			}
-
-			// Static method: Yield current thread's time slice
-			Method <yield> Returns None Parameters () Do {
-				Run Syscall::Thread_yield();
-			}
-
-			// Static method: Get current thread ID
-			Method <currentId> Returns Integer^ Parameters () Do {
-				Instantiate NativeType<"int64">^ As <id> = Syscall::Thread_currentId();
-				Return Integer::Constructor(id);
-			}
-		]
-	]
-
-	// ============================================
-	// Mutex Class
-	// Mutual exclusion lock for thread synchronization
-	// ============================================
-	[ Class <Mutex> Final Extends None
-
-		[ Private <>
-			// Mutex handle (opaque pointer to native mutex)
-			Property <mutexHandle> Types NativeType<"ptr">^;
-		]
-
-		[ Public <>
-			Constructor = default;
-
-			// Initialize the mutex
-			Method <init> Returns Bool^ Parameters () Do {
-				Instantiate NativeType<"ptr">^ As <handle> = Syscall::Mutex_create();
-				Run Syscall::memcpy(&mutexHandle, &handle, 8);
-
-				If (handle != 0) -> {
-					Return Bool::Constructor(true);
-				} Else -> {
-					Return Bool::Constructor(false);
-				}
-			}
-
-			// Destroy the mutex
-			Method <destroy> Returns None Parameters () Do {
-				Instantiate NativeType<"ptr">^ As <handle> = mutexHandle;
-
-				If (handle != 0) -> {
-					Run Syscall::Mutex_destroy(handle);
-
-					Instantiate NativeType<"ptr">^ As <zero> = 0;
-					Run Syscall::memcpy(&mutexHandle, &zero, 8);
-				}
-			}
-
-			// Lock the mutex (blocking)
-			Method <lock> Returns Bool^ Parameters () Do {
-				Instantiate NativeType<"ptr">^ As <handle> = mutexHandle;
-
-				If (handle == 0) -> {
-					Return Bool::Constructor(false);
-				}
-
-				Instantiate NativeType<"int64">^ As <result> = Syscall::Mutex_lock(handle);
-
-				If (result == 0) -> {
-					Return Bool::Constructor(true);
-				} Else -> {
-					Return Bool::Constructor(false);
-				}
-			}
-
-			// Unlock the mutex
-			Method <unlock> Returns Bool^ Parameters () Do {
-				Instantiate NativeType<"ptr">^ As <handle> = mutexHandle;
-
-				If (handle == 0) -> {
-					Return Bool::Constructor(false);
-				}
-
-				Instantiate NativeType<"int64">^ As <result> = Syscall::Mutex_unlock(handle);
-
-				If (result == 0) -> {
-					Return Bool::Constructor(true);
-				} Else -> {
-					Return Bool::Constructor(false);
-				}
-			}
-
-			// Try to lock without blocking
-			Method <tryLock> Returns Bool^ Parameters () Do {
-				Instantiate NativeType<"ptr">^ As <handle> = mutexHandle;
-
-				If (handle == 0) -> {
-					Return Bool::Constructor(false);
-				}
-
-				Instantiate NativeType<"int64">^ As <result> = Syscall::Mutex_tryLock(handle);
-
-				If (result != 0) -> {
-					Return Bool::Constructor(true);
-				} Else -> {
-					Return Bool::Constructor(false);
-				}
-			}
-		]
-	]
-
-	// ============================================
-	// Lock Class (RAII-style scoped lock)
-	// Automatically locks on construction and unlocks on scope exit
-	// ============================================
-	[ Class <Lock> Final Extends None
-
-		[ Private <>
-			Property <mutex> Types Mutex^;
-			Property <isLocked> Types NativeType<"int64">^;
-		]
-
-		[ Public <>
-			Constructor = default;
-
-			// Acquire lock on a mutex
-			Method <acquire> Returns Bool^ Parameters (Parameter <m> Types Mutex&) Do {
-				Instantiate NativeType<"ptr">^ As <zero> = 0;
-				Run Syscall::memcpy(&mutex, &m, 8);
-
-				Instantiate Bool^ As <result> = m.lock();
-
-				If (result == Bool::Constructor(true)) -> {
-					Instantiate NativeType<"int64">^ As <one> = 1;
-					Run Syscall::memcpy(&isLocked, &one, 8);
-					Return Bool::Constructor(true);
-				} Else -> {
-					Run Syscall::memcpy(&isLocked, &zero, 8);
-					Return Bool::Constructor(false);
-				}
-			}
-
-			// Release the lock
-			Method <release> Returns None Parameters () Do {
-				Instantiate NativeType<"int64">^ As <locked> = isLocked;
-
-				If (locked != 0) -> {
-					Run mutex.unlock();
-
-					Instantiate NativeType<"int64">^ As <zero> = 0;
-					Run Syscall::memcpy(&isLocked, &zero, 8);
-				}
-			}
-
-			// Check if lock is held
-			Method <isHeld> Returns Bool^ Parameters () Do {
-				Instantiate NativeType<"int64">^ As <locked> = isLocked;
-
-				If (locked != 0) -> {
-					Return Bool::Constructor(true);
-				} Else -> {
-					Return Bool::Constructor(false);
-				}
-			}
-		]
-	]
-
-	// ============================================
-	// ConditionVariable Class
-	// For thread coordination and signaling
-	// ============================================
-	[ Class <ConditionVariable> Final Extends None
-
-		[ Private <>
-			Property <condHandle> Types NativeType<"ptr">^;
-		]
-
-		[ Public <>
-			Constructor = default;
-
-			// Initialize the condition variable
-			Method <init> Returns Bool^ Parameters () Do {
-				Instantiate NativeType<"ptr">^ As <handle> = Syscall::CondVar_create();
-				Run Syscall::memcpy(&condHandle, &handle, 8);
-
-				If (handle != 0) -> {
-					Return Bool::Constructor(true);
-				} Else -> {
-					Return Bool::Constructor(false);
-				}
-			}
-
-			// Destroy the condition variable
-			Method <destroy> Returns None Parameters () Do {
-				Instantiate NativeType<"ptr">^ As <handle> = condHandle;
-
-				If (handle != 0) -> {
-					Run Syscall::CondVar_destroy(handle);
-
-					Instantiate NativeType<"ptr">^ As <zero> = 0;
-					Run Syscall::memcpy(&condHandle, &zero, 8);
-				}
-			}
-
-			// Wait on condition (must hold mutex)
-			Method <wait> Returns Bool^ Parameters (Parameter <mutex> Types Mutex&) Do {
-				Instantiate NativeType<"ptr">^ As <cond> = condHandle;
-				Instantiate NativeType<"ptr">^ As <mtx> = mutex.mutexHandle;
-
-				If (cond == 0) -> {
-					Return Bool::Constructor(false);
-				}
-
-				Instantiate NativeType<"int64">^ As <result> = Syscall::CondVar_wait(cond, mtx);
-
-				If (result == 0) -> {
-					Return Bool::Constructor(true);
-				} Else -> {
-					Return Bool::Constructor(false);
-				}
-			}
-
-			// Wait with timeout (milliseconds)
-			// Returns: 0=signaled, 1=timeout, -1=error
-			Method <waitTimeout> Returns Integer^ Parameters (
-				Parameter <mutex> Types Mutex&,
-				Parameter <timeoutMs> Types Integer^
-			) Do {
-				Instantiate NativeType<"ptr">^ As <cond> = condHandle;
-				Instantiate NativeType<"ptr">^ As <mtx> = mutex.mutexHandle;
-				Instantiate NativeType<"int64">^ As <timeout> = timeoutMs;
-
-				If (cond == 0) -> {
-					Return Integer::Constructor(-1);
-				}
-
-				Instantiate NativeType<"int64">^ As <result> = Syscall::CondVar_waitTimeout(cond, mtx, timeout);
-
-				Return Integer::Constructor(result);
-			}
-
-			// Signal one waiting thread
-			Method <signal> Returns Bool^ Parameters () Do {
-				Instantiate NativeType<"ptr">^ As <handle> = condHandle;
-
-				If (handle == 0) -> {
-					Return Bool::Constructor(false);
-				}
-
-				Instantiate NativeType<"int64">^ As <result> = Syscall::CondVar_signal(handle);
-
-				If (result == 0) -> {
-					Return Bool::Constructor(true);
-				} Else -> {
-					Return Bool::Constructor(false);
-				}
-			}
-
-			// Signal all waiting threads
-			Method <broadcast> Returns Bool^ Parameters () Do {
-				Instantiate NativeType<"ptr">^ As <handle> = condHandle;
-
-				If (handle == 0) -> {
-					Return Bool::Constructor(false);
-				}
-
-				Instantiate NativeType<"int64">^ As <result> = Syscall::CondVar_broadcast(handle);
-
-				If (result == 0) -> {
-					Return Bool::Constructor(true);
-				} Else -> {
-					Return Bool::Constructor(false);
-				}
-			}
-		]
-	]
-
-	// ============================================
-	// Atomic Class
-	// Thread-safe atomic integer operations
-	// ============================================
-	[ Class <Atomic> Final Extends None
-
-		[ Private <>
-			Property <atomicHandle> Types NativeType<"ptr">^;
-		]
-
-		[ Public <>
-			Constructor = default;
-
-			// Initialize with an initial value
-			Method <init> Returns Bool^ Parameters (Parameter <initialValue> Types Integer^) Do {
-				Instantiate NativeType<"int64">^ As <val> = initialValue;
-				Instantiate NativeType<"ptr">^ As <handle> = Syscall::Atomic_create(val);
-				Run Syscall::memcpy(&atomicHandle, &handle, 8);
-
-				If (handle != 0) -> {
-					Return Bool::Constructor(true);
-				} Else -> {
-					Return Bool::Constructor(false);
-				}
-			}
-
-			// Destroy the atomic
-			Method <destroy> Returns None Parameters () Do {
-				Instantiate NativeType<"ptr">^ As <handle> = atomicHandle;
-
-				If (handle != 0) -> {
-					Run Syscall::Atomic_destroy(handle);
-
-					Instantiate NativeType<"ptr">^ As <zero> = 0;
-					Run Syscall::memcpy(&atomicHandle, &zero, 8);
-				}
-			}
-
-			// Atomically load value
-			Method <get> Returns Integer^ Parameters () Do {
-				Instantiate NativeType<"ptr">^ As <handle> = atomicHandle;
-
-				If (handle == 0) -> {
-					Return Integer::Constructor(0);
-				}
-
-				Instantiate NativeType<"int64">^ As <value> = Syscall::Atomic_load(handle);
-				Return Integer::Constructor(value);
-			}
-
-			// Atomically store value
-			Method <set> Returns None Parameters (Parameter <newValue> Types Integer^) Do {
-				Instantiate NativeType<"ptr">^ As <handle> = atomicHandle;
-
-				If (handle != 0) -> {
-					Instantiate NativeType<"int64">^ As <val> = newValue;
-					Run Syscall::Atomic_store(handle, val);
-				}
-			}
-
-			// Atomically add and return new value
-			Method <add> Returns Integer^ Parameters (Parameter <value> Types Integer^) Do {
-				Instantiate NativeType<"ptr">^ As <handle> = atomicHandle;
-
-				If (handle == 0) -> {
-					Return Integer::Constructor(0);
-				}
-
-				Instantiate NativeType<"int64">^ As <val> = value;
-				Instantiate NativeType<"int64">^ As <result> = Syscall::Atomic_add(handle, val);
-				Return Integer::Constructor(result);
-			}
-
-			// Atomically subtract and return new value
-			Method <sub> Returns Integer^ Parameters (Parameter <value> Types Integer^) Do {
-				Instantiate NativeType<"ptr">^ As <handle> = atomicHandle;
-
-				If (handle == 0) -> {
-					Return Integer::Constructor(0);
-				}
-
-				Instantiate NativeType<"int64">^ As <val> = value;
-				Instantiate NativeType<"int64">^ As <result> = Syscall::Atomic_sub(handle, val);
-				Return Integer::Constructor(result);
-			}
-
-			// Atomically increment and return new value
-			Method <increment> Returns Integer^ Parameters () Do {
-				Return add(Integer::Constructor(1));
-			}
-
-			// Atomically decrement and return new value
-			Method <decrement> Returns Integer^ Parameters () Do {
-				Return sub(Integer::Constructor(1));
-			}
-
-			// Compare and swap: if current == expected, set to desired
-			// Returns true if swap was performed
-			Method <compareAndSwap> Returns Bool^ Parameters (
-				Parameter <expected> Types Integer^,
-				Parameter <desired> Types Integer^
-			) Do {
-				Instantiate NativeType<"ptr">^ As <handle> = atomicHandle;
-
-				If (handle == 0) -> {
-					Return Bool::Constructor(false);
-				}
-
-				Instantiate NativeType<"int64">^ As <exp> = expected;
-				Instantiate NativeType<"int64">^ As <des> = desired;
-				Instantiate NativeType<"int64">^ As <result> = Syscall::Atomic_compareAndSwap(handle, exp, des);
-
-				If (result != 0) -> {
-					Return Bool::Constructor(true);
-				} Else -> {
-					Return Bool::Constructor(false);
-				}
-			}
-
-			// Exchange: set new value and return old value
-			Method <exchange> Returns Integer^ Parameters (Parameter <newValue> Types Integer^) Do {
-				Instantiate NativeType<"ptr">^ As <handle> = atomicHandle;
-
-				If (handle == 0) -> {
-					Return Integer::Constructor(0);
-				}
-
-				Instantiate NativeType<"int64">^ As <val> = newValue;
-				Instantiate NativeType<"int64">^ As <result> = Syscall::Atomic_exchange(handle, val);
-				Return Integer::Constructor(result);
-			}
-		]
-	]
-
-	// ============================================
-	// ThreadLocal Class
-	// Thread-local storage for per-thread data
-	// ============================================
-	[ Class <ThreadLocal> Final Extends None
-
-		[ Private <>
-			Property <tlsHandle> Types NativeType<"ptr">^;
-		]
-
-		[ Public <>
-			Constructor = default;
-
-			// Initialize the thread-local storage key
-			Method <init> Returns Bool^ Parameters () Do {
-				Instantiate NativeType<"ptr">^ As <handle> = Syscall::TLS_create();
-				Run Syscall::memcpy(&tlsHandle, &handle, 8);
-
-				If (handle != 0) -> {
-					Return Bool::Constructor(true);
-				} Else -> {
-					Return Bool::Constructor(false);
-				}
-			}
-
-			// Destroy the TLS key
-			Method <destroy> Returns None Parameters () Do {
-				Instantiate NativeType<"ptr">^ As <handle> = tlsHandle;
-
-				If (handle != 0) -> {
-					Run Syscall::TLS_destroy(handle);
-
-					Instantiate NativeType<"ptr">^ As <zero> = 0;
-					Run Syscall::memcpy(&tlsHandle, &zero, 8);
-				}
-			}
-
-			// Get thread-local value (as pointer)
-			Method <get> Returns NativeType<"ptr">^ Parameters () Do {
-				Instantiate NativeType<"ptr">^ As <handle> = tlsHandle;
-
-				If (handle == 0) -> {
-					Instantiate NativeType<"ptr">^ As <zero> = 0;
-					Return zero;
-				}
-
-				Return Syscall::TLS_get(handle);
-			}
-
-			// Set thread-local value (as pointer)
-			Method <set> Returns None Parameters (Parameter <value> Types NativeType<"ptr">^) Do {
-				Instantiate NativeType<"ptr">^ As <handle> = tlsHandle;
-
-				If (handle != 0) -> {
-					Run Syscall::TLS_set(handle, value);
-				}
-			}
-		]
-	]
+    // ============================================
+    // Thread Class
+    // Represents an execution thread
+    // ============================================
+    [ Class <Thread> Final Extends None
+
+        [ Private <>
+            // Thread handle (opaque pointer to native thread)
+            Property <handle> Types NativeType<"ptr">^;
+            Property <isValid> Types NativeType<"int64">^;
+        ]
+
+        [ Public <>
+            // Default constructor - creates uninitialized thread
+            Constructor Parameters () ->
+            {
+                Instantiate NativeType<"ptr">^ As <zero> = 0;
+                Instantiate NativeType<"int64">^ As <zeroInt> = 0;
+                Run Syscall::memcpy(&handle, &zero, 8);
+                Run Syscall::memcpy(&isValid, &zeroInt, 8);
+            }
+
+            // Constructor that spawns a thread with a lambda
+            // Usage: Thread::Constructor(myLambda)
+            Method <Constructor> Returns Thread^ Parameters (
+                Parameter <func> Types F(None^)()^
+            ) Do {
+                Instantiate NativeType<"ptr">^ As <h> = Syscall::Thread_spawn_lambda(func);
+                Run Syscall::memcpy(&handle, &h, 8);
+
+                If (h != 0) -> {
+                    Instantiate NativeType<"int64">^ As <one> = 1;
+                    Run Syscall::memcpy(&isValid, &one, 8);
+                } Else -> {
+                    Instantiate NativeType<"int64">^ As <zero> = 0;
+                    Run Syscall::memcpy(&isValid, &zero, 8);
+                }
+
+                Return this;
+            }
+
+            // Wait for the thread to complete
+            Method <join> Returns Bool^ Parameters () Do {
+                Instantiate NativeType<"int64">^ As <valid> = isValid;
+
+                If (valid == 0) -> {
+                    Return Bool::Constructor(false);
+                }
+
+                Instantiate NativeType<"ptr">^ As <h> = handle;
+                Instantiate NativeType<"int64">^ As <result> = Syscall::Thread_join(h);
+
+                // Mark as no longer valid after join
+                Instantiate NativeType<"int64">^ As <zero> = 0;
+                Run Syscall::memcpy(&isValid, &zero, 8);
+
+                Return Bool::Constructor(result == 0);
+            }
+
+            // Detach the thread (let it run independently)
+            Method <detach> Returns Bool^ Parameters () Do {
+                Instantiate NativeType<"int64">^ As <valid> = isValid;
+
+                If (valid == 0) -> {
+                    Return Bool::Constructor(false);
+                }
+
+                Instantiate NativeType<"ptr">^ As <h> = handle;
+                Instantiate NativeType<"int64">^ As <result> = Syscall::Thread_detach(h);
+
+                // Mark as no longer valid after detach
+                Instantiate NativeType<"int64">^ As <zero> = 0;
+                Run Syscall::memcpy(&isValid, &zero, 8);
+
+                Return Bool::Constructor(result == 0);
+            }
+
+            // Check if thread is joinable
+            Method <isJoinable> Returns Bool^ Parameters () Do {
+                Instantiate NativeType<"int64">^ As <valid> = isValid;
+
+                If (valid == 0) -> {
+                    Return Bool::Constructor(false);
+                }
+
+                Instantiate NativeType<"ptr">^ As <h> = handle;
+                Instantiate NativeType<"int64">^ As <result> = Syscall::Thread_isJoinable(h);
+
+                Return Bool::Constructor(result != 0);
+            }
+
+            // Static: Spawn a new thread with a lambda
+            // Returns the thread object
+            Method <spawn> Returns Thread^ Parameters (
+                Parameter <func> Types F(None^)()^
+            ) Do {
+                Return Thread::Constructor(func);
+            }
+
+            // Static: Sleep current thread for milliseconds
+            Method <sleep> Returns None Parameters (Parameter <milliseconds> Types Integer^) Do {
+                Instantiate NativeType<"int64">^ As <ms> = milliseconds.toInt64();
+                Run Syscall::Thread_sleep(ms);
+            }
+
+            // Static: Yield current thread's time slice
+            Method <yield> Returns None Parameters () Do {
+                Run Syscall::Thread_yield();
+            }
+
+            // Static: Get current thread ID
+            Method <currentId> Returns Integer^ Parameters () Do {
+                Instantiate NativeType<"int64">^ As <id> = Syscall::Thread_currentId();
+                Return Integer::Constructor(id);
+            }
+        ]
+    ]
+
+    // ============================================
+    // Mutex Class
+    // Mutual exclusion lock for thread synchronization
+    // ============================================
+    [ Class <Mutex> Final Extends None
+
+        [ Private <>
+            // Mutex handle (opaque pointer to native mutex)
+            Property <handle> Types NativeType<"ptr">^;
+        ]
+
+        [ Public <>
+            // Constructor - creates and initializes the mutex
+            Constructor Parameters () ->
+            {
+                Instantiate NativeType<"ptr">^ As <h> = Syscall::Mutex_create();
+                Run Syscall::memcpy(&handle, &h, 8);
+            }
+
+            // Destructor - automatically destroy the mutex
+            Destructor Parameters () ->
+            {
+                Instantiate NativeType<"ptr">^ As <h> = handle;
+                If (h != 0) -> {
+                    Run Syscall::Mutex_destroy(h);
+                }
+            }
+
+            // Get the native handle (for ConditionVariable)
+            Method <getHandle> Returns NativeType<"ptr">^ Parameters () Do {
+                Return handle;
+            }
+
+            // Lock the mutex (blocking)
+            Method <lock> Returns Bool^ Parameters () Do {
+                Instantiate NativeType<"ptr">^ As <h> = handle;
+
+                If (h == 0) -> {
+                    Return Bool::Constructor(false);
+                }
+
+                Instantiate NativeType<"int64">^ As <result> = Syscall::Mutex_lock(h);
+                Return Bool::Constructor(result == 0);
+            }
+
+            // Unlock the mutex
+            Method <unlock> Returns Bool^ Parameters () Do {
+                Instantiate NativeType<"ptr">^ As <h> = handle;
+
+                If (h == 0) -> {
+                    Return Bool::Constructor(false);
+                }
+
+                Instantiate NativeType<"int64">^ As <result> = Syscall::Mutex_unlock(h);
+                Return Bool::Constructor(result == 0);
+            }
+
+            // Try to lock without blocking
+            Method <tryLock> Returns Bool^ Parameters () Do {
+                Instantiate NativeType<"ptr">^ As <h> = handle;
+
+                If (h == 0) -> {
+                    Return Bool::Constructor(false);
+                }
+
+                Instantiate NativeType<"int64">^ As <result> = Syscall::Mutex_tryLock(h);
+                Return Bool::Constructor(result != 0);
+            }
+
+            // Check if mutex is valid
+            Method <isValid> Returns Bool^ Parameters () Do {
+                Instantiate NativeType<"ptr">^ As <h> = handle;
+                Return Bool::Constructor(h != 0);
+            }
+        ]
+    ]
+
+    // ============================================
+    // LockGuard Class (RAII-style scoped lock)
+    // Automatically locks on construction and unlocks on destruction
+    // ============================================
+    [ Class <LockGuard> Final Extends None
+
+        [ Private <>
+            Property <mutexRef> Types NativeType<"ptr">^;
+            Property <ownsLock> Types NativeType<"int64">^;
+        ]
+
+        [ Public <>
+            // Constructor - acquires the lock
+            Constructor Parameters (Parameter <mutex> Types Mutex&) ->
+            {
+                Instantiate NativeType<"ptr">^ As <h> = mutex.getHandle();
+                Run Syscall::memcpy(&mutexRef, &h, 8);
+
+                Instantiate NativeType<"int64">^ As <result> = Syscall::Mutex_lock(h);
+
+                If (result == 0) -> {
+                    Instantiate NativeType<"int64">^ As <one> = 1;
+                    Run Syscall::memcpy(&ownsLock, &one, 8);
+                } Else -> {
+                    Instantiate NativeType<"int64">^ As <zero> = 0;
+                    Run Syscall::memcpy(&ownsLock, &zero, 8);
+                }
+            }
+
+            // Destructor - releases the lock
+            Destructor Parameters () ->
+            {
+                Instantiate NativeType<"int64">^ As <owns> = ownsLock;
+                If (owns != 0) -> {
+                    Instantiate NativeType<"ptr">^ As <h> = mutexRef;
+                    Run Syscall::Mutex_unlock(h);
+                }
+            }
+
+            // Check if lock is held
+            Method <ownsTheLock> Returns Bool^ Parameters () Do {
+                Instantiate NativeType<"int64">^ As <owns> = ownsLock;
+                Return Bool::Constructor(owns != 0);
+            }
+
+            // Manually release the lock early
+            Method <unlock> Returns None Parameters () Do {
+                Instantiate NativeType<"int64">^ As <owns> = ownsLock;
+                If (owns != 0) -> {
+                    Instantiate NativeType<"ptr">^ As <h> = mutexRef;
+                    Run Syscall::Mutex_unlock(h);
+
+                    Instantiate NativeType<"int64">^ As <zero> = 0;
+                    Run Syscall::memcpy(&ownsLock, &zero, 8);
+                }
+            }
+        ]
+    ]
+
+    // ============================================
+    // ConditionVariable Class
+    // For thread coordination and signaling
+    // ============================================
+    [ Class <ConditionVariable> Final Extends None
+
+        [ Private <>
+            Property <handle> Types NativeType<"ptr">^;
+        ]
+
+        [ Public <>
+            // Constructor - creates the condition variable
+            Constructor Parameters () ->
+            {
+                Instantiate NativeType<"ptr">^ As <h> = Syscall::CondVar_create();
+                Run Syscall::memcpy(&handle, &h, 8);
+            }
+
+            // Destructor - destroys the condition variable
+            Destructor Parameters () ->
+            {
+                Instantiate NativeType<"ptr">^ As <h> = handle;
+                If (h != 0) -> {
+                    Run Syscall::CondVar_destroy(h);
+                }
+            }
+
+            // Wait on condition (must hold mutex)
+            // Atomically releases mutex and waits, reacquires on return
+            Method <wait> Returns Bool^ Parameters (Parameter <mutex> Types Mutex&) Do {
+                Instantiate NativeType<"ptr">^ As <cond> = handle;
+                Instantiate NativeType<"ptr">^ As <mtx> = mutex.getHandle();
+
+                If (cond == 0) -> {
+                    Return Bool::Constructor(false);
+                }
+
+                Instantiate NativeType<"int64">^ As <result> = Syscall::CondVar_wait(cond, mtx);
+                Return Bool::Constructor(result == 0);
+            }
+
+            // Wait with timeout (milliseconds)
+            // Returns: 0=signaled, 1=timeout, -1=error
+            Method <waitTimeout> Returns Integer^ Parameters (
+                Parameter <mutex> Types Mutex&,
+                Parameter <timeoutMs> Types Integer^
+            ) Do {
+                Instantiate NativeType<"ptr">^ As <cond> = handle;
+                Instantiate NativeType<"ptr">^ As <mtx> = mutex.getHandle();
+                Instantiate NativeType<"int64">^ As <timeout> = timeoutMs.toInt64();
+
+                If (cond == 0) -> {
+                    Return Integer::Constructor(-1);
+                }
+
+                Instantiate NativeType<"int64">^ As <result> = Syscall::CondVar_waitTimeout(cond, mtx, timeout);
+                Return Integer::Constructor(result);
+            }
+
+            // Signal one waiting thread
+            Method <signal> Returns Bool^ Parameters () Do {
+                Instantiate NativeType<"ptr">^ As <h> = handle;
+
+                If (h == 0) -> {
+                    Return Bool::Constructor(false);
+                }
+
+                Instantiate NativeType<"int64">^ As <result> = Syscall::CondVar_signal(h);
+                Return Bool::Constructor(result == 0);
+            }
+
+            // Signal all waiting threads
+            Method <broadcast> Returns Bool^ Parameters () Do {
+                Instantiate NativeType<"ptr">^ As <h> = handle;
+
+                If (h == 0) -> {
+                    Return Bool::Constructor(false);
+                }
+
+                Instantiate NativeType<"int64">^ As <result> = Syscall::CondVar_broadcast(h);
+                Return Bool::Constructor(result == 0);
+            }
+
+            // Check if condition variable is valid
+            Method <isValid> Returns Bool^ Parameters () Do {
+                Instantiate NativeType<"ptr">^ As <h> = handle;
+                Return Bool::Constructor(h != 0);
+            }
+        ]
+    ]
+
+    // ============================================
+    // Atomic Class
+    // Thread-safe atomic integer operations
+    // ============================================
+    [ Class <Atomic> Final Extends None
+
+        [ Private <>
+            Property <handle> Types NativeType<"ptr">^;
+        ]
+
+        [ Public <>
+            // Default constructor - initializes to 0
+            Constructor Parameters () ->
+            {
+                Instantiate NativeType<"int64">^ As <zero> = 0;
+                Instantiate NativeType<"ptr">^ As <h> = Syscall::Atomic_create(zero);
+                Run Syscall::memcpy(&handle, &h, 8);
+            }
+
+            // Constructor with initial value
+            Method <Constructor> Returns Atomic^ Parameters (Parameter <initialValue> Types Integer^) Do {
+                Instantiate NativeType<"int64">^ As <val> = initialValue.toInt64();
+                Instantiate NativeType<"ptr">^ As <h> = Syscall::Atomic_create(val);
+                Run Syscall::memcpy(&handle, &h, 8);
+                Return this;
+            }
+
+            // Destructor - destroys the atomic
+            Destructor Parameters () ->
+            {
+                Instantiate NativeType<"ptr">^ As <h> = handle;
+                If (h != 0) -> {
+                    Run Syscall::Atomic_destroy(h);
+                }
+            }
+
+            // Atomically load value
+            Method <get> Returns Integer^ Parameters () Do {
+                Instantiate NativeType<"ptr">^ As <h> = handle;
+
+                If (h == 0) -> {
+                    Return Integer::Constructor(0);
+                }
+
+                Instantiate NativeType<"int64">^ As <value> = Syscall::Atomic_load(h);
+                Return Integer::Constructor(value);
+            }
+
+            // Atomically store value
+            Method <set> Returns None Parameters (Parameter <newValue> Types Integer^) Do {
+                Instantiate NativeType<"ptr">^ As <h> = handle;
+
+                If (h != 0) -> {
+                    Instantiate NativeType<"int64">^ As <val> = newValue.toInt64();
+                    Run Syscall::Atomic_store(h, val);
+                }
+            }
+
+            // Atomically add and return new value
+            Method <add> Returns Integer^ Parameters (Parameter <value> Types Integer^) Do {
+                Instantiate NativeType<"ptr">^ As <h> = handle;
+
+                If (h == 0) -> {
+                    Return Integer::Constructor(0);
+                }
+
+                Instantiate NativeType<"int64">^ As <val> = value.toInt64();
+                Instantiate NativeType<"int64">^ As <result> = Syscall::Atomic_add(h, val);
+                Return Integer::Constructor(result);
+            }
+
+            // Atomically subtract and return new value
+            Method <subtract> Returns Integer^ Parameters (Parameter <value> Types Integer^) Do {
+                Instantiate NativeType<"ptr">^ As <h> = handle;
+
+                If (h == 0) -> {
+                    Return Integer::Constructor(0);
+                }
+
+                Instantiate NativeType<"int64">^ As <val> = value.toInt64();
+                Instantiate NativeType<"int64">^ As <result> = Syscall::Atomic_sub(h, val);
+                Return Integer::Constructor(result);
+            }
+
+            // Atomically increment and return new value
+            Method <increment> Returns Integer^ Parameters () Do {
+                Return add(Integer::Constructor(1));
+            }
+
+            // Atomically decrement and return new value
+            Method <decrement> Returns Integer^ Parameters () Do {
+                Return subtract(Integer::Constructor(1));
+            }
+
+            // Compare and swap: if current == expected, set to desired
+            // Returns true if swap was performed
+            Method <compareAndSwap> Returns Bool^ Parameters (
+                Parameter <expected> Types Integer^,
+                Parameter <desired> Types Integer^
+            ) Do {
+                Instantiate NativeType<"ptr">^ As <h> = handle;
+
+                If (h == 0) -> {
+                    Return Bool::Constructor(false);
+                }
+
+                Instantiate NativeType<"int64">^ As <exp> = expected.toInt64();
+                Instantiate NativeType<"int64">^ As <des> = desired.toInt64();
+                Instantiate NativeType<"int64">^ As <result> = Syscall::Atomic_compareAndSwap(h, exp, des);
+
+                Return Bool::Constructor(result != 0);
+            }
+
+            // Exchange: set new value and return old value
+            Method <exchange> Returns Integer^ Parameters (Parameter <newValue> Types Integer^) Do {
+                Instantiate NativeType<"ptr">^ As <h> = handle;
+
+                If (h == 0) -> {
+                    Return Integer::Constructor(0);
+                }
+
+                Instantiate NativeType<"int64">^ As <val> = newValue.toInt64();
+                Instantiate NativeType<"int64">^ As <result> = Syscall::Atomic_exchange(h, val);
+                Return Integer::Constructor(result);
+            }
+
+            // Check if atomic is valid
+            Method <isValid> Returns Bool^ Parameters () Do {
+                Instantiate NativeType<"ptr">^ As <h> = handle;
+                Return Bool::Constructor(h != 0);
+            }
+        ]
+    ]
+
+    // ============================================
+    // ThreadLocal Class (Template)
+    // Thread-local storage for per-thread data
+    // ============================================
+    [ Class <ThreadLocal> <T Constrains None> Final Extends None
+
+        [ Private <>
+            Property <handle> Types NativeType<"ptr">^;
+        ]
+
+        [ Public <>
+            // Constructor - creates the TLS key
+            Constructor Parameters () ->
+            {
+                Instantiate NativeType<"ptr">^ As <h> = Syscall::TLS_create();
+                Run Syscall::memcpy(&handle, &h, 8);
+            }
+
+            // Destructor - destroys the TLS key
+            Destructor Parameters () ->
+            {
+                Instantiate NativeType<"ptr">^ As <h> = handle;
+                If (h != 0) -> {
+                    Run Syscall::TLS_destroy(h);
+                }
+            }
+
+            // Get thread-local value
+            Method <get> Returns T^ Parameters () Do {
+                Instantiate NativeType<"ptr">^ As <h> = handle;
+
+                If (h == 0) -> {
+                    // Return default - caller should check isSet first
+                    Instantiate T^ As <defaultVal> = T::Constructor();
+                    Return defaultVal;
+                }
+
+                Instantiate NativeType<"ptr">^ As <ptr> = Syscall::TLS_get(h);
+
+                // Cast the pointer back to T^
+                Instantiate T^ As <result> = ptr;
+                Return result;
+            }
+
+            // Set thread-local value
+            Method <set> Returns None Parameters (Parameter <value> Types T^) Do {
+                Instantiate NativeType<"ptr">^ As <h> = handle;
+
+                If (h != 0) -> {
+                    // Store the value pointer
+                    Instantiate NativeType<"ptr">^ As <ptr> = value;
+                    Run Syscall::TLS_set(h, ptr);
+                }
+            }
+
+            // Check if a value has been set for this thread
+            Method <isSet> Returns Bool^ Parameters () Do {
+                Instantiate NativeType<"ptr">^ As <h> = handle;
+
+                If (h == 0) -> {
+                    Return Bool::Constructor(false);
+                }
+
+                Instantiate NativeType<"ptr">^ As <ptr> = Syscall::TLS_get(h);
+                Return Bool::Constructor(ptr != 0);
+            }
+
+            // Check if TLS key is valid
+            Method <isValid> Returns Bool^ Parameters () Do {
+                Instantiate NativeType<"ptr">^ As <h> = handle;
+                Return Bool::Constructor(h != 0);
+            }
+        ]
+    ]
+
+    // ============================================
+    // Semaphore Class
+    // Counting semaphore for resource limiting
+    // ============================================
+    [ Class <Semaphore> Final Extends None
+
+        [ Private <>
+            Property <count> Types Atomic^;
+            Property <mutex> Types Mutex^;
+            Property <cond> Types ConditionVariable^;
+        ]
+
+        [ Public <>
+            // Constructor with initial count
+            Constructor Parameters (Parameter <initialCount> Types Integer^) ->
+            {
+                Set count = Atomic::Constructor(initialCount);
+                Set mutex = Mutex::Constructor();
+                Set cond = ConditionVariable::Constructor();
+            }
+
+            // Default constructor - starts at 0
+            Constructor Parameters () ->
+            {
+                Set count = Atomic::Constructor(Integer::Constructor(0));
+                Set mutex = Mutex::Constructor();
+                Set cond = ConditionVariable::Constructor();
+            }
+
+            // Acquire (decrement) - blocks if count is 0
+            Method <acquire> Returns None Parameters () Do {
+                Run mutex.lock();
+
+                // Wait while count is 0
+                Instantiate Integer^ As <c> = count.get();
+                While (c.lessThan(Integer::Constructor(1))) -> {
+                    Run cond.wait(mutex);
+                    Set c = count.get();
+                }
+
+                Run count.decrement();
+                Run mutex.unlock();
+            }
+
+            // Try to acquire without blocking
+            Method <tryAcquire> Returns Bool^ Parameters () Do {
+                Run mutex.lock();
+
+                Instantiate Integer^ As <c> = count.get();
+                If (c.greaterThan(Integer::Constructor(0))) -> {
+                    Run count.decrement();
+                    Run mutex.unlock();
+                    Return Bool::Constructor(true);
+                }
+
+                Run mutex.unlock();
+                Return Bool::Constructor(false);
+            }
+
+            // Release (increment) - wakes one waiting thread
+            Method <release> Returns None Parameters () Do {
+                Run mutex.lock();
+                Run count.increment();
+                Run cond.signal();
+                Run mutex.unlock();
+            }
+
+            // Get current count (approximate, may change immediately)
+            Method <getCount> Returns Integer^ Parameters () Do {
+                Return count.get();
+            }
+        ]
+    ]
 ]

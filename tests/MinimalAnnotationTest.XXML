@@ -1,0 +1,21 @@
+// Minimal Annotation Test
+#import Language::Core;
+
+// Define annotation with Retain
+[ Annotation <Marker> Allows (AnnotationAllow::Classes) Retain ]
+
+// Simple test class with retained annotation
+@Marker
+[ Class <TestClass> Final Extends None
+    [ Public <>
+        Property <value> Types Integer^;
+        Constructor = default;
+    ]
+]
+
+[ Entrypoint
+    {
+        Run Console::printLine(String::Constructor("Minimal annotation test passed!"));
+        Exit(0);
+    }
+]

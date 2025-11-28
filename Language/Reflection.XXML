@@ -5,6 +5,8 @@
 // - PropertyInfo - Property information
 // - MethodInfo - Method information
 // - ParameterInfo - Parameter information
+// - AnnotationInfo - Annotation metadata (for retained annotations)
+// - AnnotationArg - Annotation argument value
 
 // Usage:
 //   #import Language::Reflection;
@@ -27,3 +29,17 @@
 // - PropertyInfo.XXML - Property information class
 // - MethodInfo.XXML - Method information class
 // - ParameterInfo.XXML - Parameter information class
+// - AnnotationInfo.XXML - Annotation metadata class
+// - AnnotationArg.XXML - Annotation argument value class
+//
+// Annotation Usage:
+//   // Define an annotation with Retain to make it available at runtime:
+//   [ Annotation <Serializable> Allows (AnnotationAllow::Classes) Retain
+//       Annotate (String^)(format) = "json";
+//   ]
+//
+//   // Use the annotation on a class:
+//   @Serializable(format = "xml")
+//   [ Class <MyClass> ... ]
+//
+//   // Query annotations at runtime (via Annotation_* C functions)

@@ -39,6 +39,9 @@ enum class ErrorCode {
     ConstructorError,
     InvalidReference,
     ConstraintViolation,
+    MissingArgument,
+    UnknownArgument,
+    InvalidAnnotationTarget,
 
     // CodeGen errors (4000-4999)
     CodeGenError = 4000,

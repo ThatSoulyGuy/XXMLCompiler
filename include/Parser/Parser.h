@@ -36,6 +36,12 @@ private:
     std::unique_ptr<ClassDecl> parseClass();
     std::unique_ptr<EntrypointDecl> parseEntrypoint();
     std::unique_ptr<ConstraintDecl> parseConstraint();
+    std::unique_ptr<AnnotationDecl> parseAnnotationDecl();
+    std::unique_ptr<AnnotateDecl> parseAnnotateDecl();
+    std::unique_ptr<ProcessorDecl> parseProcessorDecl();
+    std::unique_ptr<AnnotationUsage> parseAnnotationUsage();
+    std::vector<std::unique_ptr<AnnotationUsage>> parseAnnotationUsages();
+    std::vector<AnnotationTarget> parseAnnotationAllows();
     std::unique_ptr<AccessSection> parseAccessSection();
     std::unique_ptr<PropertyDecl> parseProperty();
     std::unique_ptr<ConstructorDecl> parseConstructor();
