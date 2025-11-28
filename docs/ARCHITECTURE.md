@@ -531,4 +531,15 @@ Implement LSP for IDE integration:
 
 ---
 
-**XXML Compiler Architecture v1.0**
+## See Also
+
+- [Language Specification](LANGUAGE_SPEC.md) - Complete language syntax
+- [Reflection System](REFLECTION_SYSTEM.md) - Runtime type introspection architecture
+- [Threading](THREADING.md) - Concurrency implementation
+- [Limitations](LIMITATIONS.md) - Known compiler limitations
+
+---
+
+**XXML Compiler Architecture v2.0**
+
+> **Note**: The LLVM backend is the primary code generation target. The C++ translation rules above are for reference; actual compilation produces LLVM IR.

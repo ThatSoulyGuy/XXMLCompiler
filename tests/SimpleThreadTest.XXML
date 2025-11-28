@@ -1,0 +1,60 @@
+#import Language::Core;
+
+// Simple Threading Test - Just test Thread static utilities
+
+[ Entrypoint
+	{
+		Run Console::printLine(String::Constructor("=== Simple Thread Test ==="));
+
+		// Test sleep using syscall directly
+		Run Console::printLine(String::Constructor("Sleeping for 100ms..."));
+		Instantiate NativeType<"int64">^ As <ms> = 100;
+		Run Syscall::Thread_sleep(ms);
+		Run Console::printLine(String::Constructor("Woke up!"));
+
+		// Get thread ID
+		Instantiate NativeType<"int64">^ As <tid> = Syscall::Thread_currentId();
+		Run Console::printLine(String::Constructor("Thread ID: "));
+		Run Console::printLine(Integer::Constructor(tid).toString());
+
+		// Test atomic
+		Run Console::printLine(String::Constructor("Creating atomic counter..."));
+		Instantiate NativeType<"int64">^ As <zero> = 0;
+		Instantiate NativeType<"ptr">^ As <atomic> = Syscall::Atomic_create(zero);
+
+		Instantiate NativeType<"int64">^ As <one> = 1;
+		Instantiate NativeType<"int64">^ As <v1> = Syscall::Atomic_add(atomic, one);
+		Run Console::printLine(String::Constructor("After add(1): "));
+		Run Console::printLine(Integer::Constructor(v1).toString());
+
+		Instantiate NativeType<"int64">^ As <v2> = Syscall::Atomic_add(atomic, one);
+		Run Console::printLine(String::Constructor("After add(1): "));
+		Run Console::printLine(Integer::Constructor(v2).toString());
+
+		Instantiate NativeType<"int64">^ As <ten> = 10;
+		Instantiate NativeType<"int64">^ As <v3> = Syscall::Atomic_add(atomic, ten);
+		Run Console::printLine(String::Constructor("After add(10): "));
+		Run Console::printLine(Integer::Constructor(v3).toString());
+
+		Run Syscall::Atomic_destroy(atomic);
+		Run Console::printLine(String::Constructor("Destroyed atomic."));
+
+		// Test mutex
+		Run Console::printLine(String::Constructor("Creating mutex..."));
+		Instantiate NativeType<"ptr">^ As <mutex> = Syscall::Mutex_create();
+
+		Instantiate NativeType<"int64">^ As <lockRes> = Syscall::Mutex_lock(mutex);
+		Run Console::printLine(String::Constructor("Lock result (0=success): "));
+		Run Console::printLine(Integer::Constructor(lockRes).toString());
+
+		Instantiate NativeType<"int64">^ As <unlockRes> = Syscall::Mutex_unlock(mutex);
+		Run Console::printLine(String::Constructor("Unlock result (0=success): "));
+		Run Console::printLine(Integer::Constructor(unlockRes).toString());
+
+		Run Syscall::Mutex_destroy(mutex);
+		Run Console::printLine(String::Constructor("Destroyed mutex."));
+
+		Run Console::printLine(String::Constructor("=== All Tests Passed ==="));
+		Exit(0);
+	}
+]

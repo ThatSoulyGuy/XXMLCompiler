@@ -1,0 +1,9 @@
+// Test file in Test namespace
+
+[ Namespace <Test>
+    [ Class <TestFile> Final Extends None
+        [ Public <>
+            Constructor = default;
+        ]
+    ]
+]

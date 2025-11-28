@@ -1276,10 +1276,11 @@ void SemanticAnalyzer::visit(Parser::IdentifierExpr& node) {
             return;
         }
 
-        // Check if it's a known intrinsic (Syscall, System, Console, Mem, Language, __typename, etc.)
+        // Check if it's a known intrinsic (Syscall, System, Console, Mem, Language, IO, Test, __typename, etc.)
         if (node.name == "Syscall" ||
             node.name == "System" || node.name == "Console" || node.name == "Mem" ||
-            node.name == "Language" || node.name == "__typename") {
+            node.name == "Language" || node.name == "IO" || node.name == "Test" ||
+            node.name == "__typename") {
             expressionTypes[&node] = "Unknown";
             expressionOwnerships[&node] = Parser::OwnershipType::Owned;
             return;
@@ -2212,7 +2213,9 @@ bool SemanticAnalyzer::validateQualifiedIdentifier(const std::string& qualifiedN
                                 accumulated == "Mem" || accumulated == "Language::Core::Mem" ||
                                 accumulated == "Language" || accumulated == "Language::Core" ||
                                 accumulated == "Language::Reflection" || accumulated == "Language::Collections" ||
-                                accumulated == "Language::System");
+                                accumulated == "Language::System" || accumulated == "IO" ||
+                                accumulated == "Language::IO" || accumulated == "Language::Concurrent" ||
+                                accumulated == "Test" || accumulated == "Language::Test");
 
             if (!isIntrinsic &&
                 validNamespaces_.find(accumulated) == validNamespaces_.end() &&

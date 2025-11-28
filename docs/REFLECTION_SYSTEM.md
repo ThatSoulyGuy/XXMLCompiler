@@ -565,3 +565,12 @@ When adding reflection features:
 4. Extend XXML classes in `Language/Reflection/`
 5. Add tests in `tests/reflection_*.XXML`
 6. Update this documentation
+
+---
+
+## See Also
+
+- [Language Specification](LANGUAGE_SPEC.md) - Complete language syntax
+- [Advanced Features](ADVANCED_FEATURES.md) - Native types and syscalls
+- [Templates](TEMPLATES.md) - Generic programming
+- [Limitations](LIMITATIONS.md) - Known reflection limitations

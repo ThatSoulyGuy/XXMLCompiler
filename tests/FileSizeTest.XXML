@@ -1,0 +1,30 @@
+#import Language::Core;
+#import Language::IO;
+
+// File Size Test
+
+[ Entrypoint
+    {
+        Run Console::printLine(String::Constructor("=== File Size Test ==="));
+
+        // Create a file
+        Instantiate IO::File^ As <outFile> = IO::File::Constructor(
+            String::Constructor("size_test.txt"),
+            String::Constructor("w")
+        );
+        Run outFile.writeLine(String::Constructor("Hello World"));
+        Run outFile.close();
+        Run Console::printLine(String::Constructor("File created."));
+
+        // Get file size
+        Run Console::printLine(String::Constructor("Getting file size..."));
+        Instantiate Integer^ As <size> = IO::File::sizeOf(String::Constructor("size_test.txt"));
+        Run Console::printLine(String::Constructor("Size:"));
+        Run Console::printLine(size.toString());
+
+        // Cleanup
+        Run IO::File::delete(String::Constructor("size_test.txt"));
+        Run Console::printLine(String::Constructor("=== Test Complete ==="));
+        Exit(0);
+    }
+]

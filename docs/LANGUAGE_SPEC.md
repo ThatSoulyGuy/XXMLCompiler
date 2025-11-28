@@ -1,6 +1,6 @@
 # XXML Language Specification
 
-Version 1.0
+Version 2.0
 
 ## Table of Contents
 
@@ -15,14 +15,21 @@ Version 1.0
 
 ## Introduction
 
-XXML is a statically-typed, object-oriented programming language with explicit ownership semantics. It compiles to C++ for high performance while providing modern language features and memory safety.
+XXML is a statically-typed, object-oriented programming language with explicit ownership semantics. It compiles to LLVM IR for high performance while providing modern language features and memory safety.
 
 ### Design Goals
 
 - **Memory Safety**: Explicit ownership prevents memory leaks and dangling pointers
-- **Performance**: Compiles to efficient C++ code
+- **Performance**: Compiles to efficient native code via LLVM
 - **Readability**: Clear, bracket-based syntax
 - **Type Safety**: Strong static typing with compile-time checking
+
+### See Also
+
+- [Templates](TEMPLATES.md) - Generic programming
+- [Constraints](CONSTRAINTS.md) - Template constraints
+- [Advanced Features](ADVANCED_FEATURES.md) - Destructors, native types, syscalls
+- [Limitations](LIMITATIONS.md) - Known limitations
 
 ## Lexical Structure
 
@@ -446,6 +453,86 @@ Return value;
 Return;  // For None return type
 ```
 
+### While Loop
+
+Executes a block while a condition is true:
+
+```xxml
+While (condition) ->
+{
+    // Loop body
+}
+
+// Example
+While (counter.lessThan(Integer::Constructor(10))) ->
+{
+    Run Console::printLine(counter.toString());
+    Set counter = counter.add(Integer::Constructor(1));
+}
+```
+
+### If/Else Statement
+
+Conditional execution:
+
+```xxml
+If (condition) -> {
+    // Then branch
+}
+
+If (condition) -> {
+    // Then branch
+} Else -> {
+    // Else branch
+}
+
+// Example
+If (age.greaterThan(Integer::Constructor(18))) -> {
+    Run Console::printLine(String::Constructor("Adult"));
+} Else -> {
+    Run Console::printLine(String::Constructor("Minor"));
+}
+```
+
+### Break Statement
+
+Exits the innermost loop:
+
+```xxml
+While (true) ->
+{
+    If (shouldExit) -> {
+        Break;
+    }
+}
+```
+
+### Continue Statement
+
+Skips to the next iteration of the innermost loop:
+
+```xxml
+For (Integer^ <i> = 0 .. 10) ->
+{
+    If (i.equals(Integer::Constructor(5))) -> {
+        Continue;  // Skip 5
+    }
+    Run Console::printLine(i.toString());
+}
+```
+
+### Assignment Statement
+
+Assigns a value to an existing variable:
+
+```xxml
+Set variableName = expression;
+
+// Example
+Set counter = counter.add(Integer::Constructor(1));
+Set name = String::Constructor("Updated");
+```
+
 ## Expressions
 
 ### Literals
@@ -822,6 +909,129 @@ Method <ReadLine> Returns String^ Parameters ()
 Method <GetTime> Returns Integer^ Parameters ()
 ```
 
+### Language::IO
+
+The IO module provides file I/O operations.
+
+#### Import
+
+```xxml
+#import Language::IO;
+```
+
+#### IO::File Class
+
+The `IO::File` class provides both static utility methods and instance-based file operations.
+
+##### Static Methods
+
+```xxml
+// Check if a file exists
+Method <exists> Returns Bool^ Parameters (Parameter <path> Types String^)
+
+// Delete a file
+Method <delete> Returns Bool^ Parameters (Parameter <path> Types String^)
+
+// Copy a file
+Method <copy> Returns Bool^ Parameters (
+    Parameter <srcPath> Types String^,
+    Parameter <dstPath> Types String^
+)
+
+// Rename/move a file
+Method <rename> Returns Bool^ Parameters (
+    Parameter <oldPath> Types String^,
+    Parameter <newPath> Types String^
+)
+
+// Get file size by path
+Method <sizeOf> Returns Integer^ Parameters (Parameter <path> Types String^)
+
+// Read entire file content by path
+Method <readAll> Returns String^ Parameters (Parameter <path> Types String^)
+```
+
+##### Instance Methods
+
+```xxml
+// Constructor - opens a file with given mode ("r", "w", "a", etc.)
+Constructor Parameters (
+    Parameter <path> Types String^,
+    Parameter <mode> Types String^
+)
+
+// Close the file
+Method <close> Returns None^ Parameters ()
+
+// Write a string to the file
+Method <writeString> Returns Integer^ Parameters (Parameter <text> Types String^)
+
+// Write a line to the file (appends newline)
+Method <writeLine> Returns Integer^ Parameters (Parameter <text> Types String^)
+
+// Read a line from the file
+Method <readLine> Returns String^ Parameters ()
+
+// Check if file is open
+Method <isOpen> Returns Bool^ Parameters ()
+
+// Check if at end of file
+Method <eof> Returns Bool^ Parameters ()
+
+// Flush buffered data to file
+Method <flush> Returns Integer^ Parameters ()
+
+// Get file size
+Method <size> Returns Integer^ Parameters ()
+```
+
+#### File I/O Example
+
+```xxml
+#import Language::Core;
+#import Language::IO;
+
+[ Entrypoint
+    {
+        // Check if file exists
+        Instantiate Bool^ As <exists> = IO::File::exists(String::Constructor("test.txt"));
+        If (exists) -> {
+            Run Console::printLine(String::Constructor("File exists"));
+        }
+
+        // Create and write to a file
+        Instantiate IO::File^ As <outFile> = IO::File::Constructor(
+            String::Constructor("output.txt"),
+            String::Constructor("w")
+        );
+        Run outFile.writeLine(String::Constructor("Hello from XXML!"));
+        Run outFile.close();
+
+        // Get file size
+        Instantiate Integer^ As <size> = IO::File::sizeOf(String::Constructor("output.txt"));
+        Run Console::printLine(size.toString());
+
+        // Read file content
+        Instantiate String^ As <content> = IO::File::readAll(String::Constructor("output.txt"));
+        Run Console::printLine(content);
+
+        // Read line by line using instance method
+        Instantiate IO::File^ As <inFile> = IO::File::Constructor(
+            String::Constructor("output.txt"),
+            String::Constructor("r")
+        );
+        Instantiate String^ As <line> = inFile.readLine();
+        Run Console::printLine(line);
+        Run inFile.close();
+
+        // Clean up
+        Run IO::File::delete(String::Constructor("output.txt"));
+
+        Exit(0);
+    }
+]
+```
+
 ## Complete Example
 
 ```xxml
@@ -914,4 +1124,15 @@ id ::= identifier | "<" identifier ">"
 
 ---
 
-**XXML Language Specification v1.0**
+## See Also
+
+- [Templates](TEMPLATES.md) - Generic programming with templates
+- [Constraints](CONSTRAINTS.md) - Template constraints system
+- [Advanced Features](ADVANCED_FEATURES.md) - Destructors, native types, syscalls
+- [Reflection System](REFLECTION_SYSTEM.md) - Runtime type introspection
+- [Threading](THREADING.md) - Concurrency and synchronization
+- [Limitations](LIMITATIONS.md) - Known limitations and TODOs
+
+---
+
+**XXML Language Specification v2.0**

@@ -1,0 +1,19 @@
+#import Language::Core;
+#import Language::IO;
+
+// Simple File I/O Test
+
+[ Entrypoint
+    {
+        Run Console::printLine(String::Constructor("=== Simple IO Test ==="));
+
+        // Test file exists
+        Instantiate Bool^ As <exists> = IO::File::exists(String::Constructor("test.txt"));
+        Run Console::printLine(String::Constructor("Checking file exists..."));
+        Run Console::printBool(exists.getValue());
+        Run Console::printLine(String::Constructor(""));
+
+        Run Console::printLine(String::Constructor("Test complete!"));
+        Exit(0);
+    }
+]

@@ -1,0 +1,63 @@
+#import Language::Core;
+
+// Test thread spawning with lambdas
+
+[ Entrypoint
+    {
+        Run Console::printLine(String::Constructor("=== Thread Spawn Test ==="));
+
+        // Create an atomic counter to track thread execution
+        Instantiate NativeType<"int64">^ As <zero> = 0;
+        Instantiate NativeType<"ptr">^ As <counter> = Syscall::Atomic_create(zero);
+
+        Run Console::printLine(String::Constructor("Main thread ID: "));
+        Instantiate NativeType<"int64">^ As <mainTid> = Syscall::Thread_currentId();
+        Run Console::printLine(Integer::Constructor(mainTid).toString());
+
+        // Create a lambda that will run in a new thread
+        // This lambda captures the atomic counter by reference
+        Run Console::printLine(String::Constructor("Creating thread lambda..."));
+
+        // Lambda that increments the counter and prints
+        Instantiate F(None^)()^ As <threadFunc> = [ Lambda [&counter] Returns None^ Parameters () {
+            // Print from worker thread
+            Run Console::printLine(String::Constructor("Hello from worker thread!"));
+            Instantiate NativeType<"int64">^ As <workerTid> = Syscall::Thread_currentId();
+            Run Console::printLine(String::Constructor("Worker thread ID: "));
+            Run Console::printLine(Integer::Constructor(workerTid).toString());
+
+            // Increment the counter 5 times
+            Instantiate NativeType<"int64">^ As <one> = 1;
+            Run Syscall::Atomic_add(counter, one);
+            Run Syscall::Atomic_add(counter, one);
+            Run Syscall::Atomic_add(counter, one);
+            Run Syscall::Atomic_add(counter, one);
+            Run Syscall::Atomic_add(counter, one);
+
+            Run Console::printLine(String::Constructor("Worker thread done!"));
+            Return None::Constructor();
+        }];
+
+        // Spawn the thread
+        Run Console::printLine(String::Constructor("Spawning thread..."));
+        Instantiate NativeType<"ptr">^ As <threadHandle> = Syscall::Thread_spawn_lambda(threadFunc);
+
+        Run Console::printLine(String::Constructor("Thread spawned, waiting for completion..."));
+
+        // Wait for thread to complete
+        Instantiate NativeType<"int64">^ As <joinResult> = Syscall::Thread_join(threadHandle);
+        Run Console::printLine(String::Constructor("Thread joined, result: "));
+        Run Console::printLine(Integer::Constructor(joinResult).toString());
+
+        // Check the counter value (should be 5)
+        Instantiate NativeType<"int64">^ As <finalCount> = Syscall::Atomic_load(counter);
+        Run Console::printLine(String::Constructor("Final counter value (expect 5): "));
+        Run Console::printLine(Integer::Constructor(finalCount).toString());
+
+        // Cleanup
+        Run Syscall::Atomic_destroy(counter);
+
+        Run Console::printLine(String::Constructor("=== Thread Spawn Test Complete ==="));
+        Exit(0);
+    }
+]

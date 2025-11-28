@@ -1,0 +1,42 @@
+#import Language::Core;
+#import Language::IO;
+
+// Simple File Test - Instance write only
+
+[ Entrypoint
+    {
+        Run Console::printLine(String::Constructor("=== File Simple Test ==="));
+
+        // Test: Create and write to a file
+        Run Console::printLine(String::Constructor("Creating test file..."));
+        Instantiate IO::File^ As <outFile> = IO::File::Constructor(
+            String::Constructor("simple_test.txt"),
+            String::Constructor("w")
+        );
+        Run Console::printLine(String::Constructor("File opened."));
+
+        Run outFile.writeLine(String::Constructor("Line 1"));
+        Run Console::printLine(String::Constructor("Wrote line 1."));
+
+        Run outFile.writeLine(String::Constructor("Line 2"));
+        Run Console::printLine(String::Constructor("Wrote line 2."));
+
+        Run outFile.close();
+        Run Console::printLine(String::Constructor("File closed."));
+
+        // Test: Check if file exists
+        Instantiate Bool^ As <exists> = IO::File::exists(String::Constructor("simple_test.txt"));
+        If (exists) -> {
+            Run Console::printLine(String::Constructor("File exists: true"));
+        } Else -> {
+            Run Console::printLine(String::Constructor("File exists: false"));
+        }
+
+        // Test: Delete file
+        Run IO::File::delete(String::Constructor("simple_test.txt"));
+        Run Console::printLine(String::Constructor("File deleted."));
+
+        Run Console::printLine(String::Constructor("=== Test Complete ==="));
+        Exit(0);
+    }
+]

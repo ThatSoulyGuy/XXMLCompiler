@@ -1,0 +1,89 @@
+#import Language::Core;
+#import Language::IO;
+
+// File Append Mode Test
+
+[ Entrypoint
+    {
+        Run Console::printLine(String::Constructor("=== File Append Mode Test ==="));
+
+        // Create initial file
+        Run Console::printLine(String::Constructor("1. Creating initial file..."));
+        Instantiate IO::File^ As <f1> = IO::File::Constructor(
+            String::Constructor("append_test.txt"),
+            String::Constructor("w")
+        );
+        Run f1.writeLine(String::Constructor("Line 1: Original"));
+        Run f1.writeLine(String::Constructor("Line 2: Original"));
+        Run f1.close();
+        Run Console::printLine(String::Constructor("   Done."));
+
+        // Read initial content
+        Run Console::printLine(String::Constructor("2. Initial content:"));
+        Instantiate String^ As <initial> = IO::File::readAll(String::Constructor("append_test.txt"));
+        Run Console::printLine(initial);
+
+        // Append to file
+        Run Console::printLine(String::Constructor("3. Appending to file..."));
+        Instantiate IO::File^ As <f2> = IO::File::Constructor(
+            String::Constructor("append_test.txt"),
+            String::Constructor("a")
+        );
+        Run f2.writeLine(String::Constructor("Line 3: Appended"));
+        Run f2.writeLine(String::Constructor("Line 4: Appended"));
+        Run f2.close();
+        Run Console::printLine(String::Constructor("   Done."));
+
+        // Read final content
+        Run Console::printLine(String::Constructor("4. Final content:"));
+        Instantiate String^ As <final> = IO::File::readAll(String::Constructor("append_test.txt"));
+        Run Console::printLine(final);
+
+        // Append again
+        Run Console::printLine(String::Constructor("5. Appending more..."));
+        Instantiate IO::File^ As <f3> = IO::File::Constructor(
+            String::Constructor("append_test.txt"),
+            String::Constructor("a")
+        );
+        Run f3.writeLine(String::Constructor("Line 5: More appended"));
+        Run f3.close();
+
+        // Final read
+        Run Console::printLine(String::Constructor("6. All content:"));
+        Instantiate String^ As <all> = IO::File::readAll(String::Constructor("append_test.txt"));
+        Run Console::printLine(all);
+
+        // Count total size
+        Run Console::printLine(String::Constructor("7. Total file size:"));
+        Instantiate Integer^ As <size> = IO::File::sizeOf(String::Constructor("append_test.txt"));
+        Run Console::printLine(size.toString());
+
+        // Read line by line to verify
+        Run Console::printLine(String::Constructor("8. Reading lines:"));
+        Instantiate IO::File^ As <fr> = IO::File::Constructor(
+            String::Constructor("append_test.txt"),
+            String::Constructor("r")
+        );
+        Instantiate String^ As <r1> = fr.readLine();
+        Instantiate String^ As <r2> = fr.readLine();
+        Instantiate String^ As <r3> = fr.readLine();
+        Instantiate String^ As <r4> = fr.readLine();
+        Instantiate String^ As <r5> = fr.readLine();
+        Run fr.close();
+        Run Console::printLine(String::Constructor("   L1: "));
+        Run Console::printLine(r1);
+        Run Console::printLine(String::Constructor("   L2: "));
+        Run Console::printLine(r2);
+        Run Console::printLine(String::Constructor("   L3: "));
+        Run Console::printLine(r3);
+        Run Console::printLine(String::Constructor("   L4: "));
+        Run Console::printLine(r4);
+        Run Console::printLine(String::Constructor("   L5: "));
+        Run Console::printLine(r5);
+
+        // Cleanup
+        Run IO::File::delete(String::Constructor("append_test.txt"));
+        Run Console::printLine(String::Constructor("=== Append Test Complete ==="));
+        Exit(0);
+    }
+]

@@ -1,0 +1,40 @@
+#import Language::Core;
+#import Language::IO;
+
+// Empty File Test
+
+[ Entrypoint
+    {
+        Run Console::printLine(String::Constructor("=== Empty File Test ==="));
+
+        // Create empty file
+        Run Console::printLine(String::Constructor("Creating empty file..."));
+        Instantiate IO::File^ As <emptyFile> = IO::File::Constructor(
+            String::Constructor("empty_test.txt"),
+            String::Constructor("w")
+        );
+        Run emptyFile.close();
+        Run Console::printLine(String::Constructor("File created."));
+
+        // Get size
+        Run Console::printLine(String::Constructor("Getting size..."));
+        Instantiate Integer^ As <size> = IO::File::sizeOf(String::Constructor("empty_test.txt"));
+        Run Console::printLine(String::Constructor("Size: "));
+        Run Console::printLine(size.toString());
+
+        // Try to read - this might return null or empty string
+        Run Console::printLine(String::Constructor("Reading content..."));
+        Instantiate String^ As <content> = IO::File::readAll(String::Constructor("empty_test.txt"));
+        Run Console::printLine(String::Constructor("Read complete."));
+
+        // Print content (might be empty)
+        Run Console::printLine(String::Constructor("Content: ["));
+        Run Console::printLine(content);
+        Run Console::printLine(String::Constructor("]"));
+
+        // Cleanup
+        Run IO::File::delete(String::Constructor("empty_test.txt"));
+        Run Console::printLine(String::Constructor("=== Test Complete ==="));
+        Exit(0);
+    }
+]

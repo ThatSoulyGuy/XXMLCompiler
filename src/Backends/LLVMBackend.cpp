@@ -71,6 +71,8 @@ std::string LLVMBackend::generate(Parser::Program& program) {
     labelCounter_ = 0;
     stringLiterals_.clear();
     declaredFunctions_.clear();  // Reset declared functions tracking
+    generatedFunctions_.clear();  // Reset generated functions tracking
+    generatedClasses_.clear();   // Reset generated classes tracking
     lambdaCounter_ = 0;  // Reset lambda counter
     lambdaInfos_.clear();  // Clear lambda tracking
     pendingLambdaDefinitions_.clear();  // Clear pending lambda definitions
@@ -81,9 +83,32 @@ std::string LLVMBackend::generate(Parser::Program& program) {
     // Forward declare all user-defined functions before code generation
     // Must come BEFORE template instantiations to avoid declare-after-define errors
     // Process imported modules first (for standard library functions), then main program
+    // NOTE: Only generate declarations for runtime modules - non-runtime modules will
+    // have their code generated, and LLVM rejects declare followed by define for same function.
     for (auto* importedModule : importedModules_) {
         if (importedModule) {
-            generateFunctionDeclarations(*importedModule);
+            // Check if this is a runtime module (only generate declarations for those)
+            bool isRuntimeModule = false;
+            for (auto& decl : importedModule->declarations) {
+                if (auto* ns = dynamic_cast<Parser::NamespaceDecl*>(decl.get())) {
+                    if (ns->name.find("Language") == 0 || ns->name.find("System") == 0 ||
+                        ns->name.find("Syscall") == 0 || ns->name.find("Mem") == 0 ||
+                        ns->name == "Collections") {
+                        isRuntimeModule = true;
+                        break;
+                    }
+                } else if (auto* importDecl = dynamic_cast<Parser::ImportDecl*>(decl.get())) {
+                    if (importDecl->modulePath.find("Language::") == 0 ||
+                        importDecl->modulePath.find("System::") == 0) {
+                        isRuntimeModule = true;
+                        break;
+                    }
+                }
+            }
+            // Only generate declarations for runtime modules (their code is in the runtime library)
+            if (isRuntimeModule) {
+                generateFunctionDeclarations(*importedModule);
+            }
         }
     }
     generateFunctionDeclarations(program);
@@ -884,6 +909,99 @@ std::string LLVMBackend::generatePreamble() {
     preamble << "declare i64 @xxml_reflection_parameter_getOwnership(ptr)\n";
     preamble << "\n";
 
+    // Threading runtime functions (xxml_ prefix added by Syscall:: translation)
+    preamble << "; Threading functions\n";
+    preamble << "declare ptr @xxml_Thread_create(ptr, ptr)\n";
+    preamble << "declare i64 @xxml_Thread_join(ptr)\n";
+    preamble << "declare i64 @xxml_Thread_detach(ptr)\n";
+    preamble << "declare i1 @xxml_Thread_isJoinable(ptr)\n";
+    preamble << "declare void @xxml_Thread_sleep(i64)\n";
+    preamble << "declare void @xxml_Thread_yield()\n";
+    preamble << "declare i64 @xxml_Thread_currentId()\n";
+    preamble << "declare ptr @xxml_Thread_spawn_lambda(ptr)\n";
+    preamble << "\n";
+
+    // Mutex runtime functions
+    preamble << "; Mutex functions\n";
+    preamble << "declare ptr @xxml_Mutex_create()\n";
+    preamble << "declare void @xxml_Mutex_destroy(ptr)\n";
+    preamble << "declare i64 @xxml_Mutex_lock(ptr)\n";
+    preamble << "declare i64 @xxml_Mutex_unlock(ptr)\n";
+    preamble << "declare i1 @xxml_Mutex_tryLock(ptr)\n";
+    preamble << "\n";
+
+    // Condition variable runtime functions
+    preamble << "; Condition variable functions\n";
+    preamble << "declare ptr @xxml_CondVar_create()\n";
+    preamble << "declare void @xxml_CondVar_destroy(ptr)\n";
+    preamble << "declare i64 @xxml_CondVar_wait(ptr, ptr)\n";
+    preamble << "declare i64 @xxml_CondVar_waitTimeout(ptr, ptr, i64)\n";
+    preamble << "declare i64 @xxml_CondVar_signal(ptr)\n";
+    preamble << "declare i64 @xxml_CondVar_broadcast(ptr)\n";
+    preamble << "\n";
+
+    // Atomic runtime functions
+    preamble << "; Atomic functions\n";
+    preamble << "declare ptr @xxml_Atomic_create(i64)\n";
+    preamble << "declare void @xxml_Atomic_destroy(ptr)\n";
+    preamble << "declare i64 @xxml_Atomic_load(ptr)\n";
+    preamble << "declare void @xxml_Atomic_store(ptr, i64)\n";
+    preamble << "declare i64 @xxml_Atomic_add(ptr, i64)\n";
+    preamble << "declare i64 @xxml_Atomic_sub(ptr, i64)\n";
+    preamble << "declare i1 @xxml_Atomic_compareAndSwap(ptr, i64, i64)\n";
+    preamble << "declare i64 @xxml_Atomic_exchange(ptr, i64)\n";
+    preamble << "\n";
+
+    // Thread-local storage runtime functions
+    preamble << "; TLS functions\n";
+    preamble << "declare ptr @xxml_TLS_create()\n";
+    preamble << "declare void @xxml_TLS_destroy(ptr)\n";
+    preamble << "declare ptr @xxml_TLS_get(ptr)\n";
+    preamble << "declare void @xxml_TLS_set(ptr, ptr)\n";
+    preamble << "\n";
+
+    // File I/O runtime functions
+    preamble << "; File I/O functions\n";
+    preamble << "declare ptr @xxml_File_open(ptr, ptr)\n";
+    preamble << "declare void @xxml_File_close(ptr)\n";
+    preamble << "declare i64 @xxml_File_read(ptr, ptr, i64)\n";
+    preamble << "declare i64 @xxml_File_write(ptr, ptr, i64)\n";
+    preamble << "declare ptr @xxml_File_readLine(ptr)\n";
+    preamble << "declare i64 @xxml_File_writeString(ptr, ptr)\n";
+    preamble << "declare i64 @xxml_File_writeLine(ptr, ptr)\n";
+    preamble << "declare ptr @xxml_File_readAll(ptr)\n";
+    preamble << "declare i64 @xxml_File_seek(ptr, i64, i64)\n";
+    preamble << "declare i64 @xxml_File_tell(ptr)\n";
+    preamble << "declare i64 @xxml_File_size(ptr)\n";
+    preamble << "declare i1 @xxml_File_eof(ptr)\n";
+    preamble << "declare i64 @xxml_File_flush(ptr)\n";
+    preamble << "declare i1 @xxml_File_exists(ptr)\n";
+    preamble << "declare i1 @xxml_File_delete(ptr)\n";
+    preamble << "declare i1 @xxml_File_rename(ptr, ptr)\n";
+    preamble << "declare i1 @xxml_File_copy(ptr, ptr)\n";
+    preamble << "declare i64 @xxml_File_sizeByPath(ptr)\n";
+    preamble << "declare ptr @xxml_File_readAllByPath(ptr)\n";
+    preamble << "\n";
+
+    // Directory functions
+    preamble << "; Directory functions\n";
+    preamble << "declare i1 @xxml_Dir_create(ptr)\n";
+    preamble << "declare i1 @xxml_Dir_exists(ptr)\n";
+    preamble << "declare i1 @xxml_Dir_delete(ptr)\n";
+    preamble << "declare ptr @xxml_Dir_getCurrent()\n";
+    preamble << "declare i1 @xxml_Dir_setCurrent(ptr)\n";
+    preamble << "\n";
+
+    // Path utility functions
+    preamble << "; Path utility functions\n";
+    preamble << "declare ptr @xxml_Path_join(ptr, ptr)\n";
+    preamble << "declare ptr @xxml_Path_getFileName(ptr)\n";
+    preamble << "declare ptr @xxml_Path_getDirectory(ptr)\n";
+    preamble << "declare ptr @xxml_Path_getExtension(ptr)\n";
+    preamble << "declare i1 @xxml_Path_isAbsolute(ptr)\n";
+    preamble << "declare ptr @xxml_Path_getAbsolute(ptr)\n";
+    preamble << "\n";
+
     // Optimization attributes
     preamble << "; Optimization attributes\n";
     preamble << "attributes #0 = { noinline nounwind optnone uwtable }\n";
@@ -1351,8 +1469,17 @@ void LLVMBackend::visit(Parser::ClassDecl& node) {
         currentClassName_ = node.name;
     }
 
-    // Create class info entry
-    ClassInfo& classInfo = classes_[node.name];
+    // Check for duplicate class generation (can happen with imported modules)
+    // Use the qualified class name to check for duplicates
+    if (generatedClasses_.find(currentClassName_) != generatedClasses_.end()) {
+        // Class already generated, skip to avoid redefinition errors
+        currentClassName_ = "";
+        return;
+    }
+    generatedClasses_.insert(currentClassName_);
+
+    // Create class info entry - use currentClassName_ which includes namespace
+    ClassInfo& classInfo = classes_[currentClassName_];
     classInfo.properties.clear();
 
     // First pass: collect properties from all access sections
@@ -1374,7 +1501,8 @@ void LLVMBackend::visit(Parser::ClassDecl& node) {
     // Generate struct type definition
     std::stringstream structDef;
     // Mangle class name to remove :: (invalid in LLVM type names)
-    std::string mangledClassName = node.name;
+    // Use currentClassName_ which includes namespace, not node.name
+    std::string mangledClassName = currentClassName_;
     size_t pos = 0;
     while ((pos = mangledClassName.find("::")) != std::string::npos) {
         mangledClassName.replace(pos, 2, "_");
@@ -1562,6 +1690,13 @@ void LLVMBackend::visit(Parser::ConstructorDecl& node) {
         funcName += "_" + std::to_string(node.parameters.size());
     }
 
+    // Check for duplicate function definition (can happen with imported modules)
+    if (generatedFunctions_.find(funcName) != generatedFunctions_.end()) {
+        // Constructor already generated, skip to avoid redefinition error
+        return;
+    }
+    generatedFunctions_.insert(funcName);
+
     // Store 'this' in value map
     valueMap_["this"] = "%this";
 
@@ -1578,11 +1713,18 @@ void LLVMBackend::visit(Parser::ConstructorDecl& node) {
             const ClassInfo& classInfo = classIt->second;
             int fieldIndex = 0;
 
+            // Mangle class name for LLVM type (replace :: with _)
+            std::string mangledClassName = currentClassName_;
+            size_t pos = 0;
+            while ((pos = mangledClassName.find("::")) != std::string::npos) {
+                mangledClassName.replace(pos, 2, "_");
+            }
+
             for (const auto& [propName, propType] : classInfo.properties) {
                 // Get pointer to field
                 std::string fieldPtrReg = allocateRegister();
                 emitLine(format("{} = getelementptr inbounds %class.{}, ptr %this, i32 0, i32 {}",
-                                   fieldPtrReg, currentClassName_, fieldIndex));
+                                   fieldPtrReg, mangledClassName, fieldIndex));
 
                 // Get LLVM type for this property
                 std::string llvmType = getLLVMType(propType);
@@ -1710,6 +1852,13 @@ void LLVMBackend::visit(Parser::MethodDecl& node) {
         funcName += suffix;
         DEBUG_OUT("DEBUG: Mangling constructor '" << funcName << "' with " << paramTypes.size() << " params" << std::endl);
     }
+
+    // Check for duplicate function definition (can happen with imported modules)
+    if (generatedFunctions_.find(funcName) != generatedFunctions_.end()) {
+        // Function already generated, skip to avoid redefinition error
+        return;
+    }
+    generatedFunctions_.insert(funcName);
 
     // Generate function definition
     DEBUG_OUT("DEBUG MethodDecl: method=" << node.name << " returnTypeName='" << node.returnType->typeName << "'" << std::endl);
@@ -2197,7 +2346,7 @@ void LLVMBackend::visit(Parser::IfStmt& node) {
     // End label
     emitLine(format("{}:", endLabel));
 
-    // IR generation: Generate if/else using basic blocks
+    // IR generation: Set up basic blocks for control flow (statements already generated above)
     if (builder_ && currentFunction_) {
         IR::Value* condIR = lastExprValue_;
 
@@ -2211,25 +2360,17 @@ void LLVMBackend::visit(Parser::IfStmt& node) {
             builder_->CreateCondBr(condIR, thenBB, elseBB);
         }
 
-        // Generate then block
+        // Set up then block (statements already generated via textual IR above)
         builder_->setInsertPoint(thenBB);
         currentBlock_ = thenBB;
-        for (auto& stmt : node.thenBranch) {
-            stmt->accept(*this);
-        }
         // Only add branch if block doesn't already have a terminator
         if (!thenBB->getTerminator()) {
             builder_->CreateBr(mergeBB);
         }
 
-        // Generate else block
+        // Set up else block (statements already generated via textual IR above)
         builder_->setInsertPoint(elseBB);
         currentBlock_ = elseBB;
-        if (!node.elseBranch.empty()) {
-            for (auto& stmt : node.elseBranch) {
-                stmt->accept(*this);
-            }
-        }
         // Only add branch if block doesn't already have a terminator
         if (!elseBB->getTerminator()) {
             builder_->CreateBr(mergeBB);
@@ -2543,7 +2684,13 @@ void LLVMBackend::visit(Parser::ReferenceExpr& node) {
                     if (properties[i].first == ident->name) {
                         // Generate getelementptr to get address of the property
                         std::string fieldPtr = allocateRegister();
-                        emitLine(fieldPtr + " = getelementptr inbounds %class." + currentClassName_ +
+                        // Mangle class name for LLVM type (replace :: with _)
+                        std::string mangledClassName = currentClassName_;
+                        size_t pos = 0;
+                        while ((pos = mangledClassName.find("::")) != std::string::npos) {
+                            mangledClassName.replace(pos, 2, "_");
+                        }
+                        emitLine(fieldPtr + " = getelementptr inbounds %class." + mangledClassName +
                                 ", ptr %this, i32 0, i32 " + std::to_string(i));
                         valueMap_["__last_expr"] = fieldPtr;
                         return;
@@ -3093,6 +3240,25 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
                     }
 
                     functionName = mangledClassName + "_" + memberName;
+
+                    // For static method calls on user-defined classes, pass null for 'this'
+                    // since the method is generated with a 'this' parameter
+                    // Check if this is a user-defined class by looking for classes in IO, etc.
+                    // (not built-in types like String, Integer, Bool, etc.)
+                    static const std::unordered_set<std::string> builtinTypes = {
+                        "Integer", "String", "Bool", "Float", "Double", "None",
+                        "Console", "System", "Syscall", "Mem"
+                    };
+                    std::string baseClass = staticClassName;
+                    size_t lastColon = baseClass.rfind("::");
+                    if (lastColon != std::string::npos) {
+                        baseClass = baseClass.substr(lastColon + 2);
+                    }
+                    if (builtinTypes.find(baseClass) == builtinTypes.end()) {
+                        // User-defined class static method - need to pass null for 'this'
+                        isInstanceMethod = true;
+                        instanceRegister = "null";
+                    }
                 } else {
                     // Fallback: Instance method on complex expression (e.g., obj.method1().method2())
                     // Evaluate the complex expression first
@@ -3511,16 +3677,51 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
             functionName.find("xxml_write_byte") == 0 ||
             functionName.find("String_destroy") == 0 ||
             (functionName.find("List_") == 0 && functionName.find("_add") != std::string::npos) ||
-            functionName.find("_add") == functionName.length() - 4 ||  // Methods ending with _add
+            (functionName.find("_add") == functionName.length() - 4 && functionName.find("xxml_") != 0) ||  // Methods ending with _add (not xxml_ runtime functions)
             functionName.find("_run") == functionName.length() - 4 ||  // Methods ending with _run
             functionName.find("_clear") == functionName.length() - 6 || // Methods ending with _clear
-            functionName.find("_reset") == functionName.length() - 6;   // Methods ending with _reset
+            functionName.find("_reset") == functionName.length() - 6 ||   // Methods ending with _reset
+            // Threading void-returning functions
+            functionName == "xxml_Thread_sleep" ||
+            functionName == "xxml_Thread_yield" ||
+            functionName == "xxml_Mutex_destroy" ||
+            functionName == "xxml_CondVar_destroy" ||
+            functionName == "xxml_Atomic_destroy" ||
+            functionName == "xxml_Atomic_store" ||
+            functionName == "xxml_TLS_destroy" ||
+            functionName == "xxml_TLS_set" ||
+            // File I/O void-returning functions
+            functionName == "xxml_File_close";
 
         if (matchesVoidPattern) {
             llvmReturnType = "void";
             isVoidReturn = true;
         } else if (functionName == "String_length" ||  // Exact match for runtime function
-            functionName == "List_size") {  // Exact match for runtime function
+            functionName == "List_size" ||  // Exact match for runtime function
+            // Threading i64-returning functions
+            functionName == "xxml_Thread_join" ||
+            functionName == "xxml_Thread_detach" ||
+            functionName == "xxml_Thread_currentId" ||
+            functionName == "xxml_Mutex_lock" ||
+            functionName == "xxml_Mutex_unlock" ||
+            functionName == "xxml_CondVar_wait" ||
+            functionName == "xxml_CondVar_waitTimeout" ||
+            functionName == "xxml_CondVar_signal" ||
+            functionName == "xxml_CondVar_broadcast" ||
+            functionName == "xxml_Atomic_load" ||
+            functionName == "xxml_Atomic_add" ||
+            functionName == "xxml_Atomic_sub" ||
+            functionName == "xxml_Atomic_exchange" ||
+            // File I/O i64-returning functions
+            functionName == "xxml_File_read" ||
+            functionName == "xxml_File_write" ||
+            functionName == "xxml_File_writeString" ||
+            functionName == "xxml_File_writeLine" ||
+            functionName == "xxml_File_seek" ||
+            functionName == "xxml_File_tell" ||
+            functionName == "xxml_File_size" ||
+            functionName == "xxml_File_flush" ||
+            functionName == "xxml_File_sizeByPath") {
             // Only the C runtime functions return primitive types
             // User-defined XXML methods return wrapped objects
             llvmReturnType = "i64";
@@ -3546,7 +3747,24 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
         } else if (functionName == "Integer_lt" || functionName == "Integer_le" ||
                    functionName == "Integer_gt" || functionName == "Integer_ge" ||
                    functionName == "Integer_eq" || functionName == "Integer_ne" ||
-                   functionName == "Bool_getValue") {
+                   functionName == "Bool_getValue" ||
+                   // Threading i1-returning functions
+                   functionName == "xxml_Thread_isJoinable" ||
+                   functionName == "xxml_Mutex_tryLock" ||
+                   functionName == "xxml_Atomic_compareAndSwap" ||
+                   // File I/O i1-returning functions
+                   functionName == "xxml_File_eof" ||
+                   functionName == "xxml_File_exists" ||
+                   functionName == "xxml_File_delete" ||
+                   functionName == "xxml_File_rename" ||
+                   functionName == "xxml_File_copy" ||
+                   // Directory i1-returning functions
+                   functionName == "xxml_Dir_create" ||
+                   functionName == "xxml_Dir_exists" ||
+                   functionName == "xxml_Dir_delete" ||
+                   functionName == "xxml_Dir_setCurrent" ||
+                   // Path i1-returning functions
+                   functionName == "xxml_Path_isAbsolute") {
             // Integer comparison and Bool_getValue return i1
             llvmReturnType = "i1";
         }
@@ -3598,6 +3816,25 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
         }
         else if (functionName.find("Double_Constructor") != std::string::npos) {
             expectedType = "double";  // Double constructor takes double
+        }
+        // Threading functions with specific parameter types
+        else if (functionName == "xxml_Thread_sleep" ||
+                 functionName == "xxml_Atomic_create") {
+            // These take a single i64 parameter
+            expectedType = "i64";
+        }
+        else if ((functionName == "xxml_Atomic_add" || functionName == "xxml_Atomic_sub" ||
+                  functionName == "xxml_Atomic_store" || functionName == "xxml_Atomic_exchange") && i == 1) {
+            // Second parameter is i64 (first is ptr handle)
+            expectedType = "i64";
+        }
+        else if (functionName == "xxml_Atomic_compareAndSwap" && (i == 1 || i == 2)) {
+            // Second and third parameters are i64 (expected, desired)
+            expectedType = "i64";
+        }
+        else if (functionName == "xxml_CondVar_waitTimeout" && i == 2) {
+            // Third parameter is timeout in ms (i64)
+            expectedType = "i64";
         }
         // User-defined class constructors: first arg is always 'this' pointer (ptr)
         else if (isConstructorCall && i == 0) {
@@ -4854,6 +5091,22 @@ std::unique_ptr<Parser::Expression> LLVMBackend::cloneExpression(
 size_t LLVMBackend::calculateClassSize(const std::string& className) const {
     // Look up class in the classes_ map
     auto it = classes_.find(className);
+    if (it == classes_.end()) {
+        // Try unmangling: convert IO_File -> IO::File
+        std::string unmangledName = className;
+        size_t pos = 0;
+        while ((pos = unmangledName.find("_", pos)) != std::string::npos) {
+            // Check if this looks like a namespace separator (uppercase letter follows)
+            if (pos + 1 < unmangledName.length() && std::isupper(unmangledName[pos + 1])) {
+                unmangledName.replace(pos, 1, "::");
+                pos += 2;
+            } else {
+                pos++;
+            }
+        }
+        it = classes_.find(unmangledName);
+    }
+
     if (it == classes_.end()) {
         // CRITICAL FIX: If className not found, it might be a template base name (e.g., "List")
         // Try to find a template instantiation by looking for className_ prefix

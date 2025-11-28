@@ -1,0 +1,195 @@
+#import Language::Core;
+
+// Comprehensive Threading Test Suite
+// Tests all threading primitives: Atomics, Mutexes, Condition Variables, TLS
+
+[ Entrypoint
+    {
+        Run Console::printLine(String::Constructor("=== Comprehensive Threading Test Suite ==="));
+        Run Console::printLine(String::Constructor(""));
+
+        // ============================================
+        // Test 1: Atomic Operations
+        // ============================================
+        Run Console::printLine(String::Constructor("--- Test 1: Atomic Operations ---"));
+
+        // Create atomic with initial value 0
+        Instantiate NativeType<"int64">^ As <initVal> = 0;
+        Instantiate NativeType<"ptr">^ As <atomic> = Syscall::Atomic_create(initVal);
+
+        // Test load
+        Instantiate NativeType<"int64">^ As <loaded> = Syscall::Atomic_load(atomic);
+        Run Console::printLine(String::Constructor("Initial value (expect 0): "));
+        Run Console::printLine(Integer::Constructor(loaded).toString());
+
+        // Test store
+        Instantiate NativeType<"int64">^ As <newVal> = 42;
+        Run Syscall::Atomic_store(atomic, newVal);
+        Instantiate NativeType<"int64">^ As <afterStore> = Syscall::Atomic_load(atomic);
+        Run Console::printLine(String::Constructor("After store 42 (expect 42): "));
+        Run Console::printLine(Integer::Constructor(afterStore).toString());
+
+        // Test add
+        Instantiate NativeType<"int64">^ As <addVal> = 8;
+        Instantiate NativeType<"int64">^ As <afterAdd> = Syscall::Atomic_add(atomic, addVal);
+        Run Console::printLine(String::Constructor("After add 8 (expect 50): "));
+        Run Console::printLine(Integer::Constructor(afterAdd).toString());
+
+        // Test sub
+        Instantiate NativeType<"int64">^ As <subVal> = 10;
+        Instantiate NativeType<"int64">^ As <afterSub> = Syscall::Atomic_sub(atomic, subVal);
+        Run Console::printLine(String::Constructor("After sub 10 (expect 40): "));
+        Run Console::printLine(Integer::Constructor(afterSub).toString());
+
+        // Test exchange
+        Instantiate NativeType<"int64">^ As <exchangeVal> = 100;
+        Instantiate NativeType<"int64">^ As <oldVal> = Syscall::Atomic_exchange(atomic, exchangeVal);
+        Run Console::printLine(String::Constructor("Exchange returned old value (expect 40): "));
+        Run Console::printLine(Integer::Constructor(oldVal).toString());
+        Instantiate NativeType<"int64">^ As <newCurrent> = Syscall::Atomic_load(atomic);
+        Run Console::printLine(String::Constructor("Current value after exchange (expect 100): "));
+        Run Console::printLine(Integer::Constructor(newCurrent).toString());
+
+        // Test compareAndSwap - success case
+        Instantiate NativeType<"int64">^ As <expected> = 100;
+        Instantiate NativeType<"int64">^ As <desired> = 200;
+        Instantiate NativeType<"i1">^ As <casResult1> = Syscall::Atomic_compareAndSwap(atomic, expected, desired);
+        Run Console::printLine(String::Constructor("CAS(100->200) success (expect 1): "));
+        Run Console::printInt(casResult1);
+        Run Console::printLine(String::Constructor(""));
+
+        // Test compareAndSwap - failure case (expected doesn't match)
+        Instantiate NativeType<"int64">^ As <wrongExpected> = 100;
+        Instantiate NativeType<"int64">^ As <desired2> = 300;
+        Instantiate NativeType<"i1">^ As <casResult2> = Syscall::Atomic_compareAndSwap(atomic, wrongExpected, desired2);
+        Run Console::printLine(String::Constructor("CAS(100->300) should fail (expect 0): "));
+        Run Console::printInt(casResult2);
+        Run Console::printLine(String::Constructor(""));
+
+        Instantiate NativeType<"int64">^ As <finalAtomicVal> = Syscall::Atomic_load(atomic);
+        Run Console::printLine(String::Constructor("Final atomic value (expect 200): "));
+        Run Console::printLine(Integer::Constructor(finalAtomicVal).toString());
+
+        Run Syscall::Atomic_destroy(atomic);
+        Run Console::printLine(String::Constructor("Atomic destroyed."));
+        Run Console::printLine(String::Constructor(""));
+
+        // ============================================
+        // Test 2: Mutex Operations
+        // ============================================
+        Run Console::printLine(String::Constructor("--- Test 2: Mutex Operations ---"));
+
+        Instantiate NativeType<"ptr">^ As <mutex> = Syscall::Mutex_create();
+        Run Console::printLine(String::Constructor("Mutex created."));
+
+        // Test lock
+        Instantiate NativeType<"int64">^ As <lockRes> = Syscall::Mutex_lock(mutex);
+        Run Console::printLine(String::Constructor("Lock result (0=success): "));
+        Run Console::printLine(Integer::Constructor(lockRes).toString());
+
+        // Test tryLock while already locked (should fail on same thread - platform dependent)
+        // Note: On Windows with CRITICAL_SECTION, same thread can re-enter
+        Instantiate NativeType<"i1">^ As <tryRes> = Syscall::Mutex_tryLock(mutex);
+        Run Console::printLine(String::Constructor("TryLock while held (platform dependent): "));
+        Run Console::printInt(tryRes);
+        Run Console::printLine(String::Constructor(""));
+
+        // Unlock (twice if tryLock succeeded on recursive mutex)
+        Instantiate NativeType<"int64">^ As <unlockRes> = Syscall::Mutex_unlock(mutex);
+        Run Console::printLine(String::Constructor("Unlock result (0=success): "));
+        Run Console::printLine(Integer::Constructor(unlockRes).toString());
+
+        // If tryLock succeeded, we need to unlock again
+        If (Bool::Constructor(tryRes)) -> {
+            Instantiate NativeType<"int64">^ As <unlockRes2> = Syscall::Mutex_unlock(mutex);
+            Run Console::printLine(String::Constructor("Second unlock (recursive): "));
+            Run Console::printLine(Integer::Constructor(unlockRes2).toString());
+        }
+
+        // TryLock when unlocked should succeed
+        Instantiate NativeType<"i1">^ As <tryRes2> = Syscall::Mutex_tryLock(mutex);
+        Run Console::printLine(String::Constructor("TryLock when free (expect 1): "));
+        Run Console::printInt(tryRes2);
+        Run Console::printLine(String::Constructor(""));
+
+        Run Syscall::Mutex_unlock(mutex);
+        Run Syscall::Mutex_destroy(mutex);
+        Run Console::printLine(String::Constructor("Mutex destroyed."));
+        Run Console::printLine(String::Constructor(""));
+
+        // ============================================
+        // Test 3: Thread Utilities
+        // ============================================
+        Run Console::printLine(String::Constructor("--- Test 3: Thread Utilities ---"));
+
+        // Get current thread ID
+        Instantiate NativeType<"int64">^ As <tid> = Syscall::Thread_currentId();
+        Run Console::printLine(String::Constructor("Current thread ID: "));
+        Run Console::printLine(Integer::Constructor(tid).toString());
+
+        // Test yield (just shouldn't crash)
+        Run Syscall::Thread_yield();
+        Run Console::printLine(String::Constructor("Thread yield completed."));
+
+        // Test sleep
+        Run Console::printLine(String::Constructor("Sleeping for 50ms..."));
+        Instantiate NativeType<"int64">^ As <sleepTime> = 50;
+        Run Syscall::Thread_sleep(sleepTime);
+        Run Console::printLine(String::Constructor("Woke up!"));
+        Run Console::printLine(String::Constructor(""));
+
+        // ============================================
+        // Test 4: Thread-Local Storage
+        // ============================================
+        Run Console::printLine(String::Constructor("--- Test 4: Thread-Local Storage ---"));
+
+        Instantiate NativeType<"ptr">^ As <tlsKey> = Syscall::TLS_create();
+        Run Console::printLine(String::Constructor("TLS key created."));
+
+        // Get initial value (should be null)
+        Instantiate NativeType<"ptr">^ As <tlsVal1> = Syscall::TLS_get(tlsKey);
+        Run Console::printLine(String::Constructor("Initial TLS value retrieved (null expected)."));
+
+        // Set a value using an Integer object as the stored pointer
+        Instantiate Integer^ As <testObj> = Integer::Constructor(12345);
+        Run Syscall::TLS_set(tlsKey, testObj);
+        Run Console::printLine(String::Constructor("TLS value set to Integer(12345)."));
+
+        // Get the value back (as a pointer, would need casting in real usage)
+        Instantiate NativeType<"ptr">^ As <tlsVal2> = Syscall::TLS_get(tlsKey);
+        Run Console::printLine(String::Constructor("TLS value retrieved successfully."));
+
+        Run Syscall::TLS_destroy(tlsKey);
+        Run Console::printLine(String::Constructor("TLS key destroyed."));
+        Run Console::printLine(String::Constructor(""));
+
+        // ============================================
+        // Test 5: Condition Variable (basic create/destroy)
+        // ============================================
+        Run Console::printLine(String::Constructor("--- Test 5: Condition Variable ---"));
+
+        Instantiate NativeType<"ptr">^ As <condVar> = Syscall::CondVar_create();
+        Run Console::printLine(String::Constructor("Condition variable created."));
+
+        // We can't fully test wait/signal without multiple threads, but we can test the API
+        // Signal with no waiters (should be no-op)
+        Instantiate NativeType<"int64">^ As <signalRes> = Syscall::CondVar_signal(condVar);
+        Run Console::printLine(String::Constructor("Signal result (0=success): "));
+        Run Console::printLine(Integer::Constructor(signalRes).toString());
+
+        // Broadcast with no waiters (should be no-op)
+        Instantiate NativeType<"int64">^ As <broadcastRes> = Syscall::CondVar_broadcast(condVar);
+        Run Console::printLine(String::Constructor("Broadcast result (0=success): "));
+        Run Console::printLine(Integer::Constructor(broadcastRes).toString());
+
+        Run Syscall::CondVar_destroy(condVar);
+        Run Console::printLine(String::Constructor("Condition variable destroyed."));
+        Run Console::printLine(String::Constructor(""));
+
+        // ============================================
+        // Summary
+        // ============================================
+        Run Console::printLine(String::Constructor("=== All Threading Tests Completed ==="));
+        Exit(0);
+    }
+]

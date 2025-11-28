@@ -7,9 +7,10 @@ A production-ready compiler for the XXML programming language that compiles to L
 - **Complete Compiler Pipeline**: Lexer → Parser → Semantic Analyzer → LLVM IR Code Generator
 - **Native Compilation**: Direct compilation to native executables via LLVM
 - **Ownership Semantics**: Explicit memory management with `^` (owned), `&` (reference), and `%` (copy)
-- **Generic Templates**: Full template support with constraints
+- **Generic Templates**: Full template support with [constraints](docs/CONSTRAINTS.md)
 - **Object-Oriented**: Classes, inheritance, access modifiers, methods, and properties
 - **Type-Safe**: Static type checking with comprehensive error reporting
+- **Reflection System**: Runtime type introspection ([details](docs/REFLECTION_SYSTEM.md))
 - **Self-Hosting Standard Library**: Standard library written in XXML itself
 
 ## Quick Start
@@ -17,6 +18,11 @@ A production-ready compiler for the XXML programming language that compiles to L
 ### Building the Compiler
 
 ```bash
+# Using CMake Presets (recommended)
+cmake --preset x64-release
+cmake --build --preset x64-release
+
+# Or manually
 cmake -B build
 cmake --build build --config Release
 ```
@@ -24,190 +30,202 @@ cmake --build build --config Release
 ### Compiling XXML Code
 
 ```bash
-# Compile an XXML file to LLVM IR
-xxml input.XXML output.ll 2
+# Compile to native executable
+xxml input.XXML output.exe
 
-# The compiler can also produce native executables directly
+# Compile with verbose output (level 2)
+xxml input.XXML output.exe 2
 ```
 
-### Example: Hello World
+### Hello World
 
 ```xxml
-#import System;
+#import Language::Core;
 
 [ Entrypoint
     {
-        Instantiate String As <message> = String::Constructor("Hello, World!");
-        Run System::Print(message);
+        Instantiate String^ As <message> = String::Constructor("Hello, World!");
+        Run Console::printLine(message);
         Exit(0);
     }
 ]
 ```
 
-## Language Features
+## Language Overview
 
 ### Ownership System
 
-XXML uses explicit ownership semantics:
+XXML uses explicit ownership semantics for memory safety:
 
-- `^` **Owned** - Unique ownership
-- `&` **Reference** - Borrowed reference
-- `%` **Copy** - Value copy
+| Modifier | Symbol | Meaning |
+|----------|--------|---------|
+| Owned | `^` | Unique ownership, responsible for lifetime |
+| Reference | `&` | Borrowed reference, does not own |
+| Copy | `%` | Value copy, creates independent copy |
 
 ```xxml
 Property <ownedString> Types String^;    // Owned
-Property <refString> Types String&;      // Reference
-Property <copiedInt> Types Integer%;     // Copy
+Parameter <refString> Types String&;     // Reference
+Parameter <copiedInt> Types Integer%;    // Copy
 ```
 
-### Classes and Inheritance
+See [Types and Ownership](docs/LANGUAGE_SPEC.md#types-and-ownership) for details.
+
+### Classes
 
 ```xxml
-[ Class <MyClass> Final Extends BaseClass
-    [ Public <>
-        Property <x> Types Integer^;
-        Constructor = default;
+[ Class <Person> Final Extends None
+    [ Private <>
+        Property <name> Types String^;
+        Property <age> Types Integer^;
+    ]
 
-        Method <doSomething> Returns None Parameters () ->
+    [ Public <>
+        Constructor Parameters (
+            Parameter <n> Types String^,
+            Parameter <a> Types Integer^
+        ) ->
         {
-            // Method body
+            Set name = n;
+            Set age = a;
+        }
+
+        Method <greet> Returns String^ Parameters () Do
+        {
+            Return String::Constructor("Hello, ").concat(name);
         }
     ]
-    [ Private <>
-        Property <privateData> Types String^;
-    ]
 ]
 ```
 
-### Templates with Constraints
+### Templates
 
 ```xxml
-[ Template <T> Where T Numeric
-    [ Class <Container> Final Extends None
-        [ Public <>
-            Property <value> Types T^;
-        ]
+[ Class <Box> <T Constrains None> Final Extends None
+    [ Public <>
+        Property <value> Types T^;
+        Constructor = default;
     ]
 ]
+
+// Usage: type uses <>, constructor uses @
+Instantiate Box<Integer>^ As <box> = Box@Integer::Constructor(Integer::Constructor(42));
 ```
 
-### Namespaces
+See [Templates](docs/TEMPLATES.md) and [Constraints](docs/CONSTRAINTS.md).
+
+### Lambdas
 
 ```xxml
-[ Namespace <MyNamespace::Nested>
-    [ Class <MyClass> Final Extends None
-        // ...
-    ]
-]
+Instantiate Integer^ As <multiplier> = Integer::Constructor(5);
+
+Instantiate F(Integer^)(Integer&)^ As <multiply> = [ Lambda [%multiplier] Returns Integer^ Parameters (
+    Parameter <n> Types Integer&
+) {
+    Return n.multiply(multiplier);
+}];
+
+Instantiate Integer^ As <result> = multiply.call(Integer::Constructor(3));  // 15
 ```
+
+See [Lambdas](docs/LANGUAGE_SPEC.md#lambdas-and-function-references).
 
 ### Control Flow
 
 ```xxml
-// For loops with ranges
-For (Integer <i> = 0 .. 10) ->
+// Range-based for loop (start inclusive, end exclusive)
+For (Integer^ <i> = 0 .. 10) ->
 {
-    Run System::Print(String::Convert(i));
+    Run Console::printLine(i.toString());
 }
 
-// Method calls
-Run myObject.someMethod(arg1, &arg2);
+// While loop
+While (condition) ->
+{
+    // body
+}
 
-// Variable instantiation
-Instantiate Integer As <x> = 42i;
+// If/Else
+If (condition) -> {
+    // then
+} Else -> {
+    // else
+}
 ```
 
 ## Project Structure
 
 ```
 XXMLCompiler/
-├── include/           # Header files
-│   ├── Backends/      # Code generation backends (LLVM, C++)
-│   ├── CodeGen/       # Code generator interface
-│   ├── Common/        # Error reporting, source locations
-│   ├── Core/          # Type registry, operators, contexts
-│   ├── Driver/        # Compilation orchestration
-│   ├── Import/        # Module/import resolution
-│   ├── Lexer/         # Tokenization
-│   ├── Linker/        # Platform linkers (MSVC, GNU)
-│   ├── Parser/        # AST and parsing
-│   ├── Semantic/      # Type checking, symbol tables
-│   └── Utils/         # Process utilities
-├── src/               # Implementation files (mirrors include/)
-├── Language/          # XXML Standard Library
-│   ├── Collections/   # Array, List, HashMap, Set, Stack, Queue
-│   ├── Core/          # Bool, Double, Float, Integer, String, Mem, None
-│   ├── IO/            # File operations
-│   ├── System/        # Console, System
-│   ├── Math/          # Math functions
-│   ├── Text/          # Regex, StringUtils
-│   ├── Time/          # DateTime
-│   ├── Network/       # HTTP
-│   ├── Format/        # JSON
-│   └── Concurrent/    # Threading
-├── runtime/           # C runtime for LLVM IR
-├── examples/          # Example XXML programs
-├── tests/             # Test files
-├── docs/              # Documentation
-└── CMakeLists.txt     # CMake build configuration
+├── include/              # Header files
+│   ├── Backends/         # Code generation backends (LLVM)
+│   ├── CodeGen/          # Code generator interface
+│   ├── Common/           # Error reporting, source locations
+│   ├── Core/             # Type registry, operators, contexts
+│   ├── Driver/           # Compilation orchestration
+│   ├── Import/           # Module/import resolution
+│   ├── Lexer/            # Tokenization
+│   ├── Linker/           # Platform linkers (MSVC, GNU)
+│   ├── Parser/           # AST and parsing
+│   ├── Semantic/         # Type checking, symbol tables
+│   └── Utils/            # Process utilities
+├── src/                  # Implementation files
+├── Language/             # XXML Standard Library (source)
+│   ├── Collections/      # Array, List, HashMap, Set, Stack, Queue
+│   ├── Core/             # Bool, Double, Float, Integer, String, Mem, None
+│   ├── IO/               # File operations
+│   ├── System/           # Console, System
+│   ├── Math/             # Math functions
+│   ├── Text/             # Regex, StringUtils
+│   ├── Time/             # DateTime
+│   ├── Network/          # HTTP
+│   ├── Format/           # JSON
+│   ├── Reflection/       # Runtime type introspection
+│   └── Concurrent/       # Threading
+├── runtime/              # C runtime for LLVM IR
+├── examples/             # Example XXML programs
+├── tests/                # Test files
+├── docs/                 # Documentation
+└── CMakeLists.txt        # CMake build configuration
 ```
-
-## Compiler Architecture
-
-### 1. Lexical Analysis (Lexer)
-- Tokenizes source code into tokens
-- Handles keywords, identifiers, literals, operators
-- Tracks source locations for error reporting
-
-### 2. Syntax Analysis (Parser)
-- Builds Abstract Syntax Tree (AST)
-- Recursive descent parser
-- Error recovery and detailed error messages
-
-### 3. Semantic Analysis
-- Symbol table management
-- Type checking and inference
-- Ownership semantics validation
-- Template instantiation
-- Name resolution
-
-### 4. Code Generation (LLVM Backend)
-- Generates LLVM IR
-- Supports multiple target platforms
-- Links with platform-specific linkers (MSVC, GNU)
 
 ## Standard Library
 
-The XXML standard library is written in XXML itself:
+| Module | Description |
+|--------|-------------|
+| `Language::Core` | Primitives: Integer, String, Bool, Float, Double, None, Mem |
+| `Language::Collections` | Array, List, HashMap, Set, Stack, Queue |
+| `Language::System` | Console I/O, System utilities |
+| `Language::IO` | File operations |
+| `Language::Math` | Mathematical functions |
+| `Language::Text` | Regex, String utilities |
+| `Language::Time` | DateTime handling |
+| `Language::Format` | JSON parsing |
+| `Language::Concurrent` | Threading, mutexes, atomics |
+| `Language::Reflection` | Runtime type introspection |
+| `Language::Network` | HTTP client |
 
-- **Language::Core** - Primitive types (Integer, String, Bool, Float, Double)
-- **Language::Collections** - Array, List, HashMap, Set, Stack, Queue
-- **Language::System** - Console I/O, System utilities
-- **Language::IO** - File operations
-- **Language::Math** - Mathematical functions
-- **Language::Text** - Regex, String utilities
-- **Language::Time** - DateTime handling
-- **Language::Format** - JSON parsing
-- **Language::Concurrent** - Threading support
+## Documentation
+
+| Document | Description |
+|----------|-------------|
+| [Language Specification](docs/LANGUAGE_SPEC.md) | Complete language syntax and semantics |
+| [Templates](docs/TEMPLATES.md) | Generic programming with templates |
+| [Constraints](docs/CONSTRAINTS.md) | Template constraints system |
+| [Advanced Features](docs/ADVANCED_FEATURES.md) | Destructors, native types, syscalls |
+| [Reflection System](docs/REFLECTION_SYSTEM.md) | Runtime type introspection |
+| [Threading](docs/THREADING.md) | Concurrency and synchronization |
+| [Architecture](docs/ARCHITECTURE.md) | Compiler architecture |
+| [Limitations](docs/LIMITATIONS.md) | Known limitations and TODOs |
+| [Quick Start](QUICKSTART.md) | Getting started guide |
+| [Contributing](CONTRIBUTING.md) | Contribution guidelines |
+| [Testing](TESTING.md) | Test suite information |
 
 ## Requirements
 
 - C++20 compatible compiler (GCC 10+, Clang 10+, MSVC 2019+)
 - CMake 3.20 or higher
-
-## Building
-
-**Using CMake Presets (recommended):**
-```bash
-cmake --preset x64-release
-cmake --build --preset x64-release
-```
-
-**Or manually:**
-```bash
-cmake -B build
-cmake --build build --config Release
-```
+- LLVM (for code generation)
 
 ## Testing
 
@@ -215,21 +233,19 @@ cmake --build build --config Release
 cd build
 ctest
 
-# Or manually:
-./bin/Release/xxml ../examples/Hello.XXML output.ll 2
+# Or run specific test
+./bin/Release/xxml ../tests/Hello.XXML hello.exe
+./hello.exe
 ```
 
-## Documentation
+## Known Limitations
 
-- [Language Specification](docs/LANGUAGE_SPEC.md)
-- [Compiler Architecture](docs/ARCHITECTURE.md)
-- [Quick Start Guide](QUICKSTART.md)
-- [Contributing Guide](CONTRIBUTING.md)
-- [Testing Guide](TESTING.md)
-
-## Contributing
-
-Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+See [docs/LIMITATIONS.md](docs/LIMITATIONS.md) for a complete list including:
+- No exception handling system
+- No interface/trait system
+- No operator overloading (use methods like `.add()`)
+- No pattern matching or switch statements
+- Reflection: dynamic method invocation not yet implemented
 
 ## License
 
@@ -237,4 +253,4 @@ This project is licensed under the MIT License - see LICENSE file for details.
 
 ---
 
-**XXML Compiler v2.0** - A modern, safe, and efficient programming language
+**XXML Compiler v2.0**

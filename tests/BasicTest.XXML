@@ -1,0 +1,8 @@
+// Basic test without IO
+
+[ Entrypoint
+    {
+        Run Console::printLine(String::Constructor("Hello, World!"));
+        Exit(0);
+    }
+]

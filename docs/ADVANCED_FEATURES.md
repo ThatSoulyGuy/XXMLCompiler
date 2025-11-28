@@ -364,23 +364,24 @@ Property <flag> Types NativeType<"bool">^;
 ### Using Native Types
 
 ```xxml
-Class <Buffer>
-[ Public <>
-    Property <data> Types NativeType<"void*">^;
-    Property <size> Types NativeType<"int64">^;
+[ Class <Buffer> Final Extends None
+    [ Public <>
+        Property <data> Types NativeType<"void*">^;
+        Property <size> Types NativeType<"int64">^;
 
-    Method <Constructor> Returns None Parameters (
-        Parameter <bufferSize> Types NativeType<"int64">%
-    ) ->
-    {
-        Set data = Syscall::malloc(bufferSize);
-        Run Syscall::memcpy(&size, &bufferSize, 8);
-    }
+        Constructor Parameters (
+            Parameter <bufferSize> Types NativeType<"int64">%
+        ) ->
+        {
+            Set data = Syscall::malloc(bufferSize);
+            Run Syscall::memcpy(&size, &bufferSize, 8);
+        }
 
-    Method <Destructor> Returns None Parameters () ->
-    {
-        Run Syscall::free(data);
-    }
+        Destructor Parameters() ->
+        {
+            Run Syscall::free(data);
+        }
+    ]
 ]
 ```
 
@@ -436,40 +437,41 @@ Run Syscall::write_byte(pointer, byteValue);
 ### Example: Custom Allocator
 
 ```xxml
-Class <MemoryPool>
-[ Public <>
-    Property <buffer> Types NativeType<"void*">^;
-    Property <capacity> Types NativeType<"int64">^;
-    Property <used> Types NativeType<"int64">^;
+[ Class <MemoryPool> Final Extends None
+    [ Public <>
+        Property <buffer> Types NativeType<"void*">^;
+        Property <capacity> Types NativeType<"int64">^;
+        Property <used> Types NativeType<"int64">^;
 
-    Method <Constructor> Returns None Parameters (
-        Parameter <size> Types NativeType<"int64">%
-    ) ->
-    {
-        Set buffer = Syscall::malloc(size);
-        Run Syscall::memcpy(&capacity, &size, 8);
-        Instantiate NativeType<"int64">^ As <zero> = 0;
-        Run Syscall::memcpy(&used, &zero, 8);
-    }
+        Constructor Parameters (
+            Parameter <size> Types NativeType<"int64">%
+        ) ->
+        {
+            Set buffer = Syscall::malloc(size);
+            Run Syscall::memcpy(&capacity, &size, 8);
+            Instantiate NativeType<"int64">^ As <zero> = 0;
+            Run Syscall::memcpy(&used, &zero, 8);
+        }
 
-    Method <allocate> Returns NativeType<"void*">^ Parameters (
-        Parameter <size> Types NativeType<"int64">%
-    ) ->
-    {
-        // Calculate next position
-        Instantiate NativeType<"void*">^ As <ptr> = buffer + used;
+        Method <allocate> Returns NativeType<"void*">^ Parameters (
+            Parameter <size> Types NativeType<"int64">%
+        ) Do
+        {
+            // Calculate next position
+            Instantiate NativeType<"void*">^ As <ptr> = buffer + used;
 
-        // Update used count
-        Instantiate NativeType<"int64">^ As <newUsed> = used + size;
-        Run Syscall::memcpy(&used, &newUsed, 8);
+            // Update used count
+            Instantiate NativeType<"int64">^ As <newUsed> = used + size;
+            Run Syscall::memcpy(&used, &newUsed, 8);
 
-        Return ptr;
-    }
+            Return ptr;
+        }
 
-    Method <Destructor> Returns None Parameters () ->
-    {
-        Run Syscall::free(buffer);
-    }
+        Destructor Parameters() ->
+        {
+            Run Syscall::free(buffer);
+        }
+    ]
 ]
 ```
 
@@ -482,35 +484,36 @@ XXML supports fluent interfaces through method chaining:
 Methods that return `this` enable chaining:
 
 ```xxml
-Class <StringBuilder>
-[ Public <>
-    Property <text> Types String^;
+[ Class <StringBuilder> Final Extends None
+    [ Public <>
+        Property <text> Types String^;
 
-    Method <Constructor> Returns None Parameters () ->
-    {
-        Set text = String::Constructor("");
-    }
+        Constructor Parameters () ->
+        {
+            Set text = String::Constructor("");
+        }
 
-    Method <append> Returns StringBuilder^ Parameters (
-        Parameter <str> Types String^
-    ) ->
-    {
-        Set text = text.concat(str);
-        Return this;  // Enable chaining
-    }
+        Method <append> Returns StringBuilder^ Parameters (
+            Parameter <str> Types String^
+        ) Do
+        {
+            Set text = text.concat(str);
+            Return this;  // Enable chaining
+        }
 
-    Method <appendLine> Returns StringBuilder^ Parameters (
-        Parameter <str> Types String^
-    ) ->
-    {
-        Set text = text.concat(str).concat(String::Constructor("\n"));
-        Return this;  // Enable chaining
-    }
+        Method <appendLine> Returns StringBuilder^ Parameters (
+            Parameter <str> Types String^
+        ) Do
+        {
+            Set text = text.concat(str).concat(String::Constructor("\n"));
+            Return this;  // Enable chaining
+        }
 
-    Method <toString> Returns String^ Parameters () ->
-    {
-        Return text;
-    }
+        Method <toString> Returns String^ Parameters () Do
+        {
+            Return text;
+        }
+    ]
 ]
 ```
 
@@ -572,11 +575,12 @@ Control visibility of class members:
 Accessible from anywhere:
 
 ```xxml
-Class <MyClass>
-[ Public <>
-    Property <publicProp> Types Integer^;
+[ Class <MyClass> Final Extends None
+    [ Public <>
+        Property <publicProp> Types Integer^;
 
-    Method <publicMethod> Returns None Parameters () -> { }
+        Method <publicMethod> Returns None Parameters () Do { }
+    ]
 ]
 ```
 
@@ -585,19 +589,20 @@ Class <MyClass>
 Only accessible within the class:
 
 ```xxml
-Class <MyClass>
-[ Private <>
-    Property <privateProp> Types Integer^;
+[ Class <MyClass> Final Extends None
+    [ Private <>
+        Property <privateProp> Types Integer^;
 
-    Method <privateHelper> Returns None Parameters () -> { }
-]
+        Method <privateHelper> Returns None Parameters () Do { }
+    ]
 
-[ Public <>
-    Method <publicMethod> Returns None Parameters () ->
-    {
-        // Can access private members here
-        Run privateHelper();
-    }
+    [ Public <>
+        Method <publicMethod> Returns None Parameters () Do
+        {
+            // Can access private members here
+            Run privateHelper();
+        }
+    ]
 ]
 ```
 
@@ -606,58 +611,59 @@ Class <MyClass>
 Accessible in the class and derived classes:
 
 ```xxml
-Class <Base>
-[ Protected <>
-    Property <protectedProp> Types Integer^;
+[ Class <Base> Extends None
+    [ Protected <>
+        Property <protectedProp> Types Integer^;
 
-    Method <protectedMethod> Returns None Parameters () -> { }
+        Method <protectedMethod> Returns None Parameters () Do { }
+    ]
 ]
 ```
 
 ### Example with All Modifiers
 
 ```xxml
-Class <BankAccount>
-[ Private <>
-    Property <balance> Types Integer^;
+[ Class <BankAccount> Final Extends None
+    [ Private <>
+        Property <balance> Types Integer^;
 
-    Method <validateAmount> Returns Bool^ Parameters (
-        Parameter <amount> Types Integer^
-    ) ->
-    {
-        Return amount.greaterThan(Integer::Constructor(0));
-    }
-]
-
-[ Protected <>
-    Property <accountId> Types String^;
-
-    Method <logTransaction> Returns None Parameters (
-        Parameter <desc> Types String^
-    ) -> { }
-]
-
-[ Public <>
-    Method <Constructor> Returns None Parameters () ->
-    {
-        Set balance = Integer::Constructor(0);
-    }
-
-    Method <deposit> Returns None Parameters (
-        Parameter <amount> Types Integer^
-    ) ->
-    {
-        If (validateAmount(amount)) ->
+        Method <validateAmount> Returns Bool^ Parameters (
+            Parameter <amount> Types Integer^
+        ) Do
         {
-            Set balance = balance.add(amount);
-            Run logTransaction(String::Constructor("Deposit"));
+            Return amount.greaterThan(Integer::Constructor(0));
         }
-    }
+    ]
 
-    Method <getBalance> Returns Integer^ Parameters () ->
-    {
-        Return balance;
-    }
+    [ Protected <>
+        Property <accountId> Types String^;
+
+        Method <logTransaction> Returns None Parameters (
+            Parameter <desc> Types String^
+        ) Do { }
+    ]
+
+    [ Public <>
+        Constructor Parameters () ->
+        {
+            Set balance = Integer::Constructor(0);
+        }
+
+        Method <deposit> Returns None Parameters (
+            Parameter <amount> Types Integer^
+        ) Do
+        {
+            If (validateAmount(amount)) -> {
+                Set balance = balance.add(amount);
+                Run logTransaction(String::Constructor("Deposit"));
+            }
+        }
+
+        Method <getBalance> Returns Integer^ Parameters () Do
+        {
+            Return balance;
+        }
+    ]
 ]
 ```
 
@@ -668,9 +674,10 @@ Prevent inheritance with the `Final` keyword:
 ### Syntax
 
 ```xxml
-Class <UtilityClass> Final Extends None
-[ Public <>
-    Method <helperMethod> Returns None Parameters () -> { }
+[ Class <UtilityClass> Final Extends None
+    [ Public <>
+        Method <helperMethod> Returns None Parameters () Do { }
+    ]
 ]
 ```
 
@@ -684,14 +691,16 @@ Class <UtilityClass> Final Extends None
 
 ```xxml
 // String is final - cannot be extended
-Class <String> Final Extends None
-[ Public <>
-    Method <length> Returns Integer^ Parameters () -> { }
-    Method <concat> Returns String^ Parameters (Parameter <other> Types String^) -> { }
+[ Class <String> Final Extends None
+    [ Public <>
+        Method <length> Returns Integer^ Parameters () Do { }
+        Method <concat> Returns String^ Parameters (Parameter <other> Types String^) Do { }
+    ]
 ]
 
 // Error: Cannot extend final class
-Class <MyString> Extends String  // Compile error
+[ Class <MyString> Extends String  // Compile error
+]
 ```
 
 ## Best Practices Summary
@@ -722,7 +731,9 @@ Class <MyString> Extends String  // Compile error
 
 ## See Also
 
-- [TEMPLATES.md](TEMPLATES.md) - Template programming
-- [CONSTRAINTS.md](CONSTRAINTS.md) - Template constraints
-- [LOOPS.md](LOOPS.md) - Loop constructs
-- [LANGUAGE_SPEC.md](LANGUAGE_SPEC.md) - Complete language specification
+- [Language Specification](LANGUAGE_SPEC.md) - Complete language syntax and semantics
+- [Templates](TEMPLATES.md) - Generic programming with templates
+- [Constraints](CONSTRAINTS.md) - Template constraints system
+- [Reflection System](REFLECTION_SYSTEM.md) - Runtime type introspection
+- [Threading](THREADING.md) - Concurrency and synchronization
+- [Limitations](LIMITATIONS.md) - Known limitations and TODOs

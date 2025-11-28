@@ -1,0 +1,40 @@
+#import Language::Core;
+#import Language::IO;
+
+// File Flush Test
+
+[ Entrypoint
+    {
+        Run Console::printLine(String::Constructor("=== File Flush Test ==="));
+
+        // Create file and write
+        Run Console::printLine(String::Constructor("1. Writing data..."));
+        Instantiate IO::File^ As <f> = IO::File::Constructor(
+            String::Constructor("flush_test.txt"),
+            String::Constructor("w")
+        );
+        Run f.writeLine(String::Constructor("Before flush"));
+
+        // Flush without closing
+        Run Console::printLine(String::Constructor("2. Flushing..."));
+        Instantiate Integer^ As <flushResult> = f.flush();
+        Run Console::printLine(String::Constructor("   Flush returned: "));
+        Run Console::printLine(flushResult.toString());
+
+        // Write more after flush
+        Run Console::printLine(String::Constructor("3. Writing more data after flush..."));
+        Run f.writeLine(String::Constructor("After flush"));
+        Run f.close();
+        Run Console::printLine(String::Constructor("   Closed."));
+
+        // Read content
+        Run Console::printLine(String::Constructor("4. Reading content:"));
+        Instantiate String^ As <content> = IO::File::readAll(String::Constructor("flush_test.txt"));
+        Run Console::printLine(content);
+
+        // Cleanup
+        Run IO::File::delete(String::Constructor("flush_test.txt"));
+        Run Console::printLine(String::Constructor("=== Flush Test Complete ==="));
+        Exit(0);
+    }
+]

@@ -1,0 +1,73 @@
+#import Language::Core;
+
+// Multi-threaded test - spawn multiple threads that increment a shared counter
+
+[ Entrypoint
+    {
+        Run Console::printLine(String::Constructor("=== Multi-Thread Test ==="));
+
+        // Shared atomic counter
+        Instantiate NativeType<"int64">^ As <zero> = 0;
+        Instantiate NativeType<"ptr">^ As <counter> = Syscall::Atomic_create(zero);
+
+        // Create thread 1 - increments counter 5 times
+        Instantiate F(None^)()^ As <thread1Func> = [ Lambda [&counter] Returns None^ Parameters () {
+            Run Console::printLine(String::Constructor("Thread 1 starting..."));
+            Instantiate NativeType<"int64">^ As <one> = 1;
+            Run Syscall::Atomic_add(counter, one);
+            Run Syscall::Atomic_add(counter, one);
+            Run Syscall::Atomic_add(counter, one);
+            Run Syscall::Atomic_add(counter, one);
+            Run Syscall::Atomic_add(counter, one);
+            Run Console::printLine(String::Constructor("Thread 1 done."));
+            Return None::Constructor();
+        }];
+
+        // Create thread 2 - increments counter 5 times
+        Instantiate F(None^)()^ As <thread2Func> = [ Lambda [&counter] Returns None^ Parameters () {
+            Run Console::printLine(String::Constructor("Thread 2 starting..."));
+            Instantiate NativeType<"int64">^ As <one> = 1;
+            Run Syscall::Atomic_add(counter, one);
+            Run Syscall::Atomic_add(counter, one);
+            Run Syscall::Atomic_add(counter, one);
+            Run Syscall::Atomic_add(counter, one);
+            Run Syscall::Atomic_add(counter, one);
+            Run Console::printLine(String::Constructor("Thread 2 done."));
+            Return None::Constructor();
+        }];
+
+        // Create thread 3 - increments counter 5 times
+        Instantiate F(None^)()^ As <thread3Func> = [ Lambda [&counter] Returns None^ Parameters () {
+            Run Console::printLine(String::Constructor("Thread 3 starting..."));
+            Instantiate NativeType<"int64">^ As <one> = 1;
+            Run Syscall::Atomic_add(counter, one);
+            Run Syscall::Atomic_add(counter, one);
+            Run Syscall::Atomic_add(counter, one);
+            Run Syscall::Atomic_add(counter, one);
+            Run Syscall::Atomic_add(counter, one);
+            Run Console::printLine(String::Constructor("Thread 3 done."));
+            Return None::Constructor();
+        }];
+
+        // Spawn all threads
+        Run Console::printLine(String::Constructor("Spawning 3 threads..."));
+        Instantiate NativeType<"ptr">^ As <t1> = Syscall::Thread_spawn_lambda(thread1Func);
+        Instantiate NativeType<"ptr">^ As <t2> = Syscall::Thread_spawn_lambda(thread2Func);
+        Instantiate NativeType<"ptr">^ As <t3> = Syscall::Thread_spawn_lambda(thread3Func);
+
+        // Wait for all threads
+        Run Console::printLine(String::Constructor("Waiting for all threads..."));
+        Run Syscall::Thread_join(t1);
+        Run Syscall::Thread_join(t2);
+        Run Syscall::Thread_join(t3);
+
+        // Check final counter (should be 15: 5 * 3 threads)
+        Instantiate NativeType<"int64">^ As <finalCount> = Syscall::Atomic_load(counter);
+        Run Console::printLine(String::Constructor("Final counter (expect 15): "));
+        Run Console::printLine(Integer::Constructor(finalCount).toString());
+
+        Run Syscall::Atomic_destroy(counter);
+        Run Console::printLine(String::Constructor("=== Multi-Thread Test Complete ==="));
+        Exit(0);
+    }
+]

@@ -4,6 +4,19 @@
 #include <string.h>
 #include <stdio.h>
 
+// Platform-specific includes for threading
+#ifdef _WIN32
+    #define WIN32_LEAN_AND_MEAN
+    #include <windows.h>
+    #include <process.h>
+#else
+    #include <pthread.h>
+    #include <unistd.h>
+    #include <sched.h>
+    #include <time.h>
+    #include <errno.h>
+#endif
+
 // ============================================
 // Memory Management
 // ============================================
@@ -927,3 +940,978 @@ void* Language_Reflection_Type_getMethodAt(void* self, void* index) {
 // NOTE: Language::Reflection::GetType<T> template implementations are NOT included here
 // because the compiler generates them. We only provide the base Type/PropertyInfo/MethodInfo
 // class implementations which the compiler cannot generate due to AST corruption issues.
+
+// ============================================
+// Threading Implementation
+// ============================================
+
+#ifdef _WIN32
+
+// Windows thread wrapper structure
+typedef struct {
+    void* (*func)(void*);
+    void* arg;
+    void* result;
+    HANDLE handle;
+    bool joinable;
+} ThreadInfo;
+
+// Windows thread entry point
+static unsigned __stdcall win_thread_entry(void* arg) {
+    ThreadInfo* info = (ThreadInfo*)arg;
+    info->result = info->func(info->arg);
+    return 0;
+}
+
+void* xxml_Thread_create(void* (*func)(void*), void* arg) {
+    ThreadInfo* info = (ThreadInfo*)xxml_malloc(sizeof(ThreadInfo));
+    if (!info) return NULL;
+
+    info->func = func;
+    info->arg = arg;
+    info->result = NULL;
+    info->joinable = true;
+
+    info->handle = (HANDLE)_beginthreadex(NULL, 0, win_thread_entry, info, 0, NULL);
+    if (info->handle == 0) {
+        xxml_free(info);
+        return NULL;
+    }
+
+    return info;
+}
+
+int64_t xxml_Thread_join(void* thread_handle) {
+    if (!thread_handle) return -1;
+    ThreadInfo* info = (ThreadInfo*)thread_handle;
+
+    if (!info->joinable) return -1;
+
+    DWORD result = WaitForSingleObject(info->handle, INFINITE);
+    if (result != WAIT_OBJECT_0) return -1;
+
+    CloseHandle(info->handle);
+    info->joinable = false;
+    xxml_free(info);
+    return 0;
+}
+
+int64_t xxml_Thread_detach(void* thread_handle) {
+    if (!thread_handle) return -1;
+    ThreadInfo* info = (ThreadInfo*)thread_handle;
+
+    if (!info->joinable) return -1;
+
+    CloseHandle(info->handle);
+    info->joinable = false;
+    // Note: memory will leak, but detached threads are fire-and-forget
+    return 0;
+}
+
+bool xxml_Thread_isJoinable(void* thread_handle) {
+    if (!thread_handle) return false;
+    ThreadInfo* info = (ThreadInfo*)thread_handle;
+    return info->joinable;
+}
+
+void xxml_Thread_sleep(int64_t milliseconds) {
+    Sleep((DWORD)milliseconds);
+}
+
+void xxml_Thread_yield(void) {
+    SwitchToThread();
+}
+
+int64_t xxml_Thread_currentId(void) {
+    return (int64_t)GetCurrentThreadId();
+}
+
+// Lambda trampoline for thread spawning
+// XXML lambda closures have the function pointer as their first field
+typedef void* (*LambdaFn)(void*);
+
+static void* lambda_trampoline(void* closure) {
+    // Extract function pointer from first field of closure struct
+    LambdaFn fn = *(LambdaFn*)closure;
+    // Call the lambda with its closure
+    return fn(closure);
+}
+
+void* xxml_Thread_spawn_lambda(void* lambda_closure) {
+    if (!lambda_closure) return NULL;
+    return xxml_Thread_create(lambda_trampoline, lambda_closure);
+}
+
+// Windows Mutex implementation
+void* xxml_Mutex_create(void) {
+    CRITICAL_SECTION* cs = (CRITICAL_SECTION*)xxml_malloc(sizeof(CRITICAL_SECTION));
+    if (!cs) return NULL;
+    InitializeCriticalSection(cs);
+    return cs;
+}
+
+void xxml_Mutex_destroy(void* mutex_handle) {
+    if (!mutex_handle) return;
+    CRITICAL_SECTION* cs = (CRITICAL_SECTION*)mutex_handle;
+    DeleteCriticalSection(cs);
+    xxml_free(cs);
+}
+
+int64_t xxml_Mutex_lock(void* mutex_handle) {
+    if (!mutex_handle) return -1;
+    CRITICAL_SECTION* cs = (CRITICAL_SECTION*)mutex_handle;
+    EnterCriticalSection(cs);
+    return 0;
+}
+
+int64_t xxml_Mutex_unlock(void* mutex_handle) {
+    if (!mutex_handle) return -1;
+    CRITICAL_SECTION* cs = (CRITICAL_SECTION*)mutex_handle;
+    LeaveCriticalSection(cs);
+    return 0;
+}
+
+bool xxml_Mutex_tryLock(void* mutex_handle) {
+    if (!mutex_handle) return false;
+    CRITICAL_SECTION* cs = (CRITICAL_SECTION*)mutex_handle;
+    return TryEnterCriticalSection(cs) != 0;
+}
+
+// Windows Condition Variable implementation
+void* xxml_CondVar_create(void) {
+    CONDITION_VARIABLE* cv = (CONDITION_VARIABLE*)xxml_malloc(sizeof(CONDITION_VARIABLE));
+    if (!cv) return NULL;
+    InitializeConditionVariable(cv);
+    return cv;
+}
+
+void xxml_CondVar_destroy(void* cond_handle) {
+    if (!cond_handle) return;
+    // Windows condition variables don't need explicit destruction
+    xxml_free(cond_handle);
+}
+
+int64_t xxml_CondVar_wait(void* cond_handle, void* mutex_handle) {
+    if (!cond_handle || !mutex_handle) return -1;
+    CONDITION_VARIABLE* cv = (CONDITION_VARIABLE*)cond_handle;
+    CRITICAL_SECTION* cs = (CRITICAL_SECTION*)mutex_handle;
+
+    if (!SleepConditionVariableCS(cv, cs, INFINITE)) {
+        return -1;
+    }
+    return 0;
+}
+
+int64_t xxml_CondVar_waitTimeout(void* cond_handle, void* mutex_handle, int64_t timeout_ms) {
+    if (!cond_handle || !mutex_handle) return -1;
+    CONDITION_VARIABLE* cv = (CONDITION_VARIABLE*)cond_handle;
+    CRITICAL_SECTION* cs = (CRITICAL_SECTION*)mutex_handle;
+
+    if (!SleepConditionVariableCS(cv, cs, (DWORD)timeout_ms)) {
+        if (GetLastError() == ERROR_TIMEOUT) {
+            return 1;  // Timeout
+        }
+        return -1;  // Error
+    }
+    return 0;  // Signaled
+}
+
+int64_t xxml_CondVar_signal(void* cond_handle) {
+    if (!cond_handle) return -1;
+    CONDITION_VARIABLE* cv = (CONDITION_VARIABLE*)cond_handle;
+    WakeConditionVariable(cv);
+    return 0;
+}
+
+int64_t xxml_CondVar_broadcast(void* cond_handle) {
+    if (!cond_handle) return -1;
+    CONDITION_VARIABLE* cv = (CONDITION_VARIABLE*)cond_handle;
+    WakeAllConditionVariable(cv);
+    return 0;
+}
+
+// Windows TLS implementation
+void* xxml_TLS_create(void) {
+    DWORD* key = (DWORD*)xxml_malloc(sizeof(DWORD));
+    if (!key) return NULL;
+    *key = TlsAlloc();
+    if (*key == TLS_OUT_OF_INDEXES) {
+        xxml_free(key);
+        return NULL;
+    }
+    return key;
+}
+
+void xxml_TLS_destroy(void* tls_key) {
+    if (!tls_key) return;
+    DWORD* key = (DWORD*)tls_key;
+    TlsFree(*key);
+    xxml_free(key);
+}
+
+void* xxml_TLS_get(void* tls_key) {
+    if (!tls_key) return NULL;
+    DWORD* key = (DWORD*)tls_key;
+    return TlsGetValue(*key);
+}
+
+void xxml_TLS_set(void* tls_key, void* value) {
+    if (!tls_key) return;
+    DWORD* key = (DWORD*)tls_key;
+    TlsSetValue(*key, value);
+}
+
+#else  // POSIX implementation
+
+// POSIX thread wrapper structure
+typedef struct {
+    pthread_t thread;
+    bool joinable;
+} ThreadInfo;
+
+void* xxml_Thread_create(void* (*func)(void*), void* arg) {
+    ThreadInfo* info = (ThreadInfo*)xxml_malloc(sizeof(ThreadInfo));
+    if (!info) return NULL;
+
+    info->joinable = true;
+
+    int result = pthread_create(&info->thread, NULL, func, arg);
+    if (result != 0) {
+        xxml_free(info);
+        return NULL;
+    }
+
+    return info;
+}
+
+int64_t xxml_Thread_join(void* thread_handle) {
+    if (!thread_handle) return -1;
+    ThreadInfo* info = (ThreadInfo*)thread_handle;
+
+    if (!info->joinable) return -1;
+
+    void* result;
+    int ret = pthread_join(info->thread, &result);
+    if (ret != 0) return -1;
+
+    info->joinable = false;
+    xxml_free(info);
+    return 0;
+}
+
+int64_t xxml_Thread_detach(void* thread_handle) {
+    if (!thread_handle) return -1;
+    ThreadInfo* info = (ThreadInfo*)thread_handle;
+
+    if (!info->joinable) return -1;
+
+    int ret = pthread_detach(info->thread);
+    if (ret != 0) return -1;
+
+    info->joinable = false;
+    return 0;
+}
+
+bool xxml_Thread_isJoinable(void* thread_handle) {
+    if (!thread_handle) return false;
+    ThreadInfo* info = (ThreadInfo*)thread_handle;
+    return info->joinable;
+}
+
+void xxml_Thread_sleep(int64_t milliseconds) {
+    struct timespec ts;
+    ts.tv_sec = milliseconds / 1000;
+    ts.tv_nsec = (milliseconds % 1000) * 1000000;
+    nanosleep(&ts, NULL);
+}
+
+void xxml_Thread_yield(void) {
+    sched_yield();
+}
+
+int64_t xxml_Thread_currentId(void) {
+    return (int64_t)pthread_self();
+}
+
+// Lambda trampoline for thread spawning (POSIX)
+typedef void* (*LambdaFnPosix)(void*);
+
+static void* lambda_trampoline_posix(void* closure) {
+    // Extract function pointer from first field of closure struct
+    LambdaFnPosix fn = *(LambdaFnPosix*)closure;
+    // Call the lambda with its closure
+    return fn(closure);
+}
+
+void* xxml_Thread_spawn_lambda(void* lambda_closure) {
+    if (!lambda_closure) return NULL;
+    return xxml_Thread_create(lambda_trampoline_posix, lambda_closure);
+}
+
+// POSIX Mutex implementation
+void* xxml_Mutex_create(void) {
+    pthread_mutex_t* mutex = (pthread_mutex_t*)xxml_malloc(sizeof(pthread_mutex_t));
+    if (!mutex) return NULL;
+
+    if (pthread_mutex_init(mutex, NULL) != 0) {
+        xxml_free(mutex);
+        return NULL;
+    }
+    return mutex;
+}
+
+void xxml_Mutex_destroy(void* mutex_handle) {
+    if (!mutex_handle) return;
+    pthread_mutex_t* mutex = (pthread_mutex_t*)mutex_handle;
+    pthread_mutex_destroy(mutex);
+    xxml_free(mutex);
+}
+
+int64_t xxml_Mutex_lock(void* mutex_handle) {
+    if (!mutex_handle) return -1;
+    pthread_mutex_t* mutex = (pthread_mutex_t*)mutex_handle;
+    return pthread_mutex_lock(mutex) == 0 ? 0 : -1;
+}
+
+int64_t xxml_Mutex_unlock(void* mutex_handle) {
+    if (!mutex_handle) return -1;
+    pthread_mutex_t* mutex = (pthread_mutex_t*)mutex_handle;
+    return pthread_mutex_unlock(mutex) == 0 ? 0 : -1;
+}
+
+bool xxml_Mutex_tryLock(void* mutex_handle) {
+    if (!mutex_handle) return false;
+    pthread_mutex_t* mutex = (pthread_mutex_t*)mutex_handle;
+    return pthread_mutex_trylock(mutex) == 0;
+}
+
+// POSIX Condition Variable implementation
+void* xxml_CondVar_create(void) {
+    pthread_cond_t* cond = (pthread_cond_t*)xxml_malloc(sizeof(pthread_cond_t));
+    if (!cond) return NULL;
+
+    if (pthread_cond_init(cond, NULL) != 0) {
+        xxml_free(cond);
+        return NULL;
+    }
+    return cond;
+}
+
+void xxml_CondVar_destroy(void* cond_handle) {
+    if (!cond_handle) return;
+    pthread_cond_t* cond = (pthread_cond_t*)cond_handle;
+    pthread_cond_destroy(cond);
+    xxml_free(cond);
+}
+
+int64_t xxml_CondVar_wait(void* cond_handle, void* mutex_handle) {
+    if (!cond_handle || !mutex_handle) return -1;
+    pthread_cond_t* cond = (pthread_cond_t*)cond_handle;
+    pthread_mutex_t* mutex = (pthread_mutex_t*)mutex_handle;
+
+    return pthread_cond_wait(cond, mutex) == 0 ? 0 : -1;
+}
+
+int64_t xxml_CondVar_waitTimeout(void* cond_handle, void* mutex_handle, int64_t timeout_ms) {
+    if (!cond_handle || !mutex_handle) return -1;
+    pthread_cond_t* cond = (pthread_cond_t*)cond_handle;
+    pthread_mutex_t* mutex = (pthread_mutex_t*)mutex_handle;
+
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    ts.tv_sec += timeout_ms / 1000;
+    ts.tv_nsec += (timeout_ms % 1000) * 1000000;
+    if (ts.tv_nsec >= 1000000000) {
+        ts.tv_sec++;
+        ts.tv_nsec -= 1000000000;
+    }
+
+    int ret = pthread_cond_timedwait(cond, mutex, &ts);
+    if (ret == 0) return 0;  // Signaled
+    if (ret == ETIMEDOUT) return 1;  // Timeout
+    return -1;  // Error
+}
+
+int64_t xxml_CondVar_signal(void* cond_handle) {
+    if (!cond_handle) return -1;
+    pthread_cond_t* cond = (pthread_cond_t*)cond_handle;
+    return pthread_cond_signal(cond) == 0 ? 0 : -1;
+}
+
+int64_t xxml_CondVar_broadcast(void* cond_handle) {
+    if (!cond_handle) return -1;
+    pthread_cond_t* cond = (pthread_cond_t*)cond_handle;
+    return pthread_cond_broadcast(cond) == 0 ? 0 : -1;
+}
+
+// POSIX TLS implementation
+void* xxml_TLS_create(void) {
+    pthread_key_t* key = (pthread_key_t*)xxml_malloc(sizeof(pthread_key_t));
+    if (!key) return NULL;
+
+    if (pthread_key_create(key, NULL) != 0) {
+        xxml_free(key);
+        return NULL;
+    }
+    return key;
+}
+
+void xxml_TLS_destroy(void* tls_key) {
+    if (!tls_key) return;
+    pthread_key_t* key = (pthread_key_t*)tls_key;
+    pthread_key_delete(*key);
+    xxml_free(key);
+}
+
+void* xxml_TLS_get(void* tls_key) {
+    if (!tls_key) return NULL;
+    pthread_key_t* key = (pthread_key_t*)tls_key;
+    return pthread_getspecific(*key);
+}
+
+void xxml_TLS_set(void* tls_key, void* value) {
+    if (!tls_key) return;
+    pthread_key_t* key = (pthread_key_t*)tls_key;
+    pthread_setspecific(*key, value);
+}
+
+#endif  // _WIN32 / POSIX
+
+// ============================================
+// Atomic Integer Implementation (Cross-platform using intrinsics)
+// ============================================
+
+#ifdef _WIN32
+#include <intrin.h>
+#endif
+
+typedef struct {
+    volatile int64_t value;
+} AtomicInt64;
+
+void* xxml_Atomic_create(int64_t initial_value) {
+    AtomicInt64* atomic = (AtomicInt64*)xxml_malloc(sizeof(AtomicInt64));
+    if (!atomic) return NULL;
+    atomic->value = initial_value;
+    return atomic;
+}
+
+void xxml_Atomic_destroy(void* atomic_handle) {
+    if (atomic_handle) {
+        xxml_free(atomic_handle);
+    }
+}
+
+int64_t xxml_Atomic_load(void* atomic_handle) {
+    if (!atomic_handle) return 0;
+    AtomicInt64* atomic = (AtomicInt64*)atomic_handle;
+#ifdef _WIN32
+    return InterlockedCompareExchange64(&atomic->value, 0, 0);
+#else
+    return __atomic_load_n(&atomic->value, __ATOMIC_SEQ_CST);
+#endif
+}
+
+void xxml_Atomic_store(void* atomic_handle, int64_t value) {
+    if (!atomic_handle) return;
+    AtomicInt64* atomic = (AtomicInt64*)atomic_handle;
+#ifdef _WIN32
+    InterlockedExchange64(&atomic->value, value);
+#else
+    __atomic_store_n(&atomic->value, value, __ATOMIC_SEQ_CST);
+#endif
+}
+
+int64_t xxml_Atomic_add(void* atomic_handle, int64_t value) {
+    if (!atomic_handle) return 0;
+    AtomicInt64* atomic = (AtomicInt64*)atomic_handle;
+#ifdef _WIN32
+    return InterlockedAdd64(&atomic->value, value);
+#else
+    return __atomic_add_fetch(&atomic->value, value, __ATOMIC_SEQ_CST);
+#endif
+}
+
+int64_t xxml_Atomic_sub(void* atomic_handle, int64_t value) {
+    if (!atomic_handle) return 0;
+    AtomicInt64* atomic = (AtomicInt64*)atomic_handle;
+#ifdef _WIN32
+    return InterlockedAdd64(&atomic->value, -value);
+#else
+    return __atomic_sub_fetch(&atomic->value, value, __ATOMIC_SEQ_CST);
+#endif
+}
+
+bool xxml_Atomic_compareAndSwap(void* atomic_handle, int64_t expected, int64_t desired) {
+    if (!atomic_handle) return false;
+    AtomicInt64* atomic = (AtomicInt64*)atomic_handle;
+#ifdef _WIN32
+    return InterlockedCompareExchange64(&atomic->value, desired, expected) == expected;
+#else
+    return __atomic_compare_exchange_n(&atomic->value, &expected, desired,
+                                        false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
+#endif
+}
+
+int64_t xxml_Atomic_exchange(void* atomic_handle, int64_t new_value) {
+    if (!atomic_handle) return 0;
+    AtomicInt64* atomic = (AtomicInt64*)atomic_handle;
+#ifdef _WIN32
+    return InterlockedExchange64(&atomic->value, new_value);
+#else
+    return __atomic_exchange_n(&atomic->value, new_value, __ATOMIC_SEQ_CST);
+#endif
+}
+
+// ============================================
+// File I/O Implementation
+// ============================================
+
+#ifdef _WIN32
+    #include <io.h>
+    #include <direct.h>
+    #define PATH_SEPARATOR '\\'
+    #define PATH_SEPARATOR_STR "\\"
+#else
+    #include <unistd.h>
+    #include <dirent.h>
+    #include <sys/stat.h>
+    #define PATH_SEPARATOR '/'
+    #define PATH_SEPARATOR_STR "/"
+#endif
+
+void* xxml_File_open(const char* path, const char* mode) {
+    if (!path || !mode) return NULL;
+    return (void*)fopen(path, mode);
+}
+
+void xxml_File_close(void* file_handle) {
+    if (file_handle) {
+        fclose((FILE*)file_handle);
+    }
+}
+
+int64_t xxml_File_read(void* file_handle, void* buffer, int64_t size) {
+    if (!file_handle || !buffer || size <= 0) return 0;
+    return (int64_t)fread(buffer, 1, (size_t)size, (FILE*)file_handle);
+}
+
+int64_t xxml_File_write(void* file_handle, const void* buffer, int64_t size) {
+    if (!file_handle || !buffer || size <= 0) return 0;
+    return (int64_t)fwrite(buffer, 1, (size_t)size, (FILE*)file_handle);
+}
+
+void* xxml_File_readLine(void* file_handle) {
+    if (!file_handle) return NULL;
+
+    FILE* fp = (FILE*)file_handle;
+
+    // Dynamic buffer for reading line
+    size_t capacity = 256;
+    size_t length = 0;
+    char* buffer = (char*)xxml_malloc(capacity);
+    if (!buffer) return NULL;
+
+    int c;
+    while ((c = fgetc(fp)) != EOF) {
+        // Grow buffer if needed
+        if (length + 2 >= capacity) {
+            capacity *= 2;
+            char* new_buffer = (char*)xxml_malloc(capacity);
+            if (!new_buffer) {
+                xxml_free(buffer);
+                return NULL;
+            }
+            memcpy(new_buffer, buffer, length);
+            xxml_free(buffer);
+            buffer = new_buffer;
+        }
+
+        if (c == '\n') {
+            break;  // Don't include newline in result
+        }
+        if (c == '\r') {
+            // Handle Windows line endings (\r\n)
+            int next = fgetc(fp);
+            if (next != '\n' && next != EOF) {
+                ungetc(next, fp);
+            }
+            break;
+        }
+
+        buffer[length++] = (char)c;
+    }
+
+    if (length == 0 && c == EOF) {
+        xxml_free(buffer);
+        return NULL;  // EOF reached with no data
+    }
+
+    buffer[length] = '\0';
+    void* result = String_Constructor(buffer);
+    xxml_free(buffer);
+    return result;
+}
+
+int64_t xxml_File_writeString(void* file_handle, const char* str) {
+    if (!file_handle || !str) return 0;
+    size_t len = strlen(str);
+    return (int64_t)fwrite(str, 1, len, (FILE*)file_handle);
+}
+
+int64_t xxml_File_writeLine(void* file_handle, const char* str) {
+    if (!file_handle) return 0;
+    int64_t written = 0;
+    if (str) {
+        written = xxml_File_writeString(file_handle, str);
+    }
+    written += (int64_t)fwrite("\n", 1, 1, (FILE*)file_handle);
+    return written;
+}
+
+void* xxml_File_readAll(void* file_handle) {
+    if (!file_handle) return NULL;
+
+    FILE* fp = (FILE*)file_handle;
+
+    // Get file size
+    long current_pos = ftell(fp);
+    fseek(fp, 0, SEEK_END);
+    long file_size = ftell(fp);
+    fseek(fp, current_pos, SEEK_SET);
+
+    if (file_size <= 0) {
+        return String_Constructor("");
+    }
+
+    // Read remaining content
+    long remaining = file_size - current_pos;
+    char* buffer = (char*)xxml_malloc((size_t)remaining + 1);
+    if (!buffer) return NULL;
+
+    size_t bytes_read = fread(buffer, 1, (size_t)remaining, fp);
+    buffer[bytes_read] = '\0';
+
+    void* result = String_Constructor(buffer);
+    xxml_free(buffer);
+    return result;
+}
+
+int64_t xxml_File_seek(void* file_handle, int64_t offset, int64_t whence) {
+    if (!file_handle) return -1;
+    int seek_whence;
+    switch (whence) {
+        case 0: seek_whence = SEEK_SET; break;
+        case 1: seek_whence = SEEK_CUR; break;
+        case 2: seek_whence = SEEK_END; break;
+        default: return -1;
+    }
+    return (int64_t)fseek((FILE*)file_handle, (long)offset, seek_whence);
+}
+
+int64_t xxml_File_tell(void* file_handle) {
+    if (!file_handle) return -1;
+    return (int64_t)ftell((FILE*)file_handle);
+}
+
+int64_t xxml_File_size(void* file_handle) {
+    if (!file_handle) return -1;
+
+    FILE* fp = (FILE*)file_handle;
+    long current_pos = ftell(fp);
+    fseek(fp, 0, SEEK_END);
+    long size = ftell(fp);
+    fseek(fp, current_pos, SEEK_SET);
+
+    return (int64_t)size;
+}
+
+bool xxml_File_eof(void* file_handle) {
+    if (!file_handle) return true;
+    return feof((FILE*)file_handle) != 0;
+}
+
+int64_t xxml_File_flush(void* file_handle) {
+    if (!file_handle) return -1;
+    return (int64_t)fflush((FILE*)file_handle);
+}
+
+bool xxml_File_exists(const char* path) {
+    if (!path) return false;
+#ifdef _WIN32
+    return _access(path, 0) == 0;
+#else
+    return access(path, F_OK) == 0;
+#endif
+}
+
+bool xxml_File_delete(const char* path) {
+    if (!path) return false;
+    return remove(path) == 0;
+}
+
+bool xxml_File_rename(const char* old_path, const char* new_path) {
+    if (!old_path || !new_path) return false;
+    return rename(old_path, new_path) == 0;
+}
+
+bool xxml_File_copy(const char* src_path, const char* dst_path) {
+    if (!src_path || !dst_path) return false;
+
+    FILE* src = fopen(src_path, "rb");
+    if (!src) return false;
+
+    FILE* dst = fopen(dst_path, "wb");
+    if (!dst) {
+        fclose(src);
+        return false;
+    }
+
+    char buffer[8192];
+    size_t bytes_read;
+    bool success = true;
+
+    while ((bytes_read = fread(buffer, 1, sizeof(buffer), src)) > 0) {
+        if (fwrite(buffer, 1, bytes_read, dst) != bytes_read) {
+            success = false;
+            break;
+        }
+    }
+
+    fclose(src);
+    fclose(dst);
+
+    if (!success) {
+        remove(dst_path);  // Clean up partial file
+    }
+
+    return success;
+}
+
+int64_t xxml_File_sizeByPath(const char* path) {
+    if (!path) return -1;
+
+    FILE* fp = fopen(path, "rb");
+    if (!fp) return -1;
+
+    fseek(fp, 0, SEEK_END);
+    long size = ftell(fp);
+    fclose(fp);
+
+    return (int64_t)size;
+}
+
+void* xxml_File_readAllByPath(const char* path) {
+    if (!path) return String_Constructor("");
+
+    FILE* fp = fopen(path, "rb");
+    if (!fp) return String_Constructor("");
+
+    // Get file size
+    fseek(fp, 0, SEEK_END);
+    long file_size = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+
+    if (file_size <= 0) {
+        fclose(fp);
+        return String_Constructor("");
+    }
+
+    // Read entire content
+    char* buffer = (char*)xxml_malloc((size_t)file_size + 1);
+    if (!buffer) {
+        fclose(fp);
+        return String_Constructor("");
+    }
+
+    size_t bytes_read = fread(buffer, 1, (size_t)file_size, fp);
+    buffer[bytes_read] = '\0';
+    fclose(fp);
+
+    void* result = String_Constructor(buffer);
+    xxml_free(buffer);
+    return result;
+}
+
+// ============================================
+// Directory Implementation
+// ============================================
+
+bool xxml_Dir_create(const char* path) {
+    if (!path) return false;
+#ifdef _WIN32
+    return _mkdir(path) == 0;
+#else
+    return mkdir(path, 0755) == 0;
+#endif
+}
+
+bool xxml_Dir_exists(const char* path) {
+    if (!path) return false;
+#ifdef _WIN32
+    DWORD attrs = GetFileAttributesA(path);
+    return (attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_DIRECTORY));
+#else
+    struct stat st;
+    if (stat(path, &st) != 0) return false;
+    return S_ISDIR(st.st_mode);
+#endif
+}
+
+bool xxml_Dir_delete(const char* path) {
+    if (!path) return false;
+#ifdef _WIN32
+    return _rmdir(path) == 0;
+#else
+    return rmdir(path) == 0;
+#endif
+}
+
+void* xxml_Dir_getCurrent(void) {
+    char buffer[4096];
+#ifdef _WIN32
+    if (_getcwd(buffer, sizeof(buffer)) != NULL) {
+        return String_Constructor(buffer);
+    }
+#else
+    if (getcwd(buffer, sizeof(buffer)) != NULL) {
+        return String_Constructor(buffer);
+    }
+#endif
+    return String_Constructor("");
+}
+
+bool xxml_Dir_setCurrent(const char* path) {
+    if (!path) return false;
+#ifdef _WIN32
+    return _chdir(path) == 0;
+#else
+    return chdir(path) == 0;
+#endif
+}
+
+// ============================================
+// Path Utilities Implementation
+// ============================================
+
+void* xxml_Path_join(const char* path1, const char* path2) {
+    if (!path1 && !path2) return String_Constructor("");
+    if (!path1) return String_Constructor(path2);
+    if (!path2) return String_Constructor(path1);
+
+    size_t len1 = strlen(path1);
+    size_t len2 = strlen(path2);
+
+    // Check if we need to add separator
+    bool need_sep = (len1 > 0 && path1[len1-1] != PATH_SEPARATOR &&
+                     path1[len1-1] != '/' && path1[len1-1] != '\\');
+
+    size_t total_len = len1 + len2 + (need_sep ? 1 : 0) + 1;
+    char* result = (char*)xxml_malloc(total_len);
+    if (!result) return String_Constructor("");
+
+    strcpy(result, path1);
+    if (need_sep) {
+        strcat(result, PATH_SEPARATOR_STR);
+    }
+    strcat(result, path2);
+
+    void* str = String_Constructor(result);
+    xxml_free(result);
+    return str;
+}
+
+void* xxml_Path_getFileName(const char* path) {
+    if (!path) return String_Constructor("");
+
+    const char* last_sep = strrchr(path, PATH_SEPARATOR);
+    const char* last_fwd = strrchr(path, '/');
+    const char* last_back = strrchr(path, '\\');
+
+    // Find the rightmost separator
+    const char* sep = last_sep;
+    if (last_fwd && (!sep || last_fwd > sep)) sep = last_fwd;
+    if (last_back && (!sep || last_back > sep)) sep = last_back;
+
+    if (sep) {
+        return String_Constructor(sep + 1);
+    }
+    return String_Constructor(path);
+}
+
+void* xxml_Path_getDirectory(const char* path) {
+    if (!path) return String_Constructor("");
+
+    const char* last_sep = strrchr(path, PATH_SEPARATOR);
+    const char* last_fwd = strrchr(path, '/');
+    const char* last_back = strrchr(path, '\\');
+
+    // Find the rightmost separator
+    const char* sep = last_sep;
+    if (last_fwd && (!sep || last_fwd > sep)) sep = last_fwd;
+    if (last_back && (!sep || last_back > sep)) sep = last_back;
+
+    if (sep) {
+        size_t len = sep - path;
+        char* result = (char*)xxml_malloc(len + 1);
+        if (!result) return String_Constructor("");
+        strncpy(result, path, len);
+        result[len] = '\0';
+        void* str = String_Constructor(result);
+        xxml_free(result);
+        return str;
+    }
+    return String_Constructor("");
+}
+
+void* xxml_Path_getExtension(const char* path) {
+    if (!path) return String_Constructor("");
+
+    // First get just the filename
+    const char* filename = path;
+    const char* sep = strrchr(path, PATH_SEPARATOR);
+    const char* fwd = strrchr(path, '/');
+    const char* back = strrchr(path, '\\');
+
+    if (sep && sep > filename) filename = sep + 1;
+    if (fwd && fwd > filename) filename = fwd + 1;
+    if (back && back > filename) filename = back + 1;
+
+    // Find the last dot in the filename
+    const char* dot = strrchr(filename, '.');
+    if (dot && dot != filename) {
+        return String_Constructor(dot);  // Include the dot
+    }
+    return String_Constructor("");
+}
+
+bool xxml_Path_isAbsolute(const char* path) {
+    if (!path || !*path) return false;
+
+#ifdef _WIN32
+    // Windows: starts with drive letter (C:\) or UNC path (\\)
+    if (path[0] == '\\' || path[0] == '/') return true;
+    if (strlen(path) >= 2 && path[1] == ':') return true;
+    return false;
+#else
+    // Unix: starts with /
+    return path[0] == '/';
+#endif
+}
+
+void* xxml_Path_getAbsolute(const char* path) {
+    if (!path) return String_Constructor("");
+
+    char buffer[4096];
+#ifdef _WIN32
+    if (_fullpath(buffer, path, sizeof(buffer)) != NULL) {
+        return String_Constructor(buffer);
+    }
+#else
+    if (realpath(path, buffer) != NULL) {
+        return String_Constructor(buffer);
+    }
+#endif
+    // If resolution fails, return the original path
+    return String_Constructor(path);
+}

@@ -1,0 +1,22 @@
+#import Language::Core;
+#import Language::IO;
+
+// File I/O Test
+
+[ Entrypoint
+    {
+        Run Console::printLine(String::Constructor("=== File I/O Test ==="));
+
+        // Test: Check file exists (static method)
+        Run Console::printLine(String::Constructor("Testing File::exists..."));
+        Instantiate Bool^ As <exists> = IO::File::exists(String::Constructor("test.txt"));
+        If (exists) -> {
+            Run Console::printLine(String::Constructor("Result: true"));
+        } Else -> {
+            Run Console::printLine(String::Constructor("Result: false"));
+        }
+
+        Run Console::printLine(String::Constructor("=== Test done! ==="));
+        Exit(0);
+    }
+]

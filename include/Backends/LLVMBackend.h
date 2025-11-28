@@ -163,6 +163,12 @@ private:
     // Track declared functions to avoid duplicates
     std::set<std::string> declaredFunctions_;
 
+    // Track generated (defined) functions to avoid duplicate definitions
+    std::set<std::string> generatedFunctions_;
+
+    // Track generated classes to avoid duplicate class definitions
+    std::set<std::string> generatedClasses_;
+
     // Target platform support
     enum class TargetPlatform {
         X86_64_Windows,     // x86-64 Windows (MSVC ABI)

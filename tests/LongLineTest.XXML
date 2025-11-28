@@ -1,0 +1,39 @@
+#import Language::Core;
+#import Language::IO;
+
+// Long Line Test
+
+[ Entrypoint
+    {
+        Run Console::printLine(String::Constructor("=== Long Line Test ==="));
+
+        // Write a long line (100 chars)
+        Run Console::printLine(String::Constructor("Writing 100 char line..."));
+        Instantiate IO::File^ As <f1> = IO::File::Constructor(
+            String::Constructor("long_test.txt"),
+            String::Constructor("w")
+        );
+        Run f1.writeLine(String::Constructor("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"));
+        Run f1.close();
+        Run Console::printLine(String::Constructor("Written."));
+
+        // Read it back
+        Run Console::printLine(String::Constructor("Reading..."));
+        Instantiate IO::File^ As <f1r> = IO::File::Constructor(
+            String::Constructor("long_test.txt"),
+            String::Constructor("r")
+        );
+        Instantiate String^ As <line> = f1r.readLine();
+        Run f1r.close();
+        Run Console::printLine(String::Constructor("Read complete."));
+
+        // Print content
+        Run Console::printLine(String::Constructor("Content:"));
+        Run Console::printLine(line);
+
+        // Cleanup
+        Run IO::File::delete(String::Constructor("long_test.txt"));
+        Run Console::printLine(String::Constructor("=== Done ==="));
+        Exit(0);
+    }
+]

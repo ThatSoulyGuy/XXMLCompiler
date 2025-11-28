@@ -1,0 +1,169 @@
+#import Language::Core;
+#import Language::IO;
+
+// Edge Case Tests for File I/O
+
+[ Entrypoint
+    {
+        Run Console::printLine(String::Constructor("=== File I/O Edge Case Tests ==="));
+
+        // Test 1: Empty file
+        Run Console::printLine(String::Constructor(""));
+        Run Console::printLine(String::Constructor("TEST 1: Empty file"));
+        Instantiate IO::File^ As <emptyFile> = IO::File::Constructor(
+            String::Constructor("empty_test.txt"),
+            String::Constructor("w")
+        );
+        Run emptyFile.close();
+
+        Instantiate Integer^ As <emptySize> = IO::File::sizeOf(String::Constructor("empty_test.txt"));
+        Run Console::printLine(String::Constructor("  Empty file size: "));
+        Run Console::printLine(emptySize.toString());
+
+        Instantiate String^ As <emptyContent> = IO::File::readAll(String::Constructor("empty_test.txt"));
+        Run Console::printLine(String::Constructor("  Empty file content length: "));
+        Run Console::printLine(emptyContent.length().toString());
+        Run IO::File::delete(String::Constructor("empty_test.txt"));
+        Run Console::printLine(String::Constructor("  PASS"));
+
+        // Test 2: Single character
+        Run Console::printLine(String::Constructor(""));
+        Run Console::printLine(String::Constructor("TEST 2: Single character"));
+        Instantiate IO::File^ As <singleFile> = IO::File::Constructor(
+            String::Constructor("single_char.txt"),
+            String::Constructor("w")
+        );
+        Run singleFile.writeString(String::Constructor("X"));
+        Run singleFile.close();
+
+        Instantiate String^ As <singleContent> = IO::File::readAll(String::Constructor("single_char.txt"));
+        Instantiate Integer^ As <singleLen> = singleContent.length();
+        Run Console::printLine(String::Constructor("  Content: "));
+        Run Console::printLine(singleContent);
+        Run Console::printLine(String::Constructor("  Length: "));
+        Run Console::printLine(singleLen.toString());
+        Run IO::File::delete(String::Constructor("single_char.txt"));
+        Run Console::printLine(String::Constructor("  PASS"));
+
+        // Test 3: Numbers and special characters
+        Run Console::printLine(String::Constructor(""));
+        Run Console::printLine(String::Constructor("TEST 3: Numbers and special chars"));
+        Instantiate IO::File^ As <specialFile> = IO::File::Constructor(
+            String::Constructor("special_chars.txt"),
+            String::Constructor("w")
+        );
+        Run specialFile.writeLine(String::Constructor("123456789"));
+        Run specialFile.writeLine(String::Constructor("!@#$%^&*()"));
+        Run specialFile.writeLine(String::Constructor("<>[]{}|\\"));
+        Run specialFile.close();
+
+        Instantiate String^ As <specialContent> = IO::File::readAll(String::Constructor("special_chars.txt"));
+        Run Console::printLine(String::Constructor("  Content:"));
+        Run Console::printLine(specialContent);
+        Run IO::File::delete(String::Constructor("special_chars.txt"));
+        Run Console::printLine(String::Constructor("  PASS"));
+
+        // Test 4: Long line
+        Run Console::printLine(String::Constructor(""));
+        Run Console::printLine(String::Constructor("TEST 4: Long line (100+ chars)"));
+        Instantiate IO::File^ As <longFile> = IO::File::Constructor(
+            String::Constructor("long_line.txt"),
+            String::Constructor("w")
+        );
+        Run longFile.writeLine(String::Constructor("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"));
+        Run longFile.close();
+
+        Instantiate IO::File^ As <longRead> = IO::File::Constructor(
+            String::Constructor("long_line.txt"),
+            String::Constructor("r")
+        );
+        Instantiate String^ As <longLine> = longRead.readLine();
+        Run longRead.close();
+        Run Console::printLine(String::Constructor("  Line length: "));
+        Run Console::printLine(longLine.length().toString());
+        Run IO::File::delete(String::Constructor("long_line.txt"));
+        Run Console::printLine(String::Constructor("  PASS"));
+
+        // Test 5: Many lines
+        Run Console::printLine(String::Constructor(""));
+        Run Console::printLine(String::Constructor("TEST 5: Many lines (10 lines)"));
+        Instantiate IO::File^ As <manyFile> = IO::File::Constructor(
+            String::Constructor("many_lines.txt"),
+            String::Constructor("w")
+        );
+        Run manyFile.writeLine(String::Constructor("Line 1"));
+        Run manyFile.writeLine(String::Constructor("Line 2"));
+        Run manyFile.writeLine(String::Constructor("Line 3"));
+        Run manyFile.writeLine(String::Constructor("Line 4"));
+        Run manyFile.writeLine(String::Constructor("Line 5"));
+        Run manyFile.writeLine(String::Constructor("Line 6"));
+        Run manyFile.writeLine(String::Constructor("Line 7"));
+        Run manyFile.writeLine(String::Constructor("Line 8"));
+        Run manyFile.writeLine(String::Constructor("Line 9"));
+        Run manyFile.writeLine(String::Constructor("Line 10"));
+        Run manyFile.close();
+
+        // Read all lines back
+        Instantiate IO::File^ As <manyRead> = IO::File::Constructor(
+            String::Constructor("many_lines.txt"),
+            String::Constructor("r")
+        );
+        Instantiate Integer^ As <lineCount> = Integer::Constructor(0);
+        Instantiate String^ As <l1> = manyRead.readLine();
+        Instantiate String^ As <l2> = manyRead.readLine();
+        Instantiate String^ As <l3> = manyRead.readLine();
+        Instantiate String^ As <l4> = manyRead.readLine();
+        Instantiate String^ As <l5> = manyRead.readLine();
+        Instantiate String^ As <l6> = manyRead.readLine();
+        Instantiate String^ As <l7> = manyRead.readLine();
+        Instantiate String^ As <l8> = manyRead.readLine();
+        Instantiate String^ As <l9> = manyRead.readLine();
+        Instantiate String^ As <l10> = manyRead.readLine();
+        Run manyRead.close();
+
+        Run Console::printLine(String::Constructor("  First line: "));
+        Run Console::printLine(l1);
+        Run Console::printLine(String::Constructor("  Last line: "));
+        Run Console::printLine(l10);
+        Run IO::File::delete(String::Constructor("many_lines.txt"));
+        Run Console::printLine(String::Constructor("  PASS"));
+
+        // Test 6: Whitespace handling
+        Run Console::printLine(String::Constructor(""));
+        Run Console::printLine(String::Constructor("TEST 6: Whitespace handling"));
+        Instantiate IO::File^ As <wsFile> = IO::File::Constructor(
+            String::Constructor("whitespace.txt"),
+            String::Constructor("w")
+        );
+        Run wsFile.writeLine(String::Constructor("  leading spaces"));
+        Run wsFile.writeLine(String::Constructor("trailing spaces  "));
+        Run wsFile.writeLine(String::Constructor("  both  "));
+        Run wsFile.writeLine(String::Constructor(""));
+        Run wsFile.writeLine(String::Constructor("after empty line"));
+        Run wsFile.close();
+
+        Instantiate IO::File^ As <wsRead> = IO::File::Constructor(
+            String::Constructor("whitespace.txt"),
+            String::Constructor("r")
+        );
+        Instantiate String^ As <ws1> = wsRead.readLine();
+        Instantiate String^ As <ws2> = wsRead.readLine();
+        Instantiate String^ As <ws3> = wsRead.readLine();
+        Instantiate String^ As <ws4> = wsRead.readLine();
+        Instantiate String^ As <ws5> = wsRead.readLine();
+        Run wsRead.close();
+
+        Run Console::printLine(String::Constructor("  Line 1: ["));
+        Run Console::printLine(ws1);
+        Run Console::printLine(String::Constructor("]"));
+        Run Console::printLine(String::Constructor("  Line 4 (empty): ["));
+        Run Console::printLine(ws4);
+        Run Console::printLine(String::Constructor("]"));
+        Run IO::File::delete(String::Constructor("whitespace.txt"));
+        Run Console::printLine(String::Constructor("  PASS"));
+
+        Run Console::printLine(String::Constructor(""));
+        Run Console::printLine(String::Constructor("=== All Edge Case Tests Complete ==="));
+        Exit(0);
+    }
+]

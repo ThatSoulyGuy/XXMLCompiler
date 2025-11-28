@@ -179,6 +179,244 @@ int64_t Syscall_reflection_parameter_getOwnership(void* paramInfo);
 
 void xxml_exit(int32_t code);
 
+// ============================================
+// Threading Functions
+// ============================================
+
+// Thread creation and management
+// Creates a new thread that executes the given function with the given argument
+// Returns thread handle (opaque pointer), or NULL on failure
+void* xxml_Thread_create(void* (*func)(void*), void* arg);
+
+// Wait for a thread to complete
+// Returns 0 on success, non-zero on error
+int64_t xxml_Thread_join(void* thread_handle);
+
+// Detach a thread (let it run independently)
+// Returns 0 on success, non-zero on error
+int64_t xxml_Thread_detach(void* thread_handle);
+
+// Check if thread is joinable (still running and not detached)
+bool xxml_Thread_isJoinable(void* thread_handle);
+
+// Sleep current thread for specified milliseconds
+void xxml_Thread_sleep(int64_t milliseconds);
+
+// Yield current thread's time slice
+void xxml_Thread_yield(void);
+
+// Get current thread ID (for debugging)
+int64_t xxml_Thread_currentId(void);
+
+// Spawn a thread running an XXML lambda
+// The lambda closure must be a struct with function pointer as first field:
+//   { void* (*fn)(void*), captured_vars... }
+// Returns thread handle (opaque pointer), or NULL on failure
+void* xxml_Thread_spawn_lambda(void* lambda_closure);
+
+// ============================================
+// Mutex Functions
+// ============================================
+
+// Create a new mutex
+// Returns mutex handle (opaque pointer), or NULL on failure
+void* xxml_Mutex_create(void);
+
+// Destroy a mutex
+void xxml_Mutex_destroy(void* mutex_handle);
+
+// Lock mutex (blocking)
+// Returns 0 on success, non-zero on error
+int64_t xxml_Mutex_lock(void* mutex_handle);
+
+// Unlock mutex
+// Returns 0 on success, non-zero on error
+int64_t xxml_Mutex_unlock(void* mutex_handle);
+
+// Try to lock mutex (non-blocking)
+// Returns true if lock acquired, false otherwise
+bool xxml_Mutex_tryLock(void* mutex_handle);
+
+// ============================================
+// Condition Variable Functions
+// ============================================
+
+// Create a condition variable
+void* xxml_CondVar_create(void);
+
+// Destroy a condition variable
+void xxml_CondVar_destroy(void* cond_handle);
+
+// Wait on condition variable (must hold mutex)
+int64_t xxml_CondVar_wait(void* cond_handle, void* mutex_handle);
+
+// Wait on condition variable with timeout (milliseconds)
+// Returns 0 if signaled, 1 if timed out, -1 on error
+int64_t xxml_CondVar_waitTimeout(void* cond_handle, void* mutex_handle, int64_t timeout_ms);
+
+// Signal one waiting thread
+int64_t xxml_CondVar_signal(void* cond_handle);
+
+// Signal all waiting threads
+int64_t xxml_CondVar_broadcast(void* cond_handle);
+
+// ============================================
+// Atomic Integer Functions
+// ============================================
+
+// Create an atomic integer with initial value
+void* xxml_Atomic_create(int64_t initial_value);
+
+// Destroy an atomic integer
+void xxml_Atomic_destroy(void* atomic_handle);
+
+// Load value atomically
+int64_t xxml_Atomic_load(void* atomic_handle);
+
+// Store value atomically
+void xxml_Atomic_store(void* atomic_handle, int64_t value);
+
+// Add and return new value
+int64_t xxml_Atomic_add(void* atomic_handle, int64_t value);
+
+// Subtract and return new value
+int64_t xxml_Atomic_sub(void* atomic_handle, int64_t value);
+
+// Compare and swap: if current == expected, set to desired and return true
+bool xxml_Atomic_compareAndSwap(void* atomic_handle, int64_t expected, int64_t desired);
+
+// Exchange: set new value and return old value
+int64_t xxml_Atomic_exchange(void* atomic_handle, int64_t new_value);
+
+// ============================================
+// Thread-Local Storage
+// ============================================
+
+// Create a thread-local storage key
+void* xxml_TLS_create(void);
+
+// Destroy a TLS key
+void xxml_TLS_destroy(void* tls_key);
+
+// Get thread-local value
+void* xxml_TLS_get(void* tls_key);
+
+// Set thread-local value
+void xxml_TLS_set(void* tls_key, void* value);
+
+// ============================================
+// File I/O Functions
+// ============================================
+
+// File open modes (match standard C modes)
+// "r"  - read only (file must exist)
+// "w"  - write only (creates/truncates)
+// "a"  - append (creates if doesn't exist)
+// "r+" - read/write (file must exist)
+// "w+" - read/write (creates/truncates)
+// "a+" - read/append (creates if doesn't exist)
+// "rb", "wb", "ab", etc. for binary mode
+
+// Open a file, returns file handle or NULL on error
+void* xxml_File_open(const char* path, const char* mode);
+
+// Close a file
+void xxml_File_close(void* file_handle);
+
+// Read bytes from file, returns number of bytes read
+int64_t xxml_File_read(void* file_handle, void* buffer, int64_t size);
+
+// Write bytes to file, returns number of bytes written
+int64_t xxml_File_write(void* file_handle, const void* buffer, int64_t size);
+
+// Read a line from file (up to newline or EOF), returns String or NULL
+void* xxml_File_readLine(void* file_handle);
+
+// Write a string to file, returns bytes written
+int64_t xxml_File_writeString(void* file_handle, const char* str);
+
+// Write a line to file (appends newline), returns bytes written
+int64_t xxml_File_writeLine(void* file_handle, const char* str);
+
+// Read entire file contents as a String, returns String or NULL
+void* xxml_File_readAll(void* file_handle);
+
+// Seek position in file
+// whence: 0=SEEK_SET (beginning), 1=SEEK_CUR (current), 2=SEEK_END (end)
+// Returns 0 on success, -1 on error
+int64_t xxml_File_seek(void* file_handle, int64_t offset, int64_t whence);
+
+// Get current position in file
+int64_t xxml_File_tell(void* file_handle);
+
+// Get file size in bytes
+int64_t xxml_File_size(void* file_handle);
+
+// Check if at end of file
+bool xxml_File_eof(void* file_handle);
+
+// Flush file buffers
+int64_t xxml_File_flush(void* file_handle);
+
+// Check if file exists
+bool xxml_File_exists(const char* path);
+
+// Delete a file, returns true on success
+bool xxml_File_delete(const char* path);
+
+// Rename/move a file, returns true on success
+bool xxml_File_rename(const char* old_path, const char* new_path);
+
+// Copy a file, returns true on success
+bool xxml_File_copy(const char* src_path, const char* dst_path);
+
+// Get file size by path (without opening)
+int64_t xxml_File_sizeByPath(const char* path);
+
+// Read entire file content by path (returns String object)
+void* xxml_File_readAllByPath(const char* path);
+
+// ============================================
+// Directory Functions
+// ============================================
+
+// Create a directory, returns true on success
+bool xxml_Dir_create(const char* path);
+
+// Check if directory exists
+bool xxml_Dir_exists(const char* path);
+
+// Delete an empty directory, returns true on success
+bool xxml_Dir_delete(const char* path);
+
+// Get current working directory
+void* xxml_Dir_getCurrent(void);
+
+// Set current working directory, returns true on success
+bool xxml_Dir_setCurrent(const char* path);
+
+// ============================================
+// Path Utilities
+// ============================================
+
+// Join two path components
+void* xxml_Path_join(const char* path1, const char* path2);
+
+// Get the file name from a path
+void* xxml_Path_getFileName(const char* path);
+
+// Get the directory from a path
+void* xxml_Path_getDirectory(const char* path);
+
+// Get the file extension
+void* xxml_Path_getExtension(const char* path);
+
+// Check if path is absolute
+bool xxml_Path_isAbsolute(const char* path);
+
+// Get absolute path
+void* xxml_Path_getAbsolute(const char* path);
+
 #ifdef __cplusplus
 }
 #endif

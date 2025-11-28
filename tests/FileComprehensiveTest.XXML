@@ -1,0 +1,93 @@
+#import Language::Core;
+#import Language::IO;
+
+// Comprehensive File I/O Test
+
+[ Entrypoint
+    {
+        Run Console::printLine(String::Constructor("=== Comprehensive File I/O Test ==="));
+
+        // Test 1: Create and write
+        Run Console::printLine(String::Constructor("1. Write test"));
+        Instantiate IO::File^ As <outFile> = IO::File::Constructor(
+            String::Constructor("comprehensive_test.txt"),
+            String::Constructor("w")
+        );
+        Run outFile.writeLine(String::Constructor("Line 1: Hello"));
+        Run outFile.writeLine(String::Constructor("Line 2: World"));
+        Run outFile.writeLine(String::Constructor("Line 3: From XXML"));
+        Run outFile.close();
+        Run Console::printLine(String::Constructor("   PASS"));
+
+        // Test 2: Check exists
+        Run Console::printLine(String::Constructor("2. Exists test"));
+        Instantiate Bool^ As <exists> = IO::File::exists(String::Constructor("comprehensive_test.txt"));
+        If (exists) -> {
+            Run Console::printLine(String::Constructor("   PASS"));
+        } Else -> {
+            Run Console::printLine(String::Constructor("   FAIL"));
+        }
+
+        // Test 3: Get size
+        Run Console::printLine(String::Constructor("3. Size test"));
+        Instantiate Integer^ As <size> = IO::File::sizeOf(String::Constructor("comprehensive_test.txt"));
+        Run Console::printLine(String::Constructor("   Size: "));
+        Run Console::printLine(size.toString());
+
+        // Test 4: Read all
+        Run Console::printLine(String::Constructor("4. ReadAll test"));
+        Instantiate String^ As <content> = IO::File::readAll(String::Constructor("comprehensive_test.txt"));
+        Run Console::printLine(String::Constructor("   Content:"));
+        Run Console::printLine(content);
+
+        // Test 5: Read lines
+        Run Console::printLine(String::Constructor("5. ReadLine test"));
+        Instantiate IO::File^ As <inFile> = IO::File::Constructor(
+            String::Constructor("comprehensive_test.txt"),
+            String::Constructor("r")
+        );
+        Instantiate String^ As <line1> = inFile.readLine();
+        Instantiate String^ As <line2> = inFile.readLine();
+        Instantiate String^ As <line3> = inFile.readLine();
+        Run inFile.close();
+        Run Console::printLine(String::Constructor("   Line 1: "));
+        Run Console::printLine(line1);
+        Run Console::printLine(String::Constructor("   Line 2: "));
+        Run Console::printLine(line2);
+        Run Console::printLine(String::Constructor("   Line 3: "));
+        Run Console::printLine(line3);
+
+        // Test 6: Copy
+        Run Console::printLine(String::Constructor("6. Copy test"));
+        Instantiate Bool^ As <copied> = IO::File::copy(
+            String::Constructor("comprehensive_test.txt"),
+            String::Constructor("comprehensive_test_copy.txt")
+        );
+        If (copied) -> {
+            Run Console::printLine(String::Constructor("   PASS"));
+        } Else -> {
+            Run Console::printLine(String::Constructor("   FAIL"));
+        }
+
+        // Test 7: Rename
+        Run Console::printLine(String::Constructor("7. Rename test"));
+        Instantiate Bool^ As <renamed> = IO::File::rename(
+            String::Constructor("comprehensive_test_copy.txt"),
+            String::Constructor("comprehensive_test_renamed.txt")
+        );
+        If (renamed) -> {
+            Run Console::printLine(String::Constructor("   PASS"));
+        } Else -> {
+            Run Console::printLine(String::Constructor("   FAIL"));
+        }
+
+        // Cleanup
+        Run Console::printLine(String::Constructor("8. Cleanup"));
+        Run IO::File::delete(String::Constructor("comprehensive_test.txt"));
+        Run IO::File::delete(String::Constructor("comprehensive_test_renamed.txt"));
+        Run Console::printLine(String::Constructor("   PASS"));
+
+        Run Console::printLine(String::Constructor("=== All Tests Complete ==="));
+        Exit(0);
+    }
+]

@@ -1,0 +1,37 @@
+#import Language::Core;
+#import Language::IO;
+
+// File Read Test
+
+[ Entrypoint
+    {
+        Run Console::printLine(String::Constructor("=== File Read Test ==="));
+
+        // First create a file
+        Run Console::printLine(String::Constructor("Creating test file..."));
+        Instantiate IO::File^ As <outFile> = IO::File::Constructor(
+            String::Constructor("read_test.txt"),
+            String::Constructor("w")
+        );
+        Run outFile.writeLine(String::Constructor("Hello World"));
+        Run outFile.close();
+        Run Console::printLine(String::Constructor("File created."));
+
+        // Now try to read it back using instance method
+        Run Console::printLine(String::Constructor("Opening for read..."));
+        Instantiate IO::File^ As <inFile> = IO::File::Constructor(
+            String::Constructor("read_test.txt"),
+            String::Constructor("r")
+        );
+        Run Console::printLine(String::Constructor("Reading line..."));
+        Instantiate String^ As <line> = inFile.readLine();
+        Run Console::printLine(String::Constructor("Got line:"));
+        Run Console::printLine(line);
+        Run inFile.close();
+
+        // Cleanup
+        Run IO::File::delete(String::Constructor("read_test.txt"));
+        Run Console::printLine(String::Constructor("=== Test Complete ==="));
+        Exit(0);
+    }
+]

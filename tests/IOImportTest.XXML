@@ -1,0 +1,9 @@
+#import Language::Core;
+#import Language::IO;
+
+[ Entrypoint
+    {
+        Run Console::printLine(String::Constructor("IO import test!"));
+        Exit(0);
+    }
+]

@@ -1,0 +1,41 @@
+#import Language::Core;
+#import Language::IO;
+
+// File Instance Methods Test
+
+[ Entrypoint
+    {
+        Run Console::printLine(String::Constructor("=== File Instance Test ==="));
+
+        // Test 1: Create and write to a file
+        Run Console::printLine(String::Constructor("Creating test file..."));
+        Instantiate IO::File^ As <outFile> = IO::File::Constructor(
+            String::Constructor("instance_test.txt"),
+            String::Constructor("w")
+        );
+        Run outFile.writeLine(String::Constructor("Hello from XXML!"));
+        Run outFile.writeLine(String::Constructor("This is line 2."));
+        Run outFile.close();
+        Run Console::printLine(String::Constructor("File written successfully."));
+
+        // Test 2: Check if file exists
+        Instantiate Bool^ As <exists> = IO::File::exists(String::Constructor("instance_test.txt"));
+        If (exists) -> {
+            Run Console::printLine(String::Constructor("File exists: true"));
+        } Else -> {
+            Run Console::printLine(String::Constructor("File exists: false"));
+        }
+
+        // Test 3: Read all content
+        Run Console::printLine(String::Constructor("Reading file content..."));
+        Instantiate String^ As <content> = IO::File::readAll(String::Constructor("instance_test.txt"));
+        Run Console::printLine(String::Constructor("Content:"));
+        Run Console::printLine(content);
+
+        // Test 4: Clean up
+        Run IO::File::delete(String::Constructor("instance_test.txt"));
+        Run Console::printLine(String::Constructor("=== Test Complete ==="));
+
+        Exit(0);
+    }
+]

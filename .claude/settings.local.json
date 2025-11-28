@@ -1,30 +1,10 @@
 {
   "permissions": {
     "allow": [
-      "Bash(powershell.exe -Command \"& ''D:\\VisualStudio\\Projects\\XXMLCompiler\\arith_test.exe''\")",
-      "Bash(powershell.exe -Command \"& ''D:\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe'' ''D:\\VisualStudio\\Projects\\XXMLCompiler\\tests\\ComprehensiveTest.XXML'' ''D:\\VisualStudio\\Projects\\XXMLCompiler\\comp_test.exe'' 2>&1 | Select-String -Pattern ''(error|Compilation|Executable|Linking)'' | Select-Object -Last 15\")",
-      "Bash(powershell.exe -Command \"& ''D:\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe'' ''D:\\VisualStudio\\Projects\\XXMLCompiler\\Examples\\Hello.XXML'' ''D:\\VisualStudio\\Projects\\XXMLCompiler\\hello.exe'' 2>&1 | Select-String -Pattern ''(error|Compilation|Executable|Linking|warning generated)'' | Select-Object -Last 10\")",
-      "Bash(powershell.exe -Command \"& ''D:\\VisualStudio\\Projects\\XXMLCompiler\\hello.exe''\")",
-      "Bash(powershell.exe -Command \"& ''D:\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe'' ''D:\\VisualStudio\\Projects\\XXMLCompiler\\tests\\SimpleIfTest.XXML'' ''D:\\VisualStudio\\Projects\\XXMLCompiler\\if_test.exe'' 2>&1 | Select-String -Pattern ''(error|Compilation|Executable)'' | Select-Object -Last 5\")",
-      "Bash(powershell.exe -Command \"& ''D:\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe'' ''D:\\VisualStudio\\Projects\\XXMLCompiler\\tests\\PrintDemo.XXML'' ''D:\\VisualStudio\\Projects\\XXMLCompiler\\print_demo.exe'' 2>&1 | Select-String -Pattern ''(error|Compilation|Executable|successful)'' | Select-Object -Last 5\")",
-      "Bash(powershell.exe -Command \"& ''D:\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe'' ''D:\\VisualStudio\\Projects\\XXMLCompiler\\tests\\ConstructorTest.XXML'' ''D:\\VisualStudio\\Projects\\XXMLCompiler\\ctor_test.exe'' 2>&1 | Select-String -Pattern ''(error|Compilation|Executable|successful)'' | Select-Object -Last 5\")",
-      "Bash(powershell.exe:*)",
-      "Bash(D:VisualStudioProjectsXXMLCompilerbool_test.exe)",
-      "Bash(cmd.exe /c \"D:\\VisualStudio\\Projects\\XXMLCompiler\\bool_test.exe && echo SUCCESS || echo FAILED\")",
-      "Bash(cmd.exe /c \"D:\\VisualStudio\\Projects\\XXMLCompiler\\bool_test.exe & echo Exit code: %ERRORLEVEL%\")",
-      "Bash(cmd.exe /c \"D:\\VisualStudio\\Projects\\XXMLCompiler\\hello.exe\")",
-      "Bash(cmd.exe /c \"D:\\VisualStudio\\Projects\\XXMLCompiler\\hello_test.exe\")",
-      "Bash(cmd.exe /c \"D:\\VisualStudio\\Projects\\XXMLCompiler\\arith_test.exe & echo Exit code: %ERRORLEVEL%\")",
-      "Bash(cmd.exe /c \"D:\\VisualStudio\\Projects\\XXMLCompiler\\hello_clean.exe\")",
-      "Bash(Select-Object -First 80)",
-      "Bash(Select-Object -First 100)",
-      "Bash(cmd.exe /c \"D:\\VisualStudio\\Projects\\XXMLCompiler\\clean_test.exe\")",
-      "Bash(cmd.exe /c:*)",
       "Bash(\"D:\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\":*)",
-      "Bash(\"D:\\VisualStudio\\Projects\\XXMLCompiler\\simple_test.exe\")",
-      "Bash(\"D:\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" \"D:\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\Hello.XXML\" hello_test.exe)",
-      "Bash(\"D:\\VisualStudio\\Projects\\XXMLCompiler\\lambda_test.exe\")",
-      "Bash(D:VisualStudioProjectsXXMLCompilerhello_new.exe)"
+      "Bash(cmake --build:*)",
+      "Bash(Select-String -Pattern \"(error|warning.*LLVMBackend|Building|Linking)\")",
+      "Bash(Select-Object -Last 20)"
     ],
     "deny": [],
     "ask": []

@@ -1,0 +1,93 @@
+#import Language::Core;
+#import Language::IO;
+
+// File EOF Test
+
+[ Entrypoint
+    {
+        Run Console::printLine(String::Constructor("=== File EOF Test ==="));
+
+        // Create file with 3 lines
+        Run Console::printLine(String::Constructor("1. Creating file with 3 lines..."));
+        Instantiate IO::File^ As <f1> = IO::File::Constructor(
+            String::Constructor("eof_test.txt"),
+            String::Constructor("w")
+        );
+        Run f1.writeLine(String::Constructor("Line 1"));
+        Run f1.writeLine(String::Constructor("Line 2"));
+        Run f1.writeLine(String::Constructor("Line 3"));
+        Run f1.close();
+
+        // Open for reading
+        Run Console::printLine(String::Constructor("2. Opening file for reading..."));
+        Instantiate IO::File^ As <fr> = IO::File::Constructor(
+            String::Constructor("eof_test.txt"),
+            String::Constructor("r")
+        );
+
+        // Check eof before reading
+        Run Console::printLine(String::Constructor("3. EOF before reading:"));
+        Instantiate Bool^ As <eof1> = fr.eof();
+        If (eof1) -> {
+            Run Console::printLine(String::Constructor("   true"));
+        } Else -> {
+            Run Console::printLine(String::Constructor("   false"));
+        }
+
+        // Read line 1
+        Run Console::printLine(String::Constructor("4. Reading line 1:"));
+        Instantiate String^ As <l1> = fr.readLine();
+        Run Console::printLine(l1);
+
+        // Check eof
+        Run Console::printLine(String::Constructor("5. EOF after line 1:"));
+        Instantiate Bool^ As <eof2> = fr.eof();
+        If (eof2) -> {
+            Run Console::printLine(String::Constructor("   true"));
+        } Else -> {
+            Run Console::printLine(String::Constructor("   false"));
+        }
+
+        // Read line 2
+        Run Console::printLine(String::Constructor("6. Reading line 2:"));
+        Instantiate String^ As <l2> = fr.readLine();
+        Run Console::printLine(l2);
+
+        // Read line 3
+        Run Console::printLine(String::Constructor("7. Reading line 3:"));
+        Instantiate String^ As <l3> = fr.readLine();
+        Run Console::printLine(l3);
+
+        // Check eof after all lines
+        Run Console::printLine(String::Constructor("8. EOF after all lines:"));
+        Instantiate Bool^ As <eof3> = fr.eof();
+        If (eof3) -> {
+            Run Console::printLine(String::Constructor("   true"));
+        } Else -> {
+            Run Console::printLine(String::Constructor("   false"));
+        }
+
+        // Try to read past end
+        Run Console::printLine(String::Constructor("9. Reading past end (line 4):"));
+        Instantiate String^ As <l4> = fr.readLine();
+        Run Console::printLine(String::Constructor("   Content: ["));
+        Run Console::printLine(l4);
+        Run Console::printLine(String::Constructor("]"));
+
+        // Check eof after reading past end
+        Run Console::printLine(String::Constructor("10. EOF after reading past end:"));
+        Instantiate Bool^ As <eof4> = fr.eof();
+        If (eof4) -> {
+            Run Console::printLine(String::Constructor("   true"));
+        } Else -> {
+            Run Console::printLine(String::Constructor("   false"));
+        }
+
+        Run fr.close();
+
+        // Cleanup
+        Run IO::File::delete(String::Constructor("eof_test.txt"));
+        Run Console::printLine(String::Constructor("=== EOF Test Complete ==="));
+        Exit(0);
+    }
+]

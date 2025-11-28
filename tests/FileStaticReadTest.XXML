@@ -1,0 +1,31 @@
+#import Language::Core;
+#import Language::IO;
+
+// Static File Read Test
+
+[ Entrypoint
+    {
+        Run Console::printLine(String::Constructor("=== Static File Read Test ==="));
+
+        // Create a file using instance method
+        Run Console::printLine(String::Constructor("Creating test file..."));
+        Instantiate IO::File^ As <outFile> = IO::File::Constructor(
+            String::Constructor("static_read_test.txt"),
+            String::Constructor("w")
+        );
+        Run outFile.writeLine(String::Constructor("Hello World"));
+        Run outFile.close();
+        Run Console::printLine(String::Constructor("File created."));
+
+        // Now try to read using static readAll
+        Run Console::printLine(String::Constructor("Reading with readAll..."));
+        Instantiate String^ As <content> = IO::File::readAll(String::Constructor("static_read_test.txt"));
+        Run Console::printLine(String::Constructor("Content:"));
+        Run Console::printLine(content);
+
+        // Cleanup
+        Run IO::File::delete(String::Constructor("static_read_test.txt"));
+        Run Console::printLine(String::Constructor("=== Test Complete ==="));
+        Exit(0);
+    }
+]

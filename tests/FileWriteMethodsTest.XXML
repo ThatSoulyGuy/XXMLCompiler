@@ -1,0 +1,89 @@
+#import Language::Core;
+#import Language::IO;
+
+// writeString vs writeLine Test
+
+[ Entrypoint
+    {
+        Run Console::printLine(String::Constructor("=== writeString vs writeLine Test ==="));
+
+        // Test writeString (no newline)
+        Run Console::printLine(String::Constructor("1. Testing writeString (no newline):"));
+        Instantiate IO::File^ As <f1> = IO::File::Constructor(
+            String::Constructor("write_test.txt"),
+            String::Constructor("w")
+        );
+        Run f1.writeString(String::Constructor("ABC"));
+        Run f1.writeString(String::Constructor("DEF"));
+        Run f1.writeString(String::Constructor("GHI"));
+        Run f1.close();
+
+        Instantiate String^ As <c1> = IO::File::readAll(String::Constructor("write_test.txt"));
+        Run Console::printLine(String::Constructor("   Content: ["));
+        Run Console::printLine(c1);
+        Run Console::printLine(String::Constructor("]"));
+        Instantiate Integer^ As <s1> = IO::File::sizeOf(String::Constructor("write_test.txt"));
+        Run Console::printLine(String::Constructor("   Size: "));
+        Run Console::printLine(s1.toString());
+
+        // Test writeLine (with newline)
+        Run Console::printLine(String::Constructor("2. Testing writeLine (with newline):"));
+        Instantiate IO::File^ As <f2> = IO::File::Constructor(
+            String::Constructor("write_test2.txt"),
+            String::Constructor("w")
+        );
+        Run f2.writeLine(String::Constructor("ABC"));
+        Run f2.writeLine(String::Constructor("DEF"));
+        Run f2.writeLine(String::Constructor("GHI"));
+        Run f2.close();
+
+        Instantiate String^ As <c2> = IO::File::readAll(String::Constructor("write_test2.txt"));
+        Run Console::printLine(String::Constructor("   Content:"));
+        Run Console::printLine(c2);
+        Instantiate Integer^ As <s2> = IO::File::sizeOf(String::Constructor("write_test2.txt"));
+        Run Console::printLine(String::Constructor("   Size: "));
+        Run Console::printLine(s2.toString());
+
+        // Test mixed
+        Run Console::printLine(String::Constructor("3. Testing mixed writes:"));
+        Instantiate IO::File^ As <f3> = IO::File::Constructor(
+            String::Constructor("write_test3.txt"),
+            String::Constructor("w")
+        );
+        Run f3.writeString(String::Constructor("Start->"));
+        Run f3.writeLine(String::Constructor("End"));
+        Run f3.writeString(String::Constructor("A"));
+        Run f3.writeString(String::Constructor("B"));
+        Run f3.writeString(String::Constructor("C"));
+        Run f3.writeLine(String::Constructor("D"));
+        Run f3.close();
+
+        Instantiate String^ As <c3> = IO::File::readAll(String::Constructor("write_test3.txt"));
+        Run Console::printLine(String::Constructor("   Content:"));
+        Run Console::printLine(c3);
+
+        // Read line by line
+        Run Console::printLine(String::Constructor("4. Reading lines:"));
+        Instantiate IO::File^ As <f3r> = IO::File::Constructor(
+            String::Constructor("write_test3.txt"),
+            String::Constructor("r")
+        );
+        Instantiate String^ As <m1> = f3r.readLine();
+        Instantiate String^ As <m2> = f3r.readLine();
+        Run f3r.close();
+        Run Console::printLine(String::Constructor("   Line 1: ["));
+        Run Console::printLine(m1);
+        Run Console::printLine(String::Constructor("]"));
+        Run Console::printLine(String::Constructor("   Line 2: ["));
+        Run Console::printLine(m2);
+        Run Console::printLine(String::Constructor("]"));
+
+        // Cleanup
+        Run IO::File::delete(String::Constructor("write_test.txt"));
+        Run IO::File::delete(String::Constructor("write_test2.txt"));
+        Run IO::File::delete(String::Constructor("write_test3.txt"));
+
+        Run Console::printLine(String::Constructor("=== Write Methods Test Complete ==="));
+        Exit(0);
+    }
+]
