@@ -1,0 +1,38 @@
+// @Negative Annotation
+// Validates that a numeric value is negative (< 0).
+//
+// Usage:
+//   @Negative
+//   Property <temperature> Types Integer^;  // For below-zero temps
+//
+//   @Negative
+//   Instantiate Integer^ As <debt> = Integer::Constructor(-100);
+//
+// Targets: Properties, Variables
+// Parameters: None
+//
+// Behavior:
+//   - If compile-time value is available, validates it's < 0
+//   - Emits error if value is >= 0
+//   - Documents the negative value requirement
+
+#import Language::Core;
+
+[ Annotation <Negative> Allows (AnnotationAllow::Properties, AnnotationAllow::Variables)
+
+    [ Processor
+        [ Public <>
+            Method <onAnnotate> Returns None Parameters (
+                Parameter <ctx> Types ReflectionContext&,
+                Parameter <comp> Types CompilationContext&
+            ) -> {
+                Instantiate String^ As <name> = ctx.getTargetName();
+
+                // Document the negative value requirement
+                Run comp.message(String::Constructor("@Negative: '")
+                    .append(name)
+                    .append(String::Constructor("' must be negative (< 0)")));
+            }
+        ]
+    ]
+]

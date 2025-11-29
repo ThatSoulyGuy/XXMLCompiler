@@ -404,6 +404,18 @@ int main(int argc, char* argv[]) {
             }
         }
 
+        // Collect annotations from all modules (needed for @annotations defined in library files)
+        std::unordered_map<std::string, XXML::Semantic::SemanticAnalyzer::AnnotationInfo> allAnnotations;
+        std::vector<XXML::Semantic::SemanticAnalyzer::PendingProcessorCompilation> allPendingProcessors;
+        for (const auto& [moduleName, analyzer] : analyzerMap) {
+            for (const auto& [name, annotInfo] : analyzer->getAnnotationRegistry()) {
+                allAnnotations[name] = annotInfo;
+            }
+            for (const auto& pending : analyzer->getPendingProcessorCompilations()) {
+                allPendingProcessors.push_back(pending);
+            }
+        }
+
         // Phase 2: Validation
         std::cout << "Phase 2: Semantic analysis...\n";
         for (const auto& moduleName : compilationOrder) {
@@ -415,6 +427,10 @@ int main(int argc, char* argv[]) {
                 validator->setModuleName(moduleName);
                 for (const auto& [name, templateInfo] : allTemplateClasses) {
                     validator->registerTemplateClass(name, templateInfo);
+                }
+                // Register annotations from other modules
+                for (const auto& [name, annotInfo] : allAnnotations) {
+                    validator->registerAnnotation(name, annotInfo);
                 }
                 validator->analyze(*it->second->ast);
                 if (errorReporter.hasErrors()) {
@@ -435,11 +451,19 @@ int main(int argc, char* argv[]) {
         for (const auto& [name, templateInfo] : allTemplateClasses) {
             mainAnalyzer->registerTemplateClass(name, templateInfo);
         }
+        // Register annotations from imported modules so main module can use them
+        for (const auto& [name, annotInfo] : allAnnotations) {
+            mainAnalyzer->registerAnnotation(name, annotInfo);
+        }
         mainAnalyzer->analyze(*mainModule->ast);
         if (errorReporter.hasErrors()) {
             errorReporter.printErrors();
             return 1;
         }
+
+        // Merge pending processors from imported modules with main module's processors
+        // This allows annotations defined in library files to have their processors compiled
+        mainAnalyzer->mergePendingProcessorCompilations(allPendingProcessors);
 
         // Check for inline annotation processors and auto-compile them
         // (Skip this when in processor mode to avoid infinite recursion)

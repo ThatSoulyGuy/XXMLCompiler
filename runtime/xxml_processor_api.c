@@ -15,34 +15,34 @@
  * Reflection Context Methods Implementation
  * ========================================================================== */
 
-const char* Processor_getTargetKind(ProcessorReflectionContext* ctx) {
-    if (!ctx) return "";
-    return ctx->targetKind ? ctx->targetKind : "";
+void* Processor_getTargetKind(ProcessorReflectionContext* ctx) {
+    if (!ctx) return String_Constructor("");
+    return String_Constructor(ctx->targetKind ? ctx->targetKind : "");
 }
 
-const char* Processor_getTargetName(ProcessorReflectionContext* ctx) {
-    if (!ctx) return "";
-    return ctx->targetName ? ctx->targetName : "";
+void* Processor_getTargetName(ProcessorReflectionContext* ctx) {
+    if (!ctx) return String_Constructor("");
+    return String_Constructor(ctx->targetName ? ctx->targetName : "");
 }
 
-const char* Processor_getTypeName(ProcessorReflectionContext* ctx) {
-    if (!ctx) return "";
-    return ctx->typeName ? ctx->typeName : "";
+void* Processor_getTypeName(ProcessorReflectionContext* ctx) {
+    if (!ctx) return String_Constructor("");
+    return String_Constructor(ctx->typeName ? ctx->typeName : "");
 }
 
-const char* Processor_getClassName(ProcessorReflectionContext* ctx) {
-    if (!ctx) return "";
-    return ctx->className ? ctx->className : "";
+void* Processor_getClassName(ProcessorReflectionContext* ctx) {
+    if (!ctx) return String_Constructor("");
+    return String_Constructor(ctx->className ? ctx->className : "");
 }
 
-const char* Processor_getNamespaceName(ProcessorReflectionContext* ctx) {
-    if (!ctx) return "";
-    return ctx->namespaceName ? ctx->namespaceName : "";
+void* Processor_getNamespaceName(ProcessorReflectionContext* ctx) {
+    if (!ctx) return String_Constructor("");
+    return String_Constructor(ctx->namespaceName ? ctx->namespaceName : "");
 }
 
-const char* Processor_getSourceFile(ProcessorReflectionContext* ctx) {
-    if (!ctx) return "";
-    return ctx->sourceFile ? ctx->sourceFile : "";
+void* Processor_getSourceFile(ProcessorReflectionContext* ctx) {
+    if (!ctx) return String_Constructor("");
+    return String_Constructor(ctx->sourceFile ? ctx->sourceFile : "");
 }
 
 int Processor_getLineNumber(ProcessorReflectionContext* ctx) {

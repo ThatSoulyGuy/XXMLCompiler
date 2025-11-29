@@ -1,0 +1,53 @@
+// @Override Annotation
+// Validates that a method overrides a method from the base class.
+//
+// Usage:
+//   [ Class <Child> Final Extends Parent
+//       [ Public <>
+//           @Override
+//           Method <toString> Returns String^ Parameters () -> { ... }
+//       ]
+//   ]
+//
+// Targets: Methods
+// Parameters: None
+//
+// Behavior:
+//   - Validates that the containing class has a base class
+//   - Emits error if the class has no base class (Extends None)
+//   - Helps ensure method override intent is explicit
+
+#import Language::Core;
+
+[ Annotation <Override> Allows (AnnotationAllow::Methods)
+
+    [ Processor
+        [ Public <>
+            Method <onAnnotate> Returns None Parameters (
+                Parameter <ctx> Types ReflectionContext&,
+                Parameter <comp> Types CompilationContext&
+            ) -> {
+                Instantiate String^ As <methodName> = ctx.getTargetName();
+                Instantiate String^ As <baseClass> = ctx.getBaseClassName();
+                Instantiate String^ As <className> = ctx.getClassName();
+
+                // Check if the class has a base class (empty string means no base)
+                If (baseClass.equals(String::Constructor(""))) -> {
+                    Run comp.error(String::Constructor("@Override: method '")
+                        .append(methodName)
+                        .append(String::Constructor("' in class '"))
+                        .append(className)
+                        .append(String::Constructor("' cannot override - class has no base class")));
+                }
+                // Also check for "None" base class
+                If (baseClass.equals(String::Constructor("None"))) -> {
+                    Run comp.error(String::Constructor("@Override: method '")
+                        .append(methodName)
+                        .append(String::Constructor("' in class '"))
+                        .append(className)
+                        .append(String::Constructor("' cannot override - class has no base class")));
+                }
+            }
+        ]
+    ]
+]

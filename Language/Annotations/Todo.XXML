@@ -1,0 +1,44 @@
+// @Todo Annotation
+// Emits a development reminder during compilation.
+//
+// Usage:
+//   @Todo(task = "Implement error handling")
+//   Method <process> Returns None Parameters () -> { }
+//
+//   @Todo(task = "Add caching")
+//   [ Class <DataService> Final Extends None ... ]
+//
+// Targets: All (Classes, Methods, Properties, Variables)
+// Parameters:
+//   task: String - Description of the pending task
+//
+// Behavior:
+//   - Emits a compiler warning with the task description
+//   - Useful for tracking incomplete implementations
+//   - Shows element name and location
+
+#import Language::Core;
+
+[ Annotation <Todo> Allows (AnnotationAllow::Classes, AnnotationAllow::Methods, AnnotationAllow::Properties, AnnotationAllow::Variables)
+    Annotate (String)(task);
+
+    [ Processor
+        [ Public <>
+            Method <onAnnotate> Returns None Parameters (
+                Parameter <ctx> Types ReflectionContext&,
+                Parameter <comp> Types CompilationContext&
+            ) -> {
+                Instantiate String^ As <kind> = ctx.getTargetKind();
+                Instantiate String^ As <name> = ctx.getTargetName();
+                Instantiate String^ As <task> = ctx.getAnnotationArg(String::Constructor("task"));
+
+                Run comp.warning(String::Constructor("TODO [")
+                    .append(kind)
+                    .append(String::Constructor(" '"))
+                    .append(name)
+                    .append(String::Constructor("']: "))
+                    .append(task));
+            }
+        ]
+    ]
+]

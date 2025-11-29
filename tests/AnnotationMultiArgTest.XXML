@@ -1,0 +1,27 @@
+#import Language::Core;
+#import Language::Annotations;
+
+// Test annotation with multiple arguments: @Range(min, max)
+[ Class <AgeValidator> Final Extends None
+    [ Public <>
+        @Range(min = 0, max = 150)
+        Property <age> Types Integer^;
+
+        @Range(min = 1, max = 5)
+        Property <rating> Types Integer^;
+    ]
+]
+
+// Test deprecated with reason
+[ Class <LegacyCode> Final Extends None
+    [ Public <>
+        @Deprecated(reason = "Use ModernCode instead")
+        Method <oldMethod> Returns None Parameters () -> {
+            Return;
+        }
+    ]
+]
+
+[ Entrypoint {
+    Exit(0);
+} ]

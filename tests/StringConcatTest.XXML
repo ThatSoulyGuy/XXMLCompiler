@@ -1,0 +1,28 @@
+#import Language::Core;
+
+// Minimal test for string concatenation
+[ Annotation <TestConcat> Allows (AnnotationAllow::Classes)
+    [ Processor
+        [ Public <>
+            Method <onAnnotate> Returns None Parameters (
+                Parameter <ctx> Types ReflectionContext&,
+                Parameter <comp> Types CompilationContext&
+            ) -> {
+                Instantiate String^ As <name> = ctx.getTargetName();
+                Instantiate String^ As <msg> = "Class: " + name;
+                Run comp.message(msg);
+            }
+        ]
+    ]
+]
+
+@TestConcat
+[ Class <TestClass> Final Extends None
+    [ Public <>
+        Property <value> Types Integer^;
+    ]
+]
+
+[ Entrypoint {
+    Exit(0);
+} ]

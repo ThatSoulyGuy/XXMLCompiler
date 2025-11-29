@@ -424,6 +424,9 @@ void* xxml_Path_getAbsolute(const char* path);
 // Create a new String from a C string literal
 void* xxml_string_create(const char* cstr);
 
+// Concatenate two XXML String objects and return a new String
+void* xxml_string_concat(void* str1, void* str2);
+
 // Check if a pointer is null (returns 1 if null, 0 otherwise)
 int64_t xxml_ptr_is_null(void* ptr);
 

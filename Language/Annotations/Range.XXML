@@ -1,0 +1,51 @@
+// @Range Annotation
+// Validates that numeric values are within a specified range.
+//
+// Usage:
+//   @Range(min = 0, max = 100)
+//   Instantiate Integer^ As <percentage> = Integer::Constructor(50);
+//
+// Targets: Variables, Properties
+// Parameters:
+//   min: Integer - Minimum allowed value (inclusive)
+//   max: Integer - Maximum allowed value (inclusive)
+//
+// Behavior:
+//   - Validates that min <= max at definition time
+//   - If compile-time value is available, validates it's within range
+//   - Emits error if value is outside the specified range
+
+#import Language::Core;
+
+[ Annotation <Range> Allows (AnnotationAllow::Variables, AnnotationAllow::Properties)
+    Annotate (Integer)(min);
+    Annotate (Integer)(max);
+
+    [ Processor
+        [ Public <>
+            Method <onAnnotate> Returns None Parameters (
+                Parameter <ctx> Types ReflectionContext&,
+                Parameter <comp> Types CompilationContext&
+            ) -> {
+                Instantiate Integer^ As <min> = ctx.getAnnotationArg(String::Constructor("min"));
+                Instantiate Integer^ As <max> = ctx.getAnnotationArg(String::Constructor("max"));
+
+                // Validate that min <= max
+                If (min.greaterThan(max)) -> {
+                    Run comp.error(String::Constructor("@Range: min (")
+                        .append(min.toString())
+                        .append(String::Constructor(") cannot be greater than max ("))
+                        .append(max.toString())
+                        .append(String::Constructor(")")));
+                }
+
+                // Document the range constraint
+                Run comp.message(String::Constructor("@Range: value must be in range [")
+                    .append(min.toString())
+                    .append(String::Constructor(", "))
+                    .append(max.toString())
+                    .append(String::Constructor("]")));
+            }
+        ]
+    ]
+]

@@ -1,0 +1,16 @@
+// Simple test for @Deprecated annotation
+#import Language::Core;
+#import Language::Annotations;
+
+@Deprecated(reason = "Test deprecation message")
+[ Class <OldClass> Final Extends None
+    [ Public <>
+        Constructor = default;
+    ]
+]
+
+[ Entrypoint
+    {
+        Exit(0);
+    }
+]

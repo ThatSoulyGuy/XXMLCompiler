@@ -1982,6 +1982,26 @@ void* xxml_string_create(const char* cstr) {
     return String_Constructor(cstr ? cstr : "");
 }
 
+// Concatenate two XXML String objects and return a new String
+void* xxml_string_concat(void* str1, void* str2) {
+    const char* cstr1 = String_toCString(str1);
+    const char* cstr2 = String_toCString(str2);
+    if (!cstr1) cstr1 = "";
+    if (!cstr2) cstr2 = "";
+
+    size_t len1 = strlen(cstr1);
+    size_t len2 = strlen(cstr2);
+    char* result = (char*)xxml_malloc(len1 + len2 + 1);
+    if (!result) return String_Constructor("");
+
+    strcpy(result, cstr1);
+    strcat(result, cstr2);
+
+    void* newStr = String_Constructor(result);
+    xxml_free(result);
+    return newStr;
+}
+
 // Check if a pointer is null
 int64_t xxml_ptr_is_null(void* ptr) {
     return ptr == NULL ? 1 : 0;

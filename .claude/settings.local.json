@@ -26,7 +26,14 @@
       "Bash(cmd.exe /c \"D:\\VisualStudio\\Projects\\XXMLCompiler\\or_test.exe\")",
       "Bash(cmd.exe /c \"dir /b /o-d C:\\Users\\bkmcm\\AppData\\Local\\Temp\\Range_processor_*.XXML 2>nul\")",
       "Bash(cmd.exe:*)",
-      "Bash(D:\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe:*)"
+      "Bash(D:\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe:*)",
+      "Bash(cd:*)",
+      "Bash(Out-File -FilePath \"D:\\VisualStudio\\Projects\\XXMLCompiler\\annot_test_output.txt\")",
+      "Bash(Out-File -FilePath \"D:/VisualStudio/Projects/XXMLCompiler/compile_output.txt\" -Encoding UTF8)",
+      "Bash(tasklist:*)",
+      "Bash(Out-File -FilePath \"D:\\VisualStudio\\Projects\\XXMLCompiler\\concat_error.txt\" -Encoding UTF8)",
+      "Bash(Get-Content \"D:\\VisualStudio\\Projects\\XXMLCompiler\\concat_error.txt\")",
+      "Bash(Select-String -Pattern \"(error|Generated source|TestConcat)\")"
     ],
     "deny": [],
     "ask": []

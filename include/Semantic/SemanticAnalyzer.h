@@ -32,6 +32,32 @@ public:
         Parser::MethodDecl* astNode = nullptr;  // Optional: only valid for same-module access
     };
 
+    // Annotation parameter info - made public for cross-module sharing
+    struct AnnotationParamInfo {
+        std::string name;
+        std::string typeName;
+        Parser::OwnershipType ownership;
+        bool hasDefault;
+    };
+
+    // Annotation info - made public for cross-module sharing
+    struct AnnotationInfo {
+        std::string name;
+        std::vector<Parser::AnnotationTarget> allowedTargets;
+        std::vector<AnnotationParamInfo> parameters;
+        bool retainAtRuntime;
+        Parser::AnnotationDecl* astNode;
+    };
+
+    // Pending processor compilation info - made public for cross-module sharing
+    struct PendingProcessorCompilation {
+        std::string annotationName;
+        Parser::AnnotationDecl* annotDecl;
+        Parser::ProcessorDecl* processorDecl;
+        std::vector<std::string> imports;  // Imports from the source file
+        std::vector<Parser::ClassDecl*> userClasses;  // User-defined classes from the same file
+    };
+
 private:
     SymbolTable* symbolTable_;  // Now points to context's symbol table
     Core::CompilationContext* context_;  // ✅ Use context instead of static state
@@ -190,31 +216,7 @@ private:
 
     std::unordered_map<std::string, ConstraintInfo> constraintRegistry_;  // Constraint name -> info
 
-    // Annotation registry and validation
-    struct AnnotationParamInfo {
-        std::string name;
-        std::string typeName;
-        Parser::OwnershipType ownership;
-        bool hasDefault;
-    };
-
-    struct AnnotationInfo {
-        std::string name;
-        std::vector<Parser::AnnotationTarget> allowedTargets;
-        std::vector<AnnotationParamInfo> parameters;
-        bool retainAtRuntime;
-        Parser::AnnotationDecl* astNode;
-    };
-
-    // Pending processor compilation info (for inline processors)
-    struct PendingProcessorCompilation {
-        std::string annotationName;
-        Parser::AnnotationDecl* annotDecl;
-        Parser::ProcessorDecl* processorDecl;
-        std::vector<std::string> imports;  // Imports from the source file
-        std::vector<Parser::ClassDecl*> userClasses;  // User-defined classes from the same file
-    };
-
+    // Annotation registry (uses public structs AnnotationInfo, AnnotationParamInfo, PendingProcessorCompilation)
     std::unordered_map<std::string, AnnotationInfo> annotationRegistry_;  // Annotation name -> info
     std::vector<PendingProcessorCompilation> pendingProcessorCompilations_;  // Annotations with inline processors
 
@@ -307,6 +309,25 @@ public:
     // Get pending processor compilations (inline processors in annotations)
     const std::vector<PendingProcessorCompilation>& getPendingProcessorCompilations() const {
         return pendingProcessorCompilations_;
+    }
+
+    // Get annotation registry (for cross-module annotation sharing)
+    const std::unordered_map<std::string, AnnotationInfo>& getAnnotationRegistry() const {
+        return annotationRegistry_;
+    }
+
+    // Register annotation from another module
+    void registerAnnotation(const std::string& name, const AnnotationInfo& info) {
+        if (annotationRegistry_.find(name) == annotationRegistry_.end()) {
+            annotationRegistry_[name] = info;
+        }
+    }
+
+    // Merge pending processor compilations from another module
+    void mergePendingProcessorCompilations(const std::vector<PendingProcessorCompilation>& pending) {
+        for (const auto& p : pending) {
+            pendingProcessorCompilations_.push_back(p);
+        }
     }
 
 public:

@@ -1062,6 +1062,7 @@ std::string LLVMBackend::generatePreamble() {
     // Utility functions for Syscall:: namespace (xxml_ prefixed)
     preamble << "; Utility Functions\n";
     preamble << "declare ptr @xxml_string_create(ptr)\n";
+    preamble << "declare ptr @xxml_string_concat(ptr, ptr)\n";
     preamble << "declare i64 @xxml_ptr_is_null(ptr)\n";
     preamble << "declare ptr @xxml_ptr_null()\n";
     preamble << "\n";
@@ -4300,18 +4301,48 @@ void LLVMBackend::visit(Parser::BinaryExpr& node) {
         DEBUG_OUT("DEBUG BinaryExpr: rightValue=" << rightValue << " NOT FOUND in registerTypes_\n");
     }
 
+    // Check if this is String concatenation (both operands are String types)
+    auto leftXXMLTypeIt = registerTypes_.find(leftValue);
+    auto rightXXMLTypeIt = registerTypes_.find(rightValue);
+    bool leftIsString = (leftXXMLTypeIt != registerTypes_.end() &&
+                        (leftXXMLTypeIt->second == "String" || leftXXMLTypeIt->second == "String^" ||
+                         leftXXMLTypeIt->second.find("String") != std::string::npos));
+    bool rightIsString = (rightXXMLTypeIt != registerTypes_.end() &&
+                         (rightXXMLTypeIt->second == "String" || rightXXMLTypeIt->second == "String^" ||
+                          rightXXMLTypeIt->second.find("String") != std::string::npos));
+
+    // Handle String concatenation with + operator
+    if (node.op == "+" && leftType == "ptr" && rightType == "ptr" && (leftIsString || rightIsString)) {
+        // Both operands are pointers and at least one is a String - use string_concat
+        std::string resultReg = allocateRegister();
+        emitLine(format("{} = call ptr @xxml_string_concat(ptr {}, ptr {})", resultReg, leftValue, rightValue));
+        valueMap_["__last_expr"] = resultReg;
+        registerTypes_[resultReg] = "String^";
+        return;
+    }
+
     // Handle pointer arithmetic: ptr + i64 or i64 + ptr
     if ((leftType == "ptr" || rightType == "ptr") && (node.op == "+" || node.op == "-")) {
         std::string ptrValue;
         std::string offsetValue;
+        std::string offsetType;
         bool ptrOnLeft = (leftType == "ptr");
 
         if (ptrOnLeft) {
             ptrValue = leftValue;
             offsetValue = rightValue;
+            offsetType = rightType;
         } else {
             ptrValue = rightValue;
             offsetValue = leftValue;
+            offsetType = leftType;
+        }
+
+        // If the offset is also a ptr (but not String), convert it to i64
+        if (offsetType == "ptr") {
+            std::string offsetAsInt = allocateRegister();
+            emitLine(format("{} = ptrtoint ptr {} to i64", offsetAsInt, offsetValue));
+            offsetValue = offsetAsInt;
         }
 
         // Convert ptr to i64

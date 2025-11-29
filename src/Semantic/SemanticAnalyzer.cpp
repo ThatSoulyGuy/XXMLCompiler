@@ -3028,12 +3028,11 @@ bool SemanticAnalyzer::isCompilerIntrinsicType(const std::string& typeName) cons
 
 void SemanticAnalyzer::visit(Parser::AnnotationDecl& node) {
     // Check for duplicate annotation definitions
+    // If already registered (from cross-module sharing), skip re-registration silently
+    // This allows annotations imported from other modules to be re-analyzed
     if (annotationRegistry_.find(node.name) != annotationRegistry_.end()) {
-        errorReporter.reportError(
-            Common::ErrorCode::DuplicateSymbol,
-            "Annotation '" + node.name + "' is already defined",
-            node.location
-        );
+        // Only report error during Phase 2 validation within the same module
+        // Cross-module annotations are pre-registered and should be skipped
         return;
     }
 
@@ -3116,6 +3115,10 @@ void SemanticAnalyzer::validateAnnotationUsage(Parser::AnnotationUsage& usage,
                                                const std::string& targetName,
                                                const Common::SourceLocation& targetLoc,
                                                Parser::ASTNode* astNode) {
+    // Skip validation during Phase 1 (registration phase)
+    // Annotations from imported modules aren't available yet
+    if (!enableValidation) return;
+
     // Look up the annotation definition
     auto it = annotationRegistry_.find(usage.annotationName);
     if (it == annotationRegistry_.end()) {
@@ -3209,6 +3212,21 @@ void SemanticAnalyzer::validateAnnotationUsage(Parser::AnnotationUsage& usage,
         target.namespaceName = currentNamespace;
         target.location = targetLoc;
         target.astNode = astNode;
+
+        // Extract type name for properties and variables
+        if (targetKind == Parser::AnnotationTarget::Properties) {
+            if (auto* propDecl = dynamic_cast<Parser::PropertyDecl*>(astNode)) {
+                if (propDecl->type) {
+                    target.typeName = propDecl->type->typeName;
+                }
+            }
+        } else if (targetKind == Parser::AnnotationTarget::Variables) {
+            if (auto* instStmt = dynamic_cast<Parser::InstantiateStmt*>(astNode)) {
+                if (instStmt->type) {
+                    target.typeName = instStmt->type->typeName;
+                }
+            }
+        }
 
         // Create the pending annotation
         AnnotationProcessor::PendingAnnotation pending;

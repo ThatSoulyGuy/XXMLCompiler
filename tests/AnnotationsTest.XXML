@@ -1,0 +1,68 @@
+// Comprehensive test for XXML Standard Annotations
+// Tests all annotations from Language::Annotations
+
+#import Language::Core;
+#import Language::Annotations;
+
+// Test @Deprecated on class
+@Deprecated(reason = "Use NewClass instead")
+[ Class <OldClass> Final Extends None
+    [ Public <>
+        Constructor = default;
+    ]
+]
+
+// Test @Experimental on class
+@Experimental
+[ Class <BetaFeature> Final Extends None
+    [ Public <>
+        Constructor = default;
+
+        // Test @Experimental on method
+        @Experimental
+        Method <unstableMethod> Returns None Parameters () -> { }
+    ]
+]
+
+// Test multiple annotations
+[ Class <TestClass> Final Extends None
+    [ Public <>
+        // Test @NotNull and @NotEmpty on property
+        @NotNull
+        @NotEmpty
+        Property <name> Types String^;
+
+        // Test @Range and @Positive on property
+        @Range(min = 0, max = 100)
+        @Positive
+        Property <percentage> Types Integer^;
+
+        Constructor = default;
+
+        // Test @Deprecated on method with default message
+        @Deprecated
+        Method <oldMethod> Returns None Parameters () -> { }
+
+        // Test @Todo on method
+        @Todo(task = "Add input validation")
+        Method <process> Returns None Parameters () -> { }
+    ]
+]
+
+[ Entrypoint
+    {
+        // Test @Range on variable - valid value
+        @Range(min = 1, max = 10)
+        Instantiate Integer^ As <rating> = Integer::Constructor(5i);
+
+        // Test @Positive on variable - valid value
+        @Positive
+        Instantiate Integer^ As <count> = Integer::Constructor(10i);
+
+        // Test @NotNull on variable
+        @NotNull
+        Instantiate String^ As <message> = String::Constructor("Hello");
+
+        Exit(0);
+    }
+]

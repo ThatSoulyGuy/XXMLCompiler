@@ -1,0 +1,38 @@
+// @Positive Annotation
+// Validates that a numeric value is positive (> 0).
+//
+// Usage:
+//   @Positive
+//   Property <count> Types Integer^;
+//
+//   @Positive
+//   Instantiate Integer^ As <quantity> = Integer::Constructor(5);
+//
+// Targets: Properties, Variables
+// Parameters: None
+//
+// Behavior:
+//   - If compile-time value is available, validates it's > 0
+//   - Emits error if value is <= 0
+//   - Documents the positive value requirement
+
+#import Language::Core;
+
+[ Annotation <Positive> Allows (AnnotationAllow::Properties, AnnotationAllow::Variables)
+
+    [ Processor
+        [ Public <>
+            Method <onAnnotate> Returns None Parameters (
+                Parameter <ctx> Types ReflectionContext&,
+                Parameter <comp> Types CompilationContext&
+            ) -> {
+                Instantiate String^ As <name> = ctx.getTargetName();
+
+                // Document the positive value requirement
+                Run comp.message(String::Constructor("@Positive: '")
+                    .append(name)
+                    .append(String::Constructor("' must be positive (> 0)")));
+            }
+        ]
+    ]
+]

@@ -1,0 +1,40 @@
+// @Experimental Annotation
+// Marks an API as experimental and may change in future versions.
+//
+// Usage:
+//   @Experimental
+//   [ Class <BetaFeature> Final Extends None ... ]
+//
+//   @Experimental
+//   Method <newAlgorithm> Returns Integer^ Parameters () -> { ... }
+//
+// Targets: Classes, Methods
+// Parameters: None
+//
+// Behavior:
+//   - Emits a warning that the API is experimental
+//   - Indicates the API may change or be removed
+//   - Helps track unstable interfaces
+
+#import Language::Core;
+
+[ Annotation <Experimental> Allows (AnnotationAllow::Classes, AnnotationAllow::Methods)
+
+    [ Processor
+        [ Public <>
+            Method <onAnnotate> Returns None Parameters (
+                Parameter <ctx> Types ReflectionContext&,
+                Parameter <comp> Types CompilationContext&
+            ) -> {
+                Instantiate String^ As <kind> = ctx.getTargetKind();
+                Instantiate String^ As <name> = ctx.getTargetName();
+
+                Run comp.warning(String::Constructor("@Experimental: ")
+                    .append(kind)
+                    .append(String::Constructor(" '"))
+                    .append(name)
+                    .append(String::Constructor("' is experimental and may change in future versions")));
+            }
+        ]
+    ]
+]

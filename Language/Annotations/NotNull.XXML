@@ -1,0 +1,43 @@
+// @NotNull Annotation
+// Documents that a property or variable should not be null.
+//
+// Usage:
+//   @NotNull
+//   Property <name> Types String^;
+//
+//   @NotNull
+//   Instantiate User^ As <currentUser> = ...;
+//
+// Targets: Properties, Variables
+// Parameters: None
+//
+// Behavior:
+//   - Emits a message documenting the non-null requirement
+//   - Serves as documentation and intent marker
+//   - Future: Could be used for runtime null checks
+
+#import Language::Core;
+
+[ Annotation <NotNull> Allows (AnnotationAllow::Properties, AnnotationAllow::Variables)
+
+    [ Processor
+        [ Public <>
+            Method <onAnnotate> Returns None Parameters (
+                Parameter <ctx> Types ReflectionContext&,
+                Parameter <comp> Types CompilationContext&
+            ) -> {
+                Instantiate String^ As <kind> = ctx.getTargetKind();
+                Instantiate String^ As <name> = ctx.getTargetName();
+                Instantiate String^ As <typeName> = ctx.getTypeName();
+
+                Run comp.message(String::Constructor("@NotNull: ")
+                    .append(kind)
+                    .append(String::Constructor(" '"))
+                    .append(name)
+                    .append(String::Constructor("' of type "))
+                    .append(typeName)
+                    .append(String::Constructor(" must not be null")));
+            }
+        ]
+    ]
+]

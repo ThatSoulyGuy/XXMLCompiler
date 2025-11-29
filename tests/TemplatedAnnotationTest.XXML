@@ -1,0 +1,40 @@
+#import Language::Core;
+#import Language::Annotations;
+
+// Test annotations on methods and properties inside templated classes
+[ Class <Container> <T Constrains None> Final Extends None
+    [ Private <>
+        Property <data> Types T^;
+    ]
+
+    [ Public <>
+        @NotNull
+        Property <name> Types String^;
+
+        Constructor Parameters (
+            Parameter <value> Types T%
+        ) -> {
+            Run Syscall::memcpy(&data, &value, 8);
+        }
+
+        @Deprecated(reason = "Use getValue() instead")
+        Method <getData> Returns T^ Parameters () -> {
+            Return data;
+        }
+
+        Method <getValue> Returns T^ Parameters () -> {
+            Return data;
+        }
+    ]
+]
+
+// Instantiate the template
+[ Class <TestClass> Final Extends None
+    [ Public <>
+        Property <container> Types Container<Integer>^;
+    ]
+]
+
+[ Entrypoint {
+    Exit(0);
+} ]

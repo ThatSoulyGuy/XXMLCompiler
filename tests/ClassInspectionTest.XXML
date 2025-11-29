@@ -1,0 +1,48 @@
+#import Language::Core;
+
+// Custom annotation with inline processor that inspects the class
+[ Annotation <InspectClass> Allows (AnnotationAllow::Classes)
+    [ Processor
+        [ Public <>
+            Method <onAnnotate> Returns None Parameters (
+                Parameter <ctx> Types ReflectionContext&,
+                Parameter <comp> Types CompilationContext&
+            ) -> {
+                // Get class info
+                Instantiate String^ As <className> = ctx.getTargetName();
+                Instantiate String^ As <kind> = ctx.getTargetKind();
+
+                // Report what we found
+                Run comp.message(className);
+                Run comp.message(kind);
+            }
+        ]
+    ]
+]
+
+// Test class to be inspected
+@InspectClass
+[ Class <MyTestClass> Final Extends None
+    [ Private <>
+        Property <internalValue> Types Integer^;
+    ]
+
+    [ Public <>
+        Property <name> Types String^;
+        Property <age> Types Integer^;
+
+        Method <calculate> Returns Integer^ Parameters (
+            Parameter <x> Types Integer%
+        ) -> {
+            Return x;
+        }
+
+        Method <display> Returns None Parameters () -> {
+            Return;
+        }
+    ]
+]
+
+[ Entrypoint {
+    Exit(0);
+} ]

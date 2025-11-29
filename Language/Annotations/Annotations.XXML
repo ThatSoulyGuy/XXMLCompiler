@@ -1,0 +1,21 @@
+// XXML Standard Annotations
+// Version 1.0
+//
+// Import this file to use all standard annotations:
+//   #import Language::Annotations;
+//
+// All annotation files in this directory are automatically loaded when
+// importing Language::Annotations.
+//
+// Available annotations:
+//   @Range(min, max)     - Validate numeric range at compile-time
+//   @Deprecated(reason)  - Mark element as deprecated with warning
+//   @Override            - Validate method overrides base class method
+//   @NotNull             - Document non-null requirement
+//   @NotEmpty            - Validate non-empty string type
+//   @Positive            - Validate positive number value
+//   @Negative            - Validate negative number value
+//   @Todo(task)          - Development reminder message
+//   @Experimental        - Mark API as experimental
+
+#import Language::Core;

@@ -122,38 +122,44 @@ void Processor_errorAt(ProcessorCompilationContext* ctx, void* msg,
 
 /* ==========================================================================
  * Reflection Context Methods
+ * Note: String-returning methods return XXML String objects (void*), not const char*
  * ========================================================================== */
 
 /**
  * Get the kind of the annotated target
- * Returns: "class", "method", "property", or "variable"
+ * Returns: XXML String object with "class", "method", "property", or "variable"
  */
-const char* Processor_getTargetKind(ProcessorReflectionContext* ctx);
+void* Processor_getTargetKind(ProcessorReflectionContext* ctx);
 
 /**
  * Get the name of the annotated target
+ * Returns: XXML String object
  */
-const char* Processor_getTargetName(ProcessorReflectionContext* ctx);
+void* Processor_getTargetName(ProcessorReflectionContext* ctx);
 
 /**
  * Get the type name of the annotated target (for properties/variables)
+ * Returns: XXML String object
  */
-const char* Processor_getTypeName(ProcessorReflectionContext* ctx);
+void* Processor_getTypeName(ProcessorReflectionContext* ctx);
 
 /**
  * Get the containing class name (for methods/properties)
+ * Returns: XXML String object
  */
-const char* Processor_getClassName(ProcessorReflectionContext* ctx);
+void* Processor_getClassName(ProcessorReflectionContext* ctx);
 
 /**
  * Get the containing namespace
+ * Returns: XXML String object
  */
-const char* Processor_getNamespaceName(ProcessorReflectionContext* ctx);
+void* Processor_getNamespaceName(ProcessorReflectionContext* ctx);
 
 /**
  * Get the source file path
+ * Returns: XXML String object
  */
-const char* Processor_getSourceFile(ProcessorReflectionContext* ctx);
+void* Processor_getSourceFile(ProcessorReflectionContext* ctx);
 
 /**
  * Get the line number

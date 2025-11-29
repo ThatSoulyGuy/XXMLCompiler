@@ -1,0 +1,42 @@
+// @Deprecated Annotation
+// Marks an element as deprecated and emits a warning when used.
+//
+// Usage:
+//   @Deprecated(reason = "Use NewClass instead")
+//   [ Class <OldClass> Final Extends None ... ]
+//
+//   @Deprecated  // Uses default message
+//   Method <oldMethod> Returns None Parameters () -> { }
+//
+// Targets: Classes, Methods, Properties
+// Parameters:
+//   reason: String (optional) - Deprecation message (default: "This element is deprecated")
+//
+// Behavior:
+//   - Emits a warning with the deprecation reason
+//   - Warning includes the element type and name
+
+#import Language::Core;
+
+[ Annotation <Deprecated> Allows (AnnotationAllow::Classes, AnnotationAllow::Methods, AnnotationAllow::Properties)
+    Annotate (String)(reason) = String::Constructor("This element is deprecated");
+
+    [ Processor
+        [ Public <>
+            Method <onAnnotate> Returns None Parameters (
+                Parameter <ctx> Types ReflectionContext&,
+                Parameter <comp> Types CompilationContext&
+            ) -> {
+                Instantiate String^ As <kind> = ctx.getTargetKind();
+                Instantiate String^ As <name> = ctx.getTargetName();
+                Instantiate String^ As <reason> = ctx.getAnnotationArg(String::Constructor("reason"));
+
+                Run comp.warning(kind
+                    .append(String::Constructor(" '"))
+                    .append(name)
+                    .append(String::Constructor("' is deprecated: "))
+                    .append(reason));
+            }
+        ]
+    ]
+]
