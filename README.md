@@ -212,6 +212,8 @@ XXMLCompiler/
 | [Language Specification](docs/LANGUAGE_SPEC.md) | Complete language syntax and semantics |
 | [Templates](docs/TEMPLATES.md) | Generic programming with templates |
 | [Constraints](docs/CONSTRAINTS.md) | Template constraints system |
+| [Foreign Function Interface](docs/FFI.md) | Foreign function interface system |
+| [Imports](docs/IMPORTS.md) | Imports (#import ...) system |
 | [Advanced Features](docs/ADVANCED_FEATURES.md) | Destructors, native types, syscalls |
 | [Reflection System](docs/REFLECTION_SYSTEM.md) | Runtime type introspection |
 | [Threading](docs/THREADING.md) | Concurrency and synchronization |
