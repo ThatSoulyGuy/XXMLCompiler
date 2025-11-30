@@ -1,0 +1,61 @@
+// Test file for Enumeration feature
+#import Language::Core;
+
+[ Enumeration <Color>
+    Value <RED> = 1;
+    Value <GREEN> = 2;
+    Value <BLUE> = 3;
+]
+
+[ Enumeration <Key>
+    Value <UNKNOWN> = -1;
+    Value <SPACE> = 32;
+    Value <A> = 65;
+    Value <B>;
+    Value <C>;
+]
+
+[ Entrypoint
+{
+    Run Console::printLine(String::Constructor("=== Enumeration Test ==="));
+
+    // Test Color enum
+    Instantiate Integer^ As <red> = Integer::Constructor(Color::RED);
+    Instantiate Integer^ As <green> = Integer::Constructor(Color::GREEN);
+    Instantiate Integer^ As <blue> = Integer::Constructor(Color::BLUE);
+
+    Run Console::print(String::Constructor("RED = "));
+    Run Console::printLine(red.toString());
+
+    Run Console::print(String::Constructor("GREEN = "));
+    Run Console::printLine(green.toString());
+
+    Run Console::print(String::Constructor("BLUE = "));
+    Run Console::printLine(blue.toString());
+
+    // Test Key enum with auto-increment
+    Instantiate Integer^ As <keyUnknown> = Integer::Constructor(Key::UNKNOWN);
+    Instantiate Integer^ As <keySpace> = Integer::Constructor(Key::SPACE);
+    Instantiate Integer^ As <keyA> = Integer::Constructor(Key::A);
+    Instantiate Integer^ As <keyB> = Integer::Constructor(Key::B);
+    Instantiate Integer^ As <keyC> = Integer::Constructor(Key::C);
+
+    Run Console::print(String::Constructor("UNKNOWN = "));
+    Run Console::printLine(keyUnknown.toString());
+
+    Run Console::print(String::Constructor("SPACE = "));
+    Run Console::printLine(keySpace.toString());
+
+    Run Console::print(String::Constructor("A = "));
+    Run Console::printLine(keyA.toString());
+
+    Run Console::print(String::Constructor("B (auto) = "));
+    Run Console::printLine(keyB.toString());
+
+    Run Console::print(String::Constructor("C (auto) = "));
+    Run Console::printLine(keyC.toString());
+
+    Run Console::printLine(String::Constructor("=== Test Complete ==="));
+    Exit(0);
+}
+]

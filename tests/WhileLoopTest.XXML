@@ -1,0 +1,34 @@
+#import Language::Core;
+
+[ Entrypoint
+    {
+        // Test While loop with Bool object condition (from comparison)
+        Instantiate Integer^ As <one> = Integer::Constructor(1);
+        Instantiate Integer^ As <two> = Integer::Constructor(2);
+        Instantiate Integer^ As <three> = Integer::Constructor(3);
+
+        // Get a Bool object from lessThan (returns Bool^)
+        Instantiate Bool^ As <alwaysFalse> = two.lessThan(one);
+
+        // While with Bool object that is false - should skip loop entirely
+        // This tests the Bool-to-i1 conversion in WhileStmt
+        While (alwaysFalse) -> {
+            Run Console::printLine(String::Constructor("This should never print"));
+        }
+
+        Run Console::printLine(String::Constructor("Skipped false-condition loop correctly!"));
+
+        // Test While with .not() on Bool object
+        // one.lessThan(two) = true, so .not() returns false
+        Instantiate Bool^ As <skipLoop> = one.lessThan(two).not();
+
+        // This should also skip since not(true) = false
+        While (skipLoop) -> {
+            Run Console::printLine(String::Constructor("This should also never print"));
+        }
+
+        Run Console::printLine(String::Constructor("Skipped not-condition loop correctly!"));
+
+        Run Console::printLine(String::Constructor("All While tests passed!"));
+    }
+]

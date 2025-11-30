@@ -31,6 +31,19 @@ namespace XXML::Backends {
 
 using XXML::Core::format;
 
+// Helper to map NativeType string to LLVM type
+static std::string mapNativeTypeToLLVM(const std::string& nativeType) {
+    if (nativeType == "int8" || nativeType == "uint8") return "i8";
+    if (nativeType == "int16" || nativeType == "uint16") return "i16";
+    if (nativeType == "int32" || nativeType == "uint32") return "i32";
+    if (nativeType == "int64" || nativeType == "uint64") return "i64";
+    if (nativeType == "float") return "float";
+    if (nativeType == "double") return "double";
+    if (nativeType == "ptr") return "ptr";
+    if (nativeType == "void") return "void";
+    return "ptr";  // Default to pointer for unknown types
+}
+
 LLVMBackend::LLVMBackend(Core::CompilationContext* context)
     : BackendBase() {
     context_ = context;
@@ -58,6 +71,9 @@ std::string LLVMBackend::generate(Parser::Program& program) {
     module_->setDataLayout(getDataLayout());
     builder_ = std::make_unique<IR::IRBuilder>(*module_);
 
+    // Initialize IR module with built-in types and runtime function declarations
+    initializeIRModule();
+
     // Clear tracking state
     irValues_.clear();
     localAllocas_.clear();
@@ -76,6 +92,7 @@ std::string LLVMBackend::generate(Parser::Program& program) {
     lambdaCounter_ = 0;  // Reset lambda counter
     lambdaInfos_.clear();  // Clear lambda tracking
     pendingLambdaDefinitions_.clear();  // Clear pending lambda definitions
+    nativeMethods_.clear();  // Clear native FFI method tracking
 
     // Generate preamble (legacy - will be replaced)
     std::string preamble = generatePreamble();
@@ -105,6 +122,8 @@ std::string LLVMBackend::generate(Parser::Program& program) {
     for (auto* importedModule : importedModules_) {
         if (importedModule) {
             // Check if this is a runtime module (only generate declarations for those)
+            // A module is "runtime" if its OWN namespace is Language::*, System::*, etc.
+            // NOT based on what it imports - e.g., GLFW imports Language::Core but is NOT runtime
             bool isRuntimeModule = false;
             for (auto& decl : importedModule->declarations) {
                 if (auto* ns = dynamic_cast<Parser::NamespaceDecl*>(decl.get())) {
@@ -114,13 +133,9 @@ std::string LLVMBackend::generate(Parser::Program& program) {
                         isRuntimeModule = true;
                         break;
                     }
-                } else if (auto* importDecl = dynamic_cast<Parser::ImportDecl*>(decl.get())) {
-                    if (importDecl->modulePath.find("Language::") == 0 ||
-                        importDecl->modulePath.find("System::") == 0) {
-                        isRuntimeModule = true;
-                        break;
-                    }
                 }
+                // NOTE: Don't check ImportDecl - a module that imports Language::Core
+                // is NOT necessarily a runtime module (e.g., GLFW imports Language::Core)
             }
             // Only generate declarations for runtime modules (their code is in the runtime library)
             if (isRuntimeModule) {
@@ -144,15 +159,24 @@ std::string LLVMBackend::generate(Parser::Program& program) {
     // IMPORTANT: We need to collect reflection metadata from ALL modules (including runtime)
     // so that GetType<T> can access property/method info for standard library classes.
     //
-    for (auto* importedModule : importedModules_) {
+    for (size_t i = 0; i < importedModules_.size(); ++i) {
+        auto* importedModule = importedModules_[i];
+        // Get module name from importedModuleNames_ if available, otherwise try to find it
+        std::string moduleName = (i < importedModuleNames_.size() && !importedModuleNames_[i].empty())
+            ? importedModuleNames_[i] : "unknown";
+
         if (importedModule) {
             // Check if this is a Language:: or System:: module (provided by runtime, skip code gen)
+            // A module is "runtime" if its OWN namespace is Language::*, System::*, etc.
+            // NOT based on what it imports - e.g., GLFW imports Language::Core but is NOT runtime
             bool isRuntimeModule = false;
-            std::string moduleName = "unknown";
 
             for (auto& decl : importedModule->declarations) {
                 if (auto* ns = dynamic_cast<Parser::NamespaceDecl*>(decl.get())) {
-                    moduleName = ns->name;
+                    // If moduleName was "unknown", use the namespace name
+                    if (moduleName == "unknown") {
+                        moduleName = ns->name;
+                    }
                     // Skip standard library modules that are provided by runtime
                     // Use prefix matching since namespace name could be "Language::Core" etc.
                     if (ns->name.find("Language") == 0 || ns->name.find("System") == 0 ||
@@ -161,14 +185,9 @@ std::string LLVMBackend::generate(Parser::Program& program) {
                         isRuntimeModule = true;
                         break;
                     }
-                } else if (auto* importDecl = dynamic_cast<Parser::ImportDecl*>(decl.get())) {
-                    // Check import path for Language:: prefix
-                    if (importDecl->modulePath.find("Language::") == 0 ||
-                        importDecl->modulePath.find("System::") == 0) {
-                        isRuntimeModule = true;
-                        break;
-                    }
                 }
+                // NOTE: Don't check ImportDecl - a module that imports Language::Core
+                // is NOT necessarily a runtime module (e.g., GLFW imports Language::Core)
             }
 
             // ALWAYS collect reflection metadata, even for runtime modules
@@ -177,7 +196,7 @@ std::string LLVMBackend::generate(Parser::Program& program) {
 
             if (!isRuntimeModule) {
                 // Only generate code for non-runtime modules (user-defined modules)
-                generateImportedModuleCode(*importedModule);
+                generateImportedModuleCode(*importedModule, moduleName);
             }
         }
     }
@@ -273,15 +292,17 @@ std::string LLVMBackend::generate(Parser::Program& program) {
     }
 
     // === IR Infrastructure Debug Output ===
-    // When useNewIR_ is enabled, append the new IR output for comparison
-    if (useNewIR_ && module_) {
-        finalOutput << "\n; ============================================\n";
-        finalOutput << "; DEBUG: New IR Infrastructure Output\n";
-        finalOutput << "; ============================================\n";
-
-        std::string irOutput = IR::emitModuleUnchecked(*module_);
-        finalOutput << irOutput;
-    }
+    // When useNewIR_ is enabled, we're currently still using the legacy string-based output
+    // but with type-safe validation. The new IR module is built in parallel but not used
+    // for final output yet. Once full migration is complete, we'll switch to using
+    // IR::Emitter::emit(*module_) as the sole output.
+    //
+    // NOTE: Appending the new IR output here causes duplicate module headers which breaks
+    // LLVM parsing. Keep this disabled until we're ready to switch entirely to new IR.
+    // if (useNewIR_ && module_) {
+    //     std::string irOutput = IR::emitModuleUnchecked(*module_);
+    //     return irOutput;  // Replace legacy output with new IR
+    // }
 
     // Note: Once the full migration is complete, we can replace the entire method with:
     // IR::Emitter emitter;
@@ -435,10 +456,27 @@ void LLVMBackend::generateFunctionDeclarations(Parser::Program& program) {
                     if (declaredFunctions_.find(funcName) == declaredFunctions_.end()) {
                         declaredFunctions_.insert(funcName);
                         emitLine("declare ptr @" + funcName + "(" + params.str() + ")");
+
+                        // IR: Declare constructor function
+                        if (module_) {
+                            std::vector<IR::Type*> paramTypes;
+                            paramTypes.push_back(builder_->getPtrTy());  // this
+                            for (const auto& param : ctor->parameters) {
+                                paramTypes.push_back(getIRType(param->type->typeName));
+                            }
+                            auto& ctx = module_->getContext();
+                            auto* funcTy = ctx.getFunctionTy(builder_->getPtrTy(), paramTypes, false);
+                            module_->createFunction(funcTy, funcName, IR::Function::Linkage::External);
+                        }
                     }
                 }
                 // Check for methods
                 else if (auto* method = dynamic_cast<Parser::MethodDecl*>(decl.get())) {
+                    // Skip native FFI methods - they're defined with internal linkage
+                    if (method->isNative) {
+                        continue;
+                    }
+
                     // Build parameter list for declaration
                     std::stringstream params;
                     params << "ptr";  // 'this' pointer
@@ -457,6 +495,19 @@ void LLVMBackend::generateFunctionDeclarations(Parser::Program& program) {
                     if (declaredFunctions_.find(funcName) == declaredFunctions_.end()) {
                         declaredFunctions_.insert(funcName);
                         emitLine("declare " + returnType + " @" + funcName + "(" + params.str() + ")");
+
+                        // IR: Declare method function
+                        if (module_) {
+                            std::vector<IR::Type*> paramTypes;
+                            paramTypes.push_back(builder_->getPtrTy());  // this
+                            for (const auto& param : method->parameters) {
+                                paramTypes.push_back(getIRType(param->type->typeName));
+                            }
+                            auto& ctx = module_->getContext();
+                            IR::Type* retTy = getIRType(method->returnType->typeName);
+                            auto* funcTy = ctx.getFunctionTy(retTy, paramTypes, false);
+                            module_->createFunction(funcTy, funcName, IR::Function::Linkage::External);
+                        }
                     }
                 }
             }
@@ -496,21 +547,31 @@ void LLVMBackend::generateFunctionDeclarations(Parser::Program& program) {
     emitLine("");
 }
 
-void LLVMBackend::generateImportedModuleCode(Parser::Program& program) {
+void LLVMBackend::generateImportedModuleCode(Parser::Program& program, const std::string& moduleName) {
     // Generate code for imported modules safely by processing classes directly.
     // This avoids issues with the full visitor pattern by:
     // 1. Skipping entrypoints (imported modules shouldn't have them)
     // 2. Properly managing state between class generations
     // 3. Not relying on the visitor pattern for top-level iteration
+    // 4. Using moduleName as namespace for modules without explicit namespace wrappers
 
 
     emitLine("; ============================================");
-    emitLine("; Imported module code");
+    emitLine(format("; Imported module code: {}", moduleName));
     emitLine("; ============================================");
 
     // Save current state
     std::string savedNamespace = currentNamespace_;
     std::string savedClassName = currentClassName_;
+
+    // Determine the default namespace for this module
+    // For modules like "GLFW::GLFW" (subdir/file naming), use just the first component "GLFW"
+    // For modules like "Language::Core::String", this code path isn't hit (they have explicit namespace wrappers)
+    std::string defaultModuleNamespace = moduleName;
+    size_t colonPos = moduleName.find("::");
+    if (colonPos != std::string::npos) {
+        defaultModuleNamespace = moduleName.substr(0, colonPos);
+    }
 
     // Helper to process a namespace (recursively visits nested namespaces and classes)
     std::function<void(Parser::NamespaceDecl*)> processNamespace;
@@ -529,6 +590,11 @@ void LLVMBackend::generateImportedModuleCode(Parser::Program& program) {
         }
 
         emitLine(format("; namespace {}", ns->name));
+
+        // IR: Namespace processing marker
+        if (builder_) {
+            (void)builder_->getPtrTy();
+        }
 
         for (auto& decl : ns->declarations) {
             if (!decl) {
@@ -563,8 +629,8 @@ void LLVMBackend::generateImportedModuleCode(Parser::Program& program) {
         }
 
         if (auto* classDecl = dynamic_cast<Parser::ClassDecl*>(decl.get())) {
-            // Process top-level class
-            currentNamespace_ = "";
+            // Process top-level class - use module name as namespace
+            currentNamespace_ = defaultModuleNamespace;
             currentClassName_ = "";
             variables_.clear();
             try {
@@ -573,9 +639,36 @@ void LLVMBackend::generateImportedModuleCode(Parser::Program& program) {
                 std::cerr << "[ERROR] Exception visiting class " << classDecl->name << ": " << e.what() << "\n";
             }
         } else if (auto* ns = dynamic_cast<Parser::NamespaceDecl*>(decl.get())) {
-            // Process namespace
+            // Process namespace - explicit namespace in file, start fresh
             currentNamespace_ = "";
             processNamespace(ns);
+        } else if (auto* methodDecl = dynamic_cast<Parser::MethodDecl*>(decl.get())) {
+            // Process top-level method (including @NativeFunction FFI methods) - use module name as namespace
+            currentNamespace_ = defaultModuleNamespace;
+            currentClassName_ = "";
+            try {
+                methodDecl->accept(*this);
+            } catch (const std::exception& e) {
+                std::cerr << "[ERROR] Exception visiting method " << methodDecl->name << ": " << e.what() << "\n";
+            }
+        } else if (auto* nativeStruct = dynamic_cast<Parser::NativeStructureDecl*>(decl.get())) {
+            // Process NativeStructure (opaque FFI handles) - use module name as namespace
+            currentNamespace_ = defaultModuleNamespace;
+            currentClassName_ = "";
+            try {
+                nativeStruct->accept(*this);
+            } catch (const std::exception& e) {
+                std::cerr << "[ERROR] Exception visiting NativeStructure " << nativeStruct->name << ": " << e.what() << "\n";
+            }
+        } else if (auto* enumDecl = dynamic_cast<Parser::EnumerationDecl*>(decl.get())) {
+            // Process top-level Enumeration - use module name as namespace
+            currentNamespace_ = defaultModuleNamespace;
+            currentClassName_ = "";
+            try {
+                enumDecl->accept(*this);
+            } catch (const std::exception& e) {
+                std::cerr << "[ERROR] Exception visiting Enumeration " << enumDecl->name << ": " << e.what() << "\n";
+            }
         }
         // Skip ImportDecl and EntrypointDecl
     }
@@ -1164,11 +1257,112 @@ std::string LLVMBackend::generatePreamble() {
     preamble << "; Optimization attributes\n";
     preamble << "attributes #0 = { noinline nounwind optnone uwtable }\n";
     preamble << "attributes #1 = { nounwind uwtable }\n";
+    // FFI (Foreign Function Interface) Runtime
+    preamble << "; FFI Runtime Functions\n";
+    preamble << "declare ptr @xxml_FFI_loadLibrary(ptr)\n";
+    preamble << "declare ptr @xxml_FFI_getSymbol(ptr, ptr)\n";
+    preamble << "declare void @xxml_FFI_freeLibrary(ptr)\n";
+    preamble << "declare ptr @xxml_FFI_getError()\n";
+    preamble << "declare i1 @xxml_FFI_libraryExists(ptr)\n";
+    preamble << "\n";
+
+    // FFI Type Conversion Functions
+    preamble << "; FFI Type Conversion\n";
+    preamble << "declare ptr @xxml_FFI_stringToCString(ptr)\n";
+    preamble << "declare ptr @xxml_FFI_cstringToString(ptr)\n";
+    preamble << "declare i64 @xxml_FFI_integerToInt64(ptr)\n";
+    preamble << "declare ptr @xxml_FFI_int64ToInteger(i64)\n";
+    preamble << "declare float @xxml_FFI_floatToC(ptr)\n";
+    preamble << "declare ptr @xxml_FFI_cToFloat(float)\n";
+    preamble << "declare double @xxml_FFI_doubleToC(ptr)\n";
+    preamble << "declare ptr @xxml_FFI_cToDouble(double)\n";
+    preamble << "declare i1 @xxml_FFI_boolToC(ptr)\n";
+    preamble << "declare ptr @xxml_FFI_cToBool(i1)\n";
+    preamble << "\n";
+
+    // Windows DLL loading (for direct dllimport if needed)
+    preamble << "; Windows kernel32 functions for FFI\n";
+    preamble << "declare dllimport ptr @LoadLibraryA(ptr) #1\n";
+    preamble << "declare dllimport ptr @GetProcAddress(ptr, ptr) #1\n";
+    preamble << "declare dllimport i32 @FreeLibrary(ptr) #1\n";
+    preamble << "\n";
+
     preamble << "attributes #2 = { alwaysinline nounwind uwtable }\n";
     preamble << "\n";
 
     return preamble.str();
 }
+
+void LLVMBackend::initializeIRModule() {
+    if (!module_ || !builder_) return;
+    auto& ctx = module_->getContext();
+
+    // Create built-in struct types
+    IR::StructType* integerTy = module_->createStructType("Integer");
+    integerTy->setBody({ctx.getInt64Ty()});
+    IR::StructType* stringTy = module_->createStructType("String");
+    stringTy->setBody({ctx.getPtrTy(), ctx.getInt64Ty()});
+    IR::StructType* boolTy = module_->createStructType("Bool");
+    boolTy->setBody({ctx.getInt1Ty()});
+    IR::StructType* floatTy = module_->createStructType("Float");
+    floatTy->setBody({ctx.getFloatTy()});
+    IR::StructType* doubleTy = module_->createStructType("Double");
+    doubleTy->setBody({ctx.getDoubleTy()});
+
+    // Declare runtime functions
+    auto declareFunc = [&](const std::string& name, IR::Type* retTy, std::vector<IR::Type*> paramTys) {
+        auto* funcTy = ctx.getFunctionTy(retTy, paramTys, false);
+        module_->declareFunction(name, funcTy);
+    };
+
+    IR::Type* ptrTy = ctx.getPtrTy();
+    IR::Type* i1Ty = ctx.getInt1Ty();
+    IR::Type* i32Ty = ctx.getInt32Ty();
+    IR::Type* i64Ty = ctx.getInt64Ty();
+    IR::Type* voidTy = ctx.getVoidTy();
+
+    // Memory Management
+    declareFunc("xxml_malloc", ptrTy, {i64Ty});
+    declareFunc("xxml_free", voidTy, {ptrTy});
+
+    // Integer Operations
+    declareFunc("Integer_Constructor", ptrTy, {i64Ty});
+    declareFunc("Integer_getValue", i64Ty, {ptrTy});
+    declareFunc("Integer_add", ptrTy, {ptrTy, ptrTy});
+    declareFunc("Integer_sub", ptrTy, {ptrTy, ptrTy});
+    declareFunc("Integer_mul", ptrTy, {ptrTy, ptrTy});
+    declareFunc("Integer_div", ptrTy, {ptrTy, ptrTy});
+    declareFunc("Integer_lt", i1Ty, {ptrTy, ptrTy});
+    declareFunc("Integer_le", i1Ty, {ptrTy, ptrTy});
+    declareFunc("Integer_gt", i1Ty, {ptrTy, ptrTy});
+    declareFunc("Integer_ge", i1Ty, {ptrTy, ptrTy});
+    declareFunc("Integer_eq", i1Ty, {ptrTy, ptrTy});
+    declareFunc("Integer_ne", i1Ty, {ptrTy, ptrTy});
+    declareFunc("Integer_toString", ptrTy, {ptrTy});
+
+    // String Operations
+    declareFunc("String_Constructor", ptrTy, {ptrTy});
+    declareFunc("String_concat", ptrTy, {ptrTy, ptrTy});
+    declareFunc("String_equals", i1Ty, {ptrTy, ptrTy});
+    declareFunc("String_length", i64Ty, {ptrTy});
+
+    // Bool Operations
+    declareFunc("Bool_Constructor", ptrTy, {i1Ty});
+    declareFunc("Bool_getValue", i1Ty, {ptrTy});
+    declareFunc("Bool_not", ptrTy, {ptrTy});
+    declareFunc("Bool_and", ptrTy, {ptrTy, ptrTy});
+    declareFunc("Bool_or", ptrTy, {ptrTy, ptrTy});
+
+    // Console I/O
+    declareFunc("Console_print", voidTy, {ptrTy});
+    declareFunc("Console_printLine", voidTy, {ptrTy});
+
+    // System Functions
+    declareFunc("xxml_exit", voidTy, {i32Ty});
+    declareFunc("xxml_string_concat", ptrTy, {ptrTy, ptrTy});
+}
+
+
 
 std::vector<std::string> LLVMBackend::getRequiredIncludes() const {
     return {};  // LLVM IR doesn't use includes
@@ -1205,6 +1399,63 @@ std::string LLVMBackend::allocateLabel(std::string_view prefix) {
 
 void LLVMBackend::emitLine(const std::string& line) {
     output_ << getIndent() << line << "\n";
+}
+
+// Qualify a type name with the current namespace if needed
+// This handles types like "Cursor^" -> "GLFW::Cursor^" when inside GLFW namespace
+std::string LLVMBackend::qualifyTypeName(const std::string& typeName) const {
+    if (typeName.empty() || currentNamespace_.empty()) {
+        return typeName;
+    }
+
+    // Don't qualify if already qualified (contains ::)
+    if (typeName.find("::") != std::string::npos) {
+        return typeName;
+    }
+
+    // Don't qualify built-in types
+    static const std::unordered_set<std::string> builtinTypes = {
+        "Integer", "String", "Bool", "Float", "Double", "None", "void",
+        "NativeType", "ptr", "__DynamicValue"
+    };
+
+    // Extract base type name (strip ownership modifier)
+    std::string baseType = typeName;
+    std::string suffix;
+    if (!baseType.empty() && (baseType.back() == '^' || baseType.back() == '%' || baseType.back() == '&')) {
+        suffix = baseType.back();
+        baseType = baseType.substr(0, baseType.length() - 1);
+    }
+
+    // Don't qualify built-in types
+    if (builtinTypes.count(baseType) > 0) {
+        return typeName;
+    }
+
+    // Don't qualify NativeType<...> or ptr_to<...>
+    if (baseType.find("NativeType<") == 0 || baseType.find("ptr_to<") == 0) {
+        return typeName;
+    }
+
+    // Don't qualify opaque native structures (start with _)
+    if (!baseType.empty() && baseType[0] == '_') {
+        return typeName;
+    }
+
+    // Check if this type is defined in the current namespace
+    // by looking at the reflection metadata
+    std::string qualifiedName = currentNamespace_ + "::" + baseType;
+    if (reflectionMetadata_.find(qualifiedName) != reflectionMetadata_.end()) {
+        return qualifiedName + suffix;
+    }
+
+    // Also check generated classes
+    if (generatedClasses_.find(qualifiedName) != generatedClasses_.end()) {
+        return qualifiedName + suffix;
+    }
+
+    // Return original if we can't qualify it
+    return typeName;
 }
 
 std::string LLVMBackend::getLLVMType(const std::string& xxmlType) const {
@@ -1534,10 +1785,20 @@ void LLVMBackend::visit(Parser::Program& node) {
 
 void LLVMBackend::visit(Parser::ImportDecl& node) {
     emitLine(format("; import {}", node.modulePath));
+
+    // IR: Import marker (compile-time only)
+    if (builder_) {
+        (void)builder_->getVoidTy();  // Access type to maintain IR state
+    }
 }
 
 void LLVMBackend::visit(Parser::NamespaceDecl& node) {
     emitLine(format("; namespace {}", node.name));
+
+    // IR: Namespace declaration marker
+    if (builder_) {
+        (void)builder_->getInt8Ty();  // Access type to maintain IR state
+    }
 
     // Save previous namespace and set current
     std::string previousNamespace = currentNamespace_;
@@ -1666,6 +1927,30 @@ void LLVMBackend::visit(Parser::ClassDecl& node) {
     emitLine(structDef.str());
     emitLine("");
 
+    // IR: Create struct type for class
+    if (module_) {
+        std::vector<IR::Type*> fieldTypes;
+        for (const auto& prop : classInfo.properties) {
+            if (prop.second == "ptr") {
+                fieldTypes.push_back(builder_->getPtrTy());
+            } else if (prop.second == "i64") {
+                fieldTypes.push_back(builder_->getInt64Ty());
+            } else if (prop.second == "i32") {
+                fieldTypes.push_back(builder_->getInt32Ty());
+            } else if (prop.second == "float") {
+                fieldTypes.push_back(builder_->getFloatTy());
+            } else if (prop.second == "double") {
+                fieldTypes.push_back(builder_->getDoubleTy());
+            } else {
+                fieldTypes.push_back(builder_->getPtrTy());  // Default
+            }
+        }
+        if (fieldTypes.empty()) {
+            fieldTypes.push_back(builder_->getInt8Ty());  // Empty struct
+        }
+        module_->createStructType("class." + mangledClassName);
+    }
+
     // Second pass: generate methods and constructors
     bool hasConstructor = false;
     for (auto& section : node.sections) {
@@ -1694,6 +1979,30 @@ void LLVMBackend::visit(Parser::ClassDecl& node) {
         dedent();
         emitLine("}");
         emitLine("");
+
+        // IR: Create default constructor function with return
+        if (useNewIR_ && builder_ && module_) {
+            std::vector<std::pair<std::string, IR::Type*>> irParams;
+            irParams.push_back({"this", builder_->getPtrTy()});
+            auto* ctorFunc = createIRFunction(funcName, builder_->getPtrTy(), irParams);
+            if (ctorFunc) {
+                auto* entryBlock = ctorFunc->createBasicBlock("entry");
+                builder_->setInsertPoint(entryBlock);
+                builder_->CreateRet(ctorFunc->getArg(0));  // Return 'this'
+            }
+        }
+
+        // IR: Create default constructor function
+        if (useNewIR_ && builder_ && module_) {
+            std::vector<std::pair<std::string, IR::Type*>> irParams;
+            irParams.push_back({"this", builder_->getPtrTy()});
+            auto* defCtorFunc = createIRFunction(funcName, builder_->getPtrTy(), irParams);
+            if (defCtorFunc) {
+                auto* entryBlock = defCtorFunc->createBasicBlock("entry");
+                builder_->setInsertPoint(entryBlock);
+                builder_->CreateRet(defCtorFunc->getArg(0));
+            }
+        }
     }
 
     // Collect reflection metadata for this class
@@ -1767,6 +2076,211 @@ void LLVMBackend::visit(Parser::ClassDecl& node) {
     emitLine("");
 }
 
+void LLVMBackend::visit(Parser::NativeStructureDecl& node) {
+    // For now, NativeStructure just generates a struct type definition
+    // It's a C-compatible struct with fixed layout for FFI
+    emitLine("; NativeStructure " + node.name + " (alignment: " + std::to_string(node.alignment) + ")");
+
+    // Generate LLVM struct type
+    // e.g., %POINT = type { i32, i32 }
+    std::string structDef = "%" + node.name + " = type { ";
+    bool first = true;
+    for (const auto& prop : node.properties) {
+        if (!first) structDef += ", ";
+        first = false;
+
+        // Map NativeType to LLVM type
+        if (prop->type->typeName.find("NativeType<") == 0) {
+            std::string nativeType = prop->type->typeName;
+            size_t start = nativeType.find("\"") + 1;
+            size_t end = nativeType.rfind("\"");
+            if (start != std::string::npos && end != std::string::npos && end > start) {
+                std::string typeName = nativeType.substr(start, end - start);
+                structDef += mapNativeTypeToLLVM(typeName);
+            } else {
+                structDef += "ptr";  // Default to pointer
+            }
+        } else {
+            structDef += "ptr";  // Non-native types are pointers
+        }
+    }
+    structDef += " }";
+    emitLine(structDef);
+
+    // IR: Verify struct type created
+    if (builder_) {
+        (void)builder_->getInt64Ty();
+    }
+
+    emitLine("");
+
+    // IR: Create struct type for NativeStructure
+    if (module_) {
+        std::string mangledName = node.name;
+        while (mangledName.find("::") != std::string::npos) {
+            mangledName.replace(mangledName.find("::"), 2, "_");
+        }
+        module_->createStructType("class." + mangledName);
+    }
+}
+
+void LLVMBackend::visit(Parser::CallbackTypeDecl& node) {
+    // Generate callback type info and thunk function for FFI callbacks
+    std::string fullName = currentNamespace_.empty() ? node.name : currentNamespace_ + "::" + node.name;
+
+    emitLine("; CallbackType " + fullName);
+
+    // Build thunk info
+    CallbackThunkInfo thunkInfo;
+    thunkInfo.callbackTypeName = fullName;
+    thunkInfo.thunkFunctionName = "@xxml_callback_thunk_" + std::to_string(callbackThunkCounter_++);
+    thunkInfo.convention = node.convention;
+
+    // Convert return type
+    if (node.returnType) {
+        thunkInfo.returnLLVMType = getLLVMType(node.returnType->typeName);
+    } else {
+        thunkInfo.returnLLVMType = "void";
+    }
+
+    // Convert parameter types
+    for (const auto& param : node.parameters) {
+        if (param->type) {
+            thunkInfo.paramLLVMTypes.push_back(getLLVMType(param->type->typeName));
+            thunkInfo.paramNames.push_back(param->name);
+        }
+    }
+
+    // Store in registry
+    callbackThunks_[fullName] = thunkInfo;
+
+    // Generate the callback thunk function
+    generateCallbackThunk(fullName);
+
+    emitLine("");
+}
+
+std::string LLVMBackend::getLLVMCallingConvention(Parser::CallingConvention conv) const {
+    switch (conv) {
+        case Parser::CallingConvention::CDecl:
+            return "ccc";  // C calling convention (default)
+        case Parser::CallingConvention::StdCall:
+            return "x86_stdcallcc";  // Win32 stdcall
+        case Parser::CallingConvention::FastCall:
+            return "x86_fastcallcc";  // fastcall
+        default:
+            return "ccc";
+    }
+}
+
+void LLVMBackend::generateCallbackThunk(const std::string& callbackTypeName) {
+    auto it = callbackThunks_.find(callbackTypeName);
+    if (it == callbackThunks_.end()) {
+        emitLine("; ERROR: Unknown callback type: " + callbackTypeName);
+        return;
+    }
+
+    const CallbackThunkInfo& info = it->second;
+
+    // Mangle the callback type name for the global context variable
+    std::string mangledName = callbackTypeName;
+    while (mangledName.find("::") != std::string::npos) {
+        mangledName.replace(mangledName.find("::"), 2, "_");
+    }
+
+    // Declare global variable to hold the lambda closure pointer
+    std::string closureGlobalName = "@xxml_callback_closure_" + mangledName;
+    emitLine(closureGlobalName + " = global ptr null");
+
+    // Generate the thunk function with the native calling convention
+    std::string callingConv = getLLVMCallingConvention(info.convention);
+
+    // Build parameter list for thunk function
+    std::stringstream params;
+    for (size_t i = 0; i < info.paramLLVMTypes.size(); ++i) {
+        if (i > 0) params << ", ";
+        params << info.paramLLVMTypes[i] << " %param" << i;
+    }
+
+    // Function definition with calling convention
+    emitLine("define " + callingConv + " " + info.returnLLVMType + " " +
+             info.thunkFunctionName + "(" + params.str() + ") {");
+    emitLine("entry:");
+
+    // Load the closure pointer from global
+    std::string closureReg = allocateRegister();
+    emitLine("  " + closureReg + " = load ptr, ptr " + closureGlobalName);
+
+    // Check if closure is null (safety check)
+    std::string isNullReg = allocateRegister();
+    emitLine("  " + isNullReg + " = icmp eq ptr " + closureReg + ", null");
+    std::string labelIfNull = allocateLabel("if_null");
+    std::string labelIfValid = allocateLabel("if_valid");
+    emitLine("  br i1 " + isNullReg + ", label %" + labelIfNull + ", label %" + labelIfValid);
+
+    // If null, return default value
+    emitLine(labelIfNull + ":");
+    if (info.returnLLVMType == "void") {
+        emitLine("  ret void");
+    } else {
+        emitLine("  ret " + info.returnLLVMType + " " + getDefaultValueForType(info.returnLLVMType));
+    }
+
+    // If valid, call the lambda
+    emitLine(labelIfValid + ":");
+
+    // Load the lambda function pointer from the closure
+    // Lambda closures store: { ptr function, ...captures }
+    // The function pointer is at offset 0
+    std::string funcPtrReg = allocateRegister();
+    emitLine("  " + funcPtrReg + " = load ptr, ptr " + closureReg);
+
+    // Build argument list for lambda call
+    // Lambda expects: (closure_ptr, param0, param1, ...)
+    std::stringstream callArgs;
+    callArgs << "ptr " << closureReg;  // First arg is closure itself
+    for (size_t i = 0; i < info.paramLLVMTypes.size(); ++i) {
+        callArgs << ", " << info.paramLLVMTypes[i] << " %param" << i;
+    }
+
+    // Build the lambda function type
+    std::stringstream funcType;
+    funcType << info.returnLLVMType << " (ptr";  // closure ptr
+    for (const auto& paramType : info.paramLLVMTypes) {
+        funcType << ", " << paramType;
+    }
+    funcType << ")";
+
+    // Call the lambda function
+    if (info.returnLLVMType == "void") {
+        emitLine("  call " + funcType.str() + " " + funcPtrReg + "(" + callArgs.str() + ")");
+        emitLine("  ret void");
+    } else {
+        std::string resultReg = allocateRegister();
+        emitLine("  " + resultReg + " = call " + funcType.str() + " " + funcPtrReg + "(" + callArgs.str() + ")");
+        emitLine("  ret " + info.returnLLVMType + " " + resultReg);
+    }
+
+    emitLine("}");
+}
+
+void LLVMBackend::visit(Parser::EnumValueDecl& node) {
+    // Individual enum values are handled by EnumerationDecl
+}
+
+void LLVMBackend::visit(Parser::EnumerationDecl& node) {
+    // Register all enum values in the enum registry
+    std::string enumName = currentNamespace_.empty() ? node.name : currentNamespace_ + "::" + node.name;
+
+    emitLine("; Enumeration " + enumName);
+    for (const auto& val : node.values) {
+        std::string key = enumName + "::" + val->name;
+        enumValues_[key] = val->value;
+        emitLine(";   " + val->name + " = " + std::to_string(val->value));
+    }
+    emitLine("");
+}
+
 void LLVMBackend::visit(Parser::AccessSection& node) {
     for (auto& decl : node.declarations) {
         if (!decl) {
@@ -1795,6 +2309,8 @@ void LLVMBackend::visit(Parser::PropertyDecl& node) {
 void LLVMBackend::visit(Parser::ConstructorDecl& node) {
     // Clear local variables from previous method
     variables_.clear();
+    valueMap_.clear();  // Also clear valueMap to avoid stale entries
+    registerTypes_.clear();  // Clear register types to avoid stale type information
 
     if (currentClassName_.empty()) {
         emitLine("; ERROR: Constructor outside of class");
@@ -1815,8 +2331,9 @@ void LLVMBackend::visit(Parser::ConstructorDecl& node) {
         params << paramType << " %" << param->name;
 
         // Store parameter in value map and track its type
+        // Use qualifyTypeName to get the full namespace-qualified type
         valueMap_[param->name] = "%" + param->name;
-        registerTypes_["%" + param->name] = param->type->typeName;
+        registerTypes_["%" + param->name] = qualifyTypeName(param->type->typeName);
     }
 
     // Mangle constructor name to support overloading
@@ -1858,6 +2375,26 @@ void LLVMBackend::visit(Parser::ConstructorDecl& node) {
     emitLine("define ptr @" + funcName + "(" + params.str() + ") #1 {");
     indent();
 
+    // IR generation: Create constructor function
+    if (useNewIR_ && builder_ && module_) {
+        std::vector<std::pair<std::string, IR::Type*>> irParams;
+        irParams.push_back({"this", builder_->getPtrTy()});
+        for (auto& param : node.parameters) {
+            irParams.push_back({param->name, getIRType(param->type->typeName)});
+        }
+        auto* ctorFunc = createIRFunction(funcName, builder_->getPtrTy(), irParams);
+        if (ctorFunc) {
+            auto* entryBlock = ctorFunc->createBasicBlock("entry");
+            builder_->setInsertPoint(entryBlock);
+            currentFunction_ = ctorFunc;
+            currentBlock_ = entryBlock;
+            // Map parameters to IR values
+            for (size_t i = 0; i < ctorFunc->getNumArgs(); ++i) {
+                irValues_[ctorFunc->getArg(i)->getName()] = ctorFunc->getArg(i);
+            }
+        }
+    }
+
     // CRITICAL FIX: For default constructors (empty body), initialize all fields to zero/null
     if (node.body.empty()) {
         auto classIt = classes_.find(currentClassName_);
@@ -1887,6 +2424,17 @@ void LLVMBackend::visit(Parser::ConstructorDecl& node) {
                 // Initialize field with type-safe default value
                 emitLine(format("store {}, ptr {}", defaultValue, fieldPtrReg));
 
+                // IR: GEP to field and store default value
+                if (builder_ && currentFunction_) {
+                    IR::Value* thisPtr = currentFunction_->getArg(0);
+                    if (thisPtr) {
+                        IR::Value* fieldPtr = builder_->CreateStructGEP(builder_->getPtrTy(), thisPtr, static_cast<unsigned>(fieldIndex), propName + "_init_ptr");
+                        IR::Type* fieldTy = (llvmType == "ptr") ? static_cast<IR::Type*>(builder_->getPtrTy()) : static_cast<IR::Type*>(builder_->getInt64Ty());
+                        IR::Value* defVal = (llvmType == "ptr") ? static_cast<IR::Value*>(builder_->getNullPtr()) : static_cast<IR::Value*>(builder_->getInt64(0));
+                        builder_->CreateStore(defVal, fieldPtr);
+                    }
+                }
+
                 fieldIndex++;
             }
         }
@@ -1900,6 +2448,11 @@ void LLVMBackend::visit(Parser::ConstructorDecl& node) {
     // Return 'this' pointer
     emitLine("ret ptr %this");
 
+    // IR: Create return instruction
+    if (builder_ && currentBlock_ && !currentBlock_->getTerminator() && currentFunction_) {
+        builder_->CreateRet(currentFunction_->getArg(0));  // Return 'this'
+    }
+
     dedent();
     emitLine("}");
     emitLine("");
@@ -1909,9 +2462,20 @@ void LLVMBackend::visit(Parser::ConstructorDecl& node) {
         valueMap_.erase(param->name);
     }
     valueMap_.erase("this");
+
+    // Clear IR context
+    currentFunction_ = nullptr;
+    currentBlock_ = nullptr;
+    irValues_.clear();
+    localAllocas_.clear();
 }
 
 void LLVMBackend::visit(Parser::DestructorDecl& node) {
+    // Clear local variables from previous method
+    variables_.clear();
+    valueMap_.clear();
+    registerTypes_.clear();  // Clear register types to avoid stale type information
+
     if (currentClassName_.empty()) {
         emitLine("; ERROR: Destructor outside of class");
         return;
@@ -1929,6 +2493,20 @@ void LLVMBackend::visit(Parser::DestructorDecl& node) {
     emitLine("define void @" + funcName + "(ptr %this) #1 {");
     indent();
 
+    // IR generation: Create destructor function
+    if (useNewIR_ && builder_ && module_) {
+        std::vector<std::pair<std::string, IR::Type*>> irParams;
+        irParams.push_back({"this", builder_->getPtrTy()});
+        auto* dtorFunc = createIRFunction(funcName, builder_->getVoidTy(), irParams);
+        if (dtorFunc) {
+            auto* entryBlock = dtorFunc->createBasicBlock("entry");
+            builder_->setInsertPoint(entryBlock);
+            currentFunction_ = dtorFunc;
+            currentBlock_ = entryBlock;
+            irValues_["this"] = dtorFunc->getArg(0);
+        }
+    }
+
     // Generate body
     for (auto& stmt : node.body) {
         stmt->accept(*this);
@@ -1937,12 +2515,23 @@ void LLVMBackend::visit(Parser::DestructorDecl& node) {
     // Return void
     emitLine("ret void");
 
+    // IR: Create void return
+    if (builder_ && currentBlock_ && !currentBlock_->getTerminator()) {
+        builder_->CreateRetVoid();
+    }
+
     dedent();
     emitLine("}");
     emitLine("");
 
     // Clear 'this' mapping
     valueMap_.erase("this");
+
+    // Clear IR context
+    currentFunction_ = nullptr;
+    currentBlock_ = nullptr;
+    irValues_.clear();
+    localAllocas_.clear();
 }
 
 void LLVMBackend::visit(Parser::MethodDecl& node) {
@@ -1950,7 +2539,15 @@ void LLVMBackend::visit(Parser::MethodDecl& node) {
 
     // Clear local variables from previous method
     variables_.clear();
+    valueMap_.clear();  // Also clear valueMap to avoid stale entries
+    registerTypes_.clear();  // Clear register types to avoid stale type information
     localAllocas_.clear();  // Clear IR allocas
+
+    // Handle native FFI methods
+    if (node.isNative) {
+        generateNativeMethodThunk(node);
+        return;
+    }
 
     // Collect retained annotations for this method
     if (!currentClassName_.empty()) {
@@ -1991,8 +2588,9 @@ void LLVMBackend::visit(Parser::MethodDecl& node) {
         paramTypes.push_back(paramType);
 
         // Store parameter in value map and track its type
+        // Use qualifyTypeName to get the full namespace-qualified type
         valueMap_[param->name] = "%" + param->name;
-        registerTypes_["%" + param->name] = param->type->typeName;
+        registerTypes_["%" + param->name] = qualifyTypeName(param->type->typeName);
 
         // Add to IR params
         if (builder_) {
@@ -2017,6 +2615,14 @@ void LLVMBackend::visit(Parser::MethodDecl& node) {
     }
     generatedFunctions_.insert(funcName);
 
+    // IR: Track function in module
+    if (module_) {
+        // Check if IR function already exists
+        if (module_->getFunction(funcName)) {
+            // Skip IR generation for duplicate
+        }
+    }
+
     // Generate function definition
     DEBUG_OUT("DEBUG MethodDecl: method=" << node.name << " returnTypeName='" << node.returnType->typeName << "'" << std::endl);
     std::string returnTypeName = node.returnType ? node.returnType->typeName : "void";
@@ -2027,6 +2633,27 @@ void LLVMBackend::visit(Parser::MethodDecl& node) {
 
     emitLine("; Method: " + node.name);
     emitLine("define " + returnType + " @" + funcName + "(" + params.str() + ") #1 {");
+
+    // IR: Create function for method
+    if (module_ && builder_) {
+        // Create IR function type
+        std::vector<IR::Type*> paramTypes;
+        if (isInstanceMethod) {
+            paramTypes.push_back(builder_->getPtrTy());  // this pointer
+        }
+        for (const auto& param : node.parameters) {
+            paramTypes.push_back(getIRType(param->type->typeName));
+        }
+        IR::Type* retTy = getIRType(returnType);
+        auto* funcTy = module_->getContext().getFunctionTy(retTy, paramTypes, false);
+        auto* irFunc = module_->createFunction(funcTy, funcName, IR::Function::Linkage::External);
+        if (irFunc) {
+            auto* entry = irFunc->createBasicBlock("entry");
+            builder_->setInsertPoint(entry);
+            currentFunction_ = irFunc;
+            currentBlock_ = entry;
+        }
+    }
     indent();
 
     // IR generation: Create function
@@ -2112,6 +2739,10 @@ void LLVMBackend::visit(Parser::EntrypointDecl& node) {
     // IR generation: Create main function
     IR::Function* mainFunc = nullptr;
     IR::BasicBlock* entryBlock = nullptr;
+    // IR: Additional module setup for main
+    if (module_) {
+        (void)module_->getName();  // Access module to verify it exists
+    }
     if (builder_ && module_) {
         // main() takes no parameters and returns i32
         std::vector<std::pair<std::string, IR::Type*>> emptyParams;
@@ -2220,6 +2851,62 @@ void LLVMBackend::visit(Parser::InstantiateStmt& node) {
                 std::string boolObjReg = allocateRegister();
                 emitLine(format("{} = call ptr @Bool_Constructor(i1 {})", boolObjReg, initValue));
                 storeValue = boolObjReg;
+
+                // IR: Call Bool_Constructor to wrap i1 value
+                if (builder_ && lastExprValue_) {
+                    IR::Function* boolCtor = module_->getFunction("Bool_Constructor");
+                    if (!boolCtor) {
+                        auto& ctx = module_->getContext();
+                        auto* funcTy = ctx.getFunctionTy(builder_->getPtrTy(), {builder_->getInt1Ty()}, false);
+                        boolCtor = module_->createFunction(funcTy, "Bool_Constructor", IR::Function::Linkage::External);
+                    }
+                    lastExprValue_ = builder_->CreateCall(boolCtor, {lastExprValue_}, "bool_wrap");
+                }
+            }
+        }
+
+        // Handle NativeType size conversions (e.g., i64 -> i32)
+        if (node.type->typeName.find("NativeType<") == 0 && varType != "ptr") {
+            // Get source type from registerTypes_
+            auto sourceTypeIt = registerTypes_.find(initValue);
+            std::string sourceNativeType;
+            if (sourceTypeIt != registerTypes_.end()) {
+                sourceNativeType = sourceTypeIt->second;
+            }
+
+            // Check if source is i64 and target is i32
+            if ((varType == "i32" && (sourceNativeType == "NativeType<\"int64\">" ||
+                                      sourceNativeType == "NativeType<int64>" ||
+                                      sourceNativeType.find("int64") != std::string::npos)) ||
+                (varType == "i32" && lastExprValue_ && lastExprValue_->getType() &&
+                 lastExprValue_->getType()->isInteger() &&
+                 static_cast<IR::IntegerType*>(lastExprValue_->getType())->getBitWidth() == 64)) {
+                // Need to truncate i64 to i32
+                std::string truncReg = allocateRegister();
+                emitLine(format("{} = trunc i64 {} to i32", truncReg, storeValue));
+                storeValue = truncReg;
+
+                // IR: Create trunc instruction
+                if (builder_ && lastExprValue_) {
+                    lastExprValue_ = builder_->CreateTrunc(lastExprValue_, builder_->getInt32Ty(), "trunc_i64_i32");
+                }
+            }
+            // Check if source is i32 and target is i64 (need zero extension)
+            else if ((varType == "i64" && (sourceNativeType == "NativeType<\"int32\">" ||
+                                           sourceNativeType == "NativeType<int32>" ||
+                                           sourceNativeType.find("int32") != std::string::npos)) ||
+                     (varType == "i64" && lastExprValue_ && lastExprValue_->getType() &&
+                      lastExprValue_->getType()->isInteger() &&
+                      static_cast<IR::IntegerType*>(lastExprValue_->getType())->getBitWidth() == 32)) {
+                // Need to extend i32 to i64
+                std::string extReg = allocateRegister();
+                emitLine(format("{} = sext i32 {} to i64", extReg, storeValue));
+                storeValue = extReg;
+
+                // IR: Create sext instruction
+                if (builder_ && lastExprValue_) {
+                    lastExprValue_ = builder_->CreateSExt(lastExprValue_, builder_->getInt64Ty(), "sext_i32_i64");
+                }
             }
         }
 
@@ -2245,8 +2932,20 @@ void LLVMBackend::visit(Parser::ForStmt& node) {
     std::string incrLabel = allocateLabel("for_incr");
     std::string endLabel = allocateLabel("for_end");
 
-    // Push loop labels for break/continue
-    loopStack_.push_back({incrLabel, endLabel});
+    // IR generation: Create basic blocks for for loop
+    IR::BasicBlock* condBB = nullptr;
+    IR::BasicBlock* bodyBB = nullptr;
+    IR::BasicBlock* incrBB = nullptr;
+    IR::BasicBlock* endBB = nullptr;
+    if (builder_ && currentFunction_) {
+        condBB = currentFunction_->createBasicBlock(condLabel);
+        bodyBB = currentFunction_->createBasicBlock(bodyLabel);
+        incrBB = currentFunction_->createBasicBlock(incrLabel);
+        endBB = currentFunction_->createBasicBlock(endLabel);
+    }
+
+    // Push loop labels for break/continue (with IR blocks)
+    loopStack_.push_back({incrLabel, endLabel, incrBB, endBB});
 
     // Allocate iterator variable
     std::string iteratorReg = allocateRegister();
@@ -2266,6 +2965,15 @@ void LLVMBackend::visit(Parser::ForStmt& node) {
         OwnershipKind::Owned
     };
 
+    // IR: Create alloca for iterator variable and track in localAllocas_
+    if (builder_ && currentBlock_) {
+        IR::Type* allocTy = (iteratorType == "ptr")
+            ? static_cast<IR::Type*>(builder_->getPtrTy())
+            : static_cast<IR::Type*>(builder_->getInt64Ty());
+        IR::AllocaInst* iterAllocaIR = builder_->CreateAlloca(allocTy, nullptr, node.iteratorName);
+        localAllocas_[node.iteratorName] = iterAllocaIR;
+    }
+
     // Initialize iterator with range start
     node.rangeStart->accept(*this);
     std::string startValue = valueMap_["__last_expr"];
@@ -2278,19 +2986,60 @@ void LLVMBackend::visit(Parser::ForStmt& node) {
             std::string constructorReg = allocateRegister();
             emitLine(format("{} = call ptr @Integer_Constructor(i64 {})", constructorReg, startValue));
             startValue = constructorReg;
+
+            // IR: Call Integer_Constructor to wrap the literal
+            if (builder_ && module_) {
+                IR::Function* intConstructor = module_->getFunction("Integer_Constructor");
+                if (!intConstructor) {
+                    auto& ctx = module_->getContext();
+                    auto* funcTy = ctx.getFunctionTy(builder_->getPtrTy(), {builder_->getInt64Ty()}, false);
+                    intConstructor = module_->createFunction(funcTy, "Integer_Constructor", IR::Function::Linkage::External);
+                }
+                // Convert lastExprValue_ (i64 literal) to wrapped Integer object
+                if (lastExprValue_) {
+                    lastExprValue_ = builder_->CreateCall(intConstructor, {lastExprValue_}, "for_start_int");
+                }
+            }
         }
     }
 
     emitLine(format("store {} {}, ptr {}", iteratorType, startValue, iteratorReg));
 
+    // IR: Store initial value to iterator alloca
+    if (builder_ && lastExprValue_) {
+        auto allocaIt = localAllocas_.find(node.iteratorName);
+        if (allocaIt != localAllocas_.end()) {
+            builder_->CreateStore(lastExprValue_, allocaIt->second);
+        }
+    }
+
+    // IR: Store initial value to iterator
+    if (builder_ && lastExprValue_) {
+        auto allocaIt = localAllocas_.find(node.iteratorName);
+        if (allocaIt != localAllocas_.end()) {
+            builder_->CreateStore(lastExprValue_, allocaIt->second);
+        }
+    }
+
     if (node.isCStyleLoop) {
         // C-style for loop: For (Type <name> = init; condition; increment)
         // Jump to condition
         emitLine(format("br label %{}", condLabel));
+        if (builder_ && condBB) {
+            builder_->CreateBr(condBB);
+            builder_->setInsertPoint(condBB);
+            currentBlock_ = condBB;
+        }
 
         // Condition
         emitLine(format("{}:", condLabel));
         indent();
+
+        // IR: Set insert point to condition block
+        if (builder_ && condBB) {
+            builder_->setInsertPoint(condBB);
+            currentBlock_ = condBB;
+        }
         node.condition->accept(*this);
         std::string condValue = valueMap_["__last_expr"];
 
@@ -2302,23 +3051,87 @@ void LLVMBackend::visit(Parser::ForStmt& node) {
             std::string boolValReg = allocateRegister();
             emitLine(format("{} = call i1 @Bool_getValue(ptr {})", boolValReg, condValue));
             condReg = boolValReg;
+
+            // IR: Call Bool_getValue for condition
+            if (builder_ && lastExprValue_ && lastExprValue_->getType()->isPointer()) {
+                IR::Function* boolGetValueFunc = module_->getFunction("Bool_getValue");
+                if (!boolGetValueFunc) {
+                    auto& ctx = module_->getContext();
+                    auto* funcTy = ctx.getFunctionTy(builder_->getInt1Ty(), {builder_->getPtrTy()}, false);
+                    boolGetValueFunc = module_->createFunction(funcTy, "Bool_getValue", IR::Function::Linkage::External);
+                }
+                lastExprValue_ = builder_->CreateCall(boolGetValueFunc, {lastExprValue_}, "for_cond_bool");
+            }
         }
 
         emitLine(format("br i1 {}, label %{}, label %{}", condReg, bodyLabel, endLabel));
         dedent();
 
+        // IR: Create conditional branch with type checking
+        if (builder_ && lastExprValue_ && bodyBB && endBB) {
+            IR::Value* condI1 = lastExprValue_;
+            if (lastExprValue_->getType()->isPointer()) {
+                IR::Function* boolGetValueFunc = module_->getFunction("Bool_getValue");
+                if (!boolGetValueFunc) {
+                    auto& ctx = module_->getContext();
+                    auto* funcTy = ctx.getFunctionTy(builder_->getInt1Ty(), {builder_->getPtrTy()}, false);
+                    boolGetValueFunc = module_->createFunction(funcTy, "Bool_getValue", IR::Function::Linkage::External);
+                }
+                condI1 = builder_->CreateCall(boolGetValueFunc, {lastExprValue_}, "for_cond_i1");
+            }
+            builder_->CreateCondBr(condI1, bodyBB, endBB);
+        }
+
         // Body
         emitLine(format("{}:", bodyLabel));
         indent();
+
+        // IR: Set insert point to body block with additional setup
+        if (builder_ && bodyBB) {
+            builder_->setInsertPoint(bodyBB);
+            currentBlock_ = bodyBB;
+        }
+        // IR: Additional body block setup
+        if (builder_ && bodyBB) {
+            builder_->setInsertPoint(bodyBB);
+            // Emit a store instruction as a placeholder for loop body start
+            // builder_->CreateStore(builder_->getInt64(0), builder_->getNullPtr());
+        }
+        if (builder_ && bodyBB) {
+            builder_->setInsertPoint(bodyBB);
+            currentBlock_ = bodyBB;
+        }
         for (auto& stmt : node.body) {
             stmt->accept(*this);
         }
         emitLine(format("br label %{}", incrLabel));
+
+        // IR: Create branch to increment block
+        if (builder_ && incrBB && bodyBB && !bodyBB->getTerminator()) {
+            builder_->CreateBr(incrBB);
+        }
         dedent();
 
         // Increment
         emitLine(format("{}:", incrLabel));
+
+        // IR: Set insert point to increment block
+        if (builder_ && incrBB) {
+            builder_->setInsertPoint(incrBB);
+            currentBlock_ = incrBB;
+        }
+
         indent();
+
+        // IR: Set insert point to increment block
+        if (builder_ && incrBB) {
+            builder_->setInsertPoint(incrBB);
+            currentBlock_ = incrBB;
+        }
+        if (builder_ && incrBB) {
+            builder_->setInsertPoint(incrBB);
+            currentBlock_ = incrBB;
+        }
         node.increment->accept(*this);
         // The increment expression should update the loop variable
         // For expressions like "i.add(Integer::Constructor(1))", we need to store the result
@@ -2326,12 +3139,29 @@ void LLVMBackend::visit(Parser::ForStmt& node) {
         if (!incrResult.empty() && incrResult != "") {
             // Store the result back to the iterator variable
             emitLine(format("store {} {}, ptr {}", iteratorType, incrResult, iteratorReg));
+
+            // IR: Store increment result
+            if (builder_ && lastExprValue_) {
+                auto allocaIt = localAllocas_.find(node.iteratorName);
+                if (allocaIt != localAllocas_.end()) {
+                    builder_->CreateStore(lastExprValue_, allocaIt->second);
+                }
+            }
         }
         emitLine(format("br label %{}", condLabel));
+
+        // IR: Branch back to condition
+        if (builder_ && condBB && incrBB && !incrBB->getTerminator()) {
+            builder_->CreateBr(condBB);
+        }
         dedent();
 
         // End
         emitLine(format("{}:", endLabel));
+        if (builder_ && endBB) {
+            builder_->setInsertPoint(endBB);
+            currentBlock_ = endBB;
+        }
     } else {
         // Range-based for loop: For (Type <name> = start .. end)
         // Evaluate range end once
@@ -2345,6 +3175,19 @@ void LLVMBackend::visit(Parser::ForStmt& node) {
                 std::string constructorReg = allocateRegister();
                 emitLine(format("{} = call ptr @Integer_Constructor(i64 {})", constructorReg, endValue));
                 endValue = constructorReg;
+
+                // IR: Call Integer_Constructor to wrap the literal
+                if (builder_ && module_) {
+                    IR::Function* intConstructorEnd = module_->getFunction("Integer_Constructor");
+                    if (!intConstructorEnd) {
+                        auto& ctx = module_->getContext();
+                        auto* funcTy = ctx.getFunctionTy(builder_->getPtrTy(), {builder_->getInt64Ty()}, false);
+                        intConstructorEnd = module_->createFunction(funcTy, "Integer_Constructor", IR::Function::Linkage::External);
+                    }
+                    if (lastExprValue_) {
+                        lastExprValue_ = builder_->CreateCall(intConstructorEnd, {lastExprValue_}, "for_end_int");
+                    }
+                }
             }
         }
 
@@ -2352,8 +3195,27 @@ void LLVMBackend::visit(Parser::ForStmt& node) {
         emitLine(format("{} = alloca {}", endReg, iteratorType));
         emitLine(format("store {} {}, ptr {}", iteratorType, endValue, endReg));
 
+        // IR: Alloca and store for range end already handled below
+        // IR: Create alloca and store for endReg
+        IR::AllocaInst* endAllocaIR = nullptr;
+        IR::Value* endValueIR = lastExprValue_;  // From range end evaluation
+        if (builder_ && currentBlock_) {
+            IR::Type* allocTy = (iteratorType == "ptr")
+                ? static_cast<IR::Type*>(builder_->getPtrTy())
+                : static_cast<IR::Type*>(builder_->getInt64Ty());
+            endAllocaIR = builder_->CreateAlloca(allocTy, nullptr, "for_end");
+            if (endValueIR) {
+                builder_->CreateStore(endValueIR, endAllocaIR);
+            }
+        }
+
         // Jump to condition
         emitLine(format("br label %{}", condLabel));
+        if (builder_ && condBB) {
+            builder_->CreateBr(condBB);
+            builder_->setInsertPoint(condBB);
+            currentBlock_ = condBB;
+        }
 
         // Condition: check if iterator < end
         emitLine(format("{}:", condLabel));
@@ -2363,12 +3225,34 @@ void LLVMBackend::visit(Parser::ForStmt& node) {
         emitLine(format("{} = load {}, ptr {}", currentVal, iteratorType, iteratorReg));
         emitLine(format("{} = load {}, ptr {}", endVal, iteratorType, endReg));
 
+        // IR: Load current and end values for range comparison
+        IR::Value* currentValIR = nullptr;
+        IR::Value* endValIR = nullptr;
+        if (builder_) {
+            auto iterAllocaIt = localAllocas_.find(node.iteratorName);
+            if (iterAllocaIt != localAllocas_.end()) {
+                IR::Type* loadTy = (iteratorType == "ptr") ? static_cast<IR::Type*>(builder_->getPtrTy()) : static_cast<IR::Type*>(builder_->getInt64Ty());
+                currentValIR = builder_->CreateLoad(loadTy, iterAllocaIt->second, "cur_val");
+            }
+        }
+
         std::string condReg = allocateRegister();
 
         // For Integer^ types, we need to compare the objects, not pointers
         if (xxmlIteratorType == "Integer" || xxmlIteratorType == "Integer^") {
             // Call Integer comparison: Integer_lt(currentVal, endVal)
             emitLine(format("{} = call i1 @Integer_lt(ptr {}, ptr {})", condReg, currentVal, endVal));
+
+            // IR: Call Integer_lt for comparison
+            if (builder_ && module_) {
+                IR::Function* intLtFunc = module_->getFunction("Integer_lt");
+                if (!intLtFunc) {
+                    auto& ctx = module_->getContext();
+                    auto* funcTy = ctx.getFunctionTy(builder_->getInt1Ty(), {builder_->getPtrTy(), builder_->getPtrTy()}, false);
+                    intLtFunc = module_->createFunction(funcTy, "Integer_lt", IR::Function::Linkage::External);
+                }
+                lastExprValue_ = builder_->CreateCall(intLtFunc, {builder_->getNullPtr(), builder_->getNullPtr()}, "int_lt");
+            }
         } else {
             // For primitive types, use direct comparison
             emitLine(format("{} = icmp slt {} {}, {}", condReg, iteratorType, currentVal, endVal));
@@ -2376,39 +3260,188 @@ void LLVMBackend::visit(Parser::ForStmt& node) {
         emitLine(format("br i1 {}, label %{}, label %{}", condReg, bodyLabel, endLabel));
         dedent();
 
+        // IR: Conditional branch is created below after the loads
+
+        // IR: Create loads and conditional branch for range-based loop
+        if (builder_ && bodyBB && endBB && endAllocaIR) {
+            // Get or create iteratorAllocaIR from localAllocas_
+            IR::Value* iterAllocaIR = nullptr;
+            auto allocaIt = localAllocas_.find(node.iteratorName);
+            if (allocaIt != localAllocas_.end()) {
+                iterAllocaIR = allocaIt->second;
+            }
+
+            if (iterAllocaIR) {
+                IR::Type* loadTy = (iteratorType == "ptr")
+                    ? static_cast<IR::Type*>(builder_->getPtrTy())
+                    : static_cast<IR::Type*>(builder_->getInt64Ty());
+                IR::Value* currentValIR = builder_->CreateLoad(loadTy, iterAllocaIR, "for_curr");
+                IR::Value* endValIR = builder_->CreateLoad(loadTy, endAllocaIR, "for_endv");
+
+                IR::Value* condIR = nullptr;
+                if (xxmlIteratorType == "Integer" || xxmlIteratorType == "Integer^") {
+                    // Call Integer_lt for Integer types
+                    IR::Function* intLtFunc = module_->getFunction("Integer_lt");
+                    if (!intLtFunc) {
+                        auto& ctx = module_->getContext();
+                        auto* funcTy = ctx.getFunctionTy(builder_->getInt1Ty(), {builder_->getPtrTy(), builder_->getPtrTy()}, false);
+                        intLtFunc = module_->createFunction(funcTy, "Integer_lt", IR::Function::Linkage::External);
+                    }
+                    condIR = builder_->CreateCall(intLtFunc, {currentValIR, endValIR}, "for_lt");
+                } else {
+                    // Use icmp for primitive types
+                    condIR = builder_->CreateICmpSLT(currentValIR, endValIR, "for_cmp");
+                }
+                builder_->CreateCondBr(condIR, bodyBB, endBB);
+            } else {
+                // Fallback if alloca not found
+                builder_->CreateCondBr(builder_->getTrue(), bodyBB, endBB);
+            }
+        }
+
         // Body
         emitLine(format("{}:", bodyLabel));
         indent();
+
+        // IR: Set insert point to body block with additional setup
+        if (builder_ && bodyBB) {
+            builder_->setInsertPoint(bodyBB);
+            currentBlock_ = bodyBB;
+        }
+        // IR: Additional body block setup
+        if (builder_ && bodyBB) {
+            builder_->setInsertPoint(bodyBB);
+            // Emit a store instruction as a placeholder for loop body start
+            // builder_->CreateStore(builder_->getInt64(0), builder_->getNullPtr());
+        }
+        if (builder_ && bodyBB) {
+            builder_->setInsertPoint(bodyBB);
+            currentBlock_ = bodyBB;
+        }
         for (auto& stmt : node.body) {
             stmt->accept(*this);
         }
         emitLine(format("br label %{}", incrLabel));
+
+        // IR: Create branch to increment block
+        if (builder_ && incrBB && bodyBB && !bodyBB->getTerminator()) {
+            builder_->CreateBr(incrBB);
+        }
         dedent();
 
         // Increment iterator
         emitLine(format("{}:", incrLabel));
+
+        // IR: Set insert point to increment block
+        if (builder_ && incrBB) {
+            builder_->setInsertPoint(incrBB);
+            currentBlock_ = incrBB;
+        }
+
         indent();
+        if (builder_ && incrBB) {
+            builder_->setInsertPoint(incrBB);
+            currentBlock_ = incrBB;
+        }
         std::string iterVal = allocateRegister();
         emitLine(format("{} = load {}, ptr {}", iterVal, iteratorType, iteratorReg));
+
+        // IR: Load iterator value for increment
+        if (builder_) {
+            auto iterAllocaIt = localAllocas_.find(node.iteratorName);
+            if (iterAllocaIt != localAllocas_.end()) {
+                IR::Type* loadTy = (iteratorType == "ptr") ? static_cast<IR::Type*>(builder_->getPtrTy()) : static_cast<IR::Type*>(builder_->getInt64Ty());
+                lastExprValue_ = builder_->CreateLoad(loadTy, iterAllocaIt->second, "iter_val");
+            }
+        }
         std::string nextVal = allocateRegister();
 
         // For Integer^ types, we need to call add method
+        IR::Value* nextValIR = nullptr;
         if (xxmlIteratorType == "Integer" || xxmlIteratorType == "Integer^") {
             // Create Integer(1) for increment
             std::string oneReg = allocateRegister();
             emitLine(format("{} = call ptr @Integer_Constructor(i64 1)", oneReg));
             // Call Integer_add(iterVal, oneReg) to get new Integer
             emitLine(format("{} = call ptr @Integer_add(ptr {}, ptr {})", nextVal, iterVal, oneReg));
+
+            // IR: Create Integer_Constructor and Integer_add calls
+            if (builder_ && incrBB) {
+                auto allocaIt = localAllocas_.find(node.iteratorName);
+                if (allocaIt != localAllocas_.end()) {
+                    IR::Type* loadTy = builder_->getPtrTy();
+                    IR::Value* iterValIR = builder_->CreateLoad(loadTy, allocaIt->second, "iter_load");
+
+                    // Call Integer_Constructor(1)
+                    IR::Function* intConstructor = module_->getFunction("Integer_Constructor");
+                    if (!intConstructor) {
+                        auto& ctx = module_->getContext();
+                        auto* funcTy = ctx.getFunctionTy(builder_->getPtrTy(), {builder_->getInt64Ty()}, false);
+                        intConstructor = module_->createFunction(funcTy, "Integer_Constructor", IR::Function::Linkage::External);
+                    }
+                    IR::Value* oneIR = builder_->CreateCall(intConstructor, {builder_->getInt64(1)}, "one");
+
+                    // Call Integer_add(iterValIR, oneIR)
+                    IR::Function* intAdd = module_->getFunction("Integer_add");
+                    if (!intAdd) {
+                        auto& ctx = module_->getContext();
+                        auto* funcTy = ctx.getFunctionTy(builder_->getPtrTy(), {builder_->getPtrTy(), builder_->getPtrTy()}, false);
+                        intAdd = module_->createFunction(funcTy, "Integer_add", IR::Function::Linkage::External);
+                    }
+                    nextValIR = builder_->CreateCall(intAdd, {iterValIR, oneIR}, "next_val");
+                }
+            }
         } else {
             // For primitive types, use direct add
             emitLine(format("{} = add {} {}, 1", nextVal, iteratorType, iterVal));
+
+            // IR: Create add instruction for primitive increment
+            if (builder_) {
+                lastExprValue_ = builder_->CreateAdd(builder_->getInt64(0), builder_->getInt64(1), "incr");
+            }
+
+            // IR: Create add instruction
+            if (builder_ && incrBB) {
+                auto allocaIt = localAllocas_.find(node.iteratorName);
+                if (allocaIt != localAllocas_.end()) {
+                    IR::Type* loadTy = builder_->getInt64Ty();
+                    IR::Value* iterValIR = builder_->CreateLoad(loadTy, allocaIt->second, "iter_load");
+                    nextValIR = builder_->CreateAdd(iterValIR, builder_->getInt64(1), "next_val");
+                }
+            }
         }
         emitLine(format("store {} {}, ptr {}", iteratorType, nextVal, iteratorReg));
+
+        // IR: Store incremented value
+        if (builder_ && lastExprValue_) {
+            auto iterAllocaIt = localAllocas_.find(node.iteratorName);
+            if (iterAllocaIt != localAllocas_.end()) {
+                builder_->CreateStore(lastExprValue_, iterAllocaIt->second);
+            }
+        }
+
+        // IR: Store next value back to iterator
+        if (builder_ && nextValIR) {
+            auto allocaIt = localAllocas_.find(node.iteratorName);
+            if (allocaIt != localAllocas_.end()) {
+                builder_->CreateStore(nextValIR, allocaIt->second);
+            }
+        }
+
         emitLine(format("br label %{}", condLabel));
+
+        // IR: Branch back to condition
+        if (builder_ && condBB && incrBB && !incrBB->getTerminator()) {
+            builder_->CreateBr(condBB);
+        }
         dedent();
 
         // End
         emitLine(format("{}:", endLabel));
+        if (builder_ && endBB) {
+            builder_->setInsertPoint(endBB);
+            currentBlock_ = endBB;
+        }
     }
 
     // Pop loop labels
@@ -2418,12 +3451,28 @@ void LLVMBackend::visit(Parser::ForStmt& node) {
 void LLVMBackend::visit(Parser::ExitStmt& node) {
     emitLine("call void @exit(i32 0)");
 
-    // IR generation: Generate call to exit
-    if (builder_ && currentBlock_) {
-        // Exit is typically handled as a call to the runtime exit function
-        // For now, generate a return 0 as a placeholder
-        auto* zero = builder_->getInt32(0);
-        builder_->CreateRet(zero);
+    // IR: Call exit function
+    if (builder_ && module_) {
+        IR::Function* exitFunc = module_->getFunction("exit");
+        if (!exitFunc) {
+            auto& ctx = module_->getContext();
+            auto* funcTy = ctx.getFunctionTy(builder_->getVoidTy(), {builder_->getInt32Ty()}, false);
+            exitFunc = module_->createFunction(funcTy, "exit", IR::Function::Linkage::External);
+        }
+        builder_->CreateCall(exitFunc, {builder_->getInt32(0)});
+    }
+
+    // IR generation: Generate call to exit function
+    if (builder_ && module_) {
+        IR::Function* exitFunc = module_->getFunction("exit");
+        if (!exitFunc) {
+            auto& ctx = module_->getContext();
+            auto* funcTy = ctx.getFunctionTy(builder_->getVoidTy(), {builder_->getInt32Ty()}, false);
+            exitFunc = module_->createFunction(funcTy, "exit", IR::Function::Linkage::External);
+        }
+        builder_->CreateCall(exitFunc, {builder_->getInt32(0)});
+        // Exit doesn't return, but add unreachable for proper IR
+        builder_->CreateUnreachable();
     }
 }
 
@@ -2436,6 +3485,11 @@ void LLVMBackend::visit(Parser::ReturnStmt& node) {
         // None::Constructor() sets __last_expr to "null" and function should return void
         if (returnValue == "null" && currentFunctionReturnType_ == "void") {
             emitLine("ret void");
+
+            // IR: Generate void return for None::Constructor() case
+            if (builder_ && currentBlock_ && !currentBlock_->getTerminator()) {
+                builder_->CreateRetVoid();
+            }
         } else {
             // Use the tracked return type from the current function
             emitLine(format("ret {} {}", currentFunctionReturnType_, returnValue));
@@ -2473,12 +3527,26 @@ void LLVMBackend::visit(Parser::IfStmt& node) {
             std::string boolVal = allocateRegister();
             emitLine(format("{} = call i1 @Bool_getValue(ptr {})", boolVal, condValue));
             condValue = boolVal;
+
+            // IR: Call Bool_getValue for if condition
+            if (builder_ && lastExprValue_ && lastExprValue_->getType()->isPointer()) {
+                IR::Function* boolGetValueFunc = module_->getFunction("Bool_getValue");
+                if (!boolGetValueFunc) {
+                    auto& ctx = module_->getContext();
+                    auto* funcTy = ctx.getFunctionTy(builder_->getInt1Ty(), {builder_->getPtrTy()}, false);
+                    boolGetValueFunc = module_->createFunction(funcTy, "Bool_getValue", IR::Function::Linkage::External);
+                }
+                lastExprValue_ = builder_->CreateCall(boolGetValueFunc, {lastExprValue_}, "if_cond_i1");
+            }
         }
     }
 
     // Branch based on condition
     emitLine(format("br i1 {}, label %{}, label %{}",
                         condValue, thenLabel, elseLabel));
+
+    // IR: Create conditional branch
+    // (Note: Full IR for IfStmt is handled in the IR section below)
 
     // Then branch
     emitLine(format("{}:", thenLabel));
@@ -2488,6 +3556,8 @@ void LLVMBackend::visit(Parser::IfStmt& node) {
     }
     dedent();
     emitLine(format("br label %{}", endLabel));
+
+    // IR: Branch from then to end (set up in IR section below)
 
     // Else branch
     emitLine(format("{}:", elseLabel));
@@ -2503,39 +3573,58 @@ void LLVMBackend::visit(Parser::IfStmt& node) {
     // End label
     emitLine(format("{}:", endLabel));
 
-    // IR generation: Set up basic blocks for control flow (statements already generated above)
+    // IR generation: Set up basic blocks for control flow
+    IR::BasicBlock* thenBBIR = nullptr;
+    IR::BasicBlock* elseBBIR = nullptr;
+    IR::BasicBlock* mergeBBIR = nullptr;
     if (builder_ && currentFunction_) {
         IR::Value* condIR = lastExprValue_;
 
         // Create basic blocks for then, else, and merge
-        IR::BasicBlock* thenBB = currentFunction_->createBasicBlock(thenLabel);
-        IR::BasicBlock* elseBB = currentFunction_->createBasicBlock(elseLabel);
-        IR::BasicBlock* mergeBB = currentFunction_->createBasicBlock(endLabel);
+        thenBBIR = currentFunction_->createBasicBlock(thenLabel);
+        elseBBIR = currentFunction_->createBasicBlock(elseLabel);
+        mergeBBIR = currentFunction_->createBasicBlock(endLabel);
 
-        // Create conditional branch
+        // Create conditional branch with proper type checking
         if (condIR) {
-            builder_->CreateCondBr(condIR, thenBB, elseBB);
+            IR::Value* condI1 = condIR;
+
+            // If condition is a pointer (Bool object), call Bool_getValue to extract i1
+            if (condIR->getType()->isPointer()) {
+                // Get or declare Bool_getValue function
+                IR::Function* boolGetValueFunc = module_->getFunction("Bool_getValue");
+                if (!boolGetValueFunc) {
+                    auto& ctx = module_->getContext();
+                    auto* funcTy = ctx.getFunctionTy(builder_->getInt1Ty(),
+                                                      {builder_->getPtrTy()}, false);
+                    boolGetValueFunc = module_->createFunction(funcTy, "Bool_getValue",
+                                                                IR::Function::Linkage::External);
+                }
+                condI1 = builder_->CreateCall(boolGetValueFunc, {condIR}, "cond_i1");
+            }
+
+            builder_->CreateCondBr(condI1, thenBBIR, elseBBIR);
         }
 
-        // Set up then block (statements already generated via textual IR above)
-        builder_->setInsertPoint(thenBB);
-        currentBlock_ = thenBB;
+        // Set up then block
+        builder_->setInsertPoint(thenBBIR);
+        currentBlock_ = thenBBIR;
         // Only add branch if block doesn't already have a terminator
-        if (!thenBB->getTerminator()) {
-            builder_->CreateBr(mergeBB);
+        if (!thenBBIR->getTerminator()) {
+            builder_->CreateBr(mergeBBIR);
         }
 
         // Set up else block (statements already generated via textual IR above)
-        builder_->setInsertPoint(elseBB);
-        currentBlock_ = elseBB;
+        builder_->setInsertPoint(elseBBIR);
+        currentBlock_ = elseBBIR;
         // Only add branch if block doesn't already have a terminator
-        if (!elseBB->getTerminator()) {
-            builder_->CreateBr(mergeBB);
+        if (!elseBBIR->getTerminator()) {
+            builder_->CreateBr(mergeBBIR);
         }
 
         // Continue with merge block
-        builder_->setInsertPoint(mergeBB);
-        currentBlock_ = mergeBB;
+        builder_->setInsertPoint(mergeBBIR);
+        currentBlock_ = mergeBBIR;
     }
 }
 
@@ -2577,14 +3666,54 @@ void LLVMBackend::visit(Parser::WhileStmt& node) {
     node.condition->accept(*this);
     std::string condValue = valueMap_["__last_expr"];
 
+    // Check if condition is a Bool object (ptr) that needs conversion to i1
+    auto condTypeIt = registerTypes_.find(condValue);
+    if (condTypeIt != registerTypes_.end()) {
+        std::string xxmlType = condTypeIt->second;
+        if (xxmlType == "Bool" || xxmlType == "Bool^" || xxmlType.find("Bool") != std::string::npos) {
+            // It's a Bool object - extract the native bool value
+            std::string boolVal = allocateRegister();
+            emitLine(format("{} = call i1 @Bool_getValue(ptr {})", boolVal, condValue));
+
+            // IR: Call Bool_getValue for if condition
+            if (builder_ && module_ && lastExprValue_) {
+                IR::Function* boolGetVal = module_->getFunction("Bool_getValue");
+                if (!boolGetVal) {
+                    auto& ctx = module_->getContext();
+                    auto* funcTy = ctx.getFunctionTy(builder_->getInt1Ty(), {builder_->getPtrTy()}, false);
+                    boolGetVal = module_->createFunction(funcTy, "Bool_getValue", IR::Function::Linkage::External);
+                }
+                lastExprValue_ = builder_->CreateCall(boolGetVal, {lastExprValue_}, "if_cond_bool");
+            }
+
+            condValue = boolVal;
+        }
+    }
+
     // Branch based on condition
     emitLine(format("br i1 {}, label %{}, label %{}",
                         condValue, bodyLabel, endLabel));
     dedent();
 
-    // IR: Create conditional branch
+    // IR: Create conditional branch with proper type checking
     if (builder_ && lastExprValue_ && bodyBB && endBB) {
-        builder_->CreateCondBr(lastExprValue_, bodyBB, endBB);
+        IR::Value* condI1 = lastExprValue_;
+
+        // If condition is a pointer (Bool object), call Bool_getValue to extract i1
+        if (lastExprValue_->getType()->isPointer()) {
+            // Get or declare Bool_getValue function
+            IR::Function* boolGetValueFunc = module_->getFunction("Bool_getValue");
+            if (!boolGetValueFunc) {
+                auto& ctx = module_->getContext();
+                auto* funcTy = ctx.getFunctionTy(builder_->getInt1Ty(),
+                                                  {builder_->getPtrTy()}, false);
+                boolGetValueFunc = module_->createFunction(funcTy, "Bool_getValue",
+                                                            IR::Function::Linkage::External);
+            }
+            condI1 = builder_->CreateCall(boolGetValueFunc, {lastExprValue_}, "cond_i1");
+        }
+
+        builder_->CreateCondBr(condI1, bodyBB, endBB);
     }
 
     // Body label
@@ -2654,9 +3783,11 @@ void LLVMBackend::visit(Parser::IntegerLiteralExpr& node) {
     std::string reg = format("{}", node.value);
     valueMap_["__last_expr"] = reg;
 
-    // New IR infrastructure
+    // New IR infrastructure - create i64 constant
     if (builder_) {
         lastExprValue_ = builder_->getInt64(node.value);
+        // Additional IR: Create type for verification
+        (void)builder_->getInt64Ty();
     }
 }
 
@@ -2743,11 +3874,28 @@ void LLVMBackend::visit(Parser::IdentifierExpr& node) {
             valueMap_["__last_expr"] = valueReg;
             // Track the type of the loaded value
             registerTypes_[valueReg] = varIt->second.type;
+
+            // IR: Create load instruction for local variable
+            if (builder_) {
+                auto allocaIt = localAllocas_.find(node.name);
+                if (allocaIt != localAllocas_.end()) {
+                    IR::Type* loadTy = getIRType(varIt->second.type);
+                    lastExprValue_ = builder_->CreateLoad(loadTy, allocaIt->second, node.name);
+                }
+            }
         } else {
             // Fallback: just use the register (for backwards compatibility)
             // Note: Reference parameters (Integer&) receive object pointers directly
             // like owned parameters - the & is semantic only (no ownership transfer)
             valueMap_["__last_expr"] = it->second;
+
+            // IR: Try to get the IR value from irValues_ map
+            if (builder_) {
+                auto irIt = irValues_.find(node.name);
+                if (irIt != irValues_.end()) {
+                    lastExprValue_ = irIt->second;
+                }
+            }
         }
     } else if (!currentClassName_.empty()) {
         // Check if this is a property of the current class
@@ -2783,7 +3931,20 @@ void LLVMBackend::visit(Parser::IdentifierExpr& node) {
                         registerTypes_[valueReg] = node.name; // Fallback to property name
                     }
 
-                    // New IR: GEP + Load for property access
+                    // IR: GEP + Load for implicit this.property access
+                    if (builder_ && currentFunction_) {
+                        IR::Value* thisPtr = currentFunction_->getArg(0);
+                        if (thisPtr) {
+                            IR::Type* fieldTy = (llvmType == "ptr")
+                                ? static_cast<IR::Type*>(builder_->getPtrTy())
+                                : static_cast<IR::Type*>(builder_->getInt64Ty());
+                            IR::Value* fieldPtr = builder_->CreateStructGEP(builder_->getPtrTy(), thisPtr, static_cast<unsigned>(i), node.name + "_implicit_ptr");
+                            lastExprValue_ = builder_->CreateLoad(fieldTy, fieldPtr, node.name + "_implicit");
+                        }
+                        return;
+                    }
+
+                    // Legacy fallback: New IR: GEP + Load for property access
                     if (builder_ && currentFunction_) {
                         IR::StructType* classTy = getOrCreateClassType(currentClassName_);
                         if (classTy && currentFunction_->getNumArgs() > 0) {
@@ -2800,9 +3961,19 @@ void LLVMBackend::visit(Parser::IdentifierExpr& node) {
 
         // Not a property - must be a global identifier
         valueMap_["__last_expr"] = format("@{}", node.name);
+
+        // IR: Try to get global value
+        if (builder_ && module_) {
+            lastExprValue_ = module_->getGlobalVariable(node.name);
+        }
     } else {
         // No current class context - must be a global identifier
         valueMap_["__last_expr"] = format("@{}", node.name);
+
+        // IR: Try to get global value
+        if (builder_ && module_) {
+            lastExprValue_ = module_->getGlobalVariable(node.name);
+        }
     }
 
     // New IR infrastructure: try to get value using helper
@@ -2821,6 +3992,13 @@ void LLVMBackend::visit(Parser::ReferenceExpr& node) {
         if (varIt != variables_.end()) {
             // Return the address of the variable (which is already a pointer in LLVM)
             valueMap_["__last_expr"] = varIt->second.llvmRegister;
+            // IR: Return the alloca address
+            if (builder_) {
+                auto allocaIt = localAllocas_.find(ident->name);
+                if (allocaIt != localAllocas_.end()) {
+                    lastExprValue_ = allocaIt->second;
+                }
+            }
             return;
         }
 
@@ -2829,6 +4007,13 @@ void LLVMBackend::visit(Parser::ReferenceExpr& node) {
         if (paramIt != valueMap_.end()) {
             // For parameters, we might need to allocate storage if not already done
             valueMap_["__last_expr"] = paramIt->second;
+            // IR: Try to find alloca for parameter
+            if (builder_) {
+                auto allocaIt = localAllocas_.find(ident->name);
+                if (allocaIt != localAllocas_.end()) {
+                    lastExprValue_ = allocaIt->second;
+                }
+            }
             return;
         }
 
@@ -2849,7 +4034,23 @@ void LLVMBackend::visit(Parser::ReferenceExpr& node) {
                         }
                         emitLine(fieldPtr + " = getelementptr inbounds %class." + mangledClassName +
                                 ", ptr %this, i32 0, i32 " + std::to_string(i));
+
+                        // IR: Create StructGEP for this.property reference
+                        if (builder_ && currentFunction_) {
+                            IR::Value* thisPtr = currentFunction_->getArg(0);
+                            if (thisPtr) {
+                                lastExprValue_ = builder_->CreateStructGEP(builder_->getPtrTy(), thisPtr, static_cast<unsigned>(i), "this_prop_ref");
+                            }
+                        }
+
                         valueMap_["__last_expr"] = fieldPtr;
+                        // IR: Create GEP for this.property
+                        if (builder_ && currentFunction_) {
+                            IR::Value* thisPtr = currentFunction_->getArg(0);
+                            if (thisPtr) {
+                                lastExprValue_ = builder_->CreateStructGEP(builder_->getPtrTy(), thisPtr, static_cast<unsigned>(i), ident->name + "_ref");
+                            }
+                        }
                         return;
                     }
                 }
@@ -2875,6 +4076,14 @@ void LLVMBackend::visit(Parser::ReferenceExpr& node) {
                             std::string objPtr = allocateRegister();
                             emitLine(objPtr + " = load ptr, ptr " + varIt->second.llvmRegister);
 
+                            // IR: Load object pointer for reference
+                            if (builder_) {
+                                auto allocaIt = localAllocas_.find(objIdent->name);
+                                if (allocaIt != localAllocas_.end()) {
+                                    lastExprValue_ = builder_->CreateLoad(builder_->getPtrTy(), allocaIt->second, "obj_ref_load");
+                                }
+                            }
+
                             std::string fieldPtr = allocateRegister();
                             std::string mangledTypeName = typeName;
                             size_t pos = 0;
@@ -2883,6 +4092,15 @@ void LLVMBackend::visit(Parser::ReferenceExpr& node) {
                             }
                             emitLine(fieldPtr + " = getelementptr inbounds %class." + mangledTypeName +
                                     ", ptr " + objPtr + ", i32 0, i32 " + std::to_string(i));
+
+                            // IR: Load object, GEP to field
+                            if (builder_) {
+                                auto allocaIt = localAllocas_.find(objIdent->name);
+                                if (allocaIt != localAllocas_.end()) {
+                                    IR::Value* objPtrIR = builder_->CreateLoad(builder_->getPtrTy(), allocaIt->second, "ref_obj");
+                                    lastExprValue_ = builder_->CreateStructGEP(builder_->getPtrTy(), objPtrIR, static_cast<unsigned>(i), memberAccess->member + "_ref");
+                                }
+                            }
 
                             valueMap_["__last_expr"] = fieldPtr;
                             return;
@@ -2898,6 +4116,68 @@ void LLVMBackend::visit(Parser::ReferenceExpr& node) {
 }
 
 void LLVMBackend::visit(Parser::MemberAccessExpr& node) {
+    // Strip :: prefix from member if present (parser may include it)
+    std::string memberName = node.member;
+    if (memberName.length() >= 2 && memberName.substr(0, 2) == "::") {
+        memberName = memberName.substr(2);
+    }
+
+    // Check if this is an enum value access (EnumName::VALUE or Namespace::EnumName::VALUE)
+    if (auto* idExpr = dynamic_cast<Parser::IdentifierExpr*>(node.object.get())) {
+        // Build the fully-qualified enum key
+        std::string enumKey;
+        if (!currentNamespace_.empty()) {
+            // Try namespace-qualified first
+            enumKey = currentNamespace_ + "::" + idExpr->name + "::" + memberName;
+            auto it = enumValues_.find(enumKey);
+            if (it != enumValues_.end()) {
+                // Found the enum value - return it as an integer constant
+                valueMap_["__last_expr"] = std::to_string(it->second);
+                registerTypes_[valueMap_["__last_expr"]] = "Integer";
+                // IR: Set lastExprValue_ to integer constant
+                if (builder_) {
+                    lastExprValue_ = builder_->getInt64(it->second);
+                }
+                return;
+            }
+        }
+        // Try unqualified
+        enumKey = idExpr->name + "::" + memberName;
+        auto it = enumValues_.find(enumKey);
+        if (it != enumValues_.end()) {
+            valueMap_["__last_expr"] = std::to_string(it->second);
+            registerTypes_[valueMap_["__last_expr"]] = "Integer";
+            // IR: Set lastExprValue_ to integer constant
+            if (builder_) {
+                lastExprValue_ = builder_->getInt64(it->second);
+            }
+            return;
+        }
+    }
+
+    // Handle Namespace::EnumName::VALUE pattern (nested MemberAccessExpr)
+    if (auto* outerMember = dynamic_cast<Parser::MemberAccessExpr*>(node.object.get())) {
+        // Check if the outer object is a namespace identifier
+        if (auto* nsIdExpr = dynamic_cast<Parser::IdentifierExpr*>(outerMember->object.get())) {
+            // Build key: Namespace::EnumName::Value
+            std::string outerMemberName = outerMember->member;
+            if (outerMemberName.length() >= 2 && outerMemberName.substr(0, 2) == "::") {
+                outerMemberName = outerMemberName.substr(2);
+            }
+            std::string enumKey = nsIdExpr->name + "::" + outerMemberName + "::" + memberName;
+            auto it = enumValues_.find(enumKey);
+            if (it != enumValues_.end()) {
+                // Found the enum value - return it as an integer constant
+                valueMap_["__last_expr"] = std::to_string(it->second);
+                registerTypes_[valueMap_["__last_expr"]] = "Integer";
+                if (builder_) {
+                    lastExprValue_ = builder_->getInt64(it->second);
+                }
+                return;
+            }
+        }
+    }
+
     // Check if this is a property access or method call
     // Method calls are handled by CallExpr, but direct property access needs handling here
 
@@ -2918,7 +4198,7 @@ void LLVMBackend::visit(Parser::MemberAccessExpr& node) {
             // Find the property index
             const auto& properties = classIt->second.properties;
             for (size_t i = 0; i < properties.size(); ++i) {
-                if (properties[i].first == node.member) {
+                if (properties[i].first == memberName) {
                     // Generate getelementptr to access the property
                     std::string ptrReg = allocateRegister();
 
@@ -2930,6 +4210,15 @@ void LLVMBackend::visit(Parser::MemberAccessExpr& node) {
                     }
                     emitLine(ptrReg + " = getelementptr inbounds %class." + mangledTypeName +
                             ", ptr %this, i32 0, i32 " + std::to_string(i));
+
+                    // IR: GEP for this.property
+                    IR::Value* fieldPtrIR = nullptr;
+                    if (builder_ && currentFunction_) {
+                        IR::Value* thisPtr = currentFunction_->getArg(0);
+                        if (thisPtr) {
+                            fieldPtrIR = builder_->CreateStructGEP(builder_->getPtrTy(), thisPtr, static_cast<unsigned>(i), memberName + "_this_gep");
+                        }
+                    }
 
                     // Load the field value
                     std::string valueReg = allocateRegister();
@@ -2944,6 +4233,25 @@ void LLVMBackend::visit(Parser::MemberAccessExpr& node) {
                         registerTypes_[valueReg] = "NativeType<\"int64\">";
                     } else {
                         registerTypes_[valueReg] = properties[i].first; // Fallback to property name
+                    }
+
+                    // IR: Load for this.property
+                    if (builder_ && fieldPtrIR) {
+                        IR::Type* loadTy = (llvmType == "ptr") ? static_cast<IR::Type*>(builder_->getPtrTy()) : static_cast<IR::Type*>(builder_->getInt64Ty());
+                        lastExprValue_ = builder_->CreateLoad(loadTy, fieldPtrIR, memberName + "_this_val");
+                    }
+
+                    // IR: Create GEP and Load for this.property access
+                    if (builder_ && currentFunction_) {
+                        IR::Value* thisPtr = currentFunction_->getArg(0);
+                        if (thisPtr) {
+                            IR::Type* fieldTy = (llvmType == "ptr")
+                                ? static_cast<IR::Type*>(builder_->getPtrTy())
+                                : static_cast<IR::Type*>(builder_->getInt64Ty());
+                            // Note: Simplified GEP - full struct type support would need more work
+                            IR::Value* fieldPtr = builder_->CreateStructGEP(builder_->getPtrTy(), thisPtr, static_cast<unsigned>(i), memberName + "_ptr");
+                            lastExprValue_ = builder_->CreateLoad(fieldTy, fieldPtr, memberName);
+                        }
                     }
                     return;
                 }
@@ -2966,7 +4274,7 @@ void LLVMBackend::visit(Parser::MemberAccessExpr& node) {
                 // Find the property index
                 const auto& properties = classIt->second.properties;
                 for (size_t i = 0; i < properties.size(); ++i) {
-                    if (properties[i].first == node.member) {
+                    if (properties[i].first == memberName) {
                         // Generate getelementptr to access the property
                         std::string ptrReg = allocateRegister();
 
@@ -2984,6 +4292,12 @@ void LLVMBackend::visit(Parser::MemberAccessExpr& node) {
                         emitLine(ptrReg + " = getelementptr inbounds %class." + mangledTypeName +
                                 ", ptr " + objPtr + ", i32 0, i32 " + std::to_string(i));
 
+                        // IR: GEP for obj.property
+                        IR::Value* objFieldPtrIR = nullptr;
+                        if (builder_ && lastExprValue_) {
+                            objFieldPtrIR = builder_->CreateStructGEP(builder_->getPtrTy(), lastExprValue_, static_cast<unsigned>(i), memberName + "_obj_gep");
+                        }
+
                         // Load the field value
                         std::string valueReg = allocateRegister();
                         std::string llvmType = properties[i].second; // LLVM type (ptr, i64, etc.)
@@ -2999,6 +4313,25 @@ void LLVMBackend::visit(Parser::MemberAccessExpr& node) {
                         } else {
                             registerTypes_[valueReg] = properties[i].first; // Fallback to property name
                         }
+
+                        // IR: Load for obj.property
+                        if (builder_ && objFieldPtrIR) {
+                            IR::Type* loadTy = (llvmType == "ptr") ? static_cast<IR::Type*>(builder_->getPtrTy()) : static_cast<IR::Type*>(builder_->getInt64Ty());
+                            lastExprValue_ = builder_->CreateLoad(loadTy, objFieldPtrIR, memberName + "_obj_val");
+                        }
+
+                        // IR: Load object, GEP to field, load field
+                        if (builder_) {
+                            auto allocaIt = localAllocas_.find(ident->name);
+                            if (allocaIt != localAllocas_.end()) {
+                                IR::Value* objPtrIR = builder_->CreateLoad(builder_->getPtrTy(), allocaIt->second, ident->name + "_obj");
+                                IR::Type* fieldTy = (llvmType == "ptr")
+                                    ? static_cast<IR::Type*>(builder_->getPtrTy())
+                                    : static_cast<IR::Type*>(builder_->getInt64Ty());
+                                IR::Value* fieldPtrIR = builder_->CreateStructGEP(builder_->getPtrTy(), objPtrIR, static_cast<unsigned>(i), memberName + "_gep");
+                                lastExprValue_ = builder_->CreateLoad(fieldTy, fieldPtrIR, memberName + "_val");
+                            }
+                        }
                         return;
                     }
                 }
@@ -3007,7 +4340,7 @@ void LLVMBackend::visit(Parser::MemberAccessExpr& node) {
     }
 
     // If we get here, property not found or not supported - store member name for CallExpr to handle
-    valueMap_["__last_expr"] = node.member;
+    valueMap_["__last_expr"] = memberName;
 }
 
 void LLVMBackend::visit(Parser::CallExpr& node) {
@@ -3051,12 +4384,26 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
                         std::string closureReg = allocateRegister();
                         emitLine(format("{} = load ptr, ptr {}", closureReg, closurePtrReg));
 
+                        // IR: Load closure pointer
+                        if (builder_) {
+                            auto allocaIt = localAllocas_.find(ident->name);
+                            if (allocaIt != localAllocas_.end()) {
+                                lastExprValue_ = builder_->CreateLoad(builder_->getPtrTy(), allocaIt->second, "closure_load");
+                            }
+                        }
+
                         // Load function pointer from closure (offset 0)
                         std::string funcPtrSlot = allocateRegister();
                         std::string funcPtr = allocateRegister();
                         emitLine(format("{} = getelementptr inbounds {{ ptr }}, ptr {}, i32 0, i32 0",
                                        funcPtrSlot, closureReg));
                         emitLine(format("{} = load ptr, ptr {}", funcPtr, funcPtrSlot));
+
+                        // IR: GEP and load for function pointer from closure
+                        if (builder_ && lastExprValue_) {
+                            IR::Value* funcSlot = builder_->CreateGEP(builder_->getPtrTy(), lastExprValue_, {builder_->getInt32(0), builder_->getInt32(0)}, "func_slot");
+                            lastExprValue_ = builder_->CreateLoad(builder_->getPtrTy(), funcSlot, "func_ptr");
+                        }
 
                         // Build argument list: closure + actual args
                         std::vector<std::string> argRegs;
@@ -3079,6 +4426,17 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
                         emitLine(format("{} = call ptr {}({})", resultReg, funcPtr, callArgs.str()));
                         valueMap_["__last_expr"] = resultReg;
                         registerTypes_[resultReg] = "ptr";
+
+                        // IR: Indirect call for lambda - create placeholder call
+                        if (builder_ && module_) {
+                            // Create a function type for the indirect call
+                            auto& ctx = module_->getContext();
+                            std::vector<IR::Type*> argTypes(argRegs.size(), builder_->getPtrTy());
+                            auto* funcTy = ctx.getFunctionTy(builder_->getPtrTy(), argTypes, false);
+                            // Note: Full indirect call would need function pointer value
+                            // For now, set result to null as placeholder
+                            lastExprValue_ = builder_->getNullPtr();
+                        }
                         return;
                     }
                 }
@@ -3139,10 +4497,35 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
                 emitLine(ptrReg + " = getelementptr inbounds %class." + mangledTypeName +
                         ", ptr %this, i32 0, i32 " + std::to_string(propIndex));
 
+                // IR: GEP for property in CallExpr
+                IR::Value* callPropPtrIR = nullptr;
+                if (builder_ && currentFunction_) {
+                    IR::Value* thisPtr = currentFunction_->getArg(0);
+                    if (thisPtr) {
+                        callPropPtrIR = builder_->CreateStructGEP(builder_->getPtrTy(), thisPtr, static_cast<unsigned>(propIndex), "call_prop_ptr");
+                    }
+                }
+
                 // Load the property value
                 instanceRegister = allocateRegister();
                 std::string llvmType = classIt->second.properties[propIndex].second;
                 emitLine(instanceRegister + " = load " + llvmType + ", ptr " + ptrReg);
+
+                // IR: Load for property in CallExpr
+                if (builder_ && callPropPtrIR) {
+                    IR::Type* loadTy = (llvmType == "ptr") ? static_cast<IR::Type*>(builder_->getPtrTy()) : static_cast<IR::Type*>(builder_->getInt64Ty());
+                    lastExprValue_ = builder_->CreateLoad(loadTy, callPropPtrIR, "call_prop_val");
+                }
+
+                // IR: GEP + Load for property access in CallExpr
+                if (builder_ && currentFunction_) {
+                    IR::Value* thisPtr = currentFunction_->getArg(0);
+                    if (thisPtr) {
+                        IR::Value* propPtrIR = builder_->CreateStructGEP(builder_->getPtrTy(), thisPtr, static_cast<unsigned>(propIndex), "prop_ptr");
+                        IR::Type* loadTy = (llvmType == "ptr") ? static_cast<IR::Type*>(builder_->getPtrTy()) : static_cast<IR::Type*>(builder_->getInt64Ty());
+                        lastExprValue_ = builder_->CreateLoad(loadTy, propPtrIR, "prop_val");
+                    }
+                }
 
                 // Determine the class name from the type (property type inference)
                 // TODO: This should come from semantic analysis, not be hardcoded
@@ -3520,6 +4903,7 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
 
     // Evaluate arguments
     std::vector<std::string> argValues;
+    std::vector<IR::Value*> irArgValues;  // IR values for new IR infrastructure
 
     // For instance methods, add 'this' pointer as first argument
     if (isInstanceMethod) {
@@ -3540,6 +4924,11 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
             // It's a variable, load it
             instancePtr = allocateRegister();
             emitLine(instancePtr + " = load ptr, ptr " + instanceRegister);
+
+            // IR: Load instance from variable
+            if (builder_ && lastExprValue_) {
+                lastExprValue_ = builder_->CreateLoad(builder_->getPtrTy(), lastExprValue_, "inst_load");
+            }
 
             // Transfer type information, stripping ptr_to<> wrapper
             auto typeIt = registerTypes_.find(instanceRegister);
@@ -3567,9 +4956,79 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
     // we should NOT load arguments - they are already pointers/addresses
     bool isSyscallFunction = functionName.find("Syscall_") == 0;
 
-    for (auto& arg : node.arguments) {
+    // Check if this is an FFI native method call (for string marshalling)
+    auto nativeMethodIt = nativeMethods_.find(functionName);
+    bool isNativeFFICall = (nativeMethodIt != nativeMethods_.end());
+
+    for (size_t argIdx = 0; argIdx < node.arguments.size(); ++argIdx) {
+        auto& arg = node.arguments[argIdx];
+
+        // FFI string marshalling: if calling a native method with a ptr parameter
+        // and passing a string literal, pass the raw C string pointer directly
+        if (isNativeFFICall && argIdx < nativeMethodIt->second.isStringPtr.size() &&
+            nativeMethodIt->second.isStringPtr[argIdx]) {
+            // Check if argument is a string literal
+            if (auto* strLit = dynamic_cast<Parser::StringLiteralExpr*>(arg.get())) {
+                // Generate a direct pointer to the string literal constant
+                std::string strLabel = format("ffi.str.{}", labelCounter_++);
+                stringLiterals_.push_back({strLabel, strLit->value});
+                std::string ptrReg = "@." + strLabel;
+                emitLine("; FFI string marshalling: \"" + strLit->value.substr(0, 20) +
+                        (strLit->value.length() > 20 ? "..." : "") + "\"");
+                argValues.push_back(ptrReg);
+                continue;
+            }
+        }
+
+        // FFI callback handling: if calling a native method with a callback parameter
+        // and passing a lambda, store the lambda closure and pass the thunk function pointer
+        if (isNativeFFICall && argIdx < nativeMethodIt->second.isCallback.size() &&
+            nativeMethodIt->second.isCallback[argIdx]) {
+            // Check if argument is a lambda expression
+            if (auto* lambdaExpr = dynamic_cast<Parser::LambdaExpr*>(arg.get())) {
+                // Generate the lambda closure first
+                arg->accept(*this);
+                std::string closureReg = valueMap_["__last_expr"];
+
+                // Get the callback type name from the native method info
+                std::string callbackTypeName = nativeMethodIt->second.xxmlParamTypes[argIdx];
+                // Strip ownership modifiers
+                if (!callbackTypeName.empty() && (callbackTypeName.back() == '^' ||
+                    callbackTypeName.back() == '%' || callbackTypeName.back() == '&')) {
+                    callbackTypeName = callbackTypeName.substr(0, callbackTypeName.length() - 1);
+                }
+
+                // Find the callback thunk info
+                auto thunkIt = callbackThunks_.find(callbackTypeName);
+                if (thunkIt != callbackThunks_.end()) {
+                    // Mangle the callback type name for the global variable
+                    std::string mangledName = callbackTypeName;
+                    while (mangledName.find("::") != std::string::npos) {
+                        mangledName.replace(mangledName.find("::"), 2, "_");
+                    }
+                    std::string closureGlobalName = "@xxml_callback_closure_" + mangledName;
+
+                    // Store the lambda closure to the global variable
+                    emitLine("; FFI callback: storing lambda closure for " + callbackTypeName);
+                    emitLine("  store ptr " + closureReg + ", ptr " + closureGlobalName);
+
+                    // Use the thunk function pointer as the argument
+                    argValues.push_back(thunkIt->second.thunkFunctionName);
+                    emitLine("; FFI callback: using thunk " + thunkIt->second.thunkFunctionName);
+                    continue;
+                } else {
+                    emitLine("; WARNING: Callback type " + callbackTypeName + " not found, using lambda directly");
+                }
+            }
+        }
+
         arg->accept(*this);
         std::string argReg = valueMap_["__last_expr"];
+
+        // Capture IR value for new IR infrastructure
+        if (lastExprValue_) {
+            irArgValues.push_back(lastExprValue_);
+        }
 
         // For Syscall functions, use arguments directly without loading
         if (isSyscallFunction) {
@@ -3590,6 +5049,11 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
             // It's a variable, load it
             std::string loadedReg = allocateRegister();
             emitLine(loadedReg + " = load ptr, ptr " + argReg);
+
+            // IR: Load variable for FFI call
+            if (builder_ && lastExprValue_) {
+                lastExprValue_ = builder_->CreateLoad(builder_->getPtrTy(), lastExprValue_, "ffi_arg_load");
+            }
 
             // Transfer type information, stripping ptr_to<> wrapper
             auto typeIt = registerTypes_.find(argReg);
@@ -3739,8 +5203,33 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
             std::string mallocReg = allocateRegister();
             emitLine(format("{} = call ptr @xxml_malloc(i64 {})", mallocReg, classSize));
 
+            // IR: Call xxml_malloc
+            if (builder_ && module_) {
+                IR::Function* mallocFunc = module_->getFunction("xxml_malloc");
+                if (!mallocFunc) {
+                    auto& ctx = module_->getContext();
+                    auto* funcTy = ctx.getFunctionTy(builder_->getPtrTy(), {builder_->getInt64Ty()}, false);
+                    mallocFunc = module_->createFunction(funcTy, "xxml_malloc", IR::Function::Linkage::External);
+                }
+                lastExprValue_ = builder_->CreateCall(mallocFunc, {builder_->getInt64(classSize)}, "malloc_obj");
+            }
+
             // CRITICAL: Track this register as ptr type to avoid i64 conversion
             registerTypes_[mallocReg] = className;
+
+            // IR: Create malloc call
+            IR::Value* mallocIR = nullptr;
+            if (builder_ && module_) {
+                IR::Function* mallocFunc = module_->getFunction("xxml_malloc");
+                if (!mallocFunc) {
+                    auto& ctx = module_->getContext();
+                    auto* funcTy = ctx.getFunctionTy(builder_->getPtrTy(), {builder_->getInt64Ty()}, false);
+                    mallocFunc = module_->createFunction(funcTy, "xxml_malloc", IR::Function::Linkage::External);
+                }
+                mallocIR = builder_->CreateCall(mallocFunc, {builder_->getInt64(static_cast<int64_t>(classSize))}, "malloc");
+                // Insert at beginning of IR args
+                irArgValues.insert(irArgValues.begin(), mallocIR);
+            }
 
             // Add malloc result as first argument (this pointer) to constructor
             argValues.insert(argValues.begin(), mallocReg);
@@ -3868,6 +5357,13 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
     } else if (fromSemanticAnalyzer && !returnType.empty()) {
         // Use semantic analyzer's return type - this handles None -> void correctly
         llvmReturnType = getLLVMType(returnType);
+        if (llvmReturnType == "void") {
+            isVoidReturn = true;
+        }
+    } else if (isNativeFFICall && !nativeMethodIt->second.returnType.empty()) {
+        // Use the native method's stored return type for FFI calls
+        llvmReturnType = nativeMethodIt->second.returnType;
+        returnType = nativeMethodIt->second.xxmlReturnType;  // Track XXML type too
         if (llvmReturnType == "void") {
             isVoidReturn = true;
         }
@@ -3999,8 +5495,12 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
         // Determine expected argument type for this function
         std::string expectedType = "ptr";  // Default
 
+        // FFI native method calls: use registered param types for proper type conversion
+        if (isNativeFFICall && i < nativeMethodIt->second.paramTypes.size()) {
+            expectedType = nativeMethodIt->second.paramTypes[i];
+        }
         // Syscall functions with specific signatures
-        if (functionName.find("xxml_malloc") != std::string::npos) {
+        else if (functionName.find("xxml_malloc") != std::string::npos) {
             expectedType = "i64";  // malloc takes i64 size
         } else if (functionName.find("ptr_write") != std::string::npos ||
             functionName.find("ptr_read") != std::string::npos ||
@@ -4112,19 +5612,34 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
         if (argType == "i64" && expectedType == "ptr") {
             std::string convertedReg = allocateRegister();
             emitLine(format("{} = inttoptr i64 {} to ptr", convertedReg, argValue));
+
+            // IR: Create inttoptr instruction
+            if (builder_) {
+                lastExprValue_ = builder_->CreateIntToPtr(builder_->getInt64(0), builder_->getPtrTy(), "int_to_ptr");
+            }
             argValue = convertedReg;
             argType = "ptr";
+
+            // IR: inttoptr conversion for argument
+            if (builder_ && !irArgValues.empty() && irArgValues.back()) {
+                irArgValues.back() = builder_->CreateIntToPtr(irArgValues.back(), builder_->getPtrTy(), "arg_itp");
+            }
         } else if (argType == "ptr" && expectedType == "i64") {
             // CRITICAL FIX: When converting pointer to i64 for a parameter that expects a value (reference %),
             // we need to LOAD the value from the pointer first, not convert the pointer address itself
             // Check if this pointer points to an i64 (NativeType<"int64">^) that needs to be dereferenced
             auto typeIt = registerTypes_.find(argValue);
             bool isInt64Pointer = false;
+            bool isIntegerObject = false;
             if (typeIt != registerTypes_.end()) {
                 std::string xxmlType = typeIt->second;
                 // Check if this is NativeType<"int64">^ or NativeType<int64>^
                 if (xxmlType == "NativeType<\"int64\">" || xxmlType == "NativeType<int64>") {
                     isInt64Pointer = true;
+                }
+                // Check if this is an Integer^ object that needs value extraction
+                else if (xxmlType == "Integer" || xxmlType == "Integer^") {
+                    isIntegerObject = true;
                 }
             }
 
@@ -4134,25 +5649,113 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
                 emitLine(format("{} = load i64, ptr {}", loadedReg, argValue));
                 argValue = loadedReg;
                 argType = "i64";
+
+                // IR: Load i64 from pointer
+                if (builder_ && !irArgValues.empty() && irArgValues.back()) {
+                    irArgValues.back() = builder_->CreateLoad(builder_->getInt64Ty(), irArgValues.back(), "arg_i64_load");
+                }
+            } else if (isIntegerObject) {
+                // Extract i64 value from Integer^ object using Integer_toInt64
+                std::string extractedReg = allocateRegister();
+                emitLine(format("{} = call i64 @Integer_toInt64(ptr {})", extractedReg, argValue));
+                argValue = extractedReg;
+                argType = "i64";
+
+                // IR: Call Integer_toInt64
+                if (builder_ && !irArgValues.empty() && irArgValues.back()) {
+                    // Note: IR infrastructure would need Integer_toInt64 declared
+                }
             } else {
                 // Convert pointer address to i64 (for non-int64 pointers)
                 std::string convertedReg = allocateRegister();
                 emitLine(format("{} = ptrtoint ptr {} to i64", convertedReg, argValue));
+
+                // IR: Create ptrtoint instruction
+                if (builder_) {
+                    lastExprValue_ = builder_->CreatePtrToInt(builder_->getNullPtr(), builder_->getInt64Ty(), "ptr_to_int");
+                }
                 argValue = convertedReg;
                 argType = "i64";
+
+                // IR: ptrtoint conversion
+                if (builder_ && !irArgValues.empty() && irArgValues.back()) {
+                    irArgValues.back() = builder_->CreatePtrToInt(irArgValues.back(), builder_->getInt64Ty(), "arg_pti");
+                }
+            }
+        } else if (argType == "ptr" && (expectedType == "i32" || expectedType == "i16" || expectedType == "i8")) {
+            // Handle Integer^ to smaller integer types (i32, i16, i8) with truncation
+            auto typeIt = registerTypes_.find(argValue);
+            bool isIntegerObject = false;
+            bool isNativeIntPtr = false;
+            if (typeIt != registerTypes_.end()) {
+                std::string xxmlType = typeIt->second;
+                // Check if this is an Integer^ object that needs value extraction
+                if (xxmlType == "Integer" || xxmlType == "Integer^") {
+                    isIntegerObject = true;
+                }
+                // Check if this is NativeType<"intXX">^ that needs loading
+                else if (xxmlType.find("NativeType<") == 0 && xxmlType.find("int") != std::string::npos) {
+                    isNativeIntPtr = true;
+                }
+            }
+
+            if (isIntegerObject) {
+                // Extract i64 value from Integer^ object, then truncate to expected size
+                std::string extractedReg = allocateRegister();
+                emitLine(format("{} = call i64 @Integer_toInt64(ptr {})", extractedReg, argValue));
+                std::string truncReg = allocateRegister();
+                emitLine(format("{} = trunc i64 {} to {}", truncReg, extractedReg, expectedType));
+                argValue = truncReg;
+                argType = expectedType;
+            } else if (isNativeIntPtr) {
+                // Load the value from the pointer, then truncate if needed
+                std::string loadedReg = allocateRegister();
+                emitLine(format("{} = load i64, ptr {}", loadedReg, argValue));
+                std::string truncReg = allocateRegister();
+                emitLine(format("{} = trunc i64 {} to {}", truncReg, loadedReg, expectedType));
+                argValue = truncReg;
+                argType = expectedType;
+            } else {
+                // Convert pointer address to integer and truncate
+                std::string convertedReg = allocateRegister();
+                emitLine(format("{} = ptrtoint ptr {} to i64", convertedReg, argValue));
+                std::string truncReg = allocateRegister();
+                emitLine(format("{} = trunc i64 {} to {}", truncReg, convertedReg, expectedType));
+                argValue = truncReg;
+                argType = expectedType;
             }
         } else if (argType == "i64" && expectedType == "float") {
             // Convert integer to float using sitofp (signed integer to floating point)
             std::string convertedReg = allocateRegister();
             emitLine(format("{} = sitofp i64 {} to float", convertedReg, argValue));
+
+            // IR: Create sitofp to float
+            if (builder_) {
+                lastExprValue_ = builder_->CreateSIToFP(builder_->getInt64(0), builder_->getFloatTy(), "si_to_float");
+            }
             argValue = convertedReg;
             argType = "float";
+
+            // IR: sitofp i64 to float
+            if (builder_ && !irArgValues.empty() && irArgValues.back()) {
+                irArgValues.back() = builder_->CreateSIToFP(irArgValues.back(), builder_->getFloatTy(), "arg_stf");
+            }
         } else if (argType == "i64" && expectedType == "double") {
             // Convert integer to double using sitofp
             std::string convertedReg = allocateRegister();
             emitLine(format("{} = sitofp i64 {} to double", convertedReg, argValue));
+
+            // IR: Create sitofp to double
+            if (builder_) {
+                lastExprValue_ = builder_->CreateSIToFP(builder_->getInt64(0), builder_->getDoubleTy(), "si_to_double");
+            }
             argValue = convertedReg;
             argType = "double";
+
+            // IR: sitofp i64 to double
+            if (builder_ && !irArgValues.empty() && irArgValues.back()) {
+                irArgValues.back() = builder_->CreateSIToFP(irArgValues.back(), builder_->getDoubleTy(), "arg_std");
+            }
         }
 
         callInstr << argType << " " << argValue;
@@ -4172,6 +5775,26 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
         std::string boolValReg = allocateRegister();
         emitLine(format("{} = zext i1 {} to i8", boolValReg, resultReg));
         emitLine(format("store i8 {}, ptr {}", boolValReg, boolMemReg));
+
+        // IR: Create zext instruction
+        if (builder_ && lastExprValue_) {
+            IR::Value* zextVal = builder_->CreateZExt(lastExprValue_, builder_->getInt8Ty(), "zext_bool");
+            (void)zextVal;
+        }
+
+        // IR: malloc + zext + store for Bool wrapping
+        if (builder_ && module_ && lastExprValue_) {
+            IR::Function* mallocFunc = module_->getFunction("xxml_malloc");
+            if (!mallocFunc) {
+                auto& ctx = module_->getContext();
+                auto* funcTy = ctx.getFunctionTy(builder_->getPtrTy(), {builder_->getInt64Ty()}, false);
+                mallocFunc = module_->createFunction(funcTy, "xxml_malloc", IR::Function::Linkage::External);
+            }
+            IR::Value* boolMem = builder_->CreateCall(mallocFunc, {builder_->getInt64(8)}, "bool_mem");
+            IR::Value* zextVal = builder_->CreateZExt(lastExprValue_, builder_->getInt8Ty(), "bool_zext");
+            builder_->CreateStore(zextVal, boolMem);
+            lastExprValue_ = boolMem;
+        }
 
         // The Bool^ is now our result
         resultReg = boolMemReg;
@@ -4199,15 +5822,19 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
                 std::string className = functionName.substr(0, underscorePos);
                 std::string methodName = functionName.substr(underscorePos + 1);
 
-                // Special handling for comparison methods that return i1 (native bool)
-                if (methodName == "eq" || methodName == "ne" || methodName == "lt" ||
+                // Special handling for Bool::getValue which actually returns i1 (native bool)
+                // Other comparison methods (eq, ne, lt, etc.) return Bool^ objects, not native i1
+                if (methodName == "getValue" && className == "Bool") {
+                    returnType = "NativeType<\"bool\">";
+                }
+                // Comparison methods return Bool^ objects
+                else if (methodName == "eq" || methodName == "ne" || methodName == "lt" ||
                     methodName == "le" || methodName == "gt" || methodName == "ge" ||
                     methodName == "equals" || methodName == "lessThan" ||
                     methodName == "lessThanOrEqual" || methodName == "greaterThan" ||
                     methodName == "greaterThanOrEqual" || methodName == "notEquals" ||
-                    methodName == "isEmpty" ||
-                    (methodName == "getValue" && className == "Bool")) {
-                    returnType = "NativeType<\"bool\">";
+                    methodName == "isEmpty") {
+                    returnType = "Bool^";
                 }
                 // Special handling for collection methods that return element types
                 else if (isInstanceMethod && (methodName == "get" || methodName == "pop")) {
@@ -4236,9 +5863,32 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
                     } else {
                         returnType = className;  // Fallback
                     }
+                }
+                // Special handling for Processor API methods
+                // Some methods return known types, others return polymorphic types
+                else if (className == "Processor") {
+                    if (methodName == "getTargetName" || methodName == "getTypeName" ||
+                        methodName == "getAnnotationName") {
+                        returnType = "String^";
+                    } else if (methodName == "getLineNumber" || methodName == "getArgCount" ||
+                               methodName == "getAnnotationArgCount") {
+                        returnType = "Integer^";
+                    } else if (methodName == "argAsDouble" || methodName == "getAnnotationDoubleArg") {
+                        returnType = "Double^";
+                    } else if (methodName == "hasAnnotation" || methodName == "isProperty" ||
+                               methodName == "isMethod" || methodName == "isClass") {
+                        returnType = "Bool^";
+                    } else if (methodName == "getTargetValue" || methodName == "getAnnotationArg") {
+                        // These methods return polymorphic types - use __DynamicValue
+                        // which has runtime type dispatch methods (greaterThan, toString, etc.)
+                        returnType = "__DynamicValue";
+                    }
+                    // For other polymorphic methods, fall through to use className as default
+                    else {
+                        returnType = className;  // Default to Processor for unknown methods
+                    }
                 } else {
-                    // Default: assume return type is same as class
-                    returnType = className;
+                    returnType = className;  // Default fallback
                 }
             }
         }
@@ -4247,6 +5897,55 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
         // These modifiers have semantic meaning and must persist in the type system
         if (!returnType.empty()) {
             registerTypes_[resultReg] = returnType;
+        }
+    }
+
+    // === IR Infrastructure: Track call result ===
+    // For the new IR path, we need to set lastExprValue_ so that parent expressions
+    // can use the typed IR value for type checking
+    if (builder_ && module_) {
+        // Determine IR return type based on XXML return type
+        IR::Type* irRetType = nullptr;
+        if (isVoidReturn) {
+            irRetType = builder_->getVoidTy();
+            lastExprValue_ = nullptr;
+        } else {
+            // Determine IR type from return type
+            if (returnType == "NativeType<\"bool\">" || returnType == "NativeType<bool>") {
+                irRetType = builder_->getInt1Ty();
+            } else if (returnType == "Integer" || returnType == "Integer^" || returnType == "i64") {
+                irRetType = builder_->getInt64Ty();
+            } else if (returnType == "Float" || returnType == "Float^") {
+                irRetType = builder_->getFloatTy();
+            } else if (returnType == "Double" || returnType == "Double^") {
+                irRetType = builder_->getDoubleTy();
+            } else {
+                // Default to pointer type for objects
+                irRetType = builder_->getPtrTy();
+            }
+
+            // Get or create function declaration
+            IR::Function* irFunc = module_->getFunction(functionName);
+            if (!irFunc) {
+                // Create function type with ptr params (simplified)
+                std::vector<IR::Type*> paramTypes(argValues.size(), builder_->getPtrTy());
+                auto* funcTy = module_->getContext().getFunctionTy(irRetType, paramTypes, false);
+                irFunc = module_->createFunction(funcTy, functionName, IR::Function::Linkage::External);
+            }
+
+            // Create call instruction
+            if (irFunc) {
+                std::vector<IR::Value*> irArgs;
+                // Use captured IR values if available, otherwise use null pointers as fallback
+                for (size_t i = 0; i < argValues.size(); ++i) {
+                    if (i < irArgValues.size() && irArgValues[i]) {
+                        irArgs.push_back(irArgValues[i]);
+                    } else {
+                        irArgs.push_back(builder_->getNullPtr());
+                    }
+                }
+                lastExprValue_ = builder_->CreateCall(irFunc, irArgs, isVoidReturn ? "" : "call_result");
+            }
         }
     }
 }
@@ -4318,6 +6017,29 @@ void LLVMBackend::visit(Parser::BinaryExpr& node) {
         emitLine(format("{} = call ptr @xxml_string_concat(ptr {}, ptr {})", resultReg, leftValue, rightValue));
         valueMap_["__last_expr"] = resultReg;
         registerTypes_[resultReg] = "String^";
+
+        // IR: Create call to xxml_string_concat
+        if (builder_ && module_) {
+            // IMPORTANT: Save valueMap_ state since re-visiting operands overwrites __last_expr
+            std::string savedLastExpr = valueMap_["__last_expr"];
+            // Re-visit operands to get IR values
+            node.left->accept(*this);
+            IR::Value* leftIR = lastExprValue_;
+            node.right->accept(*this);
+            IR::Value* rightIR = lastExprValue_;
+            // Restore __last_expr after IR generation
+            valueMap_["__last_expr"] = savedLastExpr;
+
+            if (leftIR && rightIR) {
+                IR::Function* concatFunc = module_->getFunction("xxml_string_concat");
+                if (!concatFunc) {
+                    auto& ctx = module_->getContext();
+                    auto* funcTy = ctx.getFunctionTy(builder_->getPtrTy(), {builder_->getPtrTy(), builder_->getPtrTy()}, false);
+                    concatFunc = module_->createFunction(funcTy, "xxml_string_concat", IR::Function::Linkage::External);
+                }
+                lastExprValue_ = builder_->CreateCall(concatFunc, {leftIR, rightIR}, "str_concat");
+            }
+        }
         return;
     }
 
@@ -4339,9 +6061,16 @@ void LLVMBackend::visit(Parser::BinaryExpr& node) {
         }
 
         // If the offset is also a ptr (but not String), convert it to i64
+        IR::Value* offsetIRValue = nullptr;
         if (offsetType == "ptr") {
             std::string offsetAsInt = allocateRegister();
             emitLine(format("{} = ptrtoint ptr {} to i64", offsetAsInt, offsetValue));
+
+            // IR: ptrtoint for offset
+            if (builder_ && lastExprValue_) {
+                offsetIRValue = builder_->CreatePtrToInt(lastExprValue_, builder_->getInt64Ty(), "off_ptrtoint");
+            }
+
             offsetValue = offsetAsInt;
         }
 
@@ -4349,20 +6078,43 @@ void LLVMBackend::visit(Parser::BinaryExpr& node) {
         std::string ptrAsInt = allocateRegister();
         emitLine(format("{} = ptrtoint ptr {} to i64", ptrAsInt, ptrValue));
 
+        // IR: ptrtoint for pointer value
+        IR::Value* ptrIntIR = nullptr;
+        if (builder_ && lastExprValue_) {
+            ptrIntIR = builder_->CreatePtrToInt(lastExprValue_, builder_->getInt64Ty(), "ptr_ptrtoint");
+        }
+
         // Do the arithmetic
         std::string resultInt = allocateRegister();
+        IR::Value* arithResultIR = nullptr;
         if (node.op == "+") {
             if (ptrOnLeft) {
                 emitLine(format("{} = add i64 {}, {}", resultInt, ptrAsInt, offsetValue));
+                // IR: add i64 (ptr + offset)
+                if (builder_ && ptrIntIR) {
+                    arithResultIR = builder_->CreateAdd(ptrIntIR, offsetIRValue ? offsetIRValue : builder_->getInt64(0), "add_result");
+                }
             } else {
                 emitLine(format("{} = add i64 {}, {}", resultInt, offsetValue, ptrAsInt));
+                // IR: add i64 (offset + ptr)
+                if (builder_ && ptrIntIR) {
+                    arithResultIR = builder_->CreateAdd(offsetIRValue ? offsetIRValue : builder_->getInt64(0), ptrIntIR, "add_result");
+                }
             }
         } else { // "-"
             if (ptrOnLeft) {
                 emitLine(format("{} = sub i64 {}, {}", resultInt, ptrAsInt, offsetValue));
+                // IR: sub i64 (ptr - offset)
+                if (builder_ && ptrIntIR) {
+                    arithResultIR = builder_->CreateSub(ptrIntIR, offsetIRValue ? offsetIRValue : builder_->getInt64(0), "sub_result");
+                }
             } else {
                 // offset - ptr doesn't make sense, but generate it anyway
                 emitLine(format("{} = sub i64 {}, {}", resultInt, offsetValue, ptrAsInt));
+                // IR: sub i64 (offset - ptr)
+                if (builder_ && ptrIntIR) {
+                    arithResultIR = builder_->CreateSub(offsetIRValue ? offsetIRValue : builder_->getInt64(0), ptrIntIR, "sub_result");
+                }
             }
         }
 
@@ -4370,9 +6122,46 @@ void LLVMBackend::visit(Parser::BinaryExpr& node) {
         std::string resultReg = allocateRegister();
         emitLine(format("{} = inttoptr i64 {} to ptr", resultReg, resultInt));
 
+        // IR: inttoptr for result
+        if (builder_ && arithResultIR) {
+            lastExprValue_ = builder_->CreateIntToPtr(arithResultIR, builder_->getPtrTy(), "inttoptr_result");
+        }
+
         // Result is a ptr
         valueMap_["__last_expr"] = resultReg;
         registerTypes_[resultReg] = "NativeType<\"ptr\">";
+
+        // IR: Pointer arithmetic using ptrtoint/inttoptr
+        if (builder_) {
+            // IMPORTANT: Save valueMap_ state since re-visiting operands overwrites __last_expr
+            std::string savedLastExpr = valueMap_["__last_expr"];
+            node.left->accept(*this);
+            IR::Value* leftIR = lastExprValue_;
+            node.right->accept(*this);
+            IR::Value* rightIR = lastExprValue_;
+            // Restore __last_expr after IR generation
+            valueMap_["__last_expr"] = savedLastExpr;
+
+            if (leftIR && rightIR) {
+                IR::Value* ptrIR = ptrOnLeft ? leftIR : rightIR;
+                IR::Value* offsetIR = ptrOnLeft ? rightIR : leftIR;
+
+                // Convert ptr to i64
+                IR::Value* ptrInt = builder_->CreatePtrToInt(ptrIR, builder_->getInt64Ty(), "ptr_int");
+                // Convert offset if it's a ptr
+                if (offsetIR->getType()->isPointer()) {
+                    offsetIR = builder_->CreatePtrToInt(offsetIR, builder_->getInt64Ty(), "off_int");
+                }
+
+                IR::Value* resultInt;
+                if (node.op == "+") {
+                    resultInt = builder_->CreateAdd(ptrInt, offsetIR, "ptr_add");
+                } else {
+                    resultInt = builder_->CreateSub(ptrInt, offsetIR, "ptr_sub");
+                }
+                lastExprValue_ = builder_->CreateIntToPtr(resultInt, builder_->getPtrTy(), "ptr_result");
+            }
+        }
     } else if ((leftType == "ptr" || rightType == "ptr") &&
                (node.op == "==" || node.op == "!=" || node.op == "<" || node.op == ">" || node.op == "<=" || node.op == ">=")) {
         // Pointer comparison - convert pointers to i64 first
@@ -4392,8 +6181,47 @@ void LLVMBackend::visit(Parser::BinaryExpr& node) {
         std::string opCode = generateBinaryOp(node.op, leftCmp, rightCmp, "i64");
         emitLine(format("{} = {}", resultReg, opCode));
         valueMap_["__last_expr"] = resultReg;
+        registerTypes_[resultReg] = "NativeType<\"bool\">";  // Comparison result is i1
+
+        // IR: Pointer comparison using ptrtoint
+        if (builder_) {
+            // IMPORTANT: Save valueMap_ state since re-visiting operands overwrites __last_expr
+            std::string savedLastExpr = valueMap_["__last_expr"];
+            node.left->accept(*this);
+            IR::Value* leftIR = lastExprValue_;
+            node.right->accept(*this);
+            IR::Value* rightIR = lastExprValue_;
+            // Restore __last_expr after IR generation
+            valueMap_["__last_expr"] = savedLastExpr;
+
+            if (leftIR && rightIR) {
+                // Convert pointers to integers for comparison
+                if (leftIR->getType()->isPointer()) {
+                    leftIR = builder_->CreatePtrToInt(leftIR, builder_->getInt64Ty(), "lcmp");
+                }
+                if (rightIR->getType()->isPointer()) {
+                    rightIR = builder_->CreatePtrToInt(rightIR, builder_->getInt64Ty(), "rcmp");
+                }
+
+                if (node.op == "==") {
+                    lastExprValue_ = builder_->CreateICmpEQ(leftIR, rightIR, "ptr_eq");
+                } else if (node.op == "!=") {
+                    lastExprValue_ = builder_->CreateICmpNE(leftIR, rightIR, "ptr_ne");
+                } else if (node.op == "<") {
+                    lastExprValue_ = builder_->CreateICmpSLT(leftIR, rightIR, "ptr_lt");
+                } else if (node.op == "<=") {
+                    lastExprValue_ = builder_->CreateICmpSLE(leftIR, rightIR, "ptr_le");
+                } else if (node.op == ">") {
+                    lastExprValue_ = builder_->CreateICmpSGT(leftIR, rightIR, "ptr_gt");
+                } else if (node.op == ">=") {
+                    lastExprValue_ = builder_->CreateICmpSGE(leftIR, rightIR, "ptr_ge");
+                }
+            }
+        }
     } else if (node.op == "||" || node.op == "&&") {
         // Logical operators - need to convert Bool objects to i1 if necessary
+        // For logical operations, both operands MUST be i1. Any operand that is NOT
+        // already a native bool (i1) needs to be converted via Bool_getValue.
         std::string leftBool = leftValue;
         std::string rightBool = rightValue;
 
@@ -4401,45 +6229,132 @@ void LLVMBackend::visit(Parser::BinaryExpr& node) {
         auto leftXXMLType = registerTypes_.find(leftValue);
         auto rightXXMLType = registerTypes_.find(rightValue);
 
-        // Convert left operand to i1 if it's a Bool object (ptr)
-        if (leftType == "ptr" || (leftXXMLType != registerTypes_.end() &&
-            (leftXXMLType->second == "Bool" || leftXXMLType->second == "Bool^" ||
-             leftXXMLType->second.find("Bool") != std::string::npos))) {
+        // Check if left operand is definitely i1 (native bool)
+        bool leftIsNativeI1 = (leftType == "i1") ||
+            (leftXXMLType != registerTypes_.end() &&
+             (leftXXMLType->second == "NativeType<\"bool\">" ||
+              leftXXMLType->second == "NativeType<bool>"));
+
+        // Check if right operand is definitely i1 (native bool)
+        bool rightIsNativeI1 = (rightType == "i1") ||
+            (rightXXMLType != registerTypes_.end() &&
+             (rightXXMLType->second == "NativeType<\"bool\">" ||
+              rightXXMLType->second == "NativeType<bool>"));
+
+        // Convert left operand to i1 if it's NOT already native i1
+        // This includes Bool objects (ptr), unknown types that default to i64, etc.
+        if (!leftIsNativeI1) {
             leftBool = allocateRegister();
             emitLine(format("{} = call i1 @Bool_getValue(ptr {})", leftBool, leftValue));
         }
 
-        // Convert right operand to i1 if it's a Bool object (ptr)
-        if (rightType == "ptr" || (rightXXMLType != registerTypes_.end() &&
-            (rightXXMLType->second == "Bool" || rightXXMLType->second == "Bool^" ||
-             rightXXMLType->second.find("Bool") != std::string::npos))) {
+        // Convert right operand to i1 if it's NOT already native i1
+        if (!rightIsNativeI1) {
             rightBool = allocateRegister();
             emitLine(format("{} = call i1 @Bool_getValue(ptr {})", rightBool, rightValue));
         }
+
+        // IR: These Bool_getValue calls are handled in the IR section below
 
         // Perform logical operation
         std::string resultReg = allocateRegister();
         if (node.op == "||") {
             emitLine(format("{} = or i1 {}, {}", resultReg, leftBool, rightBool));
+
+            // IR: Create or instruction
+            if (builder_) {
+                lastExprValue_ = builder_->CreateOr(builder_->getInt1(false), builder_->getInt1(false), "or_i1");
+            }
         } else {
             emitLine(format("{} = and i1 {}, {}", resultReg, leftBool, rightBool));
+
+            // IR: Create and instruction
+            if (builder_) {
+                lastExprValue_ = builder_->CreateAnd(builder_->getInt1(true), builder_->getInt1(true), "and_i1");
+            }
         }
+
+        // IR: Perform logical operation directly
+        // (The main IR generation is in the block below, but we can also set up here)
 
         valueMap_["__last_expr"] = resultReg;
         registerTypes_[resultReg] = "NativeType<\"bool\">";
-        // Skip the IR infrastructure section to avoid re-visiting operands
+
+        // IR Infrastructure: Set lastExprValue_ with correct i1 type
+        // The result of logical operations is always i1
+        if (builder_) {
+            // For logical operators, we need both operands as i1
+            // Re-get the IR values and convert if needed
+            IR::Value* leftIR = nullptr;
+            IR::Value* rightIR = nullptr;
+
+            // Visit operands to get IR values
+            // IMPORTANT: Save valueMap_ state since re-visiting overwrites __last_expr
+            std::string savedLastExpr = valueMap_["__last_expr"];
+            node.left->accept(*this);
+            leftIR = lastExprValue_;
+            node.right->accept(*this);
+            rightIR = lastExprValue_;
+            // Restore __last_expr after IR generation
+            valueMap_["__last_expr"] = savedLastExpr;
+
+            if (leftIR && rightIR) {
+                // Convert pointer types to i1 via Bool_getValue
+                auto ensureI1 = [this](IR::Value* val) -> IR::Value* {
+                    if (val->getType()->isPointer()) {
+                        IR::Function* boolGetValueFunc = module_->getFunction("Bool_getValue");
+                        if (!boolGetValueFunc) {
+                            auto& ctx = module_->getContext();
+                            auto* funcTy = ctx.getFunctionTy(builder_->getInt1Ty(), {builder_->getPtrTy()}, false);
+                            boolGetValueFunc = module_->createFunction(funcTy, "Bool_getValue", IR::Function::Linkage::External);
+                        }
+                        return builder_->CreateCall(boolGetValueFunc, {val}, "bool_val");
+                    }
+                    return val;
+                };
+
+                leftIR = ensureI1(leftIR);
+                rightIR = ensureI1(rightIR);
+
+                if (node.op == "||") {
+                    lastExprValue_ = builder_->CreateOr(leftIR, rightIR, "or_result");
+                } else {
+                    lastExprValue_ = builder_->CreateAnd(leftIR, rightIR, "and_result");
+                }
+            }
+        }
         return;
     } else {
         // Normal arithmetic or comparison - use the determined types
         // Determine the operation type (prefer floating-point if either operand is float/double)
         std::string opType = "i64";
         DEBUG_OUT("DEBUG BinaryExpr: leftType='" << leftType << "' rightType='" << rightType << "'\n");
+
+        // Helper to check if a value is a literal (not a register or global)
+        auto isLiteral = [](const std::string& val) {
+            return !val.empty() && val[0] != '%' && val[0] != '@';
+        };
+        bool leftIsLiteral = isLiteral(leftValue);
+        bool rightIsLiteral = isLiteral(rightValue);
+
         if (leftType == "double" || rightType == "double") {
             opType = "double";
             DEBUG_OUT("DEBUG BinaryExpr: Setting opType to double\n");
         } else if (leftType == "float" || rightType == "float") {
             opType = "float";
             DEBUG_OUT("DEBUG BinaryExpr: Setting opType to float\n");
+        } else if (leftType == "i32" && rightType == "i32") {
+            // Both are i32
+            opType = "i32";
+            DEBUG_OUT("DEBUG BinaryExpr: Both i32, setting opType to i32\n");
+        } else if (leftType == "i32" && rightIsLiteral) {
+            // Left is i32, right is a literal - use i32
+            opType = "i32";
+            DEBUG_OUT("DEBUG BinaryExpr: Left i32 + literal, setting opType to i32\n");
+        } else if (rightType == "i32" && leftIsLiteral) {
+            // Right is i32, left is a literal - use i32
+            opType = "i32";
+            DEBUG_OUT("DEBUG BinaryExpr: Literal + right i32, setting opType to i32\n");
         } else if (leftType == "i64" || rightType == "i64") {
             opType = "i64";
             DEBUG_OUT("DEBUG BinaryExpr: Setting opType to i64\n");
@@ -4472,11 +6387,15 @@ void LLVMBackend::visit(Parser::BinaryExpr& node) {
 
     // New IR infrastructure: generate binary operations using IRBuilder
     if (builder_) {
+        // IMPORTANT: Save valueMap_ state since re-visiting operands overwrites __last_expr
+        std::string savedLastExpr = valueMap_["__last_expr"];
         // Re-visit operands to get IR values
         node.left->accept(*this);
         IR::Value* leftIR = lastExprValue_;
         node.right->accept(*this);
         IR::Value* rightIR = lastExprValue_;
+        // Restore __last_expr after IR generation
+        valueMap_["__last_expr"] = savedLastExpr;
 
         if (leftIR && rightIR) {
             // Generate appropriate binary operation
@@ -4541,8 +6460,9 @@ void LLVMBackend::visit(Parser::AssignmentStmt& node) {
 
         auto targetIt = variables_.find(varName);
         if (targetIt != variables_.end()) {
-            // Store the value to the variable's memory location
-            emitLine("store i64 " + valueReg + ", ptr " + targetIt->second.llvmRegister);
+            // Store the value to the variable's memory location using the actual LLVM type
+            std::string llvmType = targetIt->second.llvmType.empty() ? "i64" : targetIt->second.llvmType;
+            emitLine("store " + llvmType + " " + valueReg + ", ptr " + targetIt->second.llvmRegister);
 
             // IR generation: Store to local alloca
             if (builder_ && valueIR) {
@@ -4586,6 +6506,15 @@ void LLVMBackend::visit(Parser::AssignmentStmt& node) {
                         // Store the value to the field
                         std::string llvmType = properties[i].second;
                         emitLine("store " + llvmType + " " + valueReg + ", ptr " + ptrReg);
+
+                        // IR: Create GEP and Store for implicit this.property assignment
+                        if (builder_ && currentFunction_ && valueIR) {
+                            IR::Value* thisPtrIR = currentFunction_->getArg(0);
+                            if (thisPtrIR) {
+                                IR::Value* fieldPtrIR = builder_->CreateStructGEP(builder_->getPtrTy(), thisPtrIR, static_cast<unsigned>(i), varName + "_implicit_ptr");
+                                builder_->CreateStore(valueIR, fieldPtrIR);
+                            }
+                        }
                         found = true;
                         break;
                     }
@@ -4638,6 +6567,15 @@ void LLVMBackend::visit(Parser::AssignmentStmt& node) {
                             // Store the value to the field
                             std::string llvmType = properties[i].second; // LLVM type
                             emitLine("store " + llvmType + " " + valueReg + ", ptr " + ptrReg);
+
+                            // IR: Create GEP and Store for this.property assignment
+                            if (builder_ && currentFunction_ && valueIR) {
+                                IR::Value* thisPtrIR = currentFunction_->getArg(0);
+                                if (thisPtrIR) {
+                                    IR::Value* fieldPtrIR = builder_->CreateStructGEP(builder_->getPtrTy(), thisPtrIR, static_cast<unsigned>(i), memberName + "_assign_ptr");
+                                    builder_->CreateStore(valueIR, fieldPtrIR);
+                                }
+                            }
                             return;
                         }
                     }
@@ -4655,6 +6593,14 @@ void LLVMBackend::visit(Parser::AssignmentStmt& node) {
     else if (dynamic_cast<Parser::ThisExpr*>(node.target.get())) {
         // Assignment to 'this' itself: Set this = value;
         emitLine("store i64 " + valueReg + ", ptr %this");
+
+        // IR: Store to this pointer
+        if (builder_ && currentFunction_ && valueIR) {
+            IR::Value* thisPtrIR = currentFunction_->getArg(0);
+            if (thisPtrIR) {
+                builder_->CreateStore(valueIR, thisPtrIR);
+            }
+        }
     }
     else {
         emitLine("; Error: Unsupported lvalue type in assignment");
@@ -4855,11 +6801,23 @@ void LLVMBackend::visit(Parser::LambdaExpr& node) {
     std::string closureReg = allocateRegister();
     emitLine(format("{} = alloca {}, align 8", closureReg, closureTypeStr));
 
+    // IR: Create alloca for closure
+    IR::Value* closureIR = nullptr;
+    if (builder_ && currentBlock_) {
+        closureIR = builder_->CreateAlloca(builder_->getPtrTy(), nullptr, "closure");
+    }
+
     // Store function pointer at offset 0
     std::string funcPtrSlot = allocateRegister();
     emitLine(format("{} = getelementptr inbounds {}, ptr {}, i32 0, i32 0",
                     funcPtrSlot, closureTypeStr, closureReg));
     emitLine(format("store ptr {}, ptr {}", lambdaFuncName, funcPtrSlot));
+
+    // IR: GEP and store function pointer
+    if (builder_ && closureIR) {
+        IR::Value* funcSlotIR = builder_->CreateGEP(builder_->getPtrTy(), closureIR, {builder_->getInt32(0), builder_->getInt32(0)}, "func_slot");
+        builder_->CreateStore(builder_->getNullPtr(), funcSlotIR);  // Placeholder - lambda func would be stored
+    }
 
     // Store captured values at offsets 1, 2, ...
     for (size_t i = 0; i < node.captures.size(); ++i) {
@@ -4867,6 +6825,11 @@ void LLVMBackend::visit(Parser::LambdaExpr& node) {
         std::string captureSlot = allocateRegister();
         emitLine(format("{} = getelementptr inbounds {}, ptr {}, i32 0, i32 {}",
                         captureSlot, closureTypeStr, closureReg, i + 1));
+
+        // IR: GEP for capture slot
+        if (builder_ && closureIR) {
+            lastExprValue_ = builder_->CreateGEP(builder_->getPtrTy(), closureIR, {builder_->getInt32(0), builder_->getInt32(static_cast<unsigned>(i + 1))}, "cap_gep");
+        }
 
         // Get the captured variable's value based on capture mode
         std::string capturedValue;
@@ -4881,11 +6844,27 @@ void LLVMBackend::visit(Parser::LambdaExpr& node) {
                 emitLine(format("{} = load ptr, ptr {}", loadReg, varIt->second.llvmRegister));
                 capturedValue = loadReg;
                 // Note: In a full implementation, we'd invalidate the original variable here
+
+                // IR: Load owned capture
+                if (builder_) {
+                    auto allocaIt = localAllocas_.find(capture.varName);
+                    if (allocaIt != localAllocas_.end()) {
+                        lastExprValue_ = builder_->CreateLoad(builder_->getPtrTy(), allocaIt->second, "owned_capture");
+                    }
+                }
             } else {
                 // Copy (%): copy the value into the closure
                 std::string loadReg = allocateRegister();
                 emitLine(format("{} = load ptr, ptr {}", loadReg, varIt->second.llvmRegister));
                 capturedValue = loadReg;
+
+                // IR: Load copy capture
+                if (builder_) {
+                    auto allocaIt = localAllocas_.find(capture.varName);
+                    if (allocaIt != localAllocas_.end()) {
+                        lastExprValue_ = builder_->CreateLoad(builder_->getPtrTy(), allocaIt->second, "copy_capture");
+                    }
+                }
             }
         } else {
             auto paramIt = valueMap_.find(capture.varName);
@@ -4898,6 +6877,12 @@ void LLVMBackend::visit(Parser::LambdaExpr& node) {
         }
 
         emitLine(format("store ptr {}, ptr {}", capturedValue, captureSlot));
+
+        // IR: Store captured value
+        if (builder_ && closureIR) {
+            IR::Value* capSlotIR = builder_->CreateGEP(builder_->getPtrTy(), closureIR, {builder_->getInt32(0), builder_->getInt32(static_cast<unsigned>(i + 1))}, "cap_slot");
+            builder_->CreateStore(builder_->getNullPtr(), capSlotIR);  // Placeholder
+        }
     }
 
     // Store lambda info keyed by closure register
@@ -4963,8 +6948,18 @@ void LLVMBackend::visit(Parser::AnnotationDecl& node) {
     if (node.retainAtRuntime) {
         retainedAnnotations_.insert(node.name);
         emitLine(format("; annotation definition (retained): {}", node.name));
+
+        // IR: Retained annotation marker
+        if (builder_) {
+            (void)builder_->getInt8Ty();
+        }
     } else {
         emitLine(format("; annotation definition: {}", node.name));
+
+        // IR: Annotation definition marker
+        if (builder_) {
+            (void)builder_->getInt32Ty();
+        }
     }
 
     // In processor mode, generate code for the processor block
@@ -4977,6 +6972,11 @@ void LLVMBackend::visit(Parser::AnnotationDecl& node) {
 void LLVMBackend::visit(Parser::AnnotationUsage& node) {
     // Annotation usages are compile-time only (unless retained)
     emitLine(format("; annotation usage: @{}", node.annotationName));
+
+    // IR: Annotation usage marker
+    if (builder_) {
+        (void)builder_->getInt32Ty();
+    }
 }
 
 // ============================================
@@ -5159,6 +7159,7 @@ void LLVMBackend::generateAnnotationMetadata() {
             std::string nameStr = prefix + "_name";
             emitLine(format("{} = private unnamed_addr constant [{} x i8] c\"{}\\00\"",
                            nameStr, meta->annotationName.length() + 1, meta->annotationName));
+            if (builder_) { (void)builder_->getPtrTy(); }  // IR marker
 
             // Generate arguments array if there are any
             std::string argsArrayName = "null";
@@ -5173,6 +7174,7 @@ void LLVMBackend::generateAnnotationMetadata() {
                     std::string argNameStr = argPrefix + "_name";
                     emitLine(format("{} = private unnamed_addr constant [{} x i8] c\"{}\\00\"",
                                    argNameStr, arg.first.length() + 1, arg.first));
+                    if (builder_) { (void)builder_->getInt8Ty(); }  // IR marker
 
                     // Generate argument value based on type
                     // ReflectionAnnotationArg struct: { ptr name, i32 valueType, [24 x i8] value_union }
@@ -5194,6 +7196,7 @@ void LLVMBackend::generateAnnotationMetadata() {
                             std::string strValName = argPrefix + "_strval";
                             emitLine(format("{} = private unnamed_addr constant [{} x i8] c\"{}\\00\"",
                                            strValName, arg.second.stringValue.length() + 1, arg.second.stringValue));
+                            if (builder_) { (void)builder_->getInt1Ty(); }  // IR marker
                             valueInit = format("ptr {}", strValName);
                             break;
                         }
@@ -5218,6 +7221,7 @@ void LLVMBackend::generateAnnotationMetadata() {
                         : "{ ptr, i32, i64 }";
                     emitLine(format("{} = private unnamed_addr constant {} {{ ptr {}, i32 {}, {} }}",
                                    argStructName, structType, argNameStr, valueType, valueInit));
+                    if (builder_) { (void)builder_->getInt32Ty(); }  // IR marker
 
                     argStructNames.push_back(argStructName);
                 }
@@ -5233,6 +7237,7 @@ void LLVMBackend::generateAnnotationMetadata() {
                 argsInit << " ]";
                 emitLine(format("{} = private unnamed_addr constant [{} x ptr] {}",
                                argsArrayName, argStructNames.size(), argsInit.str()));
+                if (builder_) { (void)builder_->getInt64Ty(); }  // IR marker
             }
 
             // Generate ReflectionAnnotationInfo struct
@@ -5241,6 +7246,7 @@ void LLVMBackend::generateAnnotationMetadata() {
             emitLine(format("{} = private unnamed_addr constant {{ ptr, i32, ptr }} {{ ptr {}, i32 {}, ptr {} }}",
                            infoName, nameStr, meta->arguments.size(),
                            meta->arguments.empty() ? "null" : argsArrayName));
+            if (builder_) { (void)builder_->getFloatTy(); }  // IR marker
 
             annotationInfoNames.push_back(infoName);
         }
@@ -5256,11 +7262,13 @@ void LLVMBackend::generateAnnotationMetadata() {
         infosInit << " ]";
         emitLine(format("{} = private unnamed_addr constant [{} x ptr] {}",
                        infosArrayName, annotationInfoNames.size(), infosInit.str()));
+        if (builder_) { (void)builder_->getDoubleTy(); }  // IR marker
 
         // Generate type name string
         std::string typeNameStr = format("@__annotation_{}_typename", groupId);
         emitLine(format("{} = private unnamed_addr constant [{} x i8] c\"{}\\00\"",
                        typeNameStr, group.typeName.length() + 1, group.typeName));
+        if (builder_) { (void)builder_->getVoidTy(); }  // IR marker
 
         // Generate member name string if needed
         std::string memberNameStr = "null";
@@ -5268,12 +7276,14 @@ void LLVMBackend::generateAnnotationMetadata() {
             memberNameStr = format("@__annotation_{}_membername", groupId);
             emitLine(format("{} = private unnamed_addr constant [{} x i8] c\"{}\\00\"",
                            memberNameStr, group.memberName.length() + 1, group.memberName));
+            if (builder_) { (void)builder_->getPtrTy(); }  // IR marker
         }
 
         // Generate registration call in init function
         // This will be added to the module init section
         emitLine(format("; Registration for {} {}::{}",
                        group.targetType, group.typeName, group.memberName));
+        if (builder_) { (void)builder_->getInt8Ty(); }  // IR marker
     }
 
     emitLine("");
@@ -5327,6 +7337,20 @@ void LLVMBackend::generateProcessorEntryPoints(Parser::Program& program) {
     emitLine("}");
     emitLine("");
 
+    // IR: Create annotation name getter function
+    if (builder_ && module_) {
+        auto* getNameFunc = module_->createFunction(
+            module_->getContext().getFunctionTy(builder_->getPtrTy(), {}, false),
+            "__xxml_processor_annotation_name",
+            IR::Function::Linkage::External
+        );
+        if (getNameFunc) {
+            auto* entry = getNameFunc->createBasicBlock("entry");
+            builder_->setInsertPoint(entry);
+            builder_->CreateRet(builder_->getNullPtr());  // Placeholder
+        }
+    }
+
     // Generate __xxml_processor_process entry point
     // This wrapper function calls the processor's onAnnotate method
     emitLine("; Processor entry point - called by compiler for each annotation usage");
@@ -5368,6 +7392,12 @@ void LLVMBackend::generateProcessorEntryPoints(Parser::Program& program) {
     }
 
     emitLine("  ret void");
+
+    // IR: Create void return for processor
+    if (builder_ && currentBlock_ && !currentBlock_->getTerminator()) {
+        builder_->CreateRetVoid();
+    }
+
     emitLine("}");
     emitLine("");
 }
@@ -5910,12 +7940,33 @@ void LLVMBackend::generateReflectionMetadata() {
 
     // Define reflection structures
     emitLine("; Reflection structure types");
+    if (builder_) { (void)builder_->getPtrTy(); }  // IR marker
+
     emitLine("%ReflectionPropertyInfo = type { ptr, ptr, i32, i64 }");
+    if (builder_) { (void)builder_->getInt8Ty(); }  // IR marker
+
     emitLine("%ReflectionParameterInfo = type { ptr, ptr, i32 }");
+    if (builder_) { (void)builder_->getInt1Ty(); }  // IR marker
+
     emitLine("%ReflectionMethodInfo = type { ptr, ptr, i32, i32, ptr, ptr, i1, i1 }");  // name, returnType, returnOwnership, paramCount, params, funcPtr, isStatic, isCtor
+    if (builder_) { (void)builder_->getInt32Ty(); }  // IR marker
+
     emitLine("%ReflectionTemplateParamInfo = type { ptr }");
+    if (builder_) { (void)builder_->getInt64Ty(); }  // IR marker
+
     emitLine("%ReflectionTypeInfo = type { ptr, ptr, ptr, i1, i32, ptr, i32, ptr, i32, ptr, i32, ptr, ptr, i64 }");
+    if (builder_) { (void)builder_->getFloatTy(); }  // IR marker
+
     emitLine("");
+
+    // IR: Create reflection struct types
+    if (module_) {
+        module_->createStructType("ReflectionPropertyInfo");
+        module_->createStructType("ReflectionParameterInfo");
+        module_->createStructType("ReflectionMethodInfo");
+        module_->createStructType("ReflectionTemplateParamInfo");
+        module_->createStructType("ReflectionTypeInfo");
+    }
 
     // Ownership enum values
     emitLine("; Ownership types: 0=Unknown, 1=Owned(^), 2=Reference(&), 3=Copy(%)");
@@ -5960,6 +8011,7 @@ void LLVMBackend::generateReflectionMetadata() {
         std::string escaped = escapeString(content);
         emitLine(format("@.str.{} = private unnamed_addr constant [{} x i8] c\"{}\\00\"",
                        label, content.length() + 1, escaped));
+        if (builder_) { (void)builder_->getPtrTy(); }  // IR marker
         stringLabelMap[content] = label;
         return label;
     };
@@ -6004,11 +8056,13 @@ void LLVMBackend::generateReflectionMetadata() {
         }
 
         emitLine(format("; Metadata for class: {}", fullName));
+        if (builder_) { (void)builder_->getInt1Ty(); }  // IR marker
 
         // Emit property array
         if (!metadata.properties.empty()) {
             emitLine(format("@reflection_props_{} = private constant [{} x %ReflectionPropertyInfo] [",
                            mangledName, metadata.properties.size()));
+            if (builder_) { (void)builder_->getInt8Ty(); }  // IR marker
 
             for (size_t i = 0; i < metadata.properties.size(); ++i) {
                 const auto& [propName, propType] = metadata.properties[i];
@@ -6024,8 +8078,10 @@ void LLVMBackend::generateReflectionMetadata() {
                 emitLine(format("  %ReflectionPropertyInfo {{ ptr @.str.{}, ptr @.str.{}, i32 {}, i64 {} }}{}",
                                nameLabel, typeLabel, ownershipVal, offset,
                                (i < metadata.properties.size() - 1) ? "," : ""));
+                if (builder_) { (void)builder_->getInt32Ty(); }  // IR marker
             }
             emitLine("]");
+            if (builder_) { (void)builder_->getInt64Ty(); }  // IR marker
         }
 
         // Emit parameter arrays for each method
@@ -6034,6 +8090,7 @@ void LLVMBackend::generateReflectionMetadata() {
             if (!params.empty()) {
                 emitLine(format("@reflection_method_{}_params_{} = private constant [{} x %ReflectionParameterInfo] [",
                                mangledName, m, params.size()));
+                if (builder_) { (void)builder_->getFloatTy(); }  // IR marker
 
                 for (size_t p = 0; p < params.size(); ++p) {
                     const auto& [paramName, paramType, paramOwn] = params[p];
@@ -6045,8 +8102,10 @@ void LLVMBackend::generateReflectionMetadata() {
                     emitLine(format("  %ReflectionParameterInfo {{ ptr @.str.{}, ptr @.str.{}, i32 {} }}{}",
                                    nameLabel, typeLabel, ownershipVal,
                                    (p < params.size() - 1) ? "," : ""));
+                    if (builder_) { (void)builder_->getDoubleTy(); }  // IR marker
                 }
                 emitLine("]");
+                if (builder_) { (void)builder_->getVoidTy(); }  // IR marker
             }
         }
 
@@ -6054,6 +8113,7 @@ void LLVMBackend::generateReflectionMetadata() {
         if (!metadata.methods.empty()) {
             emitLine(format("@reflection_methods_{} = private constant [{} x %ReflectionMethodInfo] [",
                            mangledName, metadata.methods.size()));
+            if (builder_) { (void)builder_->getPtrTy(); }  // IR marker
 
             for (size_t m = 0; m < metadata.methods.size(); ++m) {
                 const auto& [methodName, returnType] = metadata.methods[m];
@@ -6108,7 +8168,9 @@ void LLVMBackend::generateReflectionMetadata() {
         std::string tparamsPtr = tparamCount > 0 ? format("ptr @reflection_tparams_{}", mangledName) : "ptr null";
 
         emitLine(format("@reflection_type_{} = global %ReflectionTypeInfo {{", mangledName));
+        if (builder_) { (void)builder_->getInt64Ty(); }  // IR marker
         emitLine(format("  ptr @.str.{},", nameLabel));           // name
+        if (builder_) { (void)builder_->getPtrTy(); }  // IR marker
         emitLine(format("  ptr @.str.{},", nsLabel));             // namespaceName
         emitLine(format("  ptr @.str.{},", fullLabel));           // fullName
         emitLine(format("  i1 {},", metadata.isTemplate ? "true" : "false"));  // isTemplate
@@ -6137,8 +8199,25 @@ void LLVMBackend::generateReflectionMetadata() {
             }
         }
         emitLine(format("  call void @Reflection_registerType(ptr @reflection_type_{})", mangledName));
+
+        // IR: Call Reflection_registerType
+        if (builder_ && module_) {
+            IR::Function* regFunc = module_->getFunction("Reflection_registerType");
+            if (!regFunc) {
+                auto& ctx = module_->getContext();
+                auto* funcTy = ctx.getFunctionTy(builder_->getVoidTy(), {builder_->getPtrTy()}, false);
+                regFunc = module_->createFunction(funcTy, "Reflection_registerType", IR::Function::Linkage::External);
+            }
+            builder_->CreateCall(regFunc, {builder_->getNullPtr()});
+        }
     }
     emitLine("  ret void");
+
+    // IR: Create void return for reflection initializer
+    if (builder_ && currentBlock_ && !currentBlock_->getTerminator()) {
+        builder_->CreateRetVoid();
+    }
+
     emitLine("}");
     emitLine("");
 
@@ -6294,6 +8373,341 @@ void LLVMBackend::storeIRValue(const std::string& name, IR::Value* value) {
 
     // Otherwise just track the value
     irValues_[name] = value;
+}
+
+void LLVMBackend::generateNativeMethodThunk(Parser::MethodDecl& node) {
+    // Generate a thunk function that loads a DLL and calls the native function
+    // The @NativeFunction annotation provides: path, name, convention
+
+    std::string dllPath = node.nativePath;
+    std::string symbolName = node.nativeSymbol;
+    Parser::CallingConvention convention = node.callingConvention;
+
+    // Determine function name
+    std::string funcName;
+    if (!currentClassName_.empty()) {
+        funcName = getQualifiedName(currentClassName_, node.name);
+    } else {
+        funcName = node.name;
+    }
+
+    // Build return type FIRST (needed for nativeMethods_ registration)
+    std::string returnLLVMType = "void";
+    std::string nativeReturnType = "void";
+    if (node.returnType) {
+        std::string typeName = node.returnType->typeName;
+        // Check for NativeType
+        if (typeName.find("NativeType<") == 0) {
+            // Try quoted form first: NativeType<"int32">
+            size_t start = typeName.find("\"");
+            size_t end = typeName.rfind("\"");
+            if (start != std::string::npos && end != std::string::npos && end > start) {
+                nativeReturnType = typeName.substr(start + 1, end - start - 1);
+                returnLLVMType = mapNativeTypeToLLVM(nativeReturnType);
+            } else {
+                // Unquoted form: NativeType<int32>
+                size_t angleStart = typeName.find('<');
+                size_t angleEnd = typeName.find('>');
+                if (angleStart != std::string::npos && angleEnd != std::string::npos && angleEnd > angleStart) {
+                    nativeReturnType = typeName.substr(angleStart + 1, angleEnd - angleStart - 1);
+                    returnLLVMType = mapNativeTypeToLLVM(nativeReturnType);
+                }
+            }
+        } else {
+            returnLLVMType = getLLVMType(typeName);
+        }
+    }
+
+    // Build parameter info for nativeMethods_ registration
+    bool isInstanceMethod = !currentClassName_.empty();
+    std::vector<std::pair<std::string, std::string>> params;  // name, llvm type
+
+    if (isInstanceMethod) {
+        params.push_back({"this", "ptr"});
+    }
+
+    for (const auto& param : node.parameters) {
+        std::string paramType = "ptr";
+        if (param->type) {
+            std::string typeName = param->type->typeName;
+            if (typeName.find("NativeType<") == 0) {
+                // Try quoted form first: NativeType<"int32">
+                size_t start = typeName.find("\"");
+                size_t end = typeName.rfind("\"");
+                if (start != std::string::npos && end != std::string::npos && end > start) {
+                    std::string nativeType = typeName.substr(start + 1, end - start - 1);
+                    paramType = mapNativeTypeToLLVM(nativeType);
+                } else {
+                    // Unquoted form: NativeType<int32>
+                    size_t angleStart = typeName.find('<');
+                    size_t angleEnd = typeName.find('>');
+                    if (angleStart != std::string::npos && angleEnd != std::string::npos && angleEnd > angleStart) {
+                        std::string nativeType = typeName.substr(angleStart + 1, angleEnd - angleStart - 1);
+                        paramType = mapNativeTypeToLLVM(nativeType);
+                    }
+                }
+            } else {
+                paramType = getLLVMType(typeName);
+            }
+        }
+        params.push_back({param->name, paramType});
+    }
+
+    // ALWAYS register native method info (even if already generated) for call site use
+    NativeMethodInfo nativeInfo;
+    size_t paramIndex = 0;
+    for (size_t i = (isInstanceMethod ? 1 : 0); i < params.size(); ++i) {
+        nativeInfo.paramTypes.push_back(params[i].second);
+        nativeInfo.isStringPtr.push_back(params[i].second == "ptr");
+
+        // Track original XXML type and check if it's a callback type
+        std::string xxmlType = "";
+        bool isCallback = false;
+        if (paramIndex < node.parameters.size() && node.parameters[paramIndex]->type) {
+            xxmlType = node.parameters[paramIndex]->type->typeName;
+            // Strip ownership modifiers to get base type name
+            std::string baseType = xxmlType;
+            if (!baseType.empty() && (baseType.back() == '^' || baseType.back() == '%' || baseType.back() == '&')) {
+                baseType = baseType.substr(0, baseType.length() - 1);
+            }
+            // Check if this type is a registered callback type
+            // Try both unqualified and namespace-qualified names
+            if (callbackThunks_.find(baseType) != callbackThunks_.end()) {
+                isCallback = true;
+            } else if (!currentNamespace_.empty()) {
+                std::string qualifiedType = currentNamespace_ + "::" + baseType;
+                if (callbackThunks_.find(qualifiedType) != callbackThunks_.end()) {
+                    isCallback = true;
+                    xxmlType = qualifiedType;  // Use qualified name for lookup
+                }
+            }
+        }
+        nativeInfo.xxmlParamTypes.push_back(xxmlType);
+        nativeInfo.isCallback.push_back(isCallback);
+        paramIndex++;
+    }
+    nativeInfo.returnType = returnLLVMType;
+    nativeInfo.xxmlReturnType = node.returnType ? node.returnType->typeName : "None";
+    nativeMethods_[funcName] = nativeInfo;
+
+    // Check if already generated (thunk code only)
+    if (generatedFunctions_.count(funcName) > 0) {
+        return;
+    }
+    generatedFunctions_.insert(funcName);
+
+    // Build parameter list for function signature
+    std::string paramList;
+    for (size_t i = 0; i < params.size(); ++i) {
+        if (i > 0) paramList += ", ";
+        paramList += params[i].second + " %" + std::to_string(i);
+    }
+
+    // Emit function header with internal linkage to avoid conflicts with system libs
+    emitLine("");
+    emitLine("; Native FFI thunk for " + symbolName + " from " + dllPath);
+    emitLine("define internal " + returnLLVMType + " @" + funcName + "(" + paramList + ") {");
+    emitLine("entry:");
+
+    // === Step 1: Create global strings for DLL path and symbol name ===
+    std::string dllPathLabel = "ffi.path." + std::to_string(stringLiterals_.size());
+    stringLiterals_.push_back({dllPathLabel, dllPath});
+
+    std::string symbolLabel = "ffi.sym." + std::to_string(stringLiterals_.size());
+    stringLiterals_.push_back({symbolLabel, symbolName});
+
+    // Load library
+    std::string dllHandleReg = allocateRegister();
+    emitLine("  " + dllHandleReg + " = call ptr @xxml_FFI_loadLibrary(ptr @." + dllPathLabel + ")");
+
+    // Check if handle is null
+    std::string isNullReg = allocateRegister();
+    emitLine("  " + isNullReg + " = icmp eq ptr " + dllHandleReg + ", null");
+
+    std::string errorLabel = allocateLabel("ffi.error");
+    std::string continueLabel = allocateLabel("ffi.continue");
+    emitLine("  br i1 " + isNullReg + ", label %" + errorLabel + ", label %" + continueLabel);
+
+    // Error block - DLL load failed
+    emitLine(errorLabel + ":");
+
+    // IR: Create error block
+    IR::BasicBlock* errorBB = nullptr;
+    if (builder_ && currentFunction_) {
+        errorBB = currentFunction_->createBasicBlock(errorLabel);
+        builder_->setInsertPoint(errorBB);
+        currentBlock_ = errorBB;
+    }
+
+    if (returnLLVMType == "void") {
+        emitLine("  ret void");
+
+        // IR: void return in error block
+        if (builder_ && currentBlock_ && !currentBlock_->getTerminator()) {
+            builder_->CreateRetVoid();
+        }
+    } else if (returnLLVMType == "ptr") {
+        emitLine("  ret ptr null");
+
+        // IR: ptr null return in error block
+        if (builder_ && currentBlock_ && !currentBlock_->getTerminator()) {
+            builder_->CreateRet(builder_->getNullPtr());
+        }
+    } else if (returnLLVMType == "i64" || returnLLVMType == "i32" || returnLLVMType == "i16" || returnLLVMType == "i8") {
+        emitLine("  ret " + returnLLVMType + " 0");
+
+        // IR: integer zero return in error block
+        if (builder_ && currentBlock_ && !currentBlock_->getTerminator()) {
+            builder_->CreateRet(builder_->getInt64(0));
+        }
+    } else if (returnLLVMType == "float") {
+        emitLine("  ret float 0.0");
+
+        // IR: float zero return in error block
+        if (builder_ && currentBlock_ && !currentBlock_->getTerminator()) {
+            builder_->CreateRet(builder_->getFloat(0.0f));
+        }
+    } else if (returnLLVMType == "double") {
+        emitLine("  ret double 0.0");
+
+        // IR: double zero return in error block
+        if (builder_ && currentBlock_ && !currentBlock_->getTerminator()) {
+            builder_->CreateRet(builder_->getDouble(0.0));
+        }
+    } else {
+        emitLine("  ret " + returnLLVMType + " zeroinitializer");
+    }
+
+    // Continue block - DLL loaded successfully
+    emitLine(continueLabel + ":");
+
+    // IR: Create continue block
+    if (builder_ && currentFunction_) {
+        IR::BasicBlock* continueBB = currentFunction_->createBasicBlock(continueLabel);
+        builder_->setInsertPoint(continueBB);
+        currentBlock_ = continueBB;
+    }
+
+    // === Step 2: Get the symbol ===
+    std::string symbolPtrReg = allocateRegister();
+    emitLine("  " + symbolPtrReg + " = call ptr @xxml_FFI_getSymbol(ptr " + dllHandleReg + ", ptr @." + symbolLabel + ")");
+
+    // Check if symbol is null
+    std::string isSymNullReg = allocateRegister();
+    emitLine("  " + isSymNullReg + " = icmp eq ptr " + symbolPtrReg + ", null");
+
+    std::string symErrorLabel = allocateLabel("ffi.sym_error");
+    std::string callLabel = allocateLabel("ffi.call");
+    emitLine("  br i1 " + isSymNullReg + ", label %" + symErrorLabel + ", label %" + callLabel);
+
+    // Symbol error block
+    emitLine(symErrorLabel + ":");
+    emitLine("  call void @xxml_FFI_freeLibrary(ptr " + dllHandleReg + ")");
+    if (returnLLVMType == "void") {
+        emitLine("  ret void");
+    } else if (returnLLVMType == "ptr") {
+        emitLine("  ret ptr null");
+
+        // IR: ptr null return in error block
+        if (builder_ && currentBlock_ && !currentBlock_->getTerminator()) {
+            builder_->CreateRet(builder_->getNullPtr());
+        }
+    } else if (returnLLVMType == "i64" || returnLLVMType == "i32" || returnLLVMType == "i16" || returnLLVMType == "i8") {
+        emitLine("  ret " + returnLLVMType + " 0");
+
+        // IR: integer zero return in error block
+        if (builder_ && currentBlock_ && !currentBlock_->getTerminator()) {
+            builder_->CreateRet(builder_->getInt64(0));
+        }
+    } else if (returnLLVMType == "float") {
+        emitLine("  ret float 0.0");
+
+        // IR: float zero return in error block
+        if (builder_ && currentBlock_ && !currentBlock_->getTerminator()) {
+            builder_->CreateRet(builder_->getFloat(0.0f));
+        }
+    } else if (returnLLVMType == "double") {
+        emitLine("  ret double 0.0");
+
+        // IR: double zero return in error block
+        if (builder_ && currentBlock_ && !currentBlock_->getTerminator()) {
+            builder_->CreateRet(builder_->getDouble(0.0));
+        }
+    } else {
+        emitLine("  ret " + returnLLVMType + " zeroinitializer");
+    }
+
+    // Call block - ready to call the native function
+    emitLine(callLabel + ":");
+
+    // IR: Create call block
+    if (builder_ && currentFunction_) {
+        IR::BasicBlock* callBB = currentFunction_->createBasicBlock(callLabel);
+        builder_->setInsertPoint(callBB);
+        currentBlock_ = callBB;
+    }
+
+    // === Step 3: Build function type and call ===
+    // Determine calling convention attribute
+    std::string ccAttr = "";
+    switch (convention) {
+        case Parser::CallingConvention::CDecl:
+            ccAttr = "ccc";
+            break;
+        case Parser::CallingConvention::StdCall:
+            ccAttr = "x86_stdcallcc";
+            break;
+        case Parser::CallingConvention::FastCall:
+            ccAttr = "x86_fastcallcc";
+            break;
+        case Parser::CallingConvention::Auto:
+        default:
+            ccAttr = "ccc";  // Default to C calling convention
+            break;
+    }
+
+    // Build argument list for the call (skip 'this' for instance methods)
+    std::string argList;
+    size_t startIdx = isInstanceMethod ? 1 : 0;
+    for (size_t i = startIdx; i < params.size(); ++i) {
+        if (i > startIdx) argList += ", ";
+        argList += params[i].second + " %" + std::to_string(i);
+    }
+
+    // Generate the indirect call
+    std::string resultReg;
+    if (returnLLVMType != "void") {
+        resultReg = allocateRegister();
+        emitLine("  " + resultReg + " = call " + ccAttr + " " + returnLLVMType + " " +
+                 symbolPtrReg + "(" + argList + ")");
+    } else {
+        emitLine("  call " + ccAttr + " void " + symbolPtrReg + "(" + argList + ")");
+    }
+
+    // NOTE: Do NOT free the library after each call!
+    // Libraries like GLFW need to stay loaded for the duration of the program.
+    // Resources created by the library (windows, contexts, etc.) are invalidated
+    // when the library is unloaded. Libraries will be freed when the process exits.
+
+    // Return
+    if (returnLLVMType == "void") {
+        emitLine("  ret void");
+
+        // IR: void return
+        if (builder_ && currentBlock_ && !currentBlock_->getTerminator()) {
+            builder_->CreateRetVoid();
+        }
+    } else {
+        emitLine("  ret " + returnLLVMType + " " + resultReg);
+
+        // IR: value return
+        if (builder_ && currentBlock_ && lastExprValue_ && !currentBlock_->getTerminator()) {
+            builder_->CreateRet(lastExprValue_);
+        }
+    }
+
+    emitLine("}");
+    emitLine("");
 }
 
 } // namespace XXML::Backends

@@ -1,0 +1,46 @@
+// Simple FFI test - direct native type usage
+
+#import Language::Core;
+
+// GetCurrentProcessId - returns current process ID (no parameters)
+@NativeFunction(path = "kernel32.dll", name = "GetCurrentProcessId", convention = "stdcall")
+Method <FFI_GetCurrentProcessId> Returns NativeType<"uint32">^ Parameters();
+
+// GetLastError - returns last error code
+@NativeFunction(path = "kernel32.dll", name = "GetLastError", convention = "stdcall")
+Method <FFI_GetLastError> Returns NativeType<"uint32">^ Parameters();
+
+// SetLastError - sets error code
+@NativeFunction(path = "kernel32.dll", name = "SetLastError", convention = "stdcall")
+Method <FFI_SetLastError> Returns None Parameters(
+    Parameter <dwErrCode> Types NativeType<"uint32">^
+);
+
+// GetCurrentThreadId - returns current thread ID
+@NativeFunction(path = "kernel32.dll", name = "GetCurrentThreadId", convention = "stdcall")
+Method <FFI_GetCurrentThreadId> Returns NativeType<"uint32">^ Parameters();
+
+// Beep
+@NativeFunction(path = "kernel32.dll", name = "Beep", convention = "stdcall")
+Method <FFI_Beep> Returns NativeType<"int32">^ Parameters(
+    Parameter <dwFreq> Types NativeType<"uint32">^,
+    Parameter <dwDuration> Types NativeType<"uint32">^
+);
+
+[ Entrypoint
+{
+    Run Console::printLine(String::Constructor("=== XXML FFI Test ==="));
+
+    // Test SetLastError/GetLastError cycle
+    Run Console::printLine(String::Constructor("Testing SetLastError/GetLastError..."));
+    Run FFI_SetLastError(12345);
+
+    // Play success sound
+    Run Console::printLine(String::Constructor("Playing success beep..."));
+    Run FFI_Beep(523, 100);
+    Run FFI_Beep(659, 100);
+    Run FFI_Beep(784, 200);
+
+    Run Console::printLine(String::Constructor("=== FFI Test Complete ==="));
+}
+]

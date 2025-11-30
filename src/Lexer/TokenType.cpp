@@ -53,6 +53,12 @@ static const std::unordered_map<std::string, TokenType> keywords = {
     {"Processor", TokenType::Processor},
     {"Retain", TokenType::Retain},
     {"AnnotationAllow", TokenType::AnnotationAllow},
+    {"NativeStructure", TokenType::NativeStructure},
+    {"Aligns", TokenType::Aligns},
+    {"CallbackType", TokenType::CallbackType},
+    {"Convention", TokenType::Convention},
+    {"Enumeration", TokenType::Enumeration},
+    {"Value", TokenType::Value},
     {"true", TokenType::BoolLiteral},
     {"false", TokenType::BoolLiteral}
 };
@@ -109,6 +115,12 @@ std::string tokenTypeToString(TokenType type) {
         case TokenType::Processor: return "Processor";
         case TokenType::Retain: return "Retain";
         case TokenType::AnnotationAllow: return "AnnotationAllow";
+        case TokenType::NativeStructure: return "NativeStructure";
+        case TokenType::Aligns: return "Aligns";
+        case TokenType::CallbackType: return "CallbackType";
+        case TokenType::Convention: return "Convention";
+        case TokenType::Enumeration: return "Enumeration";
+        case TokenType::Value: return "Value";
         case TokenType::Identifier: return "Identifier";
         case TokenType::AngleBracketId: return "AngleBracketId";
         case TokenType::IntegerLiteral: return "IntegerLiteral";

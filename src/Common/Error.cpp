@@ -4,6 +4,9 @@
 namespace XXML {
 namespace Common {
 
+// Static member definition - STL warnings suppressed by default
+bool ErrorReporter::suppressSTLWarnings_ = true;
+
 std::string Error::getLevelString() const {
     switch (level) {
         case ErrorLevel::Note: return "note";
@@ -51,6 +54,11 @@ void ErrorReporter::reportError(ErrorCode code, const std::string& message, cons
 }
 
 void ErrorReporter::reportWarning(ErrorCode code, const std::string& message, const SourceLocation& loc) {
+    // Skip warning if it's from STL file and suppression is enabled
+    if (currentFileIsSTL_ && suppressSTLWarnings_) {
+        return;
+    }
+
     errors.emplace_back(ErrorLevel::Warning, code, message, loc);
     hasWarnings_ = true;
 }
@@ -91,6 +99,19 @@ void ErrorReporter::clear() {
     errors.clear();
     hasErrors_ = false;
     hasWarnings_ = false;
+}
+
+void ErrorReporter::setSuppressSTLWarnings(bool suppress) {
+    suppressSTLWarnings_ = suppress;
+}
+
+bool ErrorReporter::getSuppressSTLWarnings() {
+    return suppressSTLWarnings_;
+}
+
+void ErrorReporter::setCurrentFile(const std::string& filePath, bool isSTL) {
+    currentFile_ = filePath;
+    currentFileIsSTL_ = isSTL;
 }
 
 } // namespace Common

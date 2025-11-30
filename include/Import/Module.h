@@ -29,6 +29,10 @@ public:
     bool isAnalyzed;
     bool isCompiled;
 
+    // NEW: Track if this is an STL file (from Language/ folder)
+    // STL files have warnings suppressed by default
+    bool isSTLFile;
+
     // Constructor
     Module(const std::string& name, const std::string& path);
 

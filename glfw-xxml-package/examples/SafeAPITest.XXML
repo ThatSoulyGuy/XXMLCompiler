@@ -1,0 +1,152 @@
+// Safe GLFW API Test
+// Demonstrates the modern, type-safe GLFW wrapper
+#import Language::Core;
+#import Language::GLFW;
+
+[ Entrypoint
+{
+    Run Console::printLine(String::Constructor("=== Safe GLFW API Test ==="));
+    Run Console::printLine(String::Constructor(""));
+
+    // Create GLFW instance
+    Instantiate GLFW^ As <glfw> = GLFW::Constructor();
+
+    // Initialize GLFW
+    Run Console::print(String::Constructor("Initializing GLFW... "));
+    Instantiate Bool^ As <initOk> = glfw.init();
+    If (initOk == Bool::Constructor(true)) -> {
+        Run Console::printLine(String::Constructor("OK"));
+    }
+    If (initOk == Bool::Constructor(false)) -> {
+        Run Console::printLine(String::Constructor("FAILED"));
+        Exit(1);
+    }
+
+    // Create a window using the factory method pattern
+    Run Console::printLine(String::Constructor(""));
+    Run Console::printLine(String::Constructor("Creating window..."));
+    Instantiate Window^ As <window> = Window::Constructor();
+    Run window.create(
+        Integer::Constructor(800),
+        Integer::Constructor(600),
+        String::Constructor("Safe GLFW API Demo")
+    );
+    Run Console::printLine(String::Constructor("  Window created successfully!"));
+
+    // Create cursors using factory methods
+    Run Console::printLine(String::Constructor(""));
+    Run Console::printLine(String::Constructor("Creating cursors..."));
+    Instantiate Cursor^ As <handCursor> = Cursor::Constructor();
+    Run handCursor.hand();
+    Instantiate Cursor^ As <crosshairCursor> = Cursor::Constructor();
+    Run crosshairCursor.crosshair();
+    Run Console::printLine(String::Constructor("  Created hand and crosshair cursors"));
+
+    // Test input methods
+    Run Console::printLine(String::Constructor(""));
+    Run Console::printLine(String::Constructor("Testing input system..."));
+
+    // Set VSync
+    Run glfw.setSwapInterval(Integer::Constructor(1));
+    Run Console::printLine(String::Constructor("  VSync enabled"));
+
+    // Enable sticky keys
+    Run window.enableStickyKeys();
+    Run Console::printLine(String::Constructor("  Sticky keys enabled"));
+
+    // Test clipboard
+    Run Console::printLine(String::Constructor(""));
+    Run Console::printLine(String::Constructor("Testing clipboard..."));
+    Run window.setClipboard(String::Constructor("Hello from Safe GLFW API!"));
+    Run Console::printLine(String::Constructor("  Clipboard set"));
+
+    // Check raw mouse motion support
+    Instantiate Bool^ As <rawSupported> = glfw.rawMouseMotionSupported();
+    If (rawSupported == Bool::Constructor(true)) -> {
+        Run Console::printLine(String::Constructor("  Raw mouse motion: supported"));
+    }
+    If (rawSupported == Bool::Constructor(false)) -> {
+        Run Console::printLine(String::Constructor("  Raw mouse motion: not supported"));
+    }
+
+    // Game loop
+    Run Console::printLine(String::Constructor(""));
+    Run Console::printLine(String::Constructor("Running game loop (100 frames)..."));
+    Run Console::printLine(String::Constructor("Press ESCAPE to exit, WASD to move"));
+
+    For (Integer <i> = 0 .. 100) -> {
+        Run glfw.pollEvents();
+
+        // Check for close
+        Instantiate Bool^ As <closing> = window.shouldClose();
+        If (closing == Bool::Constructor(true)) -> {
+            Run Console::printLine(String::Constructor("  Window close requested"));
+            Break;
+        }
+
+        // Check escape key
+        Instantiate Bool^ As <escPressed> = window.isKeyPressed(Key::Escape);
+        If (escPressed == Bool::Constructor(true)) -> {
+            Run Console::printLine(String::Constructor("  ESCAPE pressed - exiting"));
+            Break;
+        }
+
+        // Check WASD keys
+        Instantiate Bool^ As <wPressed> = window.isKeyPressed(Key::W);
+        If (wPressed == Bool::Constructor(true)) -> {
+            Run Console::printLine(String::Constructor("  W - Forward"));
+        }
+
+        Instantiate Bool^ As <aPressed> = window.isKeyPressed(Key::A);
+        If (aPressed == Bool::Constructor(true)) -> {
+            Run Console::printLine(String::Constructor("  A - Left"));
+        }
+
+        Instantiate Bool^ As <sPressed> = window.isKeyPressed(Key::S);
+        If (sPressed == Bool::Constructor(true)) -> {
+            Run Console::printLine(String::Constructor("  S - Backward"));
+        }
+
+        Instantiate Bool^ As <dPressed> = window.isKeyPressed(Key::D);
+        If (dPressed == Bool::Constructor(true)) -> {
+            Run Console::printLine(String::Constructor("  D - Right"));
+        }
+
+        // Check mouse buttons
+        Instantiate Bool^ As <leftClick> = window.isMouseButtonPressed(MouseButton::Left);
+        If (leftClick == Bool::Constructor(true)) -> {
+            Run Console::printLine(String::Constructor("  Left mouse button pressed"));
+        }
+
+        Run window.swapBuffers();
+    }
+
+    // Get timing info
+    Run Console::printLine(String::Constructor(""));
+    Run Console::printLine(String::Constructor("Timing information:"));
+    Instantiate NativeType<"double">^ As <elapsed> = glfw.getTime();
+    Run Console::printLine(String::Constructor("  Elapsed time retrieved"));
+
+    // Check for joysticks
+    Run Console::printLine(String::Constructor(""));
+    Run Console::printLine(String::Constructor("Checking joysticks..."));
+    For (Integer <j> = 0 .. 4) -> {
+        Instantiate Bool^ As <connected> = glfw.isJoystickConnected(j);
+        If (connected == Bool::Constructor(true)) -> {
+            Run Console::printLine(String::Constructor("  Joystick connected!"));
+        }
+    }
+
+    // Cleanup
+    Run Console::printLine(String::Constructor(""));
+    Run Console::print(String::Constructor("Cleaning up... "));
+    Run handCursor.destroy();
+    Run crosshairCursor.destroy();
+    Run window.close();
+    Run glfw.terminate();
+    Run Console::printLine(String::Constructor("Done!"));
+
+    Run Console::printLine(String::Constructor(""));
+    Run Console::printLine(String::Constructor("=== Safe API Test Complete ==="));
+    Exit(0);
+}]

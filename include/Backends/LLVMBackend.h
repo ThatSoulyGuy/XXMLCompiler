@@ -56,6 +56,19 @@ public:
     // These modules' classes will have their code generated before the main program
     void setImportedModules(const std::vector<Parser::Program*>& modules) {
         importedModules_ = modules;
+        // Clear names when using old API
+        importedModuleNames_.clear();
+    }
+
+    // Set imported modules with their names for proper namespace handling
+    // Modules without explicit namespace wrappers will use the module name as namespace
+    void setImportedModulesWithNames(const std::vector<std::pair<std::string, Parser::Program*>>& modules) {
+        importedModules_.clear();
+        importedModuleNames_.clear();
+        for (const auto& p : modules) {
+            importedModules_.push_back(p.second);
+            importedModuleNames_.push_back(p.first);
+        }
     }
 
     // Set processor compilation mode (compiles annotation processor to DLL)
@@ -73,6 +86,7 @@ public:
     std::string generateImplementation(Parser::Program& program) override;
 
     std::string generatePreamble() override;
+    void initializeIRModule();  // Initialize IR module with built-in types and runtime declarations
     std::vector<std::string> getRequiredIncludes() const override;
     std::vector<std::string> getRequiredLibraries() const override;
 
@@ -97,6 +111,10 @@ public:
     void visit(Parser::ImportDecl& node) override;
     void visit(Parser::NamespaceDecl& node) override;
     void visit(Parser::ClassDecl& node) override;
+    void visit(Parser::NativeStructureDecl& node) override;
+    void visit(Parser::CallbackTypeDecl& node) override;
+    void visit(Parser::EnumValueDecl& node) override;
+    void visit(Parser::EnumerationDecl& node) override;
     void visit(Parser::AccessSection& node) override;
     void visit(Parser::PropertyDecl& node) override;
     void visit(Parser::ConstructorDecl& node) override;
@@ -155,7 +173,7 @@ private:
     IR::Value* lastExprValue_ = nullptr;
 
     // Flag to determine whether to use new IR or legacy string generation
-    bool useNewIR_ = false;  // Set to true when ready to switch
+    bool useNewIR_ = true;  // Enabled for type-safe IR generation
 
     // === Legacy members (being phased out) ===
     std::stringstream output_;
@@ -169,6 +187,7 @@ private:
 
     // Imported modules for code generation
     std::vector<Parser::Program*> importedModules_;
+    std::vector<std::string> importedModuleNames_;  // Module names for namespace handling
 
     // Processor compilation mode (for compiling annotation processors to DLLs)
     bool processorMode_ = false;
@@ -248,6 +267,36 @@ private:
     std::unordered_map<std::string, LambdaInfo> lambdaInfos_;  // closure register -> info
     std::vector<std::string> pendingLambdaDefinitions_;  // Lambda function definitions to emit later
 
+    // Native FFI method tracking for string marshalling and callback support
+    // Maps function name -> list of parameter types (for detecting FFI calls)
+    struct NativeMethodInfo {
+        std::vector<std::string> paramTypes;      // LLVM types for parameters
+        std::vector<std::string> xxmlParamTypes;  // Original XXML types (for callback detection)
+        std::vector<bool> isStringPtr;            // True if param expects C string (ptr)
+        std::vector<bool> isCallback;             // True if param is a callback type
+        std::string returnType;                   // LLVM return type (e.g., "i32", "ptr", "void")
+        std::string xxmlReturnType;               // Original XXML return type for tracking
+    };
+    std::unordered_map<std::string, NativeMethodInfo> nativeMethods_;
+
+    // Enumeration tracking: EnumName::ValueName -> int64_t value
+    std::unordered_map<std::string, int64_t> enumValues_;  // "EnumName::VALUE" -> value
+
+    // Callback type tracking for FFI callbacks
+    struct CallbackThunkInfo {
+        std::string callbackTypeName;           // XXML callback type name (e.g., "GLFW::ErrorCallback")
+        std::string thunkFunctionName;          // Generated thunk function name
+        Parser::CallingConvention convention;   // Calling convention
+        std::string returnLLVMType;             // LLVM return type (e.g., "void", "i32")
+        std::vector<std::string> paramLLVMTypes;  // LLVM parameter types
+        std::vector<std::string> paramNames;      // Parameter names for documentation
+    };
+    std::unordered_map<std::string, CallbackThunkInfo> callbackThunks_;  // callback type name -> thunk info
+    int callbackThunkCounter_ = 0;  // Unique ID for callback thunks
+
+    // Maps lambda/closure register -> callback type name (for thunk lookup when passing to FFI)
+    std::unordered_map<std::string, std::string> lambdaCallbackTypes_;
+
     std::string allocateRegister();
     std::string allocateLabel(std::string_view prefix);
     void emitLine(const std::string& line);
@@ -260,6 +309,19 @@ private:
 
     /// Generate qualified function name (Class_Method format)
     std::string getQualifiedName(const std::string& className, const std::string& methodName) const;
+
+    /// Generate a native FFI method thunk that loads/calls a DLL function
+    void generateNativeMethodThunk(Parser::MethodDecl& node);
+
+    /// Generate callback thunk function for passing XXML lambda to native code
+    void generateCallbackThunk(const std::string& callbackTypeName);
+
+    /// Get calling convention string for LLVM IR
+    std::string getLLVMCallingConvention(Parser::CallingConvention conv) const;
+
+    /// Qualify a type name with the current namespace if needed
+    /// (e.g., "Cursor^" -> "GLFW::Cursor^" when inside GLFW namespace)
+    std::string qualifyTypeName(const std::string& typeName) const;
 
     /// Map XXML types to LLVM types using TypeRegistry
     std::string getLLVMType(const std::string& xxmlType) const;
@@ -289,7 +351,7 @@ private:
     void generateFunctionDeclarations(Parser::Program& program);
 
     /// Generate code for imported modules (safely processes classes without entrypoints)
-    void generateImportedModuleCode(Parser::Program& program);
+    void generateImportedModuleCode(Parser::Program& program, const std::string& moduleName = "");
     std::unique_ptr<Parser::ClassDecl> cloneAndSubstituteClassDecl(
         Parser::ClassDecl* original,
         const std::string& newName,

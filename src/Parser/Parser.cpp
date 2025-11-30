@@ -118,6 +118,15 @@ std::unique_ptr<Declaration> Parser::parseDeclaration() {
     // Parse any annotation usages before the declaration
     auto annotations = parseAnnotationUsages();
 
+    // Check for top-level Method declaration (for FFI)
+    if (check(Lexer::TokenType::Method)) {
+        auto method = parseMethod();
+        if (method) {
+            method->annotations = std::move(annotations);
+        }
+        return method;
+    }
+
     if (match(Lexer::TokenType::LeftBracket)) {
         if (check(Lexer::TokenType::Namespace)) {
             return parseNamespace();
@@ -127,6 +136,12 @@ std::unique_ptr<Declaration> Parser::parseDeclaration() {
                 classDecl->annotations = std::move(annotations);
             }
             return classDecl;
+        } else if (check(Lexer::TokenType::NativeStructure)) {
+            return parseNativeStructure();
+        } else if (check(Lexer::TokenType::CallbackType)) {
+            return parseCallbackType();
+        } else if (check(Lexer::TokenType::Enumeration)) {
+            return parseEnumeration();
         } else if (check(Lexer::TokenType::Constraint)) {
             return parseConstraint();
         } else if (check(Lexer::TokenType::Annotation)) {
@@ -219,6 +234,174 @@ std::unique_ptr<ClassDecl> Parser::parseClass() {
     consume(Lexer::TokenType::RightBracket, "Expected ']' after class");
 
     return classDecl;
+}
+
+std::unique_ptr<NativeStructureDecl> Parser::parseNativeStructure() {
+    auto loc = peek().location;
+    consume(Lexer::TokenType::NativeStructure, "Expected 'NativeStructure'");
+
+    std::string structName = parseAngleBracketIdentifier();
+
+    // Parse optional Aligns clause
+    size_t alignment = 8;  // Default alignment
+    if (match(Lexer::TokenType::Aligns)) {
+        consume(Lexer::TokenType::LeftParen, "Expected '(' after 'Aligns'");
+        if (check(Lexer::TokenType::IntegerLiteral)) {
+            alignment = static_cast<size_t>(peek().intValue);
+            advance();
+        } else {
+            error("Expected integer alignment value");
+        }
+        consume(Lexer::TokenType::RightParen, "Expected ')' after alignment value");
+    }
+
+    auto nativeStruct = std::make_unique<NativeStructureDecl>(structName, alignment, loc);
+
+    // Parse the public section with properties
+    while (!check(Lexer::TokenType::RightBracket) && !isAtEnd()) {
+        if (match(Lexer::TokenType::LeftBracket)) {
+            // Expect Public <> section
+            if (match(Lexer::TokenType::Public)) {
+                consume(Lexer::TokenType::LeftAngle, "Expected '<' after 'Public'");
+                consume(Lexer::TokenType::RightAngle, "Expected '>' after '<'");
+
+                // Parse properties
+                while (!check(Lexer::TokenType::RightBracket) && !isAtEnd()) {
+                    if (check(Lexer::TokenType::Property)) {
+                        nativeStruct->properties.push_back(parseProperty());
+                    } else {
+                        error("NativeStructure can only contain Property declarations");
+                        synchronize();
+                        break;
+                    }
+                }
+
+                consume(Lexer::TokenType::RightBracket, "Expected ']' after properties");
+            } else {
+                error("NativeStructure only allows Public access section");
+                synchronize();
+            }
+        } else {
+            error("Expected '[' for access section in NativeStructure");
+            synchronize();
+            break;
+        }
+    }
+
+    consume(Lexer::TokenType::RightBracket, "Expected ']' after NativeStructure");
+
+    return nativeStruct;
+}
+
+std::unique_ptr<CallbackTypeDecl> Parser::parseCallbackType() {
+    auto loc = peek().location;
+    consume(Lexer::TokenType::CallbackType, "Expected 'CallbackType'");
+
+    std::string callbackName = parseAngleBracketIdentifier();
+
+    // Parse optional Convention clause
+    CallingConvention convention = CallingConvention::CDecl;  // Default for callbacks
+    if (match(Lexer::TokenType::Convention)) {
+        consume(Lexer::TokenType::LeftParen, "Expected '(' after 'Convention'");
+        if (check(Lexer::TokenType::Identifier)) {
+            std::string convName = peek().lexeme;
+            advance();
+            if (convName == "cdecl") {
+                convention = CallingConvention::CDecl;
+            } else if (convName == "stdcall") {
+                convention = CallingConvention::StdCall;
+            } else if (convName == "fastcall") {
+                convention = CallingConvention::FastCall;
+            } else {
+                error("Unknown calling convention: " + convName);
+            }
+        } else {
+            error("Expected calling convention name");
+        }
+        consume(Lexer::TokenType::RightParen, "Expected ')' after convention name");
+    }
+
+    // Parse Returns clause
+    consume(Lexer::TokenType::Returns, "Expected 'Returns' in CallbackType");
+    auto returnType = parseTypeRef();
+
+    // Parse Parameters clause
+    std::vector<std::unique_ptr<ParameterDecl>> parameters;
+    consume(Lexer::TokenType::Parameters, "Expected 'Parameters' in CallbackType");
+    consume(Lexer::TokenType::LeftParen, "Expected '(' after 'Parameters'");
+
+    if (!check(Lexer::TokenType::RightParen)) {
+        do {
+            parameters.push_back(parseParameter());
+        } while (match(Lexer::TokenType::Comma));
+    }
+
+    consume(Lexer::TokenType::RightParen, "Expected ')' after parameters");
+    consume(Lexer::TokenType::RightBracket, "Expected ']' after CallbackType");
+
+    return std::make_unique<CallbackTypeDecl>(
+        callbackName,
+        convention,
+        std::move(returnType),
+        std::move(parameters),
+        loc
+    );
+}
+
+std::unique_ptr<EnumerationDecl> Parser::parseEnumeration() {
+    auto loc = peek().location;
+    consume(Lexer::TokenType::Enumeration, "Expected 'Enumeration'");
+
+    std::string enumName = parseAngleBracketIdentifier();
+
+    auto enumDecl = std::make_unique<EnumerationDecl>(enumName, loc);
+
+    int64_t nextValue = 0;  // Auto-increment counter
+
+    // Parse Value declarations until ']'
+    while (!check(Lexer::TokenType::RightBracket) && !isAtEnd()) {
+        if (match(Lexer::TokenType::Value)) {
+            auto valueLoc = previous().location;
+            std::string valueName = parseAngleBracketIdentifier();
+
+            bool hasExplicitValue = false;
+            int64_t value = nextValue;
+
+            // Check for explicit value assignment
+            if (match(Lexer::TokenType::Equals)) {
+                hasExplicitValue = true;
+                // Parse the value (can be negative)
+                bool isNegative = false;
+                if (match(Lexer::TokenType::Minus)) {
+                    isNegative = true;
+                }
+                if (check(Lexer::TokenType::IntegerLiteral)) {
+                    value = peek().intValue;
+                    if (isNegative) value = -value;
+                    advance();
+                } else {
+                    error("Expected integer value for enum constant");
+                }
+            }
+
+            consume(Lexer::TokenType::Semicolon, "Expected ';' after enum value");
+
+            enumDecl->values.push_back(
+                std::make_unique<EnumValueDecl>(valueName, hasExplicitValue, value, valueLoc)
+            );
+
+            // Update auto-increment counter
+            nextValue = value + 1;
+        } else {
+            error("Expected 'Value' declaration in Enumeration");
+            synchronize();
+            break;
+        }
+    }
+
+    consume(Lexer::TokenType::RightBracket, "Expected ']' after Enumeration");
+
+    return enumDecl;
 }
 
 std::unique_ptr<AccessSection> Parser::parseAccessSection() {
@@ -414,9 +597,19 @@ std::unique_ptr<MethodDecl> Parser::parseMethod() {
         consume(Lexer::TokenType::RightParen, "Expected ')' after parameters");
     }
 
+    // Check for semicolon termination (native/FFI method declaration)
+    if (match(Lexer::TokenType::Semicolon)) {
+        // Native method - no body, just declaration
+        std::vector<std::unique_ptr<Statement>> emptyBody;
+        auto method = std::make_unique<MethodDecl>(methodName, templateParams, std::move(returnType),
+                                                   std::move(params), std::move(emptyBody), loc);
+        method->isNative = true;
+        return method;
+    }
+
     // Accept either '->' or 'Do' before method body
     if (!match(Lexer::TokenType::Arrow) && !match(Lexer::TokenType::Do)) {
-        error("Expected '->' or 'Do' before method body");
+        error("Expected '->' or 'Do' before method body, or ';' for native method declaration");
     }
 
     auto body = parseBlock();
@@ -425,11 +618,32 @@ std::unique_ptr<MethodDecl> Parser::parseMethod() {
                                         std::move(params), std::move(body), loc);
 }
 
+// Static counter for generating unique anonymous parameter names
+static int anonymousParamCounter = 0;
+
 std::unique_ptr<ParameterDecl> Parser::parseParameter() {
     auto loc = peek().location;
     consume(Lexer::TokenType::Parameter, "Expected 'Parameter'");
 
-    std::string paramName = parseAngleBracketIdentifier();
+    std::string paramName;
+
+    // Check for empty <> (anonymous parameter for FFI)
+    if (check(Lexer::TokenType::LeftAngle)) {
+        advance();  // consume '<'
+        if (match(Lexer::TokenType::RightAngle)) {
+            // Empty <> - generate anonymous name
+            paramName = "_arg" + std::to_string(anonymousParamCounter++);
+        } else {
+            error("Expected '>' after '<' for anonymous parameter");
+        }
+    } else {
+        paramName = parseAngleBracketIdentifier();
+    }
+
+    // If the paramName is empty (from an empty AngleBracketId), generate one
+    if (paramName.empty()) {
+        paramName = "_arg" + std::to_string(anonymousParamCounter++);
+    }
 
     consume(Lexer::TokenType::Types, "Expected 'Types' after parameter name");
 

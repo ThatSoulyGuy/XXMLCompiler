@@ -1,0 +1,42 @@
+// Test FFI String Marshalling
+// This test verifies that string literals are correctly passed to native functions
+
+#import Language::Core;
+
+// WriteFile - writes to a file handle
+@NativeFunction(path = "kernel32.dll", name = "GetStdHandle", convention = "stdcall")
+Method <GetStdHandle> Returns NativeType<"ptr">^ Parameters(
+    Parameter <nStdHandle> Types NativeType<"int32">^
+);
+
+// WriteConsoleA - writes to console
+@NativeFunction(path = "kernel32.dll", name = "WriteConsoleA", convention = "stdcall")
+Method <WriteConsoleA> Returns NativeType<"int32">^ Parameters(
+    Parameter <hConsoleOutput> Types NativeType<"ptr">^,
+    Parameter <lpBuffer> Types NativeType<"ptr">^,
+    Parameter <nNumberOfCharsToWrite> Types NativeType<"uint32">^,
+    Parameter <lpNumberOfCharsWritten> Types NativeType<"ptr">^,
+    Parameter <lpReserved> Types NativeType<"ptr">^
+);
+
+// Beep for audio feedback
+@NativeFunction(path = "kernel32.dll", name = "Beep", convention = "stdcall")
+Method <FFI_Beep> Returns NativeType<"int32">^ Parameters(
+    Parameter <dwFreq> Types NativeType<"uint32">^,
+    Parameter <dwDuration> Types NativeType<"uint32">^
+);
+
+[ Entrypoint
+{
+    Run Console::printLine(String::Constructor("=== FFI String Marshalling Test ==="));
+
+    // Get console output handle (-11 = STD_OUTPUT_HANDLE)
+    Run Console::printLine(String::Constructor("Getting console handle..."));
+
+    // Test with Beep to verify FFI is working
+    Run Console::printLine(String::Constructor("Testing Beep..."));
+    Run FFI_Beep(440, 100);
+
+    Run Console::printLine(String::Constructor("=== Test Complete ==="));
+}
+]

@@ -74,8 +74,15 @@ private:
     bool hasErrors_;
     bool hasWarnings_;
 
+    // NEW: Track current file context for STL warning suppression
+    std::string currentFile_;
+    bool currentFileIsSTL_;
+
+    // NEW: Global flag for STL warning suppression (default: suppress)
+    static bool suppressSTLWarnings_;
+
 public:
-    ErrorReporter() : hasErrors_(false), hasWarnings_(false) {}
+    ErrorReporter() : hasErrors_(false), hasWarnings_(false), currentFileIsSTL_(false) {}
 
     void reportError(ErrorCode code, const std::string& message, const SourceLocation& loc);
     void reportWarning(ErrorCode code, const std::string& message, const SourceLocation& loc);
@@ -87,6 +94,13 @@ public:
 
     void printErrors() const;
     void clear();
+
+    // NEW: Set/get STL warning suppression (static - affects all instances)
+    static void setSuppressSTLWarnings(bool suppress);
+    static bool getSuppressSTLWarnings();
+
+    // NEW: Set current file context (for STL warning suppression)
+    void setCurrentFile(const std::string& filePath, bool isSTL);
 };
 
 } // namespace Common

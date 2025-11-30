@@ -1,0 +1,41 @@
+// Test FFI String Marshalling with printf
+// This test verifies that string literals are correctly passed to native functions
+
+#import Language::Core;
+
+// printf from C runtime - takes format string and varargs
+@NativeFunction(path = "ucrtbase.dll", name = "printf", convention = "cdecl")
+Method <FFI_printf> Returns NativeType<"int32">^ Parameters(
+    Parameter <format> Types NativeType<"ptr">^
+);
+
+// puts from C runtime - simpler, just takes a string
+@NativeFunction(path = "ucrtbase.dll", name = "puts", convention = "cdecl")
+Method <FFI_puts> Returns NativeType<"int32">^ Parameters(
+    Parameter <str> Types NativeType<"ptr">^
+);
+
+// Beep for audio feedback
+@NativeFunction(path = "kernel32.dll", name = "Beep", convention = "stdcall")
+Method <FFI_Beep> Returns NativeType<"int32">^ Parameters(
+    Parameter <dwFreq> Types NativeType<"uint32">^,
+    Parameter <dwDuration> Types NativeType<"uint32">^
+);
+
+[ Entrypoint
+{
+    Run Console::printLine(String::Constructor("=== FFI String Marshalling Test ==="));
+
+    // Test with FFI_puts - should print directly to stdout
+    Run Console::printLine(String::Constructor("Testing FFI_puts with string literal..."));
+    Run FFI_puts("Hello from FFI string marshalling!");
+
+    // Test with another string
+    Run FFI_puts("Second FFI string test!");
+
+    // Success beep
+    Run FFI_Beep(880, 100);
+
+    Run Console::printLine(String::Constructor("=== Test Complete ==="));
+}
+]

@@ -1,0 +1,36 @@
+// Test FFI with direct native function names (no prefix)
+// This tests that internal linkage fixes the linker conflict
+
+#import Language::Core;
+
+// Use native function names directly - internal linkage should prevent conflicts
+@NativeFunction(path = "kernel32.dll", name = "Beep", convention = "stdcall")
+Method <Beep> Returns NativeType<"int32">^ Parameters(
+    Parameter <dwFreq> Types NativeType<"uint32">^,
+    Parameter <dwDuration> Types NativeType<"uint32">^
+);
+
+@NativeFunction(path = "kernel32.dll", name = "Sleep", convention = "stdcall")
+Method <Sleep> Returns None Parameters(
+    Parameter <dwMilliseconds> Types NativeType<"uint32">^
+);
+
+@NativeFunction(path = "kernel32.dll", name = "GetTickCount", convention = "stdcall")
+Method <GetTickCount> Returns NativeType<"uint32">^ Parameters();
+
+[ Entrypoint
+{
+    Run Console::printLine(String::Constructor("=== FFI Direct Name Test ==="));
+
+    Run Console::printLine(String::Constructor("Calling Beep(440, 150)..."));
+    Run Beep(440, 150);
+
+    Run Console::printLine(String::Constructor("Calling Sleep(100)..."));
+    Run Sleep(100);
+
+    Run Console::printLine(String::Constructor("Calling Beep(880, 150)..."));
+    Run Beep(880, 150);
+
+    Run Console::printLine(String::Constructor("=== Test Complete ==="));
+}
+]

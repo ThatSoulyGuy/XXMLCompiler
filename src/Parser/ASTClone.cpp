@@ -445,7 +445,7 @@ std::unique_ptr<Declaration> MethodDecl::cloneDecl() const {
         clonedBody.push_back(stmt->cloneStmt());
     }
 
-    return std::make_unique<MethodDecl>(
+    auto cloned = std::make_unique<MethodDecl>(
         name,
         templateParams,  // Copy template parameters
         returnType->cloneType(),
@@ -453,6 +453,14 @@ std::unique_ptr<Declaration> MethodDecl::cloneDecl() const {
         std::move(clonedBody),
         location
     );
+
+    // Copy FFI fields
+    cloned->isNative = isNative;
+    cloned->nativePath = nativePath;
+    cloned->nativeSymbol = nativeSymbol;
+    cloned->callingConvention = callingConvention;
+
+    return cloned;
 }
 
 // ============================================================================
@@ -493,6 +501,74 @@ std::unique_ptr<Declaration> ClassDecl::cloneDecl() const {
     // Clone sections
     for (const auto& section : sections) {
         cloned->sections.push_back(cloneAccessSection(*section));
+    }
+
+    return cloned;
+}
+
+std::unique_ptr<ASTNode> NativeStructureDecl::clone() const {
+    return cloneDecl();
+}
+
+std::unique_ptr<Declaration> NativeStructureDecl::cloneDecl() const {
+    auto cloned = std::make_unique<NativeStructureDecl>(name, alignment, location);
+
+    // Clone properties
+    for (const auto& prop : properties) {
+        cloned->properties.push_back(
+            std::unique_ptr<PropertyDecl>(
+                static_cast<PropertyDecl*>(prop->cloneDecl().release())
+            )
+        );
+    }
+
+    return cloned;
+}
+
+std::unique_ptr<ASTNode> CallbackTypeDecl::clone() const {
+    return cloneDecl();
+}
+
+std::unique_ptr<Declaration> CallbackTypeDecl::cloneDecl() const {
+    std::vector<std::unique_ptr<ParameterDecl>> clonedParams;
+    for (const auto& param : parameters) {
+        clonedParams.push_back(
+            std::unique_ptr<ParameterDecl>(
+                static_cast<ParameterDecl*>(param->cloneDecl().release())
+            )
+        );
+    }
+
+    return std::make_unique<CallbackTypeDecl>(
+        name,
+        convention,
+        returnType->cloneType(),
+        std::move(clonedParams),
+        location
+    );
+}
+
+std::unique_ptr<ASTNode> EnumValueDecl::clone() const {
+    return cloneDecl();
+}
+
+std::unique_ptr<Declaration> EnumValueDecl::cloneDecl() const {
+    return std::make_unique<EnumValueDecl>(name, hasExplicitValue, value, location);
+}
+
+std::unique_ptr<ASTNode> EnumerationDecl::clone() const {
+    return cloneDecl();
+}
+
+std::unique_ptr<Declaration> EnumerationDecl::cloneDecl() const {
+    auto cloned = std::make_unique<EnumerationDecl>(name, location);
+
+    for (const auto& val : values) {
+        cloned->values.push_back(
+            std::unique_ptr<EnumValueDecl>(
+                static_cast<EnumValueDecl*>(val->cloneDecl().release())
+            )
+        );
     }
 
     return cloned;

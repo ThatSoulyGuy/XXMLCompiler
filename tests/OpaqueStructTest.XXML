@@ -1,0 +1,52 @@
+// Test opaque structure for type-safe handles
+#import Language::Core;
+
+// Define opaque handle types (like C's typedef struct GLFWwindow GLFWwindow;)
+[ NativeStructure <GLFWwindow> Aligns(8)
+[ Public<>
+]
+]
+
+[ NativeStructure <GLFWmonitor> Aligns(8)
+[ Public<>
+]
+]
+
+// Native function using typed handles
+@NativeFunction(name = "glfwInit", path = "glfw3.dll", convention = "cdecl")
+Method <glfwInit> Returns NativeType<"int32">^ Parameters ();
+
+@NativeFunction(name = "glfwTerminate", path = "glfw3.dll", convention = "cdecl")
+Method <glfwTerminate> Returns None Parameters ();
+
+@NativeFunction(name = "glfwCreateWindow", path = "glfw3.dll", convention = "cdecl")
+Method <glfwCreateWindow> Returns GLFWwindow^ Parameters (
+    Parameter <width> Types NativeType<"int32">^,
+    Parameter <height> Types NativeType<"int32">^,
+    Parameter <title> Types NativeType<"ptr">^,
+    Parameter <monitor> Types GLFWmonitor^,
+    Parameter <share> Types GLFWwindow^
+);
+
+@NativeFunction(name = "glfwDestroyWindow", path = "glfw3.dll", convention = "cdecl")
+Method <glfwDestroyWindow> Returns None Parameters (
+    Parameter <window> Types GLFWwindow^
+);
+
+[ Entrypoint
+{
+    Run Console::printLine(String::Constructor("=== Opaque Structure Test ==="));
+    Run glfwInit();
+
+    Instantiate String^ As <titleStr> = String::Constructor("Test Window");
+    Instantiate NativeType<"cstr">^ As <title> = titleStr.toCString();
+
+    // Type-safe: GLFWwindow^ returned and used correctly
+    Instantiate GLFWwindow^ As <window> = glfwCreateWindow(640, 480, title, 0, 0);
+
+    Run glfwDestroyWindow(window);
+    Run glfwTerminate();
+
+    Run Console::printLine(String::Constructor("=== Test Complete ==="));
+    Exit(0);
+}]

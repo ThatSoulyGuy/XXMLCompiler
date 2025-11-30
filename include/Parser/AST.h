@@ -15,6 +15,10 @@ class AnnotationUsage;
 class AnnotationDecl;
 class AnnotateDecl;
 class ProcessorDecl;
+class NativeStructureDecl;
+class CallbackTypeDecl;
+class EnumerationDecl;
+class EnumValueDecl;
 
 // Base AST node
 class ASTNode {
@@ -33,6 +37,14 @@ enum class OwnershipType {
     Owned,      // ^ - owned value, requires Mem::move to transfer
     Reference,  // & - borrow/reference
     Copy        // % - explicit copy (only in parameters/returns)
+};
+
+// FFI calling conventions
+enum class CallingConvention {
+    Auto,       // "*" - auto-detect
+    CDecl,      // "cdecl" - C calling convention
+    StdCall,    // "stdcall" - Windows standard calling convention
+    FastCall    // "fastcall" - Fast calling convention
 };
 
 // Forward declare Expression for TemplateArgument
@@ -552,6 +564,12 @@ public:
     std::vector<std::unique_ptr<Statement>> body;
     std::vector<std::unique_ptr<AnnotationUsage>> annotations;  // Applied annotations
 
+    // FFI fields (for @NativeFunction annotated methods)
+    bool isNative = false;              // True if this is a native FFI method (semicolon-terminated)
+    std::string nativePath;             // DLL path from @NativeFunction
+    std::string nativeSymbol;           // Symbol name from @NativeFunction
+    CallingConvention callingConvention = CallingConvention::Auto;
+
     MethodDecl(const std::string& n, std::unique_ptr<TypeRef> retType,
                std::vector<std::unique_ptr<ParameterDecl>> params,
                std::vector<std::unique_ptr<Statement>> bodyStmts,
@@ -603,6 +621,71 @@ public:
         : Declaration(loc), name(n), templateParams(tparams), isFinal(final), baseClass(base) {}
 
     void accept(ASTVisitor& visitor) override;    std::unique_ptr<ASTNode> clone() const override;    std::unique_ptr<Declaration> cloneDecl() const override;
+};
+
+// Native structure for FFI (C-compatible struct with fixed alignment)
+class NativeStructureDecl : public Declaration {
+public:
+    std::string name;
+    std::vector<std::unique_ptr<PropertyDecl>> properties;  // Only NativeType properties allowed
+    size_t alignment = 8;  // Default alignment in bytes
+
+    NativeStructureDecl(const std::string& n, size_t align, const Common::SourceLocation& loc)
+        : Declaration(loc), name(n), alignment(align) {}
+
+    void accept(ASTVisitor& visitor) override;
+    std::unique_ptr<ASTNode> clone() const override;
+    std::unique_ptr<Declaration> cloneDecl() const override;
+};
+
+// Callback type declaration for FFI callbacks
+// [ CallbackType <Name> Convention(cdecl) Returns Type Parameters (...) ]
+class CallbackTypeDecl : public Declaration {
+public:
+    std::string name;
+    CallingConvention convention;
+    std::unique_ptr<TypeRef> returnType;
+    std::vector<std::unique_ptr<ParameterDecl>> parameters;
+
+    CallbackTypeDecl(const std::string& n, CallingConvention conv,
+                     std::unique_ptr<TypeRef> retType,
+                     std::vector<std::unique_ptr<ParameterDecl>> params,
+                     const Common::SourceLocation& loc)
+        : Declaration(loc), name(n), convention(conv),
+          returnType(std::move(retType)), parameters(std::move(params)) {}
+
+    void accept(ASTVisitor& visitor) override;
+    std::unique_ptr<ASTNode> clone() const override;
+    std::unique_ptr<Declaration> cloneDecl() const override;
+};
+
+// Enumeration value declaration (Value <NAME> = value;)
+class EnumValueDecl : public Declaration {
+public:
+    std::string name;
+    bool hasExplicitValue;
+    int64_t value;
+
+    EnumValueDecl(const std::string& n, bool hasValue, int64_t val, const Common::SourceLocation& loc)
+        : Declaration(loc), name(n), hasExplicitValue(hasValue), value(val) {}
+
+    void accept(ASTVisitor& visitor) override;
+    std::unique_ptr<ASTNode> clone() const override;
+    std::unique_ptr<Declaration> cloneDecl() const override;
+};
+
+// Enumeration declaration ([ Enumeration <Name> ... ])
+class EnumerationDecl : public Declaration {
+public:
+    std::string name;
+    std::vector<std::unique_ptr<EnumValueDecl>> values;
+
+    EnumerationDecl(const std::string& n, const Common::SourceLocation& loc)
+        : Declaration(loc), name(n) {}
+
+    void accept(ASTVisitor& visitor) override;
+    std::unique_ptr<ASTNode> clone() const override;
+    std::unique_ptr<Declaration> cloneDecl() const override;
 };
 
 class NamespaceDecl : public Declaration {
@@ -791,6 +874,10 @@ public:
     virtual void visit(ImportDecl& node) = 0;
     virtual void visit(NamespaceDecl& node) = 0;
     virtual void visit(ClassDecl& node) = 0;
+    virtual void visit(NativeStructureDecl& node) = 0;
+    virtual void visit(CallbackTypeDecl& node) = 0;
+    virtual void visit(EnumValueDecl& node) = 0;
+    virtual void visit(EnumerationDecl& node) = 0;
     virtual void visit(AccessSection& node) = 0;
     virtual void visit(PropertyDecl& node) = 0;
     virtual void visit(ConstructorDecl& node) = 0;

@@ -1,0 +1,228 @@
+// Basic Safe GLFW API Test
+// Tests a minimal wrapper around the low-level bindings
+#import Language::Core;
+
+// ============================================================================
+// Internal native bindings
+// ============================================================================
+
+[ NativeStructure <_GLFWwindow> Aligns(8) [ Public<> ] ]
+[ NativeStructure <_GLFWmonitor> Aligns(8) [ Public<> ] ]
+
+@NativeFunction(name = "glfwInit", path = "glfw3.dll", convention = "cdecl")
+Method <_glfwInit> Returns NativeType<"int32">^ Parameters ();
+
+@NativeFunction(name = "glfwTerminate", path = "glfw3.dll", convention = "cdecl")
+Method <_glfwTerminate> Returns None Parameters ();
+
+@NativeFunction(name = "glfwDefaultWindowHints", path = "glfw3.dll", convention = "cdecl")
+Method <_glfwDefaultWindowHints> Returns None Parameters ();
+
+@NativeFunction(name = "glfwCreateWindow", path = "glfw3.dll", convention = "cdecl")
+Method <_glfwCreateWindow> Returns _GLFWwindow^ Parameters (
+    Parameter <width> Types NativeType<"int32">^,
+    Parameter <height> Types NativeType<"int32">^,
+    Parameter <title> Types NativeType<"ptr">^,
+    Parameter <monitor> Types _GLFWmonitor^,
+    Parameter <share> Types _GLFWwindow^
+);
+
+@NativeFunction(name = "glfwDestroyWindow", path = "glfw3.dll", convention = "cdecl")
+Method <_glfwDestroyWindow> Returns None Parameters (
+    Parameter <window> Types _GLFWwindow^
+);
+
+@NativeFunction(name = "glfwWindowShouldClose", path = "glfw3.dll", convention = "cdecl")
+Method <_glfwWindowShouldClose> Returns NativeType<"int32">^ Parameters (
+    Parameter <window> Types _GLFWwindow^
+);
+
+@NativeFunction(name = "glfwPollEvents", path = "glfw3.dll", convention = "cdecl")
+Method <_glfwPollEvents> Returns None Parameters ();
+
+@NativeFunction(name = "glfwSwapBuffers", path = "glfw3.dll", convention = "cdecl")
+Method <_glfwSwapBuffers> Returns None Parameters (
+    Parameter <window> Types _GLFWwindow^
+);
+
+@NativeFunction(name = "glfwMakeContextCurrent", path = "glfw3.dll", convention = "cdecl")
+Method <_glfwMakeContextCurrent> Returns None Parameters (
+    Parameter <window> Types _GLFWwindow^
+);
+
+@NativeFunction(name = "glfwGetKey", path = "glfw3.dll", convention = "cdecl")
+Method <_glfwGetKey> Returns NativeType<"int32">^ Parameters (
+    Parameter <window> Types _GLFWwindow^,
+    Parameter <key> Types NativeType<"int32">^
+);
+
+// ============================================================================
+// Key constants
+// ============================================================================
+[ Enumeration <Key>
+    Value <Escape> = 256;
+    Value <Space> = 32;
+    Value <W> = 87;
+    Value <A> = 65;
+    Value <S> = 83;
+    Value <D> = 68;
+]
+
+// ============================================================================
+// Window wrapper class
+// ============================================================================
+[ Class <Window> Final Extends None
+[ Public<>
+    Property <handle> Types _GLFWwindow^;
+    Property <title> Types String^;
+
+    Constructor = default;
+
+    // Factory method to create a window
+    Method <create> Returns Window^ Parameters (
+        Parameter <width> Types Integer^,
+        Parameter <height> Types Integer^,
+        Parameter <windowTitle> Types String^
+    ) -> {
+        Run _glfwDefaultWindowHints();
+        Instantiate NativeType<"cstr">^ As <cTitle> = windowTitle.toCString();
+        Set <handle> = _glfwCreateWindow(width, height, cTitle, 0, 0);
+        Set <title> = windowTitle;
+        Run _glfwMakeContextCurrent(handle);
+        Return this;
+    }
+
+    Method <close> Returns None Parameters () -> {
+        Run _glfwDestroyWindow(handle);
+    }
+
+    Method <shouldClose> Returns Bool^ Parameters () -> {
+        Instantiate NativeType<"int32">^ As <result> = _glfwWindowShouldClose(handle);
+        If (result != 0) -> {
+            Return Bool::Constructor(true);
+        }
+        Return Bool::Constructor(false);
+    }
+
+    Method <swapBuffers> Returns None Parameters () -> {
+        Run _glfwSwapBuffers(handle);
+    }
+
+    Method <isKeyPressed> Returns Bool^ Parameters (
+        Parameter <key> Types Key^
+    ) -> {
+        Instantiate NativeType<"int32">^ As <state> = _glfwGetKey(handle, key);
+        If (state != 0) -> {
+            Return Bool::Constructor(true);
+        }
+        Return Bool::Constructor(false);
+    }
+]
+]
+
+// ============================================================================
+// GLFW static utility functions
+// ============================================================================
+
+// ============================================================================
+// GLFW - Wrapper class for global GLFW functions
+// ============================================================================
+[ Class <GLFW> Final Extends None
+[ Public<>
+    Constructor = default;
+
+    Method <init> Returns Bool^ Parameters () -> {
+        Instantiate NativeType<"int32">^ As <result> = _glfwInit();
+        If (result != 0) -> {
+            Return Bool::Constructor(true);
+        }
+        Return Bool::Constructor(false);
+    }
+
+    Method <terminate> Returns None Parameters () -> {
+        Run _glfwTerminate();
+    }
+
+    Method <pollEvents> Returns None Parameters () -> {
+        Run _glfwPollEvents();
+    }
+]
+]
+
+// ============================================================================
+// Test entry point
+// ============================================================================
+[ Entrypoint
+{
+    Run Console::printLine(String::Constructor("=== Safe GLFW API Basic Test ==="));
+    Run Console::printLine(String::Constructor(""));
+
+    // Create GLFW instance
+    Instantiate GLFW^ As <glfw> = GLFW::Constructor();
+
+    // Initialize GLFW using wrapper class
+    Run Console::print(String::Constructor("Initializing GLFW... "));
+    Instantiate Bool^ As <initOk> = glfw.init();
+    If (initOk == Bool::Constructor(true)) -> {
+        Run Console::printLine(String::Constructor("OK"));
+    }
+    If (initOk == Bool::Constructor(false)) -> {
+        Run Console::printLine(String::Constructor("FAILED"));
+        Exit(1);
+    }
+
+    // Create window using the wrapper class
+    Run Console::printLine(String::Constructor(""));
+    Run Console::printLine(String::Constructor("Creating window with wrapper class..."));
+    Instantiate Window^ As <window> = Window::Constructor();
+    Run window.create(
+        Integer::Constructor(800),
+        Integer::Constructor(600),
+        String::Constructor("Safe API Demo")
+    );
+    Run Console::printLine(String::Constructor("  Window created successfully!"));
+
+    // Simple game loop
+    Run Console::printLine(String::Constructor(""));
+    Run Console::printLine(String::Constructor("Running game loop (100 frames)..."));
+    Run Console::printLine(String::Constructor("Press ESC to exit, WASD to move"));
+
+    For (Integer <i> = 0 .. 100) -> {
+        Run glfw.pollEvents();
+
+        Instantiate Bool^ As <closing> = window.shouldClose();
+        If (closing == Bool::Constructor(true)) -> {
+            Run Console::printLine(String::Constructor("  Window close requested"));
+            Break;
+        }
+
+        Instantiate Bool^ As <escPressed> = window.isKeyPressed(Key::Escape);
+        If (escPressed == Bool::Constructor(true)) -> {
+            Run Console::printLine(String::Constructor("  ESC pressed - exiting"));
+            Break;
+        }
+
+        Instantiate Bool^ As <wPressed> = window.isKeyPressed(Key::W);
+        If (wPressed == Bool::Constructor(true)) -> {
+            Run Console::printLine(String::Constructor("  W - Forward"));
+        }
+
+        Instantiate Bool^ As <aPressed> = window.isKeyPressed(Key::A);
+        If (aPressed == Bool::Constructor(true)) -> {
+            Run Console::printLine(String::Constructor("  A - Left"));
+        }
+
+        Run window.swapBuffers();
+    }
+
+    // Cleanup using wrapper
+    Run Console::printLine(String::Constructor(""));
+    Run Console::print(String::Constructor("Cleaning up... "));
+    Run window.close();
+    Run glfw.terminate();
+    Run Console::printLine(String::Constructor("Done!"));
+
+    Run Console::printLine(String::Constructor(""));
+    Run Console::printLine(String::Constructor("=== Safe API Basic Test Complete ==="));
+    Exit(0);
+}]

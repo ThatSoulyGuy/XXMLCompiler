@@ -62,6 +62,16 @@ enum class TokenType {
     Retain,           // Retain
     AnnotationAllow,  // AnnotationAllow
 
+    // FFI keywords
+    NativeStructure,  // NativeStructure
+    Aligns,           // Aligns
+    CallbackType,     // CallbackType
+    Convention,       // Convention
+
+    // Enumeration keywords
+    Enumeration,      // Enumeration
+    Value,            // Value
+
     // Identifiers and literals
     Identifier,       // variable names, type names, etc.
     AngleBracketId,   // <identifier>

@@ -49,8 +49,12 @@ std::vector<std::string> extractImports(const XXML::Parser::Program& ast) {
     return imports;
 }
 
-bool parseModule(XXML::Import::Module* module, XXML::Common::ErrorReporter& errorReporter) {
+bool parseModule(XXML::Import::Module* module, XXML::Common::ErrorReporter& errorReporter, bool isSTLFile = false) {
     if (module->isParsed) return true;
+
+    // Set current file context for STL warning suppression
+    errorReporter.setCurrentFile(module->filePath, isSTLFile);
+    module->isSTLFile = isSTLFile;
 
     XXML::Lexer::Lexer lexer(module->fileContent, module->filePath, errorReporter);
     auto tokens = lexer.tokenize();
@@ -81,6 +85,7 @@ void printUsage(const char* programName) {
     std::cerr << "  --ir                   Generate LLVM IR only (same as mode 2)\n";
     std::cerr << "  --processor            Compile annotation processor to DLL\n";
     std::cerr << "  --use-processor=<dll>  Load annotation processor DLL (can be used multiple times)\n";
+    std::cerr << "  --stl-warnings         Show warnings for standard library files (off by default)\n";
     std::cerr << "  2                      Legacy mode: LLVM IR only\n\n";
     std::cerr << "Examples:\n";
     std::cerr << "  " << programName << " Hello.XXML -o hello.exe                    # Compile to executable\n";
@@ -102,6 +107,7 @@ int main(int argc, char* argv[]) {
     std::string outputFile;
     bool llvmIROnly = false;
     bool processorMode = false;
+    bool showSTLWarnings = false;
     std::vector<std::string> processorDLLs;
 
     // Parse command-line arguments
@@ -120,6 +126,8 @@ int main(int argc, char* argv[]) {
             if (!dllPath.empty()) {
                 processorDLLs.push_back(dllPath);
             }
+        } else if (arg == "--stl-warnings") {
+            showSTLWarnings = true;
         } else if (arg[0] != '-') {
             // Positional argument - input file
             if (inputFile.empty()) {
@@ -148,6 +156,9 @@ int main(int argc, char* argv[]) {
         std::cout << "Processor compilation mode\n\n";
     }
 
+    // Configure STL warning suppression (default: suppress, enabled with --stl-warnings)
+    XXML::Common::ErrorReporter::setSuppressSTLWarnings(!showSTLWarnings);
+
     try {
         // Create compilation context with LLVM backend
         XXML::Core::CompilerConfig config;
@@ -157,6 +168,10 @@ int main(int argc, char* argv[]) {
         XXML::Common::ErrorReporter errorReporter;
         XXML::Import::ImportResolver resolver;
         XXML::AnnotationProcessor::ProcessorRegistry processorRegistry;
+
+        // Initialize file discovery with compiler path and source file path
+        resolver.initializeWithCompilerPath(argv[0]);
+        resolver.initializeWithSourceFile(inputFile);
 
         // Auto-discover and load processor DLLs from standard locations
         std::vector<std::string> processorSearchPaths;
@@ -236,7 +251,8 @@ int main(int argc, char* argv[]) {
         }
 
         std::cout << "Parsing...\n";
-        if (!parseModule(mainModule.get(), errorReporter)) {
+        bool mainIsSTL = resolver.isSTLFile(inputFile);
+        if (!parseModule(mainModule.get(), errorReporter, mainIsSTL)) {
             errorReporter.printErrors();
             return 1;
         }
@@ -294,7 +310,8 @@ int main(int argc, char* argv[]) {
                 // Direct file path import
                 auto module = std::make_unique<XXML::Import::Module>(importPath, importPath);
                 if (!module->loadFromFile()) continue;
-                if (!parseModule(module.get(), errorReporter)) {
+                bool isSTL = resolver.isSTLFile(importPath);
+                if (!parseModule(module.get(), errorReporter, isSTL)) {
                     errorReporter.printErrors();
                     return 1;
                 }
@@ -308,13 +325,14 @@ int main(int argc, char* argv[]) {
                         toProcess.push_back(subImport);
                     }
                 }
-            } else if (importPath.find("::") != std::string::npos) {
-                // Namespace import (e.g., "Language::Reflection")
-                // Use ImportResolver to find all files in that namespace
+            } else {
+                // Namespace import (e.g., "Language::Reflection") or simple package name (e.g., "GLFW")
+                // Use ImportResolver to find all files in that namespace/directory
                 auto resolvedModules = resolver.resolveImport(importPath);
                 for (auto* resolvedModule : resolvedModules) {
                     if (!resolvedModule->isParsed) {
-                        if (!parseModule(resolvedModule, errorReporter)) {
+                        bool isSTL = resolver.isSTLFile(resolvedModule->filePath);
+                        if (!parseModule(resolvedModule, errorReporter, isSTL)) {
                             errorReporter.printErrors();
                             return 1;
                         }
@@ -376,6 +394,8 @@ int main(int argc, char* argv[]) {
         for (const auto& moduleName : compilationOrder) {
             auto it = moduleMap.find(moduleName);
             if (it != moduleMap.end()) {
+                // Set file context for STL warning suppression during analysis
+                errorReporter.setCurrentFile(it->second->filePath, it->second->isSTLFile);
                 auto analyzer = std::make_unique<XXML::Semantic::SemanticAnalyzer>(compilationContext, errorReporter);
                 analyzer->setValidationEnabled(false);
                 analyzer->analyze(*it->second->ast);
@@ -387,6 +407,8 @@ int main(int argc, char* argv[]) {
             }
         }
 
+        // Set file context for main module (not STL)
+        errorReporter.setCurrentFile(mainModule->filePath, mainModule->isSTLFile);
         auto mainAnalyzer = std::make_unique<XXML::Semantic::SemanticAnalyzer>(compilationContext, errorReporter);
         mainAnalyzer->setValidationEnabled(false);
         mainAnalyzer->analyze(*mainModule->ast);
@@ -421,6 +443,8 @@ int main(int argc, char* argv[]) {
         for (const auto& moduleName : compilationOrder) {
             auto it = moduleMap.find(moduleName);
             if (it != moduleMap.end() && it->second != mainModule.get()) {
+                // Set file context for STL warning suppression during analysis
+                errorReporter.setCurrentFile(it->second->filePath, it->second->isSTLFile);
                 // Process imported modules (not the main module)
                 auto validator = std::make_unique<XXML::Semantic::SemanticAnalyzer>(compilationContext, errorReporter);
                 validator->setValidationEnabled(true);
@@ -444,7 +468,8 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        // Process main module
+        // Process main module - set file context for user code warnings
+        errorReporter.setCurrentFile(mainModule->filePath, mainModule->isSTLFile);
         mainAnalyzer = std::make_unique<XXML::Semantic::SemanticAnalyzer>(compilationContext, errorReporter);
         mainAnalyzer->setValidationEnabled(true);
         mainAnalyzer->setModuleName("__main__");
@@ -548,16 +573,16 @@ int main(int argc, char* argv[]) {
                 llvmBackend->setSemanticAnalyzer(mainAnalyzer.get());
             }
 
-            // Pass imported modules to backend for code generation
-            // This ensures standard library classes are included in the output
-            std::vector<XXML::Parser::Program*> importedASTs;
+            // Pass imported modules to backend for code generation with their names
+            // The names are needed for proper namespace handling in modules without explicit wrappers
+            std::vector<std::pair<std::string, XXML::Parser::Program*>> importedModulesWithNames;
             for (const auto& moduleName : compilationOrder) {
                 auto it = moduleMap.find(moduleName);
                 if (it != moduleMap.end() && it->second != mainModule.get() && it->second->ast) {
-                    importedASTs.push_back(it->second->ast.get());
+                    importedModulesWithNames.push_back({moduleName, it->second->ast.get()});
                 }
             }
-            llvmBackend->setImportedModules(importedASTs);
+            llvmBackend->setImportedModulesWithNames(importedModulesWithNames);
 
             // Set processor mode if compiling annotation processor to DLL
             if (processorMode) {

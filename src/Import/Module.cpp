@@ -7,7 +7,7 @@ namespace Import {
 
 Module::Module(const std::string& name, const std::string& path)
     : moduleName(name), filePath(path), isParsed(false),
-      isAnalyzed(false), isCompiled(false) {
+      isAnalyzed(false), isCompiled(false), isSTLFile(false) {
     // Create symbol table for this module with its name
     exportedSymbols = std::make_unique<Semantic::SymbolTable>(moduleName);
     // Register this module's symbol table in the global registry

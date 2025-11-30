@@ -32,6 +32,19 @@ SemanticAnalyzer::SemanticAnalyzer(Core::CompilationContext& context, Common::Er
             symbolTable_->define(typeName, std::move(sym));
         }
     }
+
+    // Register built-in @NativeFunction annotation for FFI
+    AnnotationInfo nativeFuncAnnotation;
+    nativeFuncAnnotation.name = "NativeFunction";
+    nativeFuncAnnotation.allowedTargets = {Parser::AnnotationTarget::Methods};
+    nativeFuncAnnotation.parameters = {
+        {"path", "String", Parser::OwnershipType::Owned, false},
+        {"name", "String", Parser::OwnershipType::Owned, false},
+        {"convention", "String", Parser::OwnershipType::Owned, true}  // Optional, defaults to "*"
+    };
+    nativeFuncAnnotation.retainAtRuntime = false;
+    nativeFuncAnnotation.astNode = nullptr;  // Built-in, no AST node
+    annotationRegistry_["NativeFunction"] = nativeFuncAnnotation;
 }
 
 // Legacy constructor (deprecated but kept for compatibility)
@@ -358,6 +371,21 @@ void SemanticAnalyzer::visit(Parser::ImportDecl& node) {
     // Track this namespace as imported for unqualified name lookup
     importedNamespaces_.insert(node.modulePath);
 
+    // Register the imported namespace as valid so qualified names can be resolved
+    // e.g., #import GLFW; allows GLFW::Window to be recognized
+    validNamespaces_.insert(node.modulePath);
+
+    // Also register parent namespaces (e.g., for "Language::Reflection", register "Language")
+    std::string ns = node.modulePath;
+    size_t pos;
+    while ((pos = ns.rfind("::")) != std::string::npos) {
+        ns = ns.substr(0, pos);
+        validNamespaces_.insert(ns);
+    }
+
+    // Also register the namespace import in the symbol table for ambiguity detection
+    symbolTable_->addNamespaceImport(node.modulePath);
+
     // Note: If the module isn't found in the registry, importAllFrom will print a warning
     // This is acceptable since not all imports may be resolved at semantic analysis time
 }
@@ -638,6 +666,141 @@ void SemanticAnalyzer::visit(Parser::ClassDecl& node) {
     currentClass = previousClass;
 }
 
+void SemanticAnalyzer::visit(Parser::NativeStructureDecl& node) {
+    // Validate NativeStructure declaration
+    // 1. All properties must be NativeType
+    // 2. Alignment must be power of 2
+    // 3. No methods allowed (just properties)
+
+    // Validate alignment is power of 2
+    if (node.alignment != 0 && (node.alignment & (node.alignment - 1)) != 0) {
+        errorReporter.reportError(
+            Common::ErrorCode::TypeMismatch,
+            "NativeStructure alignment must be a power of 2, got " + std::to_string(node.alignment),
+            node.location
+        );
+    }
+
+    // Validate all properties are NativeType
+    for (const auto& prop : node.properties) {
+        if (prop->type && prop->type->typeName.find("NativeType<") != 0) {
+            errorReporter.reportError(
+                Common::ErrorCode::TypeMismatch,
+                "NativeStructure property '" + prop->name + "' must be a NativeType, got '" + prop->type->typeName + "'",
+                prop->location
+            );
+        }
+    }
+
+    // Register the native structure as a type
+    // (This allows it to be used in method parameters/returns)
+    std::string fullName = currentNamespace.empty() ? node.name : currentNamespace + "::" + node.name;
+    if (classRegistry_.find(fullName) != classRegistry_.end()) {
+        errorReporter.reportError(
+            Common::ErrorCode::DuplicateDeclaration,
+            "Type '" + fullName + "' is already defined",
+            node.location
+        );
+    } else {
+        ClassInfo info;
+        info.qualifiedName = fullName;
+        for (const auto& prop : node.properties) {
+            info.properties[prop->name] = {prop->type->typeName, prop->type->ownership};
+        }
+        classRegistry_[fullName] = info;
+    }
+}
+
+void SemanticAnalyzer::visit(Parser::CallbackTypeDecl& node) {
+    // Register the callback type in the callback type registry
+    std::string fullName = currentNamespace.empty() ? node.name : currentNamespace + "::" + node.name;
+
+    // Check for duplicate
+    if (callbackTypeRegistry_.find(fullName) != callbackTypeRegistry_.end()) {
+        errorReporter.reportError(
+            Common::ErrorCode::DuplicateDeclaration,
+            "CallbackType '" + fullName + "' is already defined",
+            node.location
+        );
+        return;
+    }
+
+    // Validate return type exists (if not Void)
+    if (node.returnType && node.returnType->typeName != "Void") {
+        // Basic type validation - ensure it's a known type
+        // For FFI callbacks, we accept NativeType, primitive types, and pointer types
+        // More sophisticated validation could be added here
+    }
+
+    // Build callback type info
+    CallbackTypeInfo info;
+    info.name = node.name;
+    info.qualifiedName = fullName;
+    info.convention = node.convention;
+    info.returnType = node.returnType ? node.returnType->typeName : "Void";
+    info.returnOwnership = node.returnType ? node.returnType->ownership : Parser::OwnershipType::Copy;
+    info.astNode = &node;
+
+    // Process parameters
+    for (const auto& param : node.parameters) {
+        CallbackParamInfo paramInfo;
+        paramInfo.name = param->name;
+        paramInfo.typeName = param->type ? param->type->typeName : "Unknown";
+        paramInfo.ownership = param->type ? param->type->ownership : Parser::OwnershipType::Copy;
+        info.parameters.push_back(paramInfo);
+    }
+
+    callbackTypeRegistry_[fullName] = info;
+}
+
+void SemanticAnalyzer::visit(Parser::EnumValueDecl& node) {
+    // Individual enum values are validated in context of their parent enumeration
+}
+
+void SemanticAnalyzer::visit(Parser::EnumerationDecl& node) {
+    // Register the enumeration in the enum registry
+    std::string fullName = currentNamespace.empty() ? node.name : currentNamespace + "::" + node.name;
+
+    // Check for duplicate
+    if (enumRegistry_.find(fullName) != enumRegistry_.end()) {
+        errorReporter.reportError(
+            Common::ErrorCode::DuplicateDeclaration,
+            "Enumeration '" + fullName + "' is already defined",
+            node.location
+        );
+        return;
+    }
+
+    // Build enum info
+    EnumInfo enumInfo;
+    enumInfo.name = node.name;
+    enumInfo.qualifiedName = fullName;
+
+    std::set<std::string> valueNames;
+    std::set<int64_t> valueValues;
+
+    for (const auto& val : node.values) {
+        // Check for duplicate value names
+        if (valueNames.count(val->name)) {
+            errorReporter.reportError(
+                Common::ErrorCode::DuplicateDeclaration,
+                "Duplicate enum value name '" + val->name + "' in enumeration '" + node.name + "'",
+                val->location
+            );
+        } else {
+            valueNames.insert(val->name);
+        }
+
+        // Note: We allow duplicate values (e.g., aliases) but not duplicate names
+        EnumValueInfo valInfo;
+        valInfo.name = val->name;
+        valInfo.value = val->value;
+        enumInfo.values.push_back(valInfo);
+    }
+
+    enumRegistry_[fullName] = enumInfo;
+}
+
 void SemanticAnalyzer::visit(Parser::AccessSection& node) {
     for (auto& decl : node.declarations) {
         decl->accept(*this);
@@ -686,6 +849,20 @@ void SemanticAnalyzer::visit(Parser::PropertyDecl& node) {
         if (!typeSym && !foundInClassRegistry && context_) {
             auto* globalRegistry = context_->getCustomData<std::unordered_map<std::string, ClassInfo>>("globalClassRegistry");
             if (globalRegistry && globalRegistry->find(qualifiedType) != globalRegistry->end()) {
+                foundInClassRegistry = true;
+            }
+        }
+    }
+
+    // Also check classRegistry directly for global-scope NativeStructures
+    if (!typeSym && !foundInClassRegistry) {
+        if (classRegistry_.find(node.type->typeName) != classRegistry_.end()) {
+            foundInClassRegistry = true;
+        }
+        // Also check global class registry
+        if (!foundInClassRegistry && context_) {
+            auto* globalRegistry = context_->getCustomData<std::unordered_map<std::string, ClassInfo>>("globalClassRegistry");
+            if (globalRegistry && globalRegistry->find(node.type->typeName) != globalRegistry->end()) {
                 foundInClassRegistry = true;
             }
         }
@@ -760,6 +937,40 @@ void SemanticAnalyzer::visit(Parser::MethodDecl& node) {
     for (auto& annotation : node.annotations) {
         annotation->accept(*this);
         validateAnnotationUsage(*annotation, Parser::AnnotationTarget::Methods, node.name, node.location, &node);
+    }
+
+    // Process @NativeFunction annotation to populate FFI fields
+    for (const auto& annotation : node.annotations) {
+        if (annotation->annotationName == "NativeFunction") {
+            node.isNative = true;
+
+            // Extract annotation arguments
+            for (const auto& arg : annotation->arguments) {
+                if (arg.first == "path") {
+                    if (auto* strLit = dynamic_cast<Parser::StringLiteralExpr*>(arg.second.get())) {
+                        node.nativePath = strLit->value;
+                    }
+                } else if (arg.first == "name") {
+                    if (auto* strLit = dynamic_cast<Parser::StringLiteralExpr*>(arg.second.get())) {
+                        node.nativeSymbol = strLit->value;
+                    }
+                } else if (arg.first == "convention") {
+                    if (auto* strLit = dynamic_cast<Parser::StringLiteralExpr*>(arg.second.get())) {
+                        std::string conv = strLit->value;
+                        if (conv == "cdecl") {
+                            node.callingConvention = Parser::CallingConvention::CDecl;
+                        } else if (conv == "stdcall") {
+                            node.callingConvention = Parser::CallingConvention::StdCall;
+                        } else if (conv == "fastcall") {
+                            node.callingConvention = Parser::CallingConvention::FastCall;
+                        } else {
+                            node.callingConvention = Parser::CallingConvention::Auto;
+                        }
+                    }
+                }
+            }
+            break;  // Only process one @NativeFunction annotation
+        }
     }
 
     // Visit return type to record template instantiations
@@ -900,6 +1111,20 @@ void SemanticAnalyzer::visit(Parser::InstantiateStmt& node) {
         if (!typeSym && !foundInClassRegistry && context_) {
             auto* globalRegistry = context_->getCustomData<std::unordered_map<std::string, ClassInfo>>("globalClassRegistry");
             if (globalRegistry && globalRegistry->find(qualifiedType) != globalRegistry->end()) {
+                foundInClassRegistry = true;
+            }
+        }
+    }
+
+    // Also check classRegistry directly for global-scope NativeStructures
+    if (!typeSym && !foundInClassRegistry) {
+        if (classRegistry_.find(node.type->typeName) != classRegistry_.end()) {
+            foundInClassRegistry = true;
+        }
+        // Also check global class registry
+        if (!foundInClassRegistry && context_) {
+            auto* globalRegistry = context_->getCustomData<std::unordered_map<std::string, ClassInfo>>("globalClassRegistry");
+            if (globalRegistry && globalRegistry->find(node.type->typeName) != globalRegistry->end()) {
                 foundInClassRegistry = true;
             }
         }
@@ -1306,8 +1531,15 @@ void SemanticAnalyzer::visit(Parser::IdentifierExpr& node) {
             }
         }
 
-        if (validNamespaces_.find(node.name) != validNamespaces_.end() || isValidClass) {
-            // It's a valid namespace or class name, assume it's part of a qualified expression
+        // Check if this is an enumeration name
+        bool isValidEnum = enumRegistry_.find(node.name) != enumRegistry_.end();
+        if (!isValidEnum && !currentNamespace.empty()) {
+            std::string qualifiedName = currentNamespace + "::" + node.name;
+            isValidEnum = enumRegistry_.find(qualifiedName) != enumRegistry_.end();
+        }
+
+        if (validNamespaces_.find(node.name) != validNamespaces_.end() || isValidClass || isValidEnum) {
+            // It's a valid namespace, class, or enumeration name, assume it's part of a qualified expression
             expressionTypes[&node] = "Unknown";
             expressionOwnerships[&node] = Parser::OwnershipType::Owned;
             return;
@@ -1590,8 +1822,16 @@ void SemanticAnalyzer::visit(Parser::CallExpr& node) {
         std::string objectType = getExpressionType(memberExpr->object.get());
         methodName = memberExpr->member;
 
+        // Strip ownership modifiers for type comparison (^, %, &)
+        std::string baseObjectType = objectType;
+        if (!baseObjectType.empty() && (baseObjectType.back() == '^' ||
+                                         baseObjectType.back() == '%' ||
+                                         baseObjectType.back() == '&')) {
+            baseObjectType = baseObjectType.substr(0, baseObjectType.length() - 1);
+        }
+
         // Special handling for ReflectionContext.getTargetValue() - returns the annotated element's type
-        if (inProcessorContext_ && objectType == "ReflectionContext" && methodName == "getTargetValue") {
+        if (inProcessorContext_ && baseObjectType == "ReflectionContext" && methodName == "getTargetValue") {
             // Return type is the processor target type (set at annotation usage site)
             if (!processorTargetType_.empty()) {
                 // We know the concrete type - use it
@@ -1606,7 +1846,7 @@ void SemanticAnalyzer::visit(Parser::CallExpr& node) {
         }
 
         // Special handling for other ReflectionContext intrinsic methods
-        if (inProcessorContext_ && objectType == "ReflectionContext") {
+        if (inProcessorContext_ && baseObjectType == "ReflectionContext") {
             // Most methods return String^ or Integer^
             if (methodName == "getTargetKind" || methodName == "getTargetName" ||
                 methodName == "getTypeName" || methodName == "getClassName" ||
@@ -1682,7 +1922,7 @@ void SemanticAnalyzer::visit(Parser::CallExpr& node) {
         }
 
         // Special handling for CompilationContext intrinsic methods
-        if (inProcessorContext_ && objectType == "CompilationContext") {
+        if (inProcessorContext_ && baseObjectType == "CompilationContext") {
             if (methodName == "message" || methodName == "warning" || methodName == "warningAt" ||
                 methodName == "error" || methodName == "errorAt") {
                 registerExpressionType(&node, "None", Parser::OwnershipType::None);
@@ -2223,14 +2463,32 @@ SemanticAnalyzer::ClassInfo* SemanticAnalyzer::findClass(const std::string& clas
         }
     }
 
-    // Try each imported namespace if not qualified
+    // Try each imported namespace if not qualified - check for ambiguity
     if (className.find("::") == std::string::npos) {
+        std::vector<std::pair<std::string, ClassInfo*>> matches;
         for (const auto& importedNs : importedNamespaces_) {
             std::string qualifiedName = importedNs + "::" + className;
             it = classRegistry_.find(qualifiedName);
             if (it != classRegistry_.end()) {
-                return &it->second;
+                matches.push_back({qualifiedName, &it->second});
             }
+        }
+
+        // If multiple matches found, report ambiguity error
+        if (matches.size() > 1) {
+            std::string errorMsg = "Ambiguous type reference '" + className + "'. Could be:\n";
+            for (const auto& match : matches) {
+                errorMsg += "  - " + match.first + "\n";
+            }
+            errorMsg += "Use fully qualified name or remove conflicting #import statements.";
+            errorReporter.reportError(
+                Common::ErrorCode::TypeMismatch,
+                errorMsg,
+                Common::SourceLocation{}  // Will be improved when we have location context
+            );
+            return nullptr;
+        } else if (matches.size() == 1) {
+            return matches[0].second;
         }
     }
 
@@ -2284,14 +2542,32 @@ SemanticAnalyzer::ClassInfo* SemanticAnalyzer::findClass(const std::string& clas
                 }
             }
 
-            // Try each imported namespace in global registry
+            // Try each imported namespace in global registry - check for ambiguity
             if (className.find("::") == std::string::npos) {
+                std::vector<std::pair<std::string, ClassInfo*>> matches;
                 for (const auto& importedNs : importedNamespaces_) {
                     std::string qualifiedName = importedNs + "::" + className;
                     git = globalRegistry->find(qualifiedName);
                     if (git != globalRegistry->end()) {
-                        return &git->second;
+                        matches.push_back({qualifiedName, &git->second});
                     }
+                }
+
+                // If multiple matches found, report ambiguity error
+                if (matches.size() > 1) {
+                    std::string errorMsg = "Ambiguous type reference '" + className + "'. Could be:\n";
+                    for (const auto& match : matches) {
+                        errorMsg += "  - " + match.first + "\n";
+                    }
+                    errorMsg += "Use fully qualified name or remove conflicting #import statements.";
+                    errorReporter.reportError(
+                        Common::ErrorCode::TypeMismatch,
+                        errorMsg,
+                        Common::SourceLocation{}
+                    );
+                    return nullptr;
+                } else if (matches.size() == 1) {
+                    return matches[0].second;
                 }
             }
 

@@ -1,0 +1,26 @@
+#import Language::Core;
+
+[ Entrypoint
+    {
+        // Test basic range-based for loop with Integer^
+        Run Console::printLine(String::Constructor("Testing For loop:"));
+
+        For (Integer^ <i> = Integer::Constructor(0) .. Integer::Constructor(5)) -> {
+            Run Console::printLine(i.toString());
+        }
+
+        Run Console::printLine(String::Constructor("For loop completed!"));
+
+        // Test nested for loops
+        Run Console::printLine(String::Constructor("Testing nested For loops:"));
+
+        For (Integer^ <outer> = Integer::Constructor(0) .. Integer::Constructor(3)) -> {
+            For (Integer^ <inner> = Integer::Constructor(0) .. Integer::Constructor(2)) -> {
+                Run Console::printLine(outer.toString());
+                Run Console::printLine(inner.toString());
+            }
+        }
+
+        Run Console::printLine(String::Constructor("All For tests passed!"));
+    }
+]

@@ -1,0 +1,72 @@
+// GLFW Callback Test - Tests the new callback type support
+#import Language::Core;
+#import GLFW;
+
+[ Entrypoint
+{
+    Run Console::printLine(String::Constructor("=== GLFW Callback Test ==="));
+
+    // Initialize GLFW
+    Instantiate GLFW::GLFW^ As <glfw> = GLFW::GLFW::Constructor();
+    Instantiate Bool^ As <success> = glfw.init();
+
+    If (success) -> {
+        Run Console::printLine(String::Constructor("GLFW initialized successfully"));
+
+        // Create error callback lambda
+        Instantiate F(None^)(NativeType<"int32">^, NativeType<"ptr">^)^ As <errorHandler> =
+            [ Lambda [] Returns None^ Parameters (
+                Parameter <errorCode> Types NativeType<"int32">^,
+                Parameter <description> Types NativeType<"ptr">^
+            ) {
+                Run Console::printLine(String::Constructor("GLFW Error occurred!"));
+                Return None::Constructor();
+            }];
+
+        // Set error callback using lambda
+        Run glfw.setErrorCallback(errorHandler);
+        Run Console::printLine(String::Constructor("Error callback set successfully"));
+
+        // Create a window
+        Instantiate GLFW::Window^ As <window> = GLFW::Window::Constructor();
+        Set <window> = window.create(Integer::Constructor(800), Integer::Constructor(600), String::Constructor("Callback Test"));
+
+        Run Console::printLine(String::Constructor("Window created successfully"));
+
+        // Create key callback lambda
+        Instantiate F(None^)(NativeType<"ptr">^, NativeType<"int32">^, NativeType<"int32">^, NativeType<"int32">^, NativeType<"int32">^)^ As <keyHandler> =
+            [ Lambda [] Returns None^ Parameters (
+                Parameter <win> Types NativeType<"ptr">^,
+                Parameter <key> Types NativeType<"int32">^,
+                Parameter <scancode> Types NativeType<"int32">^,
+                Parameter <action> Types NativeType<"int32">^,
+                Parameter <mods> Types NativeType<"int32">^
+            ) {
+                Run Console::printLine(String::Constructor("Key callback triggered!"));
+                Return None::Constructor();
+            }];
+
+        // Set key callback
+        Run window.setKeyCallback(keyHandler);
+        Run Console::printLine(String::Constructor("Key callback set successfully"));
+
+        // Main loop - brief test
+        Instantiate Integer^ As <counter> = Integer::Constructor(0);
+        While (counter.lessThan(Integer::Constructor(60))) -> {
+            Run glfw.pollEvents();
+            Run window.swapBuffers();
+            Set <counter> = counter.add(Integer::Constructor(1));
+        }
+
+        Run window.close();
+        Run Console::printLine(String::Constructor("Window closed"));
+
+        Run glfw.terminate();
+        Run Console::printLine(String::Constructor("GLFW terminated"));
+    } Else -> {
+        Run Console::printLine(String::Constructor("Failed to initialize GLFW"));
+    }
+
+    Run Console::printLine(String::Constructor("Callback test complete"));
+    Exit(0);
+}]

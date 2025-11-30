@@ -71,6 +71,18 @@ private:
     // Global registry: moduleName -> SymbolTable*
     static std::unordered_map<std::string, SymbolTable*> moduleRegistry;
 
+    // NEW: Track which namespaces have been imported for unqualified access
+    std::vector<std::string> importedNamespaces_;
+
+    // NEW: Cache of unqualified name -> list of possible qualified names
+    std::unordered_map<std::string, std::vector<std::string>> unqualifiedNameCache_;
+
+    // NEW: Helper to extract namespace from a qualified name
+    std::string extractNamespace(const std::string& qualifiedName) const;
+
+    // NEW: Rebuild the unqualified name cache after importing a namespace
+    void rebuildUnqualifiedNameCache();
+
 public:
     SymbolTable();
     SymbolTable(const std::string& modName);
@@ -112,6 +124,17 @@ public:
 
     Scope* getCurrentScope() const { return currentScope; }
     Scope* getGlobalScope() const { return globalScope.get(); }
+
+    // NEW: Register a namespace import (from #import directive)
+    // Makes symbols from that namespace accessible without qualification
+    void addNamespaceImport(const std::string& namespacePath);
+
+    // NEW: Check for ambiguity and return all matching symbols
+    // Returns empty vector if no matches, single element if unique, multiple if ambiguous
+    std::vector<Symbol*> resolveAllMatches(const std::string& name);
+
+    // NEW: Get imported namespaces
+    const std::vector<std::string>& getImportedNamespaces() const { return importedNamespaces_; }
 };
 
 } // namespace Semantic

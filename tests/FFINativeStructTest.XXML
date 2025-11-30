@@ -1,0 +1,50 @@
+// Test FFI with NativeStructure + NativeFunction
+// Simple test that calls native Windows APIs
+
+#import Language::Core;
+
+// Define POINT structure (matches Windows POINT)
+[ NativeStructure <POINT> Aligns(4)
+[ Public<>
+    Property <x> Types NativeType<"int32">^;
+    Property <y> Types NativeType<"int32">^;
+]
+]
+
+// Beep - generates a sound (kernel32.dll)
+// Using FFI_ prefix to avoid linker conflicts with system libs
+@NativeFunction(path = "kernel32.dll", name = "Beep", convention = "stdcall")
+Method <FFI_Beep> Returns NativeType<"int32">^ Parameters(
+    Parameter <dwFreq> Types NativeType<"uint32">^,
+    Parameter <dwDuration> Types NativeType<"uint32">^
+);
+
+// Sleep - pauses execution (kernel32.dll)
+@NativeFunction(path = "kernel32.dll", name = "Sleep", convention = "stdcall")
+Method <FFI_Sleep> Returns None Parameters(
+    Parameter <dwMilliseconds> Types NativeType<"uint32">^
+);
+
+// GetTickCount - gets milliseconds since system start (kernel32.dll)
+@NativeFunction(path = "kernel32.dll", name = "GetTickCount", convention = "stdcall")
+Method <FFI_GetTickCount> Returns NativeType<"uint32">^ Parameters();
+
+[ Entrypoint
+{
+    Run Console::printLine(String::Constructor("Testing FFI..."));
+
+    // Make a short beep (440 Hz for 200ms) - A4 note
+    Run Console::printLine(String::Constructor("Playing beep sound..."));
+    Run FFI_Beep(440, 200);
+
+    // Sleep for 100ms
+    Run Console::printLine(String::Constructor("Sleeping for 100ms..."));
+    Run FFI_Sleep(100);
+
+    // Play another beep (higher pitch)
+    Run Console::printLine(String::Constructor("Playing another beep..."));
+    Run FFI_Beep(880, 200);
+
+    Run Console::printLine(String::Constructor("FFI test completed!"));
+}
+]

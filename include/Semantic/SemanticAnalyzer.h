@@ -220,6 +220,35 @@ private:
     std::unordered_map<std::string, AnnotationInfo> annotationRegistry_;  // Annotation name -> info
     std::vector<PendingProcessorCompilation> pendingProcessorCompilations_;  // Annotations with inline processors
 
+    // Enumeration registry
+    struct EnumValueInfo {
+        std::string name;
+        int64_t value;
+    };
+    struct EnumInfo {
+        std::string name;
+        std::string qualifiedName;  // Namespace::EnumName
+        std::vector<EnumValueInfo> values;
+    };
+    std::unordered_map<std::string, EnumInfo> enumRegistry_;  // Qualified enum name -> EnumInfo
+
+    // Callback type registry for FFI callbacks
+    struct CallbackParamInfo {
+        std::string name;
+        std::string typeName;
+        Parser::OwnershipType ownership;
+    };
+    struct CallbackTypeInfo {
+        std::string name;
+        std::string qualifiedName;
+        Parser::CallingConvention convention;
+        std::string returnType;
+        Parser::OwnershipType returnOwnership;
+        std::vector<CallbackParamInfo> parameters;
+        Parser::CallbackTypeDecl* astNode;
+    };
+    std::unordered_map<std::string, CallbackTypeInfo> callbackTypeRegistry_;  // Qualified callback type name -> info
+
     // Annotation validation helpers
     void validateAnnotationUsage(Parser::AnnotationUsage& usage,
                                  Parser::AnnotationTarget targetKind,
@@ -323,6 +352,23 @@ public:
         }
     }
 
+    // Get enum registry (for code generation)
+    const std::unordered_map<std::string, EnumInfo>& getEnumRegistry() const {
+        return enumRegistry_;
+    }
+
+    // Get callback type registry (for code generation)
+    const std::unordered_map<std::string, CallbackTypeInfo>& getCallbackTypeRegistry() const {
+        return callbackTypeRegistry_;
+    }
+
+    // Register callback type from another module
+    void registerCallbackType(const std::string& name, const CallbackTypeInfo& info) {
+        if (callbackTypeRegistry_.find(name) == callbackTypeRegistry_.end()) {
+            callbackTypeRegistry_[name] = info;
+        }
+    }
+
     // Merge pending processor compilations from another module
     void mergePendingProcessorCompilations(const std::vector<PendingProcessorCompilation>& pending) {
         for (const auto& p : pending) {
@@ -355,6 +401,10 @@ public:
     void visit(Parser::ImportDecl& node) override;
     void visit(Parser::NamespaceDecl& node) override;
     void visit(Parser::ClassDecl& node) override;
+    void visit(Parser::NativeStructureDecl& node) override;
+    void visit(Parser::CallbackTypeDecl& node) override;
+    void visit(Parser::EnumValueDecl& node) override;
+    void visit(Parser::EnumerationDecl& node) override;
     void visit(Parser::AccessSection& node) override;
     void visit(Parser::PropertyDecl& node) override;
     void visit(Parser::ConstructorDecl& node) override;

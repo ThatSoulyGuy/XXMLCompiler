@@ -1,0 +1,18 @@
+// Test FFI with Windows MessageBox
+
+// MessageBoxA function from user32.dll
+@NativeFunction(path = "user32.dll", name = "MessageBoxA", convention = "stdcall")
+Method <MessageBoxA> Returns NativeType<"int32">^ Parameters(
+    Parameter <> Types NativeType<"ptr">^,       // hWnd
+    Parameter <> Types NativeType<"ptr">^,       // lpText
+    Parameter <> Types NativeType<"ptr">^,       // lpCaption
+    Parameter <> Types NativeType<"uint32">^     // uType
+);
+
+[ Entrypoint
+{
+    // Call MessageBox with null window handle
+    // MB_OK = 0
+    Run MessageBoxA(0, "Hello from XXML FFI!", "XXML Test", 0);
+}
+]
