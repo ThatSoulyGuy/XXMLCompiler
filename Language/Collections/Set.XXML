@@ -1,142 +1,278 @@
-// XXML Standard Library - Set Class
-// Collection of unique values with fast membership testing
-// Backed by C++ std::set for efficient operations
+// Generic Set<T> - Collection of unique values with fast membership testing
+// Hash-based implementation for O(1) average operations
+// Requires T to implement hash() method
 
-[ Namespace <Language::Collections>
-
-	[ Class <IntegerSet> Final Extends None
+[ Namespace <Collections>
+	[ Class <Set> <T Constrains None> Final Extends None
 
 		[ Private <>
-			// Implementation note: This uses C++ Collections::IntegerSetData
-			// The actual data storage is managed by the C++ runtime
+			// Hash table buckets - array of pointers to bucket arrays
+			Property <buckets> Types NativeType<"ptr">^;
+			// Array storing count of items in each bucket
+			Property <bucketCounts> Types NativeType<"ptr">^;
+			// Array storing capacity of each bucket
+			Property <bucketCapacities> Types NativeType<"ptr">^;
+			// Number of buckets
+			Property <numBuckets> Types NativeType<"int64">^;
+			// Total number of elements
+			Property <count> Types NativeType<"int64">^;
 		]
 
 		[ Public <>
-			// Constructor
-			Constructor = default;
+			Constructor () ->
+			{
+				// Initialize with default number of buckets
+				Instantiate NativeType<"int64">^ As <initialBuckets> = 16;
+				Instantiate NativeType<"int64">^ As <zero> = 0;
 
-			// Core Operations
-			Method <add> Returns Bool^ Parameters (
-				Parameter <value> Types Integer^
-			) Do {
-				// Backed by C++ runtime: Collections::IntegerSetData::add
-				// Returns true if element was added, false if already exists
-				Return Bool::Constructor(false);
+				// Allocate bucket pointer array
+				Instantiate NativeType<"ptr">^ As <bucketsPtr> = Syscall::malloc(initialBuckets * 8);
+				Instantiate NativeType<"ptr">^ As <countsPtr> = Syscall::malloc(initialBuckets * 8);
+				Instantiate NativeType<"ptr">^ As <capsPtr> = Syscall::malloc(initialBuckets * 8);
+
+				// Initialize all buckets to null/0
+				Instantiate NativeType<"int64">^ As <i> = 0;
+				While (i < initialBuckets) -> {
+					Instantiate NativeType<"ptr">^ As <bucketOffset> = bucketsPtr + (i * 8);
+					Instantiate NativeType<"ptr">^ As <countOffset> = countsPtr + (i * 8);
+					Instantiate NativeType<"ptr">^ As <capOffset> = capsPtr + (i * 8);
+
+					Instantiate NativeType<"ptr">^ As <nullPtr> = 0;
+					Run Syscall::ptr_write(bucketOffset, nullPtr);
+					Run Syscall::memcpy(countOffset, &zero, 8);
+					Run Syscall::memcpy(capOffset, &zero, 8);
+
+					Set i = i + 1;
+				}
+
+				Run Syscall::memcpy(&buckets, &bucketsPtr, 8);
+				Run Syscall::memcpy(&bucketCounts, &countsPtr, 8);
+				Run Syscall::memcpy(&bucketCapacities, &capsPtr, 8);
+				Run Syscall::memcpy(&numBuckets, &initialBuckets, 8);
+				Run Syscall::memcpy(&count, &zero, 8);
 			}
 
-			Method <remove> Returns Bool^ Parameters (
-				Parameter <value> Types Integer^
-			) Do {
-				// Backed by C++ runtime: Collections::IntegerSetData::remove
-				// Returns true if element was removed, false if not found
-				Return Bool::Constructor(false);
-			}
+			// Add an element to the set
+			// Returns true if added (not already present), false if already exists
+			Method <add> Returns Bool^ Parameters (Parameter <value> Types T^) Do
+			{
+				// Check if already exists
+				If (this.contains(value).getValue()) -> {
+					Return Bool::Constructor(false);
+				}
 
-			Method <contains> Returns Bool^ Parameters (
-				Parameter <value> Types Integer^
-			) Do {
-				// Backed by C++ runtime: Collections::IntegerSetData::contains
-				Return Bool::Constructor(false);
-			}
+				// Get hash and bucket index
+				Instantiate NativeType<"int64">^ As <hashVal> = value.hash();
+				If (hashVal < 0) -> {
+					Set hashVal = 0 - hashVal;
+				}
+				Instantiate NativeType<"int64">^ As <bucketIdx> = hashVal % numBuckets;
 
-			Method <size> Returns Integer^ Parameters () Do {
-				// Backed by C++ runtime: Collections::IntegerSetData::size
-				Return Integer::Constructor(0);
-			}
+				// Get bucket pointers
+				Instantiate NativeType<"ptr">^ As <bucketPtrOffset> = buckets + (bucketIdx * 8);
+				Instantiate NativeType<"ptr">^ As <countOffset> = bucketCounts + (bucketIdx * 8);
+				Instantiate NativeType<"ptr">^ As <capOffset> = bucketCapacities + (bucketIdx * 8);
 
-			Method <isEmpty> Returns Bool^ Parameters () Do {
-				// Backed by C++ runtime
+				Instantiate NativeType<"ptr">^ As <bucketData> = Syscall::ptr_read(bucketPtrOffset);
+				Instantiate NativeType<"int64">^ As <bucketCount> = 0;
+				Instantiate NativeType<"int64">^ As <bucketCap> = 0;
+				Run Syscall::memcpy(&bucketCount, countOffset, 8);
+				Run Syscall::memcpy(&bucketCap, capOffset, 8);
+
+				// Resize bucket if needed
+				If (bucketCount == bucketCap) -> {
+					Instantiate NativeType<"int64">^ As <newCap> = bucketCap * 2;
+					If (newCap == 0) -> {
+						Set newCap = 4;
+					}
+
+					Instantiate NativeType<"ptr">^ As <newBucketData> = Syscall::malloc(newCap * 8);
+
+					If (bucketData != 0) -> {
+						Run Syscall::memcpy(newBucketData, bucketData, bucketCount * 8);
+						Run Syscall::free(bucketData);
+					}
+
+					Set bucketData = newBucketData;
+					Set bucketCap = newCap;
+					Run Syscall::ptr_write(bucketPtrOffset, bucketData);
+					Run Syscall::memcpy(capOffset, &bucketCap, 8);
+				}
+
+				// Add element to bucket
+				Instantiate NativeType<"ptr">^ As <elemOffset> = bucketData + (bucketCount * 8);
+				Run Syscall::ptr_write(elemOffset, value);
+
+				// Update counts
+				Instantiate NativeType<"int64">^ As <one> = 1;
+				Instantiate NativeType<"int64">^ As <newBucketCount> = bucketCount + one;
+				Run Syscall::memcpy(countOffset, &newBucketCount, 8);
+
+				Instantiate NativeType<"int64">^ As <newCount> = count + one;
+				Run Syscall::memcpy(&count, &newCount, 8);
+
 				Return Bool::Constructor(true);
 			}
 
-			Method <clear> Returns None Parameters () Do {
-				// Backed by C++ runtime: Collections::IntegerSetData::clear
-			}
+			// Check if element exists in the set
+			Method <contains> Returns Bool^ Parameters (Parameter <value> Types T^) Do
+			{
+				// Get hash and bucket index
+				Instantiate NativeType<"int64">^ As <hashVal> = value.hash();
+				If (hashVal < 0) -> {
+					Set hashVal = 0 - hashVal;
+				}
+				Instantiate NativeType<"int64">^ As <bucketIdx> = hashVal % numBuckets;
 
-			// Set Operations (would require additional C++ support)
-			Method <union> Returns IntegerSet^ Parameters (
-				Parameter <other> Types IntegerSet^
-			) Do {
-				// Returns new set with all elements from both sets
-				Return IntegerSet::Constructor();
-			}
+				// Get bucket data
+				Instantiate NativeType<"ptr">^ As <bucketPtrOffset> = buckets + (bucketIdx * 8);
+				Instantiate NativeType<"ptr">^ As <countOffset> = bucketCounts + (bucketIdx * 8);
 
-			Method <intersection> Returns IntegerSet^ Parameters (
-				Parameter <other> Types IntegerSet^
-			) Do {
-				// Returns new set with elements common to both sets
-				Return IntegerSet::Constructor();
-			}
+				Instantiate NativeType<"ptr">^ As <bucketData> = Syscall::ptr_read(bucketPtrOffset);
+				Instantiate NativeType<"int64">^ As <bucketCount> = 0;
+				Run Syscall::memcpy(&bucketCount, countOffset, 8);
 
-			Method <difference> Returns IntegerSet^ Parameters (
-				Parameter <other> Types IntegerSet^
-			) Do {
-				// Returns new set with elements in this set but not in other
-				Return IntegerSet::Constructor();
-			}
-		]
-	]
+				// Empty bucket
+				If (bucketData == 0) -> {
+					Return Bool::Constructor(false);
+				}
 
-	[ Class <StringSet> Final Extends None
+				// Search in bucket
+				Instantiate NativeType<"int64">^ As <i> = 0;
+				While (i < bucketCount) -> {
+					Instantiate NativeType<"ptr">^ As <elemOffset> = bucketData + (i * 8);
+					Instantiate T^ As <elem> = Syscall::ptr_read(elemOffset);
 
-		[ Private <>
-			// Implementation note: This uses C++ Collections::StringSetData
-		]
+					// Use equals method for comparison
+					If (elem.equals(value).getValue()) -> {
+						Return Bool::Constructor(true);
+					}
 
-		[ Public <>
-			Constructor = default;
+					Set i = i + 1;
+				}
 
-			Method <add> Returns Bool^ Parameters (
-				Parameter <value> Types String^
-			) Do {
-				// Backed by C++ runtime
 				Return Bool::Constructor(false);
 			}
 
-			Method <remove> Returns Bool^ Parameters (
-				Parameter <value> Types String^
-			) Do {
-				// Backed by C++ runtime
+			// Remove an element from the set
+			// Returns true if removed, false if not found
+			Method <remove> Returns Bool^ Parameters (Parameter <value> Types T^) Do
+			{
+				// Get hash and bucket index
+				Instantiate NativeType<"int64">^ As <hashVal> = value.hash();
+				If (hashVal < 0) -> {
+					Set hashVal = 0 - hashVal;
+				}
+				Instantiate NativeType<"int64">^ As <bucketIdx> = hashVal % numBuckets;
+
+				// Get bucket data
+				Instantiate NativeType<"ptr">^ As <bucketPtrOffset> = buckets + (bucketIdx * 8);
+				Instantiate NativeType<"ptr">^ As <countOffset> = bucketCounts + (bucketIdx * 8);
+
+				Instantiate NativeType<"ptr">^ As <bucketData> = Syscall::ptr_read(bucketPtrOffset);
+				Instantiate NativeType<"int64">^ As <bucketCount> = 0;
+				Run Syscall::memcpy(&bucketCount, countOffset, 8);
+
+				// Empty bucket
+				If (bucketData == 0) -> {
+					Return Bool::Constructor(false);
+				}
+
+				// Search and remove
+				Instantiate NativeType<"int64">^ As <i> = 0;
+				While (i < bucketCount) -> {
+					Instantiate NativeType<"ptr">^ As <elemOffset> = bucketData + (i * 8);
+					Instantiate T^ As <elem> = Syscall::ptr_read(elemOffset);
+
+					If (elem.equals(value).getValue()) -> {
+						// Found - shift remaining elements
+						Instantiate NativeType<"int64">^ As <j> = i;
+						Instantiate NativeType<"int64">^ As <one> = 1;
+						Instantiate NativeType<"int64">^ As <lastIdx> = bucketCount - one;
+
+						While (j < lastIdx) -> {
+							Instantiate NativeType<"ptr">^ As <destOffset> = bucketData + (j * 8);
+							Instantiate NativeType<"int64">^ As <nextJ> = j + one;
+							Instantiate NativeType<"ptr">^ As <srcOffset> = bucketData + (nextJ * 8);
+							Instantiate T^ As <nextElem> = Syscall::ptr_read(srcOffset);
+							Run Syscall::ptr_write(destOffset, nextElem);
+							Set j = nextJ;
+						}
+
+						// Update counts
+						Instantiate NativeType<"int64">^ As <newBucketCount> = bucketCount - one;
+						Run Syscall::memcpy(countOffset, &newBucketCount, 8);
+
+						Instantiate NativeType<"int64">^ As <newCount> = count - one;
+						Run Syscall::memcpy(&count, &newCount, 8);
+
+						Return Bool::Constructor(true);
+					}
+
+					Set i = i + 1;
+				}
+
 				Return Bool::Constructor(false);
 			}
 
-			Method <contains> Returns Bool^ Parameters (
-				Parameter <value> Types String^
-			) Do {
-				// Backed by C++ runtime
-				Return Bool::Constructor(false);
+			// Get set size
+			Method <size> Returns Integer^ Parameters () Do
+			{
+				Return Integer::Constructor(count);
 			}
 
-			Method <size> Returns Integer^ Parameters () Do {
-				// Backed by C++ runtime
-				Return Integer::Constructor(0);
+			// Check if set is empty
+			Method <isEmpty> Returns Bool^ Parameters () Do
+			{
+				Return Bool::Constructor(count == 0);
 			}
 
-			Method <isEmpty> Returns Bool^ Parameters () Do {
-				// Backed by C++ runtime
-				Return Bool::Constructor(true);
+			// Clear the set
+			Method <clear> Returns None Parameters () Do
+			{
+				// Reset all bucket counts
+				Instantiate NativeType<"int64">^ As <i> = 0;
+				Instantiate NativeType<"int64">^ As <zero> = 0;
+				While (i < numBuckets) -> {
+					Instantiate NativeType<"ptr">^ As <countOffset> = bucketCounts + (i * 8);
+					Run Syscall::memcpy(countOffset, &zero, 8);
+					Set i = i + 1;
+				}
+				Run Syscall::memcpy(&count, &zero, 8);
 			}
 
-			Method <clear> Returns None Parameters () Do {
-				// Backed by C++ runtime
-			}
+			// Free the set memory
+			Method <dispose> Returns None Parameters () Do
+			{
+				// Free each bucket
+				Instantiate NativeType<"int64">^ As <i> = 0;
+				While (i < numBuckets) -> {
+					Instantiate NativeType<"ptr">^ As <bucketPtrOffset> = buckets + (i * 8);
+					Instantiate NativeType<"ptr">^ As <bucketData> = Syscall::ptr_read(bucketPtrOffset);
+					If (bucketData != 0) -> {
+						Run Syscall::free(bucketData);
+					}
+					Set i = i + 1;
+				}
 
-			Method <union> Returns StringSet^ Parameters (
-				Parameter <other> Types StringSet^
-			) Do {
-				Return StringSet::Constructor();
-			}
+				// Free bucket arrays
+				If (buckets != 0) -> {
+					Run Syscall::free(buckets);
+				}
+				If (bucketCounts != 0) -> {
+					Run Syscall::free(bucketCounts);
+				}
+				If (bucketCapacities != 0) -> {
+					Run Syscall::free(bucketCapacities);
+				}
 
-			Method <intersection> Returns StringSet^ Parameters (
-				Parameter <other> Types StringSet^
-			) Do {
-				Return StringSet::Constructor();
-			}
-
-			Method <difference> Returns StringSet^ Parameters (
-				Parameter <other> Types StringSet^
-			) Do {
-				Return StringSet::Constructor();
+				Instantiate NativeType<"ptr">^ As <nullPtr> = 0;
+				Instantiate NativeType<"int64">^ As <zero> = 0;
+				Run Syscall::memcpy(&buckets, &nullPtr, 8);
+				Run Syscall::memcpy(&bucketCounts, &nullPtr, 8);
+				Run Syscall::memcpy(&bucketCapacities, &nullPtr, 8);
+				Run Syscall::memcpy(&numBuckets, &zero, 8);
+				Run Syscall::memcpy(&count, &zero, 8);
 			}
 		]
 	]

@@ -1,439 +1,371 @@
-// Pure XXML HashMap - Working Implementation
+// Generic HashMap<K, V> - Key-Value mapping with O(1) average operations
 // Hash table with separate chaining for collision resolution
-// Each bucket is a linked list of nodes
+// Requires K to implement hash() and equals() methods
 
 [ Namespace <Collections>
-	[ Class <HashMap> Final Extends None
+	[ Class <HashMap> <K Constrains None, V Constrains None> Final Extends None
 		[ Private <>
-			Property <bucketsPtr> Types NativeType<"ptr">^;
-			Property <capacity> Types NativeType<"int64">^;
+			// Array of bucket pointers (each bucket stores arrays of key-value pairs)
+			Property <buckets> Types NativeType<"ptr">^;
+			// Array storing keys for each bucket
+			Property <bucketKeys> Types NativeType<"ptr">^;
+			// Array storing values for each bucket
+			Property <bucketValues> Types NativeType<"ptr">^;
+			// Array storing count of items in each bucket
+			Property <bucketCounts> Types NativeType<"ptr">^;
+			// Array storing capacity of each bucket
+			Property <bucketCapacities> Types NativeType<"ptr">^;
+			// Number of buckets
+			Property <numBuckets> Types NativeType<"int64">^;
+			// Total number of elements
 			Property <count> Types NativeType<"int64">^;
 		]
 
 		[ Public <>
-			Constructor = default;
-
-			// Initialize hash map
-			Method <init> Returns None Parameters () Do {
-				Instantiate NativeType<"int64">^ As <initialCap> = 16;
-				Instantiate NativeType<"int64">^ As <size> = initialCap * 8;
-				Instantiate NativeType<"ptr">^ As <ptr> = Syscall::malloc(size);
-
-				// Zero out buckets
-				Run Syscall::memset(ptr, 0, size);
-
-				Run Syscall::memcpy(&bucketsPtr, &ptr, 8);
-				Run Syscall::memcpy(&capacity, &initialCap, 8);
-
+			Constructor () ->
+			{
+				// Initialize with default number of buckets
+				Instantiate NativeType<"int64">^ As <initialBuckets> = 16;
 				Instantiate NativeType<"int64">^ As <zero> = 0;
+
+				// Allocate bucket arrays
+				Instantiate NativeType<"ptr">^ As <keysPtr> = Syscall::malloc(initialBuckets * 8);
+				Instantiate NativeType<"ptr">^ As <valuesPtr> = Syscall::malloc(initialBuckets * 8);
+				Instantiate NativeType<"ptr">^ As <countsPtr> = Syscall::malloc(initialBuckets * 8);
+				Instantiate NativeType<"ptr">^ As <capsPtr> = Syscall::malloc(initialBuckets * 8);
+
+				// Initialize all buckets to null/0
+				Instantiate NativeType<"int64">^ As <i> = 0;
+				While (i < initialBuckets) -> {
+					Instantiate NativeType<"ptr">^ As <keyOffset> = keysPtr + (i * 8);
+					Instantiate NativeType<"ptr">^ As <valueOffset> = valuesPtr + (i * 8);
+					Instantiate NativeType<"ptr">^ As <countOffset> = countsPtr + (i * 8);
+					Instantiate NativeType<"ptr">^ As <capOffset> = capsPtr + (i * 8);
+
+					Instantiate NativeType<"ptr">^ As <nullPtr> = 0;
+					Run Syscall::ptr_write(keyOffset, nullPtr);
+					Run Syscall::ptr_write(valueOffset, nullPtr);
+					Run Syscall::memcpy(countOffset, &zero, 8);
+					Run Syscall::memcpy(capOffset, &zero, 8);
+
+					Set i = i + 1;
+				}
+
+				Run Syscall::memcpy(&bucketKeys, &keysPtr, 8);
+				Run Syscall::memcpy(&bucketValues, &valuesPtr, 8);
+				Run Syscall::memcpy(&bucketCounts, &countsPtr, 8);
+				Run Syscall::memcpy(&bucketCapacities, &capsPtr, 8);
+				Run Syscall::memcpy(&numBuckets, &initialBuckets, 8);
 				Run Syscall::memcpy(&count, &zero, 8);
 			}
 
-			// Put key-value pair
+			// Put a key-value pair
 			Method <put> Returns None Parameters (
-				Parameter <key> Types String^,
-				Parameter <value> Types String^
-			) Do {
-				Instantiate NativeType<"int64">^ As <currentCap> = capacity;
-				Instantiate NativeType<"int64">^ As <hashVal> = hashString(key);
-				Instantiate NativeType<"int64">^ As <bucketIndex> = hashVal % currentCap;
-
-				// Get bucket pointer
-				Instantiate NativeType<"ptr">^ As <currentBucketsPtr> = bucketsPtr;
-				Instantiate NativeType<"int64">^ As <offset> = bucketIndex * 8;
-				Instantiate NativeType<"ptr">^ As <bucketPos> = currentBucketsPtr + offset;
-				Instantiate NativeType<"ptr">^ As <headPtr> = Syscall::ptr_read(bucketPos);
-
-				If (headPtr == 0) -> {
-					// Empty bucket - create first node
-					Run createNode(bucketPos, key, value);
-
-					Instantiate NativeType<"int64">^ As <currentCount> = count;
-					Instantiate NativeType<"int64">^ As <newCount> = currentCount + 1;
-					Run Syscall::memcpy(&count, &newCount, 8);
-				} Else -> {
-					// Search chain for key
-					Run putInChain(headPtr, bucketPos, key, value);
+				Parameter <key> Types K^,
+				Parameter <value> Types V^
+			) Do
+			{
+				// Get hash and bucket index
+				Instantiate NativeType<"int64">^ As <hashVal> = key.hash();
+				If (hashVal < 0) -> {
+					Set hashVal = 0 - hashVal;
 				}
+				Instantiate NativeType<"int64">^ As <bucketIdx> = hashVal % numBuckets;
+
+				// Get bucket arrays
+				Instantiate NativeType<"ptr">^ As <keyPtrOffset> = bucketKeys + (bucketIdx * 8);
+				Instantiate NativeType<"ptr">^ As <valuePtrOffset> = bucketValues + (bucketIdx * 8);
+				Instantiate NativeType<"ptr">^ As <countOffset> = bucketCounts + (bucketIdx * 8);
+				Instantiate NativeType<"ptr">^ As <capOffset> = bucketCapacities + (bucketIdx * 8);
+
+				Instantiate NativeType<"ptr">^ As <keyData> = Syscall::ptr_read(keyPtrOffset);
+				Instantiate NativeType<"ptr">^ As <valueData> = Syscall::ptr_read(valuePtrOffset);
+				Instantiate NativeType<"int64">^ As <bucketCount> = 0;
+				Instantiate NativeType<"int64">^ As <bucketCap> = 0;
+				Run Syscall::memcpy(&bucketCount, countOffset, 8);
+				Run Syscall::memcpy(&bucketCap, capOffset, 8);
+
+				// Search for existing key
+				Instantiate NativeType<"int64">^ As <i> = 0;
+				While (i < bucketCount) -> {
+					Instantiate NativeType<"ptr">^ As <keyElemOffset> = keyData + (i * 8);
+					Instantiate K^ As <existingKey> = Syscall::ptr_read(keyElemOffset);
+
+					If (existingKey.equals(key).getValue()) -> {
+						// Key exists - update value
+						Instantiate NativeType<"ptr">^ As <valueElemOffset> = valueData + (i * 8);
+						Run Syscall::ptr_write(valueElemOffset, value);
+						Return None::Constructor();
+					}
+
+					Set i = i + 1;
+				}
+
+				// Key not found - add new entry
+				// Resize bucket if needed
+				If (bucketCount == bucketCap) -> {
+					Instantiate NativeType<"int64">^ As <newCap> = bucketCap * 2;
+					If (newCap == 0) -> {
+						Set newCap = 4;
+					}
+
+					Instantiate NativeType<"ptr">^ As <newKeyData> = Syscall::malloc(newCap * 8);
+					Instantiate NativeType<"ptr">^ As <newValueData> = Syscall::malloc(newCap * 8);
+
+					If (keyData != 0) -> {
+						Run Syscall::memcpy(newKeyData, keyData, bucketCount * 8);
+						Run Syscall::memcpy(newValueData, valueData, bucketCount * 8);
+						Run Syscall::free(keyData);
+						Run Syscall::free(valueData);
+					}
+
+					Set keyData = newKeyData;
+					Set valueData = newValueData;
+					Set bucketCap = newCap;
+					Run Syscall::ptr_write(keyPtrOffset, keyData);
+					Run Syscall::ptr_write(valuePtrOffset, valueData);
+					Run Syscall::memcpy(capOffset, &bucketCap, 8);
+				}
+
+				// Add new entry
+				Instantiate NativeType<"ptr">^ As <keyElemOffset> = keyData + (bucketCount * 8);
+				Instantiate NativeType<"ptr">^ As <valueElemOffset> = valueData + (bucketCount * 8);
+				Run Syscall::ptr_write(keyElemOffset, key);
+				Run Syscall::ptr_write(valueElemOffset, value);
+
+				// Update counts
+				Instantiate NativeType<"int64">^ As <one> = 1;
+				Instantiate NativeType<"int64">^ As <newBucketCount> = bucketCount + one;
+				Run Syscall::memcpy(countOffset, &newBucketCount, 8);
+
+				Instantiate NativeType<"int64">^ As <newCount> = count + one;
+				Run Syscall::memcpy(&count, &newCount, 8);
 			}
 
-			// Get value by key
-			Method <get> Returns String^ Parameters (Parameter <key> Types String^) Do {
-				Instantiate NativeType<"int64">^ As <currentCap> = capacity;
-				Instantiate NativeType<"int64">^ As <hashVal> = hashString(key);
-				Instantiate NativeType<"int64">^ As <bucketIndex> = hashVal % currentCap;
-
-				// Get bucket pointer
-				Instantiate NativeType<"ptr">^ As <currentBucketsPtr> = bucketsPtr;
-				Instantiate NativeType<"int64">^ As <offset> = bucketIndex * 8;
-				Instantiate NativeType<"ptr">^ As <bucketPos> = currentBucketsPtr + offset;
-				Instantiate NativeType<"ptr">^ As <headPtr> = Syscall::ptr_read(bucketPos);
-
-				If (headPtr == 0) -> {
-					Return String::Constructor("");
-				} Else -> {
-					Return findValueInChain(headPtr, key);
+			// Get value by key, returns null if not found
+			Method <get> Returns V^ Parameters (Parameter <key> Types K^) Do
+			{
+				// Get hash and bucket index
+				Instantiate NativeType<"int64">^ As <hashVal> = key.hash();
+				If (hashVal < 0) -> {
+					Set hashVal = 0 - hashVal;
 				}
+				Instantiate NativeType<"int64">^ As <bucketIdx> = hashVal % numBuckets;
+
+				// Get bucket arrays
+				Instantiate NativeType<"ptr">^ As <keyPtrOffset> = bucketKeys + (bucketIdx * 8);
+				Instantiate NativeType<"ptr">^ As <valuePtrOffset> = bucketValues + (bucketIdx * 8);
+				Instantiate NativeType<"ptr">^ As <countOffset> = bucketCounts + (bucketIdx * 8);
+
+				Instantiate NativeType<"ptr">^ As <keyData> = Syscall::ptr_read(keyPtrOffset);
+				Instantiate NativeType<"ptr">^ As <valueData> = Syscall::ptr_read(valuePtrOffset);
+				Instantiate NativeType<"int64">^ As <bucketCount> = 0;
+				Run Syscall::memcpy(&bucketCount, countOffset, 8);
+
+				// Empty bucket
+				If (keyData == 0) -> {
+					Instantiate NativeType<"ptr">^ As <nullPtr> = 0;
+					Return Syscall::ptr_read(nullPtr);
+				}
+
+				// Search for key
+				Instantiate NativeType<"int64">^ As <i> = 0;
+				While (i < bucketCount) -> {
+					Instantiate NativeType<"ptr">^ As <keyElemOffset> = keyData + (i * 8);
+					Instantiate K^ As <existingKey> = Syscall::ptr_read(keyElemOffset);
+
+					If (existingKey.equals(key).getValue()) -> {
+						// Found - return value
+						Instantiate NativeType<"ptr">^ As <valueElemOffset> = valueData + (i * 8);
+						Return Syscall::ptr_read(valueElemOffset);
+					}
+
+					Set i = i + 1;
+				}
+
+				// Not found
+				Instantiate NativeType<"ptr">^ As <nullPtr> = 0;
+				Return Syscall::ptr_read(nullPtr);
 			}
 
 			// Check if key exists
-			Method <containsKey> Returns Bool^ Parameters (Parameter <key> Types String^) Do {
-				Instantiate String^ As <result> = get(key);
-				Instantiate Integer^ As <lenInt> = result.length();
-				Instantiate NativeType<"int64">^ As <len> = lenInt.toInt64();
-
-				If (len == 0) -> {
-					Return Bool::Constructor(false);
-				} Else -> {
-					Return Bool::Constructor(true);
+			Method <containsKey> Returns Bool^ Parameters (Parameter <key> Types K^) Do
+			{
+				// Get hash and bucket index
+				Instantiate NativeType<"int64">^ As <hashVal> = key.hash();
+				If (hashVal < 0) -> {
+					Set hashVal = 0 - hashVal;
 				}
+				Instantiate NativeType<"int64">^ As <bucketIdx> = hashVal % numBuckets;
+
+				// Get bucket arrays
+				Instantiate NativeType<"ptr">^ As <keyPtrOffset> = bucketKeys + (bucketIdx * 8);
+				Instantiate NativeType<"ptr">^ As <countOffset> = bucketCounts + (bucketIdx * 8);
+
+				Instantiate NativeType<"ptr">^ As <keyData> = Syscall::ptr_read(keyPtrOffset);
+				Instantiate NativeType<"int64">^ As <bucketCount> = 0;
+				Run Syscall::memcpy(&bucketCount, countOffset, 8);
+
+				// Empty bucket
+				If (keyData == 0) -> {
+					Return Bool::Constructor(false);
+				}
+
+				// Search for key
+				Instantiate NativeType<"int64">^ As <i> = 0;
+				While (i < bucketCount) -> {
+					Instantiate NativeType<"ptr">^ As <keyElemOffset> = keyData + (i * 8);
+					Instantiate K^ As <existingKey> = Syscall::ptr_read(keyElemOffset);
+
+					If (existingKey.equals(key).getValue()) -> {
+						Return Bool::Constructor(true);
+					}
+
+					Set i = i + 1;
+				}
+
+				Return Bool::Constructor(false);
+			}
+
+			// Remove a key-value pair
+			Method <remove> Returns Bool^ Parameters (Parameter <key> Types K^) Do
+			{
+				// Get hash and bucket index
+				Instantiate NativeType<"int64">^ As <hashVal> = key.hash();
+				If (hashVal < 0) -> {
+					Set hashVal = 0 - hashVal;
+				}
+				Instantiate NativeType<"int64">^ As <bucketIdx> = hashVal % numBuckets;
+
+				// Get bucket arrays
+				Instantiate NativeType<"ptr">^ As <keyPtrOffset> = bucketKeys + (bucketIdx * 8);
+				Instantiate NativeType<"ptr">^ As <valuePtrOffset> = bucketValues + (bucketIdx * 8);
+				Instantiate NativeType<"ptr">^ As <countOffset> = bucketCounts + (bucketIdx * 8);
+
+				Instantiate NativeType<"ptr">^ As <keyData> = Syscall::ptr_read(keyPtrOffset);
+				Instantiate NativeType<"ptr">^ As <valueData> = Syscall::ptr_read(valuePtrOffset);
+				Instantiate NativeType<"int64">^ As <bucketCount> = 0;
+				Run Syscall::memcpy(&bucketCount, countOffset, 8);
+
+				// Empty bucket
+				If (keyData == 0) -> {
+					Return Bool::Constructor(false);
+				}
+
+				// Search for key
+				Instantiate NativeType<"int64">^ As <i> = 0;
+				While (i < bucketCount) -> {
+					Instantiate NativeType<"ptr">^ As <keyElemOffset> = keyData + (i * 8);
+					Instantiate K^ As <existingKey> = Syscall::ptr_read(keyElemOffset);
+
+					If (existingKey.equals(key).getValue()) -> {
+						// Found - shift remaining elements
+						Instantiate NativeType<"int64">^ As <j> = i;
+						Instantiate NativeType<"int64">^ As <one> = 1;
+						Instantiate NativeType<"int64">^ As <lastIdx> = bucketCount - one;
+
+						While (j < lastIdx) -> {
+							Instantiate NativeType<"int64">^ As <nextJ> = j + one;
+
+							Instantiate NativeType<"ptr">^ As <destKeyOffset> = keyData + (j * 8);
+							Instantiate NativeType<"ptr">^ As <srcKeyOffset> = keyData + (nextJ * 8);
+							Instantiate K^ As <nextKey> = Syscall::ptr_read(srcKeyOffset);
+							Run Syscall::ptr_write(destKeyOffset, nextKey);
+
+							Instantiate NativeType<"ptr">^ As <destValueOffset> = valueData + (j * 8);
+							Instantiate NativeType<"ptr">^ As <srcValueOffset> = valueData + (nextJ * 8);
+							Instantiate V^ As <nextValue> = Syscall::ptr_read(srcValueOffset);
+							Run Syscall::ptr_write(destValueOffset, nextValue);
+
+							Set j = nextJ;
+						}
+
+						// Update counts
+						Instantiate NativeType<"int64">^ As <newBucketCount> = bucketCount - one;
+						Run Syscall::memcpy(countOffset, &newBucketCount, 8);
+
+						Instantiate NativeType<"int64">^ As <newCount> = count - one;
+						Run Syscall::memcpy(&count, &newCount, 8);
+
+						Return Bool::Constructor(true);
+					}
+
+					Set i = i + 1;
+				}
+
+				Return Bool::Constructor(false);
 			}
 
 			// Get size
-			Method <size> Returns Integer^ Parameters () Do {
-				Instantiate NativeType<"int64">^ As <currentCount> = count;
-				Return Integer::Constructor(currentCount);
+			Method <size> Returns Integer^ Parameters () Do
+			{
+				Return Integer::Constructor(count);
 			}
 
 			// Check if empty
-			Method <isEmpty> Returns Bool^ Parameters () Do {
-				Instantiate NativeType<"int64">^ As <currentCount> = count;
-				If (currentCount == 0) -> {
-					Return Bool::Constructor(true);
-				} Else -> {
-					Return Bool::Constructor(false);
-				}
+			Method <isEmpty> Returns Bool^ Parameters () Do
+			{
+				Return Bool::Constructor(count == 0);
 			}
 
-			// Print all key-value pairs
-			Method <print> Returns None Parameters () Do {
-				Run System::Console::printLine(String::Constructor("{"));
-				Run printBuckets(Integer::Constructor(0));
-				Run System::Console::printLine(String::Constructor("}"));
-			}
-
-			// Dispose (free all memory)
-			Method <dispose> Returns None Parameters () Do {
-				Run disposeBuckets(Integer::Constructor(0));
-
-				Instantiate NativeType<"ptr">^ As <currentBucketsPtr> = bucketsPtr;
-
-				If (currentBucketsPtr != 0) -> {
-					Run Syscall::free(currentBucketsPtr);
-
-					Instantiate NativeType<"ptr">^ As <zero> = 0;
-					Run Syscall::memcpy(&bucketsPtr, &zero, 8);
-				}
-			}
-		]
-
-		[ Private <>
-			// Hash a string (simple hash function)
-			Method <hashString> Returns NativeType<"int64"> Parameters (Parameter <str> Types String^) Do {
-				Instantiate Integer^ As <lenInt> = str.length();
-				Instantiate NativeType<"int64">^ As <len> = lenInt.toInt64();
-				Return hashHelper(str, Integer::Constructor(0), Integer::Constructor(5381), Integer::Constructor(len));
-			}
-
-			// Recursive hash helper (djb2 algorithm)
-			Method <hashHelper> Returns NativeType<"int64"> Parameters (
-				Parameter <str> Types String^,
-				Parameter <index> Types Integer&,
-				Parameter <hash> Types Integer^,
-				Parameter <len> Types Integer^
-			) Do {
-				Instantiate NativeType<"int64">^ As <idx> = index;
-				Instantiate NativeType<"int64">^ As <length> = len.toInt64();
-
-				If (idx >= length) -> {
-					Instantiate NativeType<"int64">^ As <result> = hash.toInt64();
-
-					// Make positive
-					If (result < 0) -> {
-						Instantiate NativeType<"int64">^ As <negOne> = 0 - 1;
-						Return result * negOne;
-					} Else -> {
-						Return result;
-					}
-				}
-
-				// Get character at index
-				Instantiate String^ As <charStr> = str.charAt(index);
-				Instantiate NativeType<"ptr">^ As <charCStr> = charStr.toCString();
-				Instantiate NativeType<"int64">^ As <charVal> = Syscall::read_byte(charCStr);
-
-				// hash = hash * 33 + c
-				Instantiate NativeType<"int64">^ As <currentHash> = hash.toInt64();
-				Instantiate NativeType<"int64">^ As <newHash> = (currentHash * 33) + charVal;
-
-				Instantiate Integer^ As <nextIndex> = index.add(Integer::Constructor(1));
-				Return hashHelper(str, nextIndex, Integer::Constructor(newHash), len);
-			}
-
-			// Create new node in empty bucket
-			// Node layout: [keyPtr (8)][valuePtr (8)][nextPtr (8)] = 24 bytes
-			Method <createNode> Returns None Parameters (
-				Parameter <bucketPos> Types NativeType<"ptr">,
-				Parameter <key> Types String^,
-				Parameter <value> Types String^
-			) Do {
-				// Allocate node
-				Instantiate NativeType<"int64">^ As <nodeSize> = 24;
-				Instantiate NativeType<"ptr">^ As <nodePtr> = Syscall::malloc(nodeSize);
-
-				// Copy key string
-				Instantiate Integer^ As <keyLenInt> = key.length();
-				Instantiate NativeType<"int64">^ As <keyLen> = keyLenInt.toInt64();
-				Instantiate NativeType<"int64">^ As <keyAllocSize> = keyLen + 1;
-				Instantiate NativeType<"ptr">^ As <keyCopy> = Syscall::malloc(keyAllocSize);
-				Instantiate NativeType<"ptr">^ As <keySrc> = key.toCString();
-				Run Syscall::memcpy(keyCopy, keySrc, keyLen);
-				Instantiate NativeType<"ptr">^ As <keyNullPos> = keyCopy + keyLen;
+			// Clear the map
+			Method <clear> Returns None Parameters () Do
+			{
+				// Reset all bucket counts
+				Instantiate NativeType<"int64">^ As <i> = 0;
 				Instantiate NativeType<"int64">^ As <zero> = 0;
-				Run Syscall::ptr_write(keyNullPos, zero);
-
-				// Copy value string
-				Instantiate Integer^ As <valueLenInt> = value.length();
-				Instantiate NativeType<"int64">^ As <valueLen> = valueLenInt.toInt64();
-				Instantiate NativeType<"int64">^ As <valueAllocSize> = valueLen + 1;
-				Instantiate NativeType<"ptr">^ As <valueCopy> = Syscall::malloc(valueAllocSize);
-				Instantiate NativeType<"ptr">^ As <valueSrc> = value.toCString();
-				Run Syscall::memcpy(valueCopy, valueSrc, valueLen);
-				Instantiate NativeType<"ptr">^ As <valueNullPos> = valueCopy + valueLen;
-				Run Syscall::ptr_write(valueNullPos, zero);
-
-				// Write node: [keyPtr][valuePtr][nextPtr=0]
-				Run Syscall::ptr_write(nodePtr, keyCopy);
-				Instantiate NativeType<"ptr">^ As <valuePos> = nodePtr + 8;
-				Run Syscall::ptr_write(valuePos, valueCopy);
-				Instantiate NativeType<"ptr">^ As <nextPos> = nodePtr + 16;
-				Run Syscall::ptr_write(nextPos, zero);
-
-				// Update bucket pointer
-				Run Syscall::ptr_write(bucketPos, nodePtr);
-			}
-
-			// Put in chain (update existing or append new)
-			Method <putInChain> Returns None Parameters (
-				Parameter <nodePtr> Types NativeType<"ptr">,
-				Parameter <bucketPos> Types NativeType<"ptr">,
-				Parameter <key> Types String^,
-				Parameter <value> Types String^
-			) Do {
-				// Read node key
-				Instantiate NativeType<"ptr">^ As <keyPtr> = Syscall::ptr_read(nodePtr);
-				Instantiate String^ As <nodeKey> = String::FromCString(keyPtr);
-
-				If (nodeKey == key) -> {
-					// Found - update value
-					// Free old value
-					Instantiate NativeType<"ptr">^ As <valuePos> = nodePtr + 8;
-					Instantiate NativeType<"ptr">^ As <oldValuePtr> = Syscall::ptr_read(valuePos);
-					Run Syscall::free(oldValuePtr);
-
-					// Copy new value
-					Instantiate Integer^ As <valueLenInt> = value.length();
-					Instantiate NativeType<"int64">^ As <valueLen> = valueLenInt.toInt64();
-					Instantiate NativeType<"int64">^ As <valueAllocSize> = valueLen + 1;
-					Instantiate NativeType<"ptr">^ As <valueCopy> = Syscall::malloc(valueAllocSize);
-					Instantiate NativeType<"ptr">^ As <valueSrc> = value.toCString();
-					Run Syscall::memcpy(valueCopy, valueSrc, valueLen);
-					Instantiate NativeType<"ptr">^ As <valueNullPos> = valueCopy + valueLen;
-					Instantiate NativeType<"int64">^ As <zero> = 0;
-					Run Syscall::ptr_write(valueNullPos, zero);
-
-					// Update node value pointer
-					Run Syscall::ptr_write(valuePos, valueCopy);
-				} Else -> {
-					// Not found - check next
-					Instantiate NativeType<"ptr">^ As <nextPos> = nodePtr + 16;
-					Instantiate NativeType<"ptr">^ As <nextPtr> = Syscall::ptr_read(nextPos);
-
-					If (nextPtr == 0) -> {
-						// End of chain - create new node
-						Run createNodeInChain(nextPos, key, value);
-
-						Instantiate NativeType<"int64">^ As <currentCount> = count;
-						Instantiate NativeType<"int64">^ As <newCount> = currentCount + 1;
-						Run Syscall::memcpy(&count, &newCount, 8);
-					} Else -> {
-						// Continue searching
-						Run putInChain(nextPtr, bucketPos, key, value);
-					}
+				While (i < numBuckets) -> {
+					Instantiate NativeType<"ptr">^ As <countOffset> = bucketCounts + (i * 8);
+					Run Syscall::memcpy(countOffset, &zero, 8);
+					Set i = i + 1;
 				}
+				Run Syscall::memcpy(&count, &zero, 8);
 			}
 
-			// Create node at end of chain
-			Method <createNodeInChain> Returns None Parameters (
-				Parameter <nextPos> Types NativeType<"ptr">,
-				Parameter <key> Types String^,
-				Parameter <value> Types String^
-			) Do {
-				// Allocate node
-				Instantiate NativeType<"int64">^ As <nodeSize> = 24;
-				Instantiate NativeType<"ptr">^ As <nodePtr> = Syscall::malloc(nodeSize);
+			// Free the map memory
+			Method <dispose> Returns None Parameters () Do
+			{
+				// Free each bucket's key and value arrays
+				Instantiate NativeType<"int64">^ As <i> = 0;
+				While (i < numBuckets) -> {
+					Instantiate NativeType<"ptr">^ As <keyPtrOffset> = bucketKeys + (i * 8);
+					Instantiate NativeType<"ptr">^ As <valuePtrOffset> = bucketValues + (i * 8);
 
-				// Copy key string
-				Instantiate Integer^ As <keyLenInt> = key.length();
-				Instantiate NativeType<"int64">^ As <keyLen> = keyLenInt.toInt64();
-				Instantiate NativeType<"int64">^ As <keyAllocSize> = keyLen + 1;
-				Instantiate NativeType<"ptr">^ As <keyCopy> = Syscall::malloc(keyAllocSize);
-				Instantiate NativeType<"ptr">^ As <keySrc> = key.toCString();
-				Run Syscall::memcpy(keyCopy, keySrc, keyLen);
-				Instantiate NativeType<"ptr">^ As <keyNullPos> = keyCopy + keyLen;
+					Instantiate NativeType<"ptr">^ As <keyData> = Syscall::ptr_read(keyPtrOffset);
+					Instantiate NativeType<"ptr">^ As <valueData> = Syscall::ptr_read(valuePtrOffset);
+
+					If (keyData != 0) -> {
+						Run Syscall::free(keyData);
+					}
+					If (valueData != 0) -> {
+						Run Syscall::free(valueData);
+					}
+
+					Set i = i + 1;
+				}
+
+				// Free bucket arrays
+				If (bucketKeys != 0) -> {
+					Run Syscall::free(bucketKeys);
+				}
+				If (bucketValues != 0) -> {
+					Run Syscall::free(bucketValues);
+				}
+				If (bucketCounts != 0) -> {
+					Run Syscall::free(bucketCounts);
+				}
+				If (bucketCapacities != 0) -> {
+					Run Syscall::free(bucketCapacities);
+				}
+
+				Instantiate NativeType<"ptr">^ As <nullPtr> = 0;
 				Instantiate NativeType<"int64">^ As <zero> = 0;
-				Run Syscall::ptr_write(keyNullPos, zero);
-
-				// Copy value string
-				Instantiate Integer^ As <valueLenInt> = value.length();
-				Instantiate NativeType<"int64">^ As <valueLen> = valueLenInt.toInt64();
-				Instantiate NativeType<"int64">^ As <valueAllocSize> = valueLen + 1;
-				Instantiate NativeType<"ptr">^ As <valueCopy> = Syscall::malloc(valueAllocSize);
-				Instantiate NativeType<"ptr">^ As <valueSrc> = value.toCString();
-				Run Syscall::memcpy(valueCopy, valueSrc, valueLen);
-				Instantiate NativeType<"ptr">^ As <valueNullPos> = valueCopy + valueLen;
-				Run Syscall::ptr_write(valueNullPos, zero);
-
-				// Write node: [keyPtr][valuePtr][nextPtr=0]
-				Run Syscall::ptr_write(nodePtr, keyCopy);
-				Instantiate NativeType<"ptr">^ As <valuePos> = nodePtr + 8;
-				Run Syscall::ptr_write(valuePos, valueCopy);
-				Instantiate NativeType<"ptr">^ As <nextPtrPos> = nodePtr + 16;
-				Run Syscall::ptr_write(nextPtrPos, zero);
-
-				// Update previous node's next pointer
-				Run Syscall::ptr_write(nextPos, nodePtr);
-			}
-
-			// Find value in chain
-			Method <findValueInChain> Returns String^ Parameters (
-				Parameter <nodePtr> Types NativeType<"ptr">,
-				Parameter <key> Types String^
-			) Do {
-				// Read node key
-				Instantiate NativeType<"ptr">^ As <keyPtr> = Syscall::ptr_read(nodePtr);
-				Instantiate String^ As <nodeKey> = String::FromCString(keyPtr);
-
-				If (nodeKey == key) -> {
-					// Found - return value
-					Instantiate NativeType<"ptr">^ As <valuePos> = nodePtr + 8;
-					Instantiate NativeType<"ptr">^ As <valuePtr> = Syscall::ptr_read(valuePos);
-					Return String::FromCString(valuePtr);
-				} Else -> {
-					// Not found - check next
-					Instantiate NativeType<"ptr">^ As <nextPos> = nodePtr + 16;
-					Instantiate NativeType<"ptr">^ As <nextPtr> = Syscall::ptr_read(nextPos);
-
-					If (nextPtr == 0) -> {
-						// End of chain - not found
-						Return String::Constructor("");
-					} Else -> {
-						// Continue searching
-						Return findValueInChain(nextPtr, key);
-					}
-				}
-			}
-
-			// Dispose chain recursively
-			Method <disposeChain> Returns None Parameters (Parameter <nodePtr> Types NativeType<"ptr">) Do {
-				If (nodePtr == 0) -> {
-					Return;
-				}
-
-				// Read next pointer before freeing
-				Instantiate NativeType<"ptr">^ As <nextPos> = nodePtr + 16;
-				Instantiate NativeType<"ptr">^ As <nextPtr> = Syscall::ptr_read(nextPos);
-
-				// Free key string
-				Instantiate NativeType<"ptr">^ As <keyPtr> = Syscall::ptr_read(nodePtr);
-				If (keyPtr != 0) -> {
-					Run Syscall::free(keyPtr);
-				}
-
-				// Free value string
-				Instantiate NativeType<"ptr">^ As <valuePos> = nodePtr + 8;
-				Instantiate NativeType<"ptr">^ As <valuePtr> = Syscall::ptr_read(valuePos);
-				If (valuePtr != 0) -> {
-					Run Syscall::free(valuePtr);
-				}
-
-				// Free node
-				Run Syscall::free(nodePtr);
-
-				// Recurse to next
-				Run disposeChain(nextPtr);
-			}
-
-			// Dispose all buckets
-			Method <disposeBuckets> Returns None Parameters (Parameter <index> Types Integer&) Do {
-				Instantiate NativeType<"int64">^ As <currentCap> = capacity;
-				Instantiate NativeType<"int64">^ As <idx> = index;
-
-				If (idx >= currentCap) -> {
-					Return;
-				}
-
-				// Get bucket pointer
-				Instantiate NativeType<"ptr">^ As <currentBucketsPtr> = bucketsPtr;
-				Instantiate NativeType<"int64">^ As <offset> = idx * 8;
-				Instantiate NativeType<"ptr">^ As <bucketPos> = currentBucketsPtr + offset;
-				Instantiate NativeType<"ptr">^ As <headPtr> = Syscall::ptr_read(bucketPos);
-
-				If (headPtr != 0) -> {
-					Run disposeChain(headPtr);
-				}
-
-				Instantiate Integer^ As <nextIndex> = index.add(Integer::Constructor(1));
-				Run disposeBuckets(nextIndex);
-			}
-
-			// Print chain recursively
-			Method <printChain> Returns None Parameters (Parameter <nodePtr> Types NativeType<"ptr">) Do {
-				If (nodePtr == 0) -> {
-					Return;
-				}
-
-				// Read key and value
-				Instantiate NativeType<"ptr">^ As <keyPtr> = Syscall::ptr_read(nodePtr);
-				Instantiate String^ As <nodeKey> = String::FromCString(keyPtr);
-
-				Instantiate NativeType<"ptr">^ As <valuePos> = nodePtr + 8;
-				Instantiate NativeType<"ptr">^ As <valuePtr> = Syscall::ptr_read(valuePos);
-				Instantiate String^ As <nodeValue> = String::FromCString(valuePtr);
-
-				Run System::Console::print(String::Constructor("  \""));
-				Run System::Console::print(nodeKey);
-				Run System::Console::print(String::Constructor("\": \""));
-				Run System::Console::print(nodeValue);
-				Run System::Console::printLine(String::Constructor("\""));
-
-				// Recurse to next
-				Instantiate NativeType<"ptr">^ As <nextPos> = nodePtr + 16;
-				Instantiate NativeType<"ptr">^ As <nextPtr> = Syscall::ptr_read(nextPos);
-				Run printChain(nextPtr);
-			}
-
-			// Print all buckets
-			Method <printBuckets> Returns None Parameters (Parameter <index> Types Integer&) Do {
-				Instantiate NativeType<"int64">^ As <currentCap> = capacity;
-				Instantiate NativeType<"int64">^ As <idx> = index;
-
-				If (idx >= currentCap) -> {
-					Return;
-				}
-
-				// Get bucket pointer
-				Instantiate NativeType<"ptr">^ As <currentBucketsPtr> = bucketsPtr;
-				Instantiate NativeType<"int64">^ As <offset> = idx * 8;
-				Instantiate NativeType<"ptr">^ As <bucketPos> = currentBucketsPtr + offset;
-				Instantiate NativeType<"ptr">^ As <headPtr> = Syscall::ptr_read(bucketPos);
-
-				If (headPtr != 0) -> {
-					Run printChain(headPtr);
-				}
-
-				Instantiate Integer^ As <nextIndex> = index.add(Integer::Constructor(1));
-				Run printBuckets(nextIndex);
+				Run Syscall::memcpy(&bucketKeys, &nullPtr, 8);
+				Run Syscall::memcpy(&bucketValues, &nullPtr, 8);
+				Run Syscall::memcpy(&bucketCounts, &nullPtr, 8);
+				Run Syscall::memcpy(&bucketCapacities, &nullPtr, 8);
+				Run Syscall::memcpy(&numBuckets, &zero, 8);
+				Run Syscall::memcpy(&count, &zero, 8);
 			}
 		]
 	]

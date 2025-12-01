@@ -1,0 +1,12 @@
+// XXML Standard Library - Hashable Constraint
+// Types that satisfy this constraint can be used as keys in hash-based collections
+// such as HashMap and Set
+
+[ Namespace <Core>
+    [ Constraint <Hashable> <T Constrains None> (T a)
+        // Returns a hash code for this object
+        // The hash code should be consistent: calling hash() multiple times
+        // on the same object should return the same value
+        Require (F(NativeType<"int64">^)(hash)(*) On a)
+    ]
+]

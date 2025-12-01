@@ -219,6 +219,19 @@
 				Instantiate NativeType<"cstr">^ As <str> = Syscall::int_to_string(v);
 				Return String::Constructor(str);
 			}
+
+			// Implements Hashable interface
+			// Returns the integer value itself as the hash code
+			Method <hash> Returns NativeType<"int64">^ Parameters () ->
+			{
+				Instantiate NativeType<"int64">^ As <v> = value;
+				// Make hash positive
+				If (v < 0) -> {
+					Instantiate NativeType<"int64">^ As <result> = 0 - v;
+					Return result;
+				}
+				Return v;
+			}
 		]
 	]
 ]

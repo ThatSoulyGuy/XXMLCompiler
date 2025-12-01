@@ -11,7 +11,11 @@
 namespace XXML {
 
 namespace Core { class CompilationContext; }
-namespace Semantic { class SemanticAnalyzer; }
+namespace Semantic {
+    class SemanticAnalyzer;
+    class CompiletimeValue;
+    class CompiletimeInterpreter;
+}
 
 namespace Backends {
 
@@ -168,6 +172,10 @@ private:
 
     // Alloca tracking for local variables (name -> alloca instruction)
     std::unordered_map<std::string, IR::AllocaInst*> localAllocas_;
+
+    // Compile-time value tracking: variable name -> compile-time evaluated value
+    // Variables in this map are constants that don't need runtime allocation
+    std::unordered_map<std::string, std::unique_ptr<Semantic::CompiletimeValue>> compiletimeValues_;
 
     // Expression result tracking (set by expression visitors, consumed by statement visitors)
     IR::Value* lastExprValue_ = nullptr;
@@ -406,6 +414,10 @@ private:
 
     /// Store IR value to a variable
     void storeIRValue(const std::string& name, IR::Value* value);
+
+    /// Emit a compile-time constant value as an IR constant
+    /// Returns the IR value for the constant, or nullptr if not evaluable
+    IR::Value* emitCompiletimeConstant(Semantic::CompiletimeValue* value);
 
     /// Reflection metadata generation
     void generateReflectionMetadata();

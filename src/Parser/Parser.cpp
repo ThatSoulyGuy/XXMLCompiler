@@ -205,7 +205,10 @@ std::unique_ptr<ClassDecl> Parser::parseClass() {
         templateParams = parseTemplateParameters();
     }
 
+    // Parse Compiletime and Final modifiers (allow either order)
+    bool isCompiletime = match(Lexer::TokenType::Compiletime);
     bool isFinal = match(Lexer::TokenType::Final);
+    if (!isCompiletime) isCompiletime = match(Lexer::TokenType::Compiletime);
 
     std::string baseClass;
     if (match(Lexer::TokenType::Extends)) {
@@ -217,6 +220,7 @@ std::unique_ptr<ClassDecl> Parser::parseClass() {
     }
 
     auto classDecl = std::make_unique<ClassDecl>(className, templateParams, isFinal, baseClass, loc);
+    classDecl->isCompiletime = isCompiletime;
 
     // Parse access sections
     while (!check(Lexer::TokenType::RightBracket) && !isAtEnd()) {
@@ -470,9 +474,14 @@ std::unique_ptr<PropertyDecl> Parser::parseProperty() {
 
     auto type = parseTypeRef();
 
+    // Parse optional Compiletime modifier
+    bool isCompiletime = match(Lexer::TokenType::Compiletime);
+
     consume(Lexer::TokenType::Semicolon, "Expected ';' after property declaration");
 
-    return std::make_unique<PropertyDecl>(propertyName, std::move(type), loc);
+    auto prop = std::make_unique<PropertyDecl>(propertyName, std::move(type), loc);
+    prop->isCompiletime = isCompiletime;
+    return prop;
 }
 
 std::unique_ptr<ConstructorDecl> Parser::parseConstructor() {
@@ -480,6 +489,7 @@ std::unique_ptr<ConstructorDecl> Parser::parseConstructor() {
     consume(Lexer::TokenType::Constructor, "Expected 'Constructor'");
 
     bool isDefault = false;
+    bool isCompiletime = false;
     std::vector<std::unique_ptr<ParameterDecl>> params;
     std::vector<std::unique_ptr<Statement>> body;
 
@@ -488,7 +498,7 @@ std::unique_ptr<ConstructorDecl> Parser::parseConstructor() {
         isDefault = true;
         consume(Lexer::TokenType::Semicolon, "Expected ';' after default constructor");
     } else if (match(Lexer::TokenType::Parameters)) {
-        // New syntax: Constructor Parameters(...) -> { body }
+        // New syntax: Constructor Parameters(...) Compiletime -> { body }
         consume(Lexer::TokenType::LeftParen, "Expected '(' after 'Parameters'");
 
         // Parse parameters
@@ -499,6 +509,10 @@ std::unique_ptr<ConstructorDecl> Parser::parseConstructor() {
         }
 
         consume(Lexer::TokenType::RightParen, "Expected ')' after constructor parameters");
+
+        // Parse optional Compiletime modifier
+        isCompiletime = match(Lexer::TokenType::Compiletime);
+
         consume(Lexer::TokenType::Arrow, "Expected '->' before constructor body");
         consume(Lexer::TokenType::LeftBrace, "Expected '{' to start constructor body");
 
@@ -509,7 +523,7 @@ std::unique_ptr<ConstructorDecl> Parser::parseConstructor() {
 
         consume(Lexer::TokenType::RightBrace, "Expected '}' after constructor body");
     } else if (match(Lexer::TokenType::LeftParen)) {
-        // Old syntax: Constructor (params) -> { body }
+        // Old syntax: Constructor (params) Compiletime -> { body }
 
         // Parse parameters
         if (!check(Lexer::TokenType::RightParen)) {
@@ -519,6 +533,10 @@ std::unique_ptr<ConstructorDecl> Parser::parseConstructor() {
         }
 
         consume(Lexer::TokenType::RightParen, "Expected ')' after constructor parameters");
+
+        // Parse optional Compiletime modifier
+        isCompiletime = match(Lexer::TokenType::Compiletime);
+
         consume(Lexer::TokenType::Arrow, "Expected '->' before constructor body");
         consume(Lexer::TokenType::LeftBrace, "Expected '{' to start constructor body");
 
@@ -532,7 +550,9 @@ std::unique_ptr<ConstructorDecl> Parser::parseConstructor() {
         consume(Lexer::TokenType::Semicolon, "Expected ';' after constructor");
     }
 
-    return std::make_unique<ConstructorDecl>(isDefault, std::move(params), std::move(body), loc);
+    auto ctor = std::make_unique<ConstructorDecl>(isDefault, std::move(params), std::move(body), loc);
+    ctor->isCompiletime = isCompiletime;
+    return ctor;
 }
 
 std::unique_ptr<DestructorDecl> Parser::parseDestructor() {
@@ -597,6 +617,9 @@ std::unique_ptr<MethodDecl> Parser::parseMethod() {
         consume(Lexer::TokenType::RightParen, "Expected ')' after parameters");
     }
 
+    // Parse optional Compiletime modifier
+    bool isCompiletime = match(Lexer::TokenType::Compiletime);
+
     // Check for semicolon termination (native/FFI method declaration)
     if (match(Lexer::TokenType::Semicolon)) {
         // Native method - no body, just declaration
@@ -604,6 +627,7 @@ std::unique_ptr<MethodDecl> Parser::parseMethod() {
         auto method = std::make_unique<MethodDecl>(methodName, templateParams, std::move(returnType),
                                                    std::move(params), std::move(emptyBody), loc);
         method->isNative = true;
+        method->isCompiletime = isCompiletime;
         return method;
     }
 
@@ -614,8 +638,10 @@ std::unique_ptr<MethodDecl> Parser::parseMethod() {
 
     auto body = parseBlock();
 
-    return std::make_unique<MethodDecl>(methodName, templateParams, std::move(returnType),
+    auto method = std::make_unique<MethodDecl>(methodName, templateParams, std::move(returnType),
                                         std::move(params), std::move(body), loc);
+    method->isCompiletime = isCompiletime;
+    return method;
 }
 
 // Static counter for generating unique anonymous parameter names
@@ -737,7 +763,51 @@ std::unique_ptr<RequireStmt> Parser::parseRequireStatement() {
     consume(Lexer::TokenType::LeftParen, "Expected '(' after 'Require'");
 
     // Check what kind of requirement this is
-    if (check(Lexer::TokenType::Identifier) && peek().lexeme == "F") {
+    // Check FC (compile-time method) before F
+    if (check(Lexer::TokenType::Identifier) && peek().lexeme == "FC") {
+        // Compile-time method requirement: FC(ReturnType)(methodName)(*) On param
+        advance(); // consume 'FC'
+
+        auto requireStmt = std::make_unique<RequireStmt>(RequirementKind::CompiletimeMethod, loc);
+
+        // Parse (ReturnType)
+        consume(Lexer::TokenType::LeftParen, "Expected '(' after 'FC'");
+        requireStmt->methodReturnType = parseTypeRef();
+        consume(Lexer::TokenType::RightParen, "Expected ')' after return type");
+
+        // Parse (methodName)
+        consume(Lexer::TokenType::LeftParen, "Expected '(' for method name");
+        if (!check(Lexer::TokenType::Identifier)) {
+            error("Expected method name");
+        }
+        requireStmt->methodName = advance().lexeme;
+        consume(Lexer::TokenType::RightParen, "Expected ')' after method name");
+
+        // Parse parameters: either (*) for wildcard or (Type1, Type2, ...) for specific types
+        consume(Lexer::TokenType::LeftParen, "Expected '(' for parameters");
+
+        if (check(Lexer::TokenType::Star)) {
+            advance(); // consume '*'
+        } else if (!check(Lexer::TokenType::RightParen)) {
+            do {
+                parseTypeRef();
+            } while (match(Lexer::TokenType::Comma));
+        }
+
+        consume(Lexer::TokenType::RightParen, "Expected ')' after parameters");
+
+        // Parse On param
+        consume(Lexer::TokenType::On, "Expected 'On' after method signature");
+        if (!check(Lexer::TokenType::Identifier)) {
+            error("Expected parameter name after 'On'");
+        }
+        requireStmt->targetParam = advance().lexeme;
+
+        consume(Lexer::TokenType::RightParen, "Expected ')' after compile-time method requirement");
+
+        return requireStmt;
+
+    } else if (check(Lexer::TokenType::Identifier) && peek().lexeme == "F") {
         // Method requirement: F(ReturnType)(methodName)(*) On param
         advance(); // consume 'F'
 
@@ -781,6 +851,37 @@ std::unique_ptr<RequireStmt> Parser::parseRequireStatement() {
         requireStmt->targetParam = advance().lexeme;
 
         consume(Lexer::TokenType::RightParen, "Expected ')' after method requirement");
+
+        return requireStmt;
+
+    } else if (check(Lexer::TokenType::Identifier) && peek().lexeme == "CC") {
+        // Compile-time constructor requirement: CC(ParamTypes...) On param
+        advance(); // consume 'CC'
+
+        auto requireStmt = std::make_unique<RequireStmt>(RequirementKind::CompiletimeConstructor, loc);
+
+        // Parse (ParamTypes...)
+        consume(Lexer::TokenType::LeftParen, "Expected '(' after 'CC'");
+
+        // Parse parameter types (could be None or actual types)
+        if (!check(Lexer::TokenType::None) && !check(Lexer::TokenType::RightParen)) {
+            do {
+                requireStmt->constructorParamTypes.push_back(parseTypeRef());
+            } while (match(Lexer::TokenType::Comma));
+        } else if (match(Lexer::TokenType::None)) {
+            // No parameters - leave constructorParamTypes empty
+        }
+
+        consume(Lexer::TokenType::RightParen, "Expected ')' after constructor parameters");
+
+        // Parse On param
+        consume(Lexer::TokenType::On, "Expected 'On' after constructor signature");
+        if (!check(Lexer::TokenType::Identifier)) {
+            error("Expected parameter name after 'On'");
+        }
+        requireStmt->targetParam = advance().lexeme;
+
+        consume(Lexer::TokenType::RightParen, "Expected ')' after compile-time constructor requirement");
 
         return requireStmt;
 
@@ -830,7 +931,7 @@ std::unique_ptr<RequireStmt> Parser::parseRequireStatement() {
         return requireStmt;
 
     } else {
-        error("Expected 'F', 'C', or 'Truth' in Require statement");
+        error("Expected 'F', 'FC', 'C', 'CC', or 'Truth' in Require statement");
         return nullptr;
     }
 }
@@ -1065,6 +1166,9 @@ std::unique_ptr<Statement> Parser::parseStatement() {
 std::unique_ptr<InstantiateStmt> Parser::parseInstantiate() {
     auto loc = previous().location;
 
+    // Parse optional Compiletime modifier
+    bool isCompiletime = match(Lexer::TokenType::Compiletime);
+
     auto type = parseTypeRef();
 
     consume(Lexer::TokenType::As, "Expected 'As' after type");
@@ -1077,8 +1181,10 @@ std::unique_ptr<InstantiateStmt> Parser::parseInstantiate() {
 
     consume(Lexer::TokenType::Semicolon, "Expected ';' after instantiate statement");
 
-    return std::make_unique<InstantiateStmt>(std::move(type), varName,
+    auto stmt = std::make_unique<InstantiateStmt>(std::move(type), varName,
                                              std::move(initializer), loc);
+    stmt->isCompiletime = isCompiletime;
+    return stmt;
 }
 
 std::unique_ptr<AssignmentStmt> Parser::parseAssignment() {
@@ -1797,12 +1903,49 @@ OwnershipType Parser::parseOwnershipType() {
     }
 }
 
+// Parse a constraint reference with optional template arguments
+// Supports: Hashable, Hashable<T>, Hashable@T
+ConstraintRef Parser::parseConstraintRef() {
+    auto loc = peek().location;
+    std::string constraintName = parseQualifiedIdentifier();
+    std::vector<std::string> templateArgs;
+
+    // Check for template arguments: <T> or @T
+    if (check(Lexer::TokenType::LeftAngle)) {
+        advance();  // consume '<'
+        do {
+            if (check(Lexer::TokenType::Identifier)) {
+                templateArgs.push_back(advance().lexeme);
+            } else if (check(Lexer::TokenType::AngleBracketId)) {
+                // Handle nested angle bracket identifier
+                templateArgs.push_back(advance().stringValue);
+            } else {
+                error("Expected template argument in constraint");
+                break;
+            }
+        } while (match(Lexer::TokenType::Comma));
+        consume(Lexer::TokenType::RightAngle, "Expected '>' after constraint template arguments");
+    } else if (check(Lexer::TokenType::AngleBracketId)) {
+        // Lexer already tokenized <T> as AngleBracketId
+        templateArgs.push_back(advance().stringValue);
+    } else if (check(Lexer::TokenType::At)) {
+        advance();  // consume '@'
+        if (check(Lexer::TokenType::Identifier)) {
+            templateArgs.push_back(advance().lexeme);
+        } else {
+            error("Expected template argument after '@' in constraint");
+        }
+    }
+
+    return ConstraintRef(constraintName, templateArgs, loc);
+}
+
 std::vector<TemplateParameter> Parser::parseTemplateParameters() {
     std::vector<TemplateParameter> params;
 
     consume(Lexer::TokenType::LeftAngle, "Expected '<' for template parameters");
 
-    // Parse template parameter list: <T Constrains Type1 | Type2>
+    // Parse template parameter list: <T Constrains Type1 | Type2> or <T Constrains (Type1, Type2)>
     do {
         auto paramLoc = peek().location;
 
@@ -1816,60 +1959,38 @@ std::vector<TemplateParameter> Parser::parseTemplateParameters() {
         // Parse Constrains keyword
         consume(Lexer::TokenType::Constrains, "Expected 'Constrains' after template parameter name");
 
-        // Parse constraints (None or Type1 | Type2 | ...)
-        std::vector<std::string> constraints;
+        // Parse constraints (None, (Type1, Type2) for AND, or Type1 | Type2 for OR)
+        std::vector<ConstraintRef> constraints;
+        bool constraintsAreAnd = true;
 
         if (match(Lexer::TokenType::None)) {
             // No constraints - any type allowed
-            // Leave constraints empty
-        } else {
-            // Parse constraint list separated by |
+            // Leave constraints empty, constraintsAreAnd doesn't matter
+        } else if (match(Lexer::TokenType::LeftParen)) {
+            // AND constraints: (Hashable<T>, Equatable<T>)
+            constraintsAreAnd = true;
             do {
-                std::string constraint = parseQualifiedIdentifier();
-
-                // Check if constraint has template arguments like MyConstraint<T>
-                if (check(Lexer::TokenType::LeftAngle) || check(Lexer::TokenType::AngleBracketId)) {
-                    // Parse template arguments
-                    if (check(Lexer::TokenType::AngleBracketId)) {
-                        // Lexer already tokenized <T> as AngleBracketId
-                        constraint += "<" + advance().stringValue + ">";
-                    } else {
-                        // Parse <T> manually
-                        consume(Lexer::TokenType::LeftAngle, "Expected '<'");
-                        constraint += "<";
-
-                        // Parse template argument(s)
-                        do {
-                            if (check(Lexer::TokenType::Identifier)) {
-                                constraint += advance().lexeme;
-                            } else if (check(Lexer::TokenType::AngleBracketId)) {
-                                constraint += "<" + advance().stringValue + ">";
-                            } else {
-                                error("Expected template argument");
-                                break;
-                            }
-
-                            if (match(Lexer::TokenType::Comma)) {
-                                constraint += ",";
-                            } else {
-                                break;
-                            }
-                        } while (true);
-
-                        consume(Lexer::TokenType::RightAngle, "Expected '>' after template arguments");
-                        constraint += ">";
-                    }
-                }
-
-                constraints.push_back(constraint);
-
+                constraints.push_back(parseConstraintRef());
+            } while (match(Lexer::TokenType::Comma));
+            consume(Lexer::TokenType::RightParen, "Expected ')' after constraint list");
+        } else {
+            // Single constraint or OR constraints: Type1 | Type2
+            // OR semantics when multiple, single is effectively either
+            constraintsAreAnd = false;
+            do {
+                constraints.push_back(parseConstraintRef());
                 if (!match(Lexer::TokenType::Pipe)) {
                     break;
                 }
             } while (true);
+
+            // If only one constraint, it doesn't matter if AND or OR
+            if (constraints.size() == 1) {
+                constraintsAreAnd = true;
+            }
         }
 
-        params.emplace_back(paramName, constraints, paramLoc);
+        params.emplace_back(paramName, constraints, constraintsAreAnd, paramLoc);
 
         // Check for more parameters
         if (!match(Lexer::TokenType::Comma)) {
@@ -1993,19 +2114,24 @@ std::unique_ptr<Expression> Parser::parseLambda() {
         consume(Lexer::TokenType::RightParen, "Expected ')' after parameters");
     }
 
+    // Parse optional Compiletime modifier
+    bool isCompiletime = match(Lexer::TokenType::Compiletime);
+
     // Parse body { ... }
     auto body = parseBlock();
 
     // Consume closing ]
     consume(Lexer::TokenType::RightBracket, "Expected ']' after lambda body");
 
-    return std::make_unique<LambdaExpr>(
+    auto lambda = std::make_unique<LambdaExpr>(
         std::move(captures),
         std::move(params),
         std::move(returnType),
         std::move(body),
         loc
     );
+    lambda->isCompiletime = isCompiletime;
+    return lambda;
 }
 
 std::unique_ptr<TypeRef> Parser::parseFunctionTypeRef() {

@@ -1,0 +1,33 @@
+// Test that constraint violations are properly detected
+
+// Define Hashable constraint
+[ Constraint <Hashable> <T Constrains None> (T a)
+    Require (F(Integer^)(hash)(*) On a)
+]
+
+// Test class that does NOT satisfy Hashable (missing hash method)
+[ Class <BadKey> Final Extends None
+    [ Public <>
+        Constructor Parameters () ->
+        {
+        }
+
+        // Missing: hash() method
+    ]
+]
+
+// This should FAIL - BadKey doesn't have hash() method
+[ Class <WillFailContainer> <T Constrains Hashable<T>> Final Extends None
+    [ Public <>
+        Constructor Parameters () ->
+        {
+        }
+    ]
+]
+
+[ Entrypoint
+{
+    // This should cause a constraint violation error
+    Instantiate WillFailContainer<BadKey>^ As <container> = WillFailContainer@BadKey::Constructor();
+}
+]

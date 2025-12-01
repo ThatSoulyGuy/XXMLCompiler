@@ -1,0 +1,78 @@
+// Test file for multiple constraint syntax
+// Tests: <T Constrains (Hashable<T>, Equatable@T)>
+
+// Define Hashable constraint
+[ Constraint <Hashable> <T Constrains None> (T a)
+    Require (F(Integer^)(hash)(*) On a)
+]
+
+// Define Equatable constraint
+[ Constraint <Equatable> <T Constrains None> (T a)
+    Require (F(Bool^)(equals)(NativeType<"ptr">^) On a)
+]
+
+// Test class that satisfies both Hashable and Equatable
+[ Class <TestKey> Final Extends None
+    [ Public <>
+        Property <value> Types Integer^;
+
+        Constructor Parameters () ->
+        {
+            Set value = Integer::Constructor(0);
+        }
+
+        // Satisfies Hashable<T>
+        Method <hash> Returns Integer^ Parameters () Do
+        {
+            Return value;
+        }
+
+        // Satisfies Equatable<T>
+        Method <equals> Returns Bool^ Parameters (Parameter <other> Types NativeType<"ptr">^) Do
+        {
+            Return Bool::Constructor(true);
+        }
+    ]
+]
+
+// Test template class with multiple constraints using AND semantics (parenthesized)
+[ Class <MultiConstrainedContainer> <T Constrains (Hashable<T>, Equatable@T)> Final Extends None
+    [ Public <>
+        Constructor Parameters () ->
+        {
+        }
+    ]
+]
+
+// Test template class with single constraint using @ syntax
+[ Class <SingleConstraintContainer> <T Constrains Hashable@T> Final Extends None
+    [ Public <>
+        Constructor Parameters () ->
+        {
+        }
+    ]
+]
+
+// Test template class with OR semantics (pipe)
+[ Class <EitherConstraintContainer> <T Constrains Hashable | Equatable> Final Extends None
+    [ Public <>
+        Constructor Parameters () ->
+        {
+        }
+    ]
+]
+
+[ Entrypoint
+{
+    // Test with TestKey which satisfies both constraints
+    Instantiate MultiConstrainedContainer<TestKey>^ As <container1> = MultiConstrainedContainer@TestKey::Constructor();
+
+    // Test single constraint with @ syntax
+    Instantiate SingleConstraintContainer<TestKey>^ As <container2> = SingleConstraintContainer@TestKey::Constructor();
+
+    // Test OR constraint
+    Instantiate EitherConstraintContainer<TestKey>^ As <container3> = EitherConstraintContainer@TestKey::Constructor();
+
+    Run Console::printLine(String::Constructor("Multi-constraint test passed!"));
+}
+]

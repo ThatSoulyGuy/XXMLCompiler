@@ -1,0 +1,26 @@
+#import Language::Core;
+
+[ Entrypoint
+    {
+        // Test compile-time integer constant
+        Instantiate Compiletime Integer^ As <x> = Integer::Constructor(10);
+
+        // Test compile-time with arithmetic (should be evaluated at compile-time)
+        Instantiate Compiletime Integer^ As <y> = Integer::Constructor(8);
+
+        // Test compile-time boolean
+        Instantiate Compiletime Bool^ As <isReady> = Bool::Constructor(true);
+
+        // Test using compile-time values (should emit as constants)
+        Instantiate Integer^ As <sum> = x.add(y);
+
+        // Runtime variable for comparison
+        Instantiate Integer^ As <runtime> = Integer::Constructor(42);
+
+        // Test that compile-time values can be passed to methods
+        Run Console::printLine(String::Constructor("x = ").append(x.toString()));
+        Run Console::printLine(String::Constructor("y = ").append(y.toString()));
+        Run Console::printLine(String::Constructor("sum = ").append(sum.toString()));
+        Run Console::printLine(String::Constructor("runtime = ").append(runtime.toString()));
+    }
+]

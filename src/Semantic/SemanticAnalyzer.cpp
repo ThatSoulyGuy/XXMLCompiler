@@ -556,6 +556,7 @@ void SemanticAnalyzer::visit(Parser::ClassDecl& node) {
     classInfo.baseClassName = node.baseClass;  // Copy base class name
     classInfo.templateParams = node.templateParams;  // Copy template params
     classInfo.isTemplate = !node.templateParams.empty();
+    classInfo.isCompiletime = node.isCompiletime;
     classInfo.astNode = &node;  // Only valid for same-module access
 
     // Collect methods and properties by processing sections
@@ -578,7 +579,7 @@ void SemanticAnalyzer::visit(Parser::ClassDecl& node) {
                 methodInfo.returnType = methodDecl->returnType->typeName;
                 methodInfo.returnOwnership = methodDecl->returnType->ownership;
                 methodInfo.isConstructor = (methodDecl->name == "Constructor");
-
+                methodInfo.isCompiletime = methodDecl->isCompiletime;
                 for (auto& param : methodDecl->parameters) {
                     methodInfo.parameters.push_back({param->type->typeName, param->type->ownership});
                 }
@@ -591,7 +592,7 @@ void SemanticAnalyzer::visit(Parser::ClassDecl& node) {
                 methodInfo.returnType = node.name;
                 methodInfo.returnOwnership = Parser::OwnershipType::Owned;
                 methodInfo.isConstructor = true;
-
+                methodInfo.isCompiletime = ctorDecl->isCompiletime;
                 // Collect constructor parameters
                 for (auto& param : ctorDecl->parameters) {
                     methodInfo.parameters.push_back({param->type->typeName, param->type->ownership});
@@ -1279,7 +1280,18 @@ void SemanticAnalyzer::visit(Parser::InstantiateStmt& node) {
         return;
     }
 
-    // Define the variable symbol
+        // VALIDATION: Compile-time variable constraints
+    if (node.isCompiletime && enableValidation) {
+        // Compile-time variable must have a compile-time capable type
+        if (!isCompiletimeType(node.type->typeName)) {
+            errorReporter.reportError(
+                Common::ErrorCode::TypeMismatch,
+                "Cannot create compile-time variable of runtime type '" + node.type->typeName + "'. "
+                "Use a built-in type (Integer, Bool, Float, Double, String) or a class declared Compiletime.",
+                node.location
+            );
+        }
+    }    // Define the variable symbol
     auto symbol = std::make_unique<Symbol>(
         node.variableName,
         SymbolKind::LocalVariable,
@@ -1287,6 +1299,7 @@ void SemanticAnalyzer::visit(Parser::InstantiateStmt& node) {
         node.type->ownership,
         node.location
     );
+    symbol->isCompiletime = node.isCompiletime;
     symbolTable_->define(node.variableName, std::move(symbol));
 
     // Register variable type in TypeContext for code generation
@@ -2328,19 +2341,22 @@ void SemanticAnalyzer::recordTemplateInstantiation(const std::string& templateNa
             } else {
                 // ✅ Phase 7: Improved constraint validation error message
                 // Validate type constraints
-                if (!validateConstraint(arg.typeArg, param.constraints)) {
+                if (!validateConstraint(arg.typeArg, param.constraints, param.constraintsAreAnd)) {
                     // Build constraint list for error message
                     std::string constraintList;
+                    std::string separator = param.constraintsAreAnd ? ", " : " | ";
                     for (size_t j = 0; j < param.constraints.size(); ++j) {
-                        if (j > 0) constraintList += " | ";
-                        constraintList += param.constraints[j];
+                        if (j > 0) constraintList += separator;
+                        constraintList += param.constraints[j].toString();
                     }
+                    std::string semanticsMsg = param.constraintsAreAnd
+                        ? "  Constraint uses AND semantics - type must satisfy ALL constraints."
+                        : "  Constraint uses OR semantics - type must satisfy at least one option.";
                     errorReporter.reportError(
                         Common::ErrorCode::TypeMismatch,
                         "Type '" + arg.typeArg + "' does not satisfy constraint for template parameter '" + param.name + "'.\n"
                         "  Required: " + constraintList + "\n"
-                        "  Provided: " + arg.typeArg + "\n"
-                        "  Constraint uses union semantics - type must match at least one option.",
+                        "  Provided: " + arg.typeArg + "\n" + semanticsMsg,
                         arg.location
                     );
                 }
@@ -2825,17 +2841,20 @@ void SemanticAnalyzer::recordMethodTemplateInstantiation(const std::string& clas
                 );
             } else {
                 // Validate type constraints
-                if (!validateConstraint(arg.typeArg, param.constraints)) {
+                if (!validateConstraint(arg.typeArg, param.constraints, param.constraintsAreAnd)) {
                     // Build constraint list for error message
                     std::string constraintList;
+                    std::string separator = param.constraintsAreAnd ? ", " : " | ";
                     for (size_t j = 0; j < param.constraints.size(); ++j) {
-                        if (j > 0) constraintList += " | ";
-                        constraintList += param.constraints[j];
+                        if (j > 0) constraintList += separator;
+                        constraintList += param.constraints[j].toString();
                     }
+                    std::string semanticsMsg = param.constraintsAreAnd
+                        ? " (must satisfy ALL)" : " (must satisfy at least one)";
                     errorReporter.reportError(
                         Common::ErrorCode::TypeMismatch,
                         "Type '" + arg.typeArg + "' does not satisfy constraint '" +
-                        constraintList + "' for method template parameter '" + param.name + "'",
+                        constraintList + "'" + semanticsMsg + " for method template parameter '" + param.name + "'",
                         arg.location
                     );
                 }
@@ -2890,71 +2909,84 @@ bool SemanticAnalyzer::isTypeCompatible(const std::string& actualType, const std
     return false;
 }
 
-bool SemanticAnalyzer::validateConstraint(const std::string& typeName, const std::vector<std::string>& constraints) {
+bool SemanticAnalyzer::validateConstraint(const std::string& typeName,
+                                          const std::vector<Parser::ConstraintRef>& constraints,
+                                          bool constraintsAreAnd,
+                                          const std::unordered_map<std::string, std::string>& typeSubstitutions) {
     // Empty constraints means no restrictions (any type allowed)
     if (constraints.empty()) {
         return true;
     }
 
-    // Check if the type satisfies at least one constraint (union semantics: Type1 | Type2 | ...)
-    for (const auto& constraint : constraints) {
-        // Parse constraint to extract base name and template arguments
-        // e.g., "MyConstraint<T>" -> baseName="MyConstraint", args=["T"]
-        std::string baseName = constraint;
-        std::vector<std::string> templateArgs;
-        std::unordered_map<std::string, std::string> typeSubstitutions;
-
-        size_t angleBracketPos = constraint.find('<');
-        if (angleBracketPos != std::string::npos) {
-            // This is a parameterized constraint
-            baseName = constraint.substr(0, angleBracketPos);
-
-            // Extract template arguments
-            size_t endBracket = constraint.rfind('>');
-            if (endBracket != std::string::npos) {
-                std::string argsStr = constraint.substr(angleBracketPos + 1, endBracket - angleBracketPos - 1);
-
-                // Simple parsing: split by comma (handle single arg for now)
-                templateArgs.push_back(argsStr);
+    if (constraintsAreAnd) {
+        // AND semantics: type must satisfy ALL constraints
+        for (const auto& constraint : constraints) {
+            if (!validateSingleConstraint(typeName, constraint, typeSubstitutions, true)) {
+                return false;
             }
         }
-
-        // First, check if this is a constraint definition (has requirements)
-        auto constraintIt = constraintRegistry_.find(baseName);
-        if (constraintIt != constraintRegistry_.end()) {
-            // Build type substitution map for parameterized constraints
-            const ConstraintInfo& constraintInfo = constraintIt->second;
-
-            // Map constraint's template parameters to actual type arguments
-            for (size_t i = 0; i < constraintInfo.templateParams.size() && i < templateArgs.size(); ++i) {
-                const std::string& paramName = constraintInfo.templateParams[i].name;
-                const std::string& argValue = templateArgs[i];
-
-                // The argument might be a reference to the type being validated
-                // e.g., MyConstraint<T> where T should be substituted with the actual type
-                if (argValue == "T" || argValue == paramName) {
-                    // Simple case: substitute with the type being validated
-                    typeSubstitutions[paramName] = typeName;
-                } else {
-                    typeSubstitutions[paramName] = argValue;
-                }
+        return true;
+    } else {
+        // OR semantics (pipe): type must satisfy at least ONE constraint
+        // First pass: check without reporting errors
+        for (const auto& constraint : constraints) {
+            if (validateSingleConstraint(typeName, constraint, typeSubstitutions, false)) {
+                return true;  // Found one that works, no errors needed
             }
+        }
+        // None satisfied - no error reported here, caller will report
+        return false;
+    }
+}
 
-            // This is a full constraint with requirements - validate them
-            if (validateConstraintRequirements(typeName, constraintInfo, Common::SourceLocation(), typeSubstitutions)) {
-                return true;  // Constraint satisfied
-            }
-            // Continue checking other constraints
+bool SemanticAnalyzer::validateSingleConstraint(const std::string& typeName,
+                                                const Parser::ConstraintRef& constraint,
+                                                const std::unordered_map<std::string, std::string>& providedSubstitutions,
+                                                bool reportErrors) {
+    // Resolve template arguments in constraint
+    // e.g., Hashable<T> where T=String becomes Hashable<String>
+    std::vector<std::string> resolvedArgs;
+    for (const auto& arg : constraint.templateArgs) {
+        auto it = providedSubstitutions.find(arg);
+        if (it != providedSubstitutions.end()) {
+            resolvedArgs.push_back(it->second);
         } else {
-            // This is a simple type constraint (old behavior)
-            if (isTypeCompatible(typeName, constraint)) {
-                return true;
-            }
+            resolvedArgs.push_back(arg);
         }
     }
 
-    // Type doesn't satisfy any constraint
-    return false;
+    // Check if this is a constraint definition (has requirements)
+    auto constraintIt = constraintRegistry_.find(constraint.name);
+    if (constraintIt != constraintRegistry_.end()) {
+        // Build type substitution map for parameterized constraints
+        const ConstraintInfo& constraintInfo = constraintIt->second;
+        std::unordered_map<std::string, std::string> typeSubstitutions = providedSubstitutions;
+
+        // Map constraint's template parameters to resolved args
+        for (size_t i = 0; i < constraintInfo.templateParams.size() && i < resolvedArgs.size(); ++i) {
+            const std::string& paramName = constraintInfo.templateParams[i].name;
+            const std::string& argValue = resolvedArgs[i];
+
+            // The argument might refer to the type being validated
+            if (argValue == typeName || typeSubstitutions.find(argValue) != typeSubstitutions.end()) {
+                typeSubstitutions[paramName] = (typeSubstitutions.find(argValue) != typeSubstitutions.end())
+                    ? typeSubstitutions.at(argValue) : argValue;
+            } else {
+                typeSubstitutions[paramName] = typeName;  // Default: substitute with type being validated
+            }
+        }
+
+        // If no template args but constraint has params, default to typeName
+        if (resolvedArgs.empty() && !constraintInfo.templateParams.empty()) {
+            typeSubstitutions[constraintInfo.templateParams[0].name] = typeName;
+        }
+
+        // Validate requirements
+        return validateConstraintRequirements(typeName, constraintInfo, Common::SourceLocation(), typeSubstitutions, reportErrors);
+    } else {
+        // Simple type constraint - check type compatibility
+        return isTypeCompatible(typeName, constraint.name);
+    }
 }
 
 // Constraint validation helpers
@@ -2997,8 +3029,8 @@ bool SemanticAnalyzer::hasConstructor(const std::string& className,
     }
 
     // Look for a constructor with matching parameter types
-    // Constructor name is the class name
-    auto methodIt = classInfo->methods.find(className);
+    // Constructors are stored under the key "Constructor"
+    auto methodIt = classInfo->methods.find("Constructor");
     if (methodIt == classInfo->methods.end()) {
         // No constructor found - check if it's a default constructor request
         return paramTypes.empty();  // Classes have implicit default constructor if no params requested
@@ -3084,7 +3116,8 @@ bool SemanticAnalyzer::evaluateTruthCondition(Parser::Expression* expr,
 bool SemanticAnalyzer::validateConstraintRequirements(const std::string& typeName,
                                                       const ConstraintInfo& constraint,
                                                       const Common::SourceLocation& loc,
-                                                      const std::unordered_map<std::string, std::string>& providedSubstitutions) {
+                                                      const std::unordered_map<std::string, std::string>& providedSubstitutions,
+                                                      bool reportErrors) {
     // Use provided substitutions if available, otherwise build default ones
     std::unordered_map<std::string, std::string> typeSubstitutions = providedSubstitutions;
 
@@ -3135,32 +3168,102 @@ bool SemanticAnalyzer::validateConstraintRequirements(const std::string& typeNam
 
             // Check if the type has the required method (use resolved name)
             if (!hasMethod(resolvedTypeName, requirement->methodName, returnTypeToCheck)) {
-                errorReporter.reportError(
-                    Common::ErrorCode::ConstraintViolation,
-                    "Type '" + typeName + "' does not have required method '" +
-                    requirement->methodName + "'",
-                    loc
-                );
+                if (reportErrors) {
+                    errorReporter.reportError(
+                        Common::ErrorCode::ConstraintViolation,
+                        "Type '" + typeName + "' does not have required method '" +
+                        requirement->methodName + "'",
+                        loc
+                    );
+                }
                 return false;
             }
         } else if (requirement->kind == Parser::RequirementKind::Constructor) {
             // Check if the type has the required constructor
             if (!hasConstructor(typeName, requirement->constructorParamTypes)) {
-                errorReporter.reportError(
-                    Common::ErrorCode::ConstraintViolation,
-                    "Type '" + typeName + "' does not have required constructor",
-                    loc
-                );
+                if (reportErrors) {
+                    errorReporter.reportError(
+                        Common::ErrorCode::ConstraintViolation,
+                        "Type '" + typeName + "' does not have required constructor",
+                        loc
+                    );
+                }
                 return false;
             }
         } else if (requirement->kind == Parser::RequirementKind::Truth) {
             // Evaluate the truth condition
             if (!evaluateTruthCondition(requirement->truthCondition.get(), typeSubstitutions)) {
-                errorReporter.reportError(
-                    Common::ErrorCode::ConstraintViolation,
-                    "Type '" + typeName + "' does not satisfy truth condition",
-                    loc
-                );
+                if (reportErrors) {
+                    errorReporter.reportError(
+                        Common::ErrorCode::ConstraintViolation,
+                        "Type '" + typeName + "' does not satisfy truth condition",
+                        loc
+                    );
+                }
+                return false;
+            }
+        } else if (requirement->kind == Parser::RequirementKind::CompiletimeMethod) {
+            // FC: Check if the type has the required method AND it's compile-time
+            Parser::TypeRef* returnTypeToCheck = requirement->methodReturnType.get();
+            std::unique_ptr<Parser::TypeRef> substitutedReturnType;
+            if (returnTypeToCheck) {
+                std::string returnTypeName = returnTypeToCheck->typeName;
+                if (typeSubstitutions.find(returnTypeName) != typeSubstitutions.end()) {
+                    std::string substitutedTypeName = typeSubstitutions.at(returnTypeName);
+                    substitutedReturnType = std::make_unique<Parser::TypeRef>(
+                        substitutedTypeName,
+                        returnTypeToCheck->ownership,
+                        returnTypeToCheck->location,
+                        returnTypeToCheck->isTemplateParameter
+                    );
+                    returnTypeToCheck = substitutedReturnType.get();
+                }
+            }
+            if (!hasMethod(resolvedTypeName, requirement->methodName, returnTypeToCheck)) {
+                if (reportErrors) {
+                    errorReporter.reportError(
+                        Common::ErrorCode::ConstraintViolation,
+                        "Type '" + typeName + "' does not have required method '" +
+                        requirement->methodName + "'",
+                        loc
+                    );
+                }
+                return false;
+            }
+            // Now check it's compile-time
+            if (!isCompiletimeMethod(resolvedTypeName, requirement->methodName)) {
+                if (reportErrors) {
+                    errorReporter.reportError(
+                        Common::ErrorCode::ConstraintViolation,
+                        "Type '" + typeName + "' has method '" + requirement->methodName +
+                        "' but it is not compile-time. Add Compiletime to the method declaration.",
+                        loc
+                    );
+                }
+                return false;
+            }
+        } else if (requirement->kind == Parser::RequirementKind::CompiletimeConstructor) {
+            // CC: Check if the type has the required constructor AND it's compile-time
+            if (!hasConstructor(typeName, requirement->constructorParamTypes)) {
+                if (reportErrors) {
+                    errorReporter.reportError(
+                        Common::ErrorCode::ConstraintViolation,
+                        "Type '" + typeName + "' does not have required constructor",
+                        loc
+                    );
+                }
+                return false;
+            }
+            // Now check it's compile-time
+            if (!hasCompiletimeConstructor(typeName, requirement->constructorParamTypes)) {
+                if (reportErrors) {
+                    errorReporter.reportError(
+                        Common::ErrorCode::ConstraintViolation,
+                        "Type '" + typeName + "' has required constructor but it is not compile-time. "
+                        "Add Compiletime to the constructor declaration.",
+                        loc
+                    );
+                }
                 return false;
             }
         }
@@ -3674,5 +3777,66 @@ std::vector<Parser::OwnershipType>* SemanticAnalyzer::getFunctionTypeParams(cons
     return nullptr;
 }
 
-} // namespace Semantic
+// ============ Compile-time helpers ============
+bool SemanticAnalyzer::isCompiletimeType(const std::string& typeName) const {
+    // Built-in primitive types are implicitly compile-time capable
+    if (typeName == "Integer" || typeName == "Bool" || typeName == "Float" || 
+        typeName == "Double" || typeName == "String" || typeName == "Void") {
+        return true;
+    }
+    // Check if the class itself is marked as compile-time
+    auto it = classRegistry_.find(typeName);
+    if (it != classRegistry_.end()) {
+        return it->second.isCompiletime;
+    }
+    // Check with namespace prefix
+    std::string qualifiedName = currentNamespace.empty() ? typeName : currentNamespace + "::" + typeName;
+    it = classRegistry_.find(qualifiedName);
+    if (it != classRegistry_.end()) {
+        return it->second.isCompiletime;
+    }
+    return false;
+}
+bool SemanticAnalyzer::isCompiletimeMethod(const std::string& className, const std::string& methodName) {
+    ClassInfo* classInfo = findClass(className);
+    if (!classInfo) {
+        return false;
+    }
+    // If the class is compile-time, all its methods are compile-time
+    if (classInfo->isCompiletime) {
+        return true;
+    }
+    // Check the specific method
+    auto methodIt = classInfo->methods.find(methodName);
+    if (methodIt != classInfo->methods.end()) {
+        return methodIt->second.isCompiletime;
+    }
+    return false;
+}
+bool SemanticAnalyzer::hasCompiletimeConstructor(const std::string& className,
+                                                  const std::vector<std::unique_ptr<Parser::TypeRef>>& paramTypes) {
+    ClassInfo* classInfo = findClass(className);
+    if (!classInfo) {
+        return false;
+    }
+    // If the class is compile-time, check if it has a matching constructor that is also compile-time
+    auto ctorIt = classInfo->methods.find("Constructor");
+    if (ctorIt != classInfo->methods.end()) {
+        const MethodInfo& ctorInfo = ctorIt->second;
+        // Check parameter count
+        if (ctorInfo.parameters.size() != paramTypes.size()) {
+            return false;
+        }
+        // Check parameter types
+        for (size_t i = 0; i < paramTypes.size(); ++i) {
+            if (ctorInfo.parameters[i].first != paramTypes[i]->typeName) {
+                return false;
+            }
+        }
+        // For compile-time instantiation, the constructor must be compile-time
+        // (or the class must be compile-time, which makes all constructors compile-time)
+        return ctorInfo.isCompiletime || classInfo->isCompiletime;
+    }
+    return false;
+}} // namespace Semantic
 } // namespace XXML

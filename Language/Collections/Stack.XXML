@@ -1,101 +1,127 @@
-// XXML Standard Library - Stack Class
-// LIFO (Last In First Out) data structure
-// Backed by C++ std::vector for efficient operations
+// Generic Stack<T> - LIFO (Last In First Out) data structure
+// Dynamic resizable stack for any type
 
-[ Namespace <Language::Collections>
-
-	[ Class <IntegerStack> Final Extends None
+[ Namespace <Collections>
+	[ Class <Stack> <T Constrains None> Final Extends None
 
 		[ Private <>
-			// Implementation: Uses C++ Collections::IntegerArrayData internally
-			// Operations are optimized for LIFO access pattern
+			Property <dataPtr> Types NativeType<"ptr">^;
+			Property <capacity> Types NativeType<"int64">^;
+			Property <count> Types NativeType<"int64">^;
 		]
 
 		[ Public <>
-			// Constructor
-			Constructor = default;
-
-			// Stack Operations
-			Method <push> Returns None Parameters (
-				Parameter <value> Types Integer^
-			) Do {
-				// Add element to the top of the stack
-				// Backed by C++ runtime: IntegerArrayData::push
+			Constructor () ->
+			{
+				Instantiate NativeType<"ptr">^ As <nullPtr> = 0;
+				Instantiate NativeType<"int64">^ As <zero> = 0;
+				Run Syscall::memcpy(&dataPtr, &nullPtr, 8);
+				Run Syscall::memcpy(&capacity, &zero, 8);
+				Run Syscall::memcpy(&count, &zero, 8);
 			}
 
-			Method <pop> Returns Integer^ Parameters () Do {
-				// Remove and return element from the top of the stack
-				// Returns 0 if stack is empty
-				// Backed by C++ runtime: IntegerArrayData::pop
-				Return Integer::Constructor(0);
+			// Push an element onto the stack
+			Method <push> Returns None Parameters (Parameter <value> Types T^) Do
+			{
+				// Check if we need to resize
+				If (count == capacity) -> {
+					Instantiate NativeType<"int64">^ As <newCapacity> = capacity * 2;
+					If (newCapacity == 0) -> {
+						Set newCapacity = 8;
+					}
+
+					// Allocate new memory
+					Instantiate NativeType<"ptr">^ As <newData> = Syscall::malloc(newCapacity * 8);
+
+					// Copy old data if any
+					If (dataPtr != 0) -> {
+						Run Syscall::memcpy(newData, dataPtr, count * 8);
+						Run Syscall::free(dataPtr);
+					}
+
+					Run Syscall::memcpy(&dataPtr, &newData, 8);
+					Run Syscall::memcpy(&capacity, &newCapacity, 8);
+				}
+
+				// Add the element at the top (end)
+				Instantiate NativeType<"ptr">^ As <offset> = dataPtr + (count * 8);
+				Run Syscall::ptr_write(offset, value);
+
+				Instantiate NativeType<"int64">^ As <newCount> = count + 1;
+				Run Syscall::memcpy(&count, &newCount, 8);
 			}
 
-			Method <peek> Returns Integer^ Parameters () Do {
-				// Return element at top without removing it
-				// Returns 0 if stack is empty
-				// Backed by C++ runtime
-				Return Integer::Constructor(0);
+			// Pop element from the top of the stack
+			Method <pop> Returns T^ Parameters () Do
+			{
+				Instantiate NativeType<"int64">^ As <zero> = 0;
+
+				// Return null if empty
+				If (count == zero) -> {
+					Instantiate NativeType<"ptr">^ As <nullPtr> = 0;
+					Return Syscall::ptr_read(nullPtr);
+				}
+
+				// Get the top element
+				Instantiate NativeType<"int64">^ As <topIndex> = count - 1;
+				Instantiate NativeType<"ptr">^ As <offset> = dataPtr + (topIndex * 8);
+				Instantiate T^ As <value> = Syscall::ptr_read(offset);
+
+				// Decrease count
+				Run Syscall::memcpy(&count, &topIndex, 8);
+
+				Return value;
 			}
 
-			Method <size> Returns Integer^ Parameters () Do {
-				// Return number of elements in stack
-				// Backed by C++ runtime: IntegerArrayData::size
-				Return Integer::Constructor(0);
+			// Peek at the top element without removing it
+			Method <peek> Returns T^ Parameters () Do
+			{
+				Instantiate NativeType<"int64">^ As <zero> = 0;
+
+				// Return null if empty
+				If (count == zero) -> {
+					Instantiate NativeType<"ptr">^ As <nullPtr> = 0;
+					Return Syscall::ptr_read(nullPtr);
+				}
+
+				// Get the top element
+				Instantiate NativeType<"int64">^ As <topIndex> = count - 1;
+				Instantiate NativeType<"ptr">^ As <offset> = dataPtr + (topIndex * 8);
+				Return Syscall::ptr_read(offset);
 			}
 
-			Method <isEmpty> Returns Bool^ Parameters () Do {
-				// Check if stack has no elements
-				// Backed by C++ runtime
-				Return Bool::Constructor(true);
+			// Get stack size
+			Method <size> Returns Integer^ Parameters () Do
+			{
+				Return Integer::Constructor(count);
 			}
 
-			Method <clear> Returns None Parameters () Do {
-				// Remove all elements from stack
-				// Backed by C++ runtime: IntegerArrayData::clear
+			// Check if stack is empty
+			Method <isEmpty> Returns Bool^ Parameters () Do
+			{
+				Return Bool::Constructor(count == 0);
 			}
 
-		]
-	]
-
-	[ Class <StringStack> Final Extends None
-
-		[ Private <>
-			// Implementation: Uses C++ Collections::StringArrayData internally
-		]
-
-		[ Public <>
-			Constructor = default;
-
-			Method <push> Returns None Parameters (
-				Parameter <value> Types String^
-			) Do {
-				// Backed by C++ runtime
+			// Clear the stack
+			Method <clear> Returns None Parameters () Do
+			{
+				Instantiate NativeType<"int64">^ As <zero> = 0;
+				Run Syscall::memcpy(&count, &zero, 8);
 			}
 
-			Method <pop> Returns String^ Parameters () Do {
-				// Backed by C++ runtime
-				Return String::Constructor("");
-			}
+			// Free the stack memory
+			Method <dispose> Returns None Parameters () Do
+			{
+				If (dataPtr != 0) -> {
+					Run Syscall::free(dataPtr);
+					Instantiate NativeType<"ptr">^ As <zero> = 0;
+					Run Syscall::memcpy(&dataPtr, &zero, 8);
+				}
 
-			Method <peek> Returns String^ Parameters () Do {
-				// Backed by C++ runtime
-				Return String::Constructor("");
+				Instantiate NativeType<"int64">^ As <zero64> = 0;
+				Run Syscall::memcpy(&count, &zero64, 8);
+				Run Syscall::memcpy(&capacity, &zero64, 8);
 			}
-
-			Method <size> Returns Integer^ Parameters () Do {
-				// Backed by C++ runtime
-				Return Integer::Constructor(0);
-			}
-
-			Method <isEmpty> Returns Bool^ Parameters () Do {
-				// Backed by C++ runtime
-				Return Bool::Constructor(true);
-			}
-
-			Method <clear> Returns None Parameters () Do {
-				// Backed by C++ runtime
-			}
-
 		]
 	]
 ]

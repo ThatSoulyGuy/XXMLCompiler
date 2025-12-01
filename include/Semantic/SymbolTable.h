@@ -28,11 +28,12 @@ struct Symbol {
     void* astNode; // Pointer to the AST node (for class/method/etc definitions)
     std::string moduleName; // Which module this symbol belongs to
     bool isExported; // Whether this symbol is exported from its module
+    bool isCompiletime; // Whether this symbol is a compile-time constant
 
     Symbol(const std::string& n, SymbolKind k, const std::string& type,
            Parser::OwnershipType own, const Common::SourceLocation& loc)
         : name(n), kind(k), typeName(type), ownership(own), location(loc),
-          astNode(nullptr), moduleName(""), isExported(false) {}
+          astNode(nullptr), moduleName(""), isExported(false), isCompiletime(false) {}
 };
 
 class Scope {

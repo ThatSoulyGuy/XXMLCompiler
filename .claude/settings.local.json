@@ -44,7 +44,14 @@
       "Bash(\"D:\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\":*)",
       "Bash(\"D:\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" \"D:\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\Hello.XXML\" -o hello.exe)",
       "Bash(.hello.exe)",
-      "WebSearch"
+      "WebSearch",
+      "Bash(Select-Object -First 100)",
+      "Bash(D:/VisualStudio/Projects/XXMLCompiler/multiconstrainttest.exe)",
+      "Bash(\"D:\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" \"D:\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\ConstraintViolationTest.XXML\")",
+      "Bash(\"D:\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" \"D:\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\ConstraintViolationTest.XXML\" -o \"D:\\VisualStudio\\Projects\\XXMLCompiler\\multiconstrainttest.exe\")",
+      "Bash(\"D:\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" \"D:\\VisualStudio\\Projects\\XXMLCompiler\\tests\\ConstraintViolationTest.XXML\" -o \"D:\\VisualStudio\\Projects\\XXMLCompiler\\shouldfail.exe\")",
+      "Bash(\"D:\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" \"D:\\VisualStudio\\Projects\\XXMLCompiler\\tests\\TemplateSystemTest.XXML\" -o \"D:\\VisualStudio\\Projects\\XXMLCompiler\\templatesystemtest.exe\")",
+      "Bash(D:/VisualStudio/Projects/XXMLCompiler/compiletimetest.exe:*)"
     ],
     "deny": [],
     "ask": []

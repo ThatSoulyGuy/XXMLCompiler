@@ -1,0 +1,441 @@
+// Comprehensive Template System Test
+// Tests all major template features
+
+// ============================================================
+// CONSTRAINT DEFINITIONS
+// ============================================================
+
+// Basic method constraint
+[ Constraint <Printable> <T Constrains None> (T a)
+    Require (F(String^)(toString)(*) On a)
+]
+
+// Method constraint with specific parameter type
+[ Constraint <Comparable> <T Constrains None> (T a)
+    Require (F(Bool^)(lessThan)(T^) On a)
+    Require (F(Bool^)(equals)(T^) On a)
+]
+
+// Hashable constraint (using angle bracket syntax)
+[ Constraint <Hashable> <T Constrains None> (T a)
+    Require (F(Integer^)(hash)(*) On a)
+]
+
+// Equatable constraint (for testing @ syntax)
+[ Constraint <Equatable> <T Constrains None> (T a)
+    Require (F(Bool^)(equals)(T^) On a)
+]
+
+// Constructor constraint - default constructor
+[ Constraint <DefaultConstructible> <T Constrains None> (T a)
+    Require (C(None) On a)
+]
+
+// Constructor constraint - parameterized
+[ Constraint <IntConstructible> <T Constrains None> (T a)
+    Require (C(Integer^) On a)
+]
+
+// Constructor constraint - multiple parameters
+[ Constraint <PairConstructible> <T Constrains None> (T a)
+    Require (C(Integer^, String^) On a)
+]
+
+// ============================================================
+// TEST CLASSES THAT SATISFY CONSTRAINTS
+// ============================================================
+
+// Satisfies Printable
+[ Class <PrintableItem> Final Extends None
+    [ Private <>
+        Property <value> Types Integer^;
+    ]
+    [ Public <>
+        Constructor Parameters () ->
+        {
+            Set value = Integer::Constructor(0);
+        }
+
+        Method <toString> Returns String^ Parameters () Do
+        {
+            Return String::Constructor("PrintableItem");
+        }
+    ]
+]
+
+// Satisfies Comparable
+[ Class <ComparableItem> Final Extends None
+    [ Private <>
+        Property <value> Types Integer^;
+    ]
+    [ Public <>
+        Constructor Parameters () ->
+        {
+            Set value = Integer::Constructor(0);
+        }
+
+        Constructor Parameters (Parameter <v> Types Integer^) ->
+        {
+            Set value = v;
+        }
+
+        Method <lessThan> Returns Bool^ Parameters (Parameter <other> Types ComparableItem^) Do
+        {
+            Return Bool::Constructor(false);
+        }
+
+        Method <equals> Returns Bool^ Parameters (Parameter <other> Types ComparableItem^) Do
+        {
+            Return Bool::Constructor(true);
+        }
+    ]
+]
+
+// Satisfies Hashable
+[ Class <HashableItem> Final Extends None
+    [ Private <>
+        Property <value> Types Integer^;
+    ]
+    [ Public <>
+        Constructor Parameters () ->
+        {
+            Set value = Integer::Constructor(0);
+        }
+
+        Method <hash> Returns Integer^ Parameters () Do
+        {
+            Return Integer::Constructor(42);
+        }
+    ]
+]
+
+// Satisfies Equatable
+[ Class <EquatableItem> Final Extends None
+    [ Public <>
+        Constructor Parameters () ->
+        {
+        }
+
+        Method <equals> Returns Bool^ Parameters (Parameter <other> Types EquatableItem^) Do
+        {
+            Return Bool::Constructor(true);
+        }
+    ]
+]
+
+// Satisfies BOTH Hashable AND Equatable (for AND constraint test)
+[ Class <HashEquatableItem> Final Extends None
+    [ Private <>
+        Property <value> Types Integer^;
+    ]
+    [ Public <>
+        Constructor Parameters () ->
+        {
+            Set value = Integer::Constructor(0);
+        }
+
+        Method <hash> Returns Integer^ Parameters () Do
+        {
+            Return Integer::Constructor(42);
+        }
+
+        Method <equals> Returns Bool^ Parameters (Parameter <other> Types HashEquatableItem^) Do
+        {
+            Return Bool::Constructor(true);
+        }
+    ]
+]
+
+// Satisfies Printable (for OR constraint test - satisfies first option)
+[ Class <PrintableOnly> Final Extends None
+    [ Public <>
+        Constructor Parameters () ->
+        {
+        }
+
+        Method <toString> Returns String^ Parameters () Do
+        {
+            Return String::Constructor("PrintableOnly");
+        }
+    ]
+]
+
+// Satisfies Comparable (for OR constraint test - satisfies second option)
+[ Class <ComparableOnly> Final Extends None
+    [ Public <>
+        Constructor Parameters () ->
+        {
+        }
+
+        Method <lessThan> Returns Bool^ Parameters (Parameter <other> Types ComparableOnly^) Do
+        {
+            Return Bool::Constructor(false);
+        }
+
+        Method <equals> Returns Bool^ Parameters (Parameter <other> Types ComparableOnly^) Do
+        {
+            Return Bool::Constructor(true);
+        }
+    ]
+]
+
+// Satisfies DefaultConstructible
+[ Class <DefaultConstructibleItem> Final Extends None
+    [ Public <>
+        Constructor Parameters () ->
+        {
+        }
+    ]
+]
+
+// Satisfies IntConstructible
+[ Class <IntConstructibleItem> Final Extends None
+    [ Private <>
+        Property <value> Types Integer^;
+    ]
+    [ Public <>
+        Constructor Parameters (Parameter <v> Types Integer^) ->
+        {
+            Set value = v;
+        }
+    ]
+]
+
+// Satisfies PairConstructible
+[ Class <PairConstructibleItem> Final Extends None
+    [ Private <>
+        Property <num> Types Integer^;
+        Property <str> Types String^;
+    ]
+    [ Public <>
+        Constructor Parameters (Parameter <n> Types Integer^, Parameter <s> Types String^) ->
+        {
+            Set num = n;
+            Set str = s;
+        }
+    ]
+]
+
+// ============================================================
+// TEST 1: BASIC TEMPLATE CLASS
+// ============================================================
+
+[ Class <Box> <T Constrains None> Final Extends None
+    [ Private <>
+        Property <value> Types T^;
+    ]
+    [ Public <>
+        Constructor Parameters () ->
+        {
+        }
+
+        Method <set> Returns None Parameters (Parameter <v> Types T^) Do
+        {
+            Set value = v;
+        }
+
+        Method <get> Returns T^ Parameters () Do
+        {
+            Return value;
+        }
+    ]
+]
+
+// ============================================================
+// TEST 2: MULTIPLE TEMPLATE PARAMETERS
+// ============================================================
+
+[ Class <Pair> <T Constrains None, U Constrains None> Final Extends None
+    [ Private <>
+        Property <first> Types T^;
+        Property <second> Types U^;
+    ]
+    [ Public <>
+        Constructor Parameters () ->
+        {
+        }
+
+        Constructor Parameters (Parameter <f> Types T^, Parameter <s> Types U^) ->
+        {
+            Set first = f;
+            Set second = s;
+        }
+
+        Method <getFirst> Returns T^ Parameters () Do
+        {
+            Return first;
+        }
+
+        Method <getSecond> Returns U^ Parameters () Do
+        {
+            Return second;
+        }
+    ]
+]
+
+// ============================================================
+// TEST 3: CONSTRAINT WITH TEMPLATE ARGUMENT (ANGLE BRACKET)
+// ============================================================
+
+[ Class <HashContainer> <T Constrains Hashable<T>> Final Extends None
+    [ Private <>
+        Property <item> Types T^;
+    ]
+    [ Public <>
+        Constructor Parameters () ->
+        {
+        }
+
+        Method <store> Returns None Parameters (Parameter <v> Types T^) Do
+        {
+            Set item = v;
+        }
+    ]
+]
+
+// ============================================================
+// TEST 4: CONSTRAINT WITH TEMPLATE ARGUMENT (@ SYNTAX)
+// ============================================================
+
+[ Class <EqualityChecker> <T Constrains Equatable@T> Final Extends None
+    [ Public <>
+        Constructor Parameters () ->
+        {
+        }
+
+        Method <areEqual> Returns Bool^ Parameters (Parameter <a> Types T^, Parameter <b> Types T^) Do
+        {
+            Return a.equals(b);
+        }
+    ]
+]
+
+// ============================================================
+// TEST 5: AND CONSTRAINTS (PARENTHESES SYNTAX)
+// ============================================================
+
+[ Class <HashMap> <K Constrains (Hashable<K>, Equatable@K), V Constrains None> Final Extends None
+    [ Private <>
+        Property <key> Types K^;
+        Property <val> Types V^;
+    ]
+    [ Public <>
+        Constructor Parameters () ->
+        {
+        }
+
+        Method <put> Returns None Parameters (Parameter <k> Types K^, Parameter <v> Types V^) Do
+        {
+            Set key = k;
+            Set val = v;
+        }
+    ]
+]
+
+// ============================================================
+// TEST 6: OR CONSTRAINTS (PIPE SYNTAX)
+// ============================================================
+
+[ Class <FlexibleContainer> <T Constrains Printable | Comparable> Final Extends None
+    [ Private <>
+        Property <item> Types T^;
+    ]
+    [ Public <>
+        Constructor Parameters () ->
+        {
+        }
+
+        Method <store> Returns None Parameters (Parameter <v> Types T^) Do
+        {
+            Set item = v;
+        }
+    ]
+]
+
+// ============================================================
+// TEST 7: DEFAULT CONSTRUCTOR CONSTRAINT
+// ============================================================
+
+[ Class <Factory> <T Constrains DefaultConstructible> Final Extends None
+    [ Public <>
+        Constructor Parameters () ->
+        {
+        }
+
+        Method <create> Returns T^ Parameters () Do
+        {
+            Return T::Constructor();
+        }
+    ]
+]
+
+// ============================================================
+// TEST 8: PARAMETERIZED CONSTRUCTOR CONSTRAINT
+// ============================================================
+
+[ Class <IntFactory> <T Constrains IntConstructible> Final Extends None
+    [ Public <>
+        Constructor Parameters () ->
+        {
+        }
+
+        Method <createWith> Returns T^ Parameters (Parameter <v> Types Integer^) Do
+        {
+            Return T::Constructor(v);
+        }
+    ]
+]
+
+// ============================================================
+// TEST 9: MULTI-PARAM CONSTRUCTOR CONSTRAINT
+// ============================================================
+
+[ Class <PairFactory> <T Constrains PairConstructible> Final Extends None
+    [ Public <>
+        Constructor Parameters () ->
+        {
+        }
+
+        Method <createWith> Returns T^ Parameters (Parameter <n> Types Integer^, Parameter <s> Types String^) Do
+        {
+            Return T::Constructor(n, s);
+        }
+    ]
+]
+
+// ============================================================
+// ENTRYPOINT - INSTANTIATE ALL TEMPLATES
+// ============================================================
+
+[ Entrypoint
+{
+    // TEST 1: Basic template
+    Instantiate Box<Integer>^ As <intBox> = Box@Integer::Constructor();
+    Instantiate Box<String>^ As <strBox> = Box@String::Constructor();
+
+    // TEST 2: Multiple template parameters
+    Instantiate Pair<Integer, String>^ As <pair1> = Pair@Integer, String::Constructor();
+    Instantiate Pair<String, Bool>^ As <pair2> = Pair@String, Bool::Constructor();
+
+    // TEST 3: Constraint with template argument (angle bracket)
+    Instantiate HashContainer<HashableItem>^ As <hashCont> = HashContainer@HashableItem::Constructor();
+
+    // TEST 4: Constraint with template argument (@ syntax)
+    Instantiate EqualityChecker<EquatableItem>^ As <eqChecker> = EqualityChecker@EquatableItem::Constructor();
+
+    // TEST 5: AND constraints (must satisfy BOTH Hashable AND Equatable)
+    Instantiate HashMap<HashEquatableItem, String>^ As <hashMap> = HashMap@HashEquatableItem, String::Constructor();
+
+    // TEST 6: OR constraints (can satisfy EITHER Printable OR Comparable)
+    Instantiate FlexibleContainer<PrintableOnly>^ As <flexPrint> = FlexibleContainer@PrintableOnly::Constructor();
+    Instantiate FlexibleContainer<ComparableOnly>^ As <flexComp> = FlexibleContainer@ComparableOnly::Constructor();
+
+    // TEST 7: Default constructor constraint
+    Instantiate Factory<DefaultConstructibleItem>^ As <factory> = Factory@DefaultConstructibleItem::Constructor();
+
+    // TEST 8: Parameterized constructor constraint
+    Instantiate IntFactory<IntConstructibleItem>^ As <intFactory> = IntFactory@IntConstructibleItem::Constructor();
+
+    // TEST 9: Multi-param constructor constraint
+    Instantiate PairFactory<PairConstructibleItem>^ As <pairFactory> = PairFactory@PairConstructibleItem::Constructor();
+}]

@@ -201,13 +201,15 @@ std::unique_ptr<Expression> LambdaExpr::cloneExpr() const {
         clonedBody.push_back(stmt->cloneStmt());
     }
 
-    return std::make_unique<LambdaExpr>(
+    auto cloned = std::make_unique<LambdaExpr>(
         std::move(clonedCaptures),
         std::move(clonedParams),
         returnType->cloneType(),
         std::move(clonedBody),
         location
     );
+    cloned->isCompiletime = isCompiletime;
+    return cloned;
 }
 
 // ============================================================================
@@ -219,12 +221,14 @@ std::unique_ptr<ASTNode> InstantiateStmt::clone() const {
 }
 
 std::unique_ptr<Statement> InstantiateStmt::cloneStmt() const {
-    return std::make_unique<InstantiateStmt>(
+    auto cloned = std::make_unique<InstantiateStmt>(
         type->cloneType(),
         variableName,
         initializer->cloneExpr(),
         location
     );
+    cloned->isCompiletime = isCompiletime;
+    return cloned;
 }
 
 std::unique_ptr<ASTNode> RequireStmt::clone() const {
@@ -235,11 +239,11 @@ std::unique_ptr<Statement> RequireStmt::cloneStmt() const {
     auto cloned = std::make_unique<RequireStmt>(kind, location);
 
     // Clone based on kind
-    if (kind == RequirementKind::Method) {
+    if (kind == RequirementKind::Method || kind == RequirementKind::CompiletimeMethod) {
         cloned->methodReturnType = methodReturnType->cloneType();
         cloned->methodName = methodName;
         cloned->targetParam = targetParam;
-    } else if (kind == RequirementKind::Constructor) {
+    } else if (kind == RequirementKind::Constructor || kind == RequirementKind::CompiletimeConstructor) {
         for (const auto& paramType : constructorParamTypes) {
             cloned->constructorParamTypes.push_back(paramType->cloneType());
         }
@@ -380,7 +384,9 @@ std::unique_ptr<ASTNode> PropertyDecl::clone() const {
 }
 
 std::unique_ptr<Declaration> PropertyDecl::cloneDecl() const {
-    return std::make_unique<PropertyDecl>(name, type->cloneType(), location);
+    auto cloned = std::make_unique<PropertyDecl>(name, type->cloneType(), location);
+    cloned->isCompiletime = isCompiletime;
+    return cloned;
 }
 
 std::unique_ptr<ASTNode> ConstructorDecl::clone() const {
@@ -402,12 +408,14 @@ std::unique_ptr<Declaration> ConstructorDecl::cloneDecl() const {
         clonedBody.push_back(stmt->cloneStmt());
     }
 
-    return std::make_unique<ConstructorDecl>(
+    auto cloned = std::make_unique<ConstructorDecl>(
         isDefault,
         std::move(clonedParams),
         std::move(clonedBody),
         location
     );
+    cloned->isCompiletime = isCompiletime;
+    return cloned;
 }
 
 std::unique_ptr<ASTNode> DestructorDecl::clone() const {
@@ -460,6 +468,9 @@ std::unique_ptr<Declaration> MethodDecl::cloneDecl() const {
     cloned->nativeSymbol = nativeSymbol;
     cloned->callingConvention = callingConvention;
 
+    // Copy compile-time flag
+    cloned->isCompiletime = isCompiletime;
+
     return cloned;
 }
 
@@ -502,6 +513,9 @@ std::unique_ptr<Declaration> ClassDecl::cloneDecl() const {
     for (const auto& section : sections) {
         cloned->sections.push_back(cloneAccessSection(*section));
     }
+
+    // Copy compile-time flag
+    cloned->isCompiletime = isCompiletime;
 
     return cloned;
 }

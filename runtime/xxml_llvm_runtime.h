@@ -96,6 +96,7 @@ void* String_concat(void* self, void* other);
 void* String_append(void* self, void* other);
 bool String_equals(void* self, void* other);
 void String_destroy(void* self);
+int64_t xxml_string_hash(void* self);
 
 // ============================================
 // Bool Operations

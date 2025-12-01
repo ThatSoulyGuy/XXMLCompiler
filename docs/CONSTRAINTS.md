@@ -134,16 +134,66 @@ Require (Truth(someCompileTimeCheck))
 
 ### Step 2: Apply Constraint to Template Class
 
+#### Single Constraint
+
 ```xxml
 [ Class <Printer> <T Constrains Printable> Final Extends None
-    [ Public <>
-        Method <print> Returns None Parameters (Parameter <value> Types T^) Do
-        {
-            // Safe to call toString() because Printable constraint guarantees it exists
-            Run Console::printLine(value.toString());
-        }
-    ]
-]
+```
+
+#### Single Constraint with Template Arguments
+
+Constraints can have template arguments that bind to the class's template parameters. Two syntaxes are supported:
+
+```xxml
+// Angle bracket syntax
+[ Class <HashSet> <T Constrains Hashable<T>> Final Extends None
+
+// At-sign syntax
+[ Class <HashSet> <T Constrains Hashable@T> Final Extends None
+```
+
+Both syntaxes are equivalent. Use whichever is more readable in context.
+
+#### Multiple Constraints with AND Semantics
+
+Use parentheses to require that a type satisfies **ALL** listed constraints:
+
+```xxml
+// T must satisfy BOTH Hashable AND Equatable
+[ Class <HashMap> <K Constrains (Hashable<K>, Equatable@K)> Final Extends None
+```
+
+You can mix both template argument syntaxes within the parentheses.
+
+#### Multiple Constraints with OR Semantics
+
+Use pipe `|` to require that a type satisfies **at least ONE** constraint:
+
+```xxml
+// T must satisfy Printable OR Comparable (or both)
+[ Class <FlexibleContainer> <T Constrains Printable | Comparable> Final Extends None
+```
+
+#### Constraint Syntax Summary
+
+```xxml
+// No constraints
+<T Constrains None>
+
+// Single constraint without template args
+<T Constrains Printable>
+
+// Single constraint with template args (angle brackets)
+<T Constrains Hashable<T>>
+
+// Single constraint with template args (at-sign)
+<T Constrains Hashable@T>
+
+// Multiple constraints, AND semantics (must satisfy ALL)
+<T Constrains (Hashable<T>, Equatable@T)>
+
+// Multiple constraints, OR semantics (must satisfy at least ONE)
+<T Constrains Printable | Comparable>
 ```
 
 ### Step 3: Instantiate with Valid Types
@@ -394,17 +444,52 @@ Used for sorting and ordering operations.
 ```
 Used when deep copies are needed.
 
-### Pattern 4: Hashable
+### Pattern 4: Hashable (STL)
+
+The XXML Standard Library provides this constraint in `Core::Hashable`:
 
 ```xxml
 [ Constraint <Hashable> <T Constrains None> (T a)
-    Require (F(Integer^)(hashCode)(*) On a)
-    Require (F(Bool^)(equals)(T^) On a)
+    Require (F(NativeType<"int64">^)(hash)(*) On a)
 ]
 ```
-Used for hash-based collections like HashMap.
+Used for types that can be hashed. Types satisfying this constraint must implement `hash()` returning a 64-bit integer.
 
-### Pattern 5: Numeric
+**Example Usage:**
+```xxml
+// Using Hashable with template arguments
+[ Class <HashSet> <T Constrains Hashable<T>> Final Extends None
+```
+
+### Pattern 5: Equatable (STL)
+
+The XXML Standard Library provides this constraint in `Core::Equatable`:
+
+```xxml
+[ Constraint <Equatable> <T Constrains None> (T a)
+    Require (F(Bool^)(equals)(NativeType<"ptr">^) On a)
+]
+```
+Used for types that can be compared for equality.
+
+**Example Usage:**
+```xxml
+// Using Equatable with @ syntax
+[ Class <UniqueList> <T Constrains Equatable@T> Final Extends None
+```
+
+### Pattern 6: Combined Hashable + Equatable
+
+For hash-based collections like HashMap, you typically need both:
+
+```xxml
+// Using AND semantics with parentheses
+[ Class <HashMap> <K Constrains (Hashable<K>, Equatable@K), V Constrains None> Final Extends None
+```
+
+This ensures keys can be both hashed and compared for equality.
+
+### Pattern 7: Numeric
 
 ```xxml
 [ Constraint <Numeric> <T Constrains None> (T a)

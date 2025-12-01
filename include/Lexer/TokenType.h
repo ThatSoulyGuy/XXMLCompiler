@@ -53,6 +53,7 @@ enum class TokenType {
     This,             // this
     Set,              // Set
     Lambda,           // Lambda
+    Compiletime,      // Compiletime
 
     // Annotation keywords
     Annotation,       // Annotation

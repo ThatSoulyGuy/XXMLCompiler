@@ -1,0 +1,82 @@
+#import Language::Core;
+
+[ Entrypoint
+    {
+        // ========================================
+        // Test 1: Basic compile-time Integer constants
+        // ========================================
+        Instantiate Compiletime Integer^ As <x> = Integer::Constructor(10);
+        Instantiate Compiletime Integer^ As <y> = Integer::Constructor(5);
+
+        // Compile-time arithmetic via method calls
+        Instantiate Compiletime Integer^ As <sum> = x.add(y);
+        Instantiate Compiletime Integer^ As <diff> = x.subtract(y);
+        Instantiate Compiletime Integer^ As <product> = x.multiply(y);
+
+        Run Console::printLine(String::Constructor("=== Integer Compile-Time Tests ==="));
+        Run Console::printLine(String::Constructor("x = ").append(x.toString()));
+        Run Console::printLine(String::Constructor("y = ").append(y.toString()));
+        Run Console::printLine(String::Constructor("x + y = ").append(sum.toString()));
+        Run Console::printLine(String::Constructor("x - y = ").append(diff.toString()));
+        Run Console::printLine(String::Constructor("x * y = ").append(product.toString()));
+
+        // ========================================
+        // Test 2: Compile-time Boolean operations
+        // ========================================
+        Instantiate Compiletime Bool^ As <flag1> = Bool::Constructor(true);
+        Instantiate Compiletime Bool^ As <flag2> = Bool::Constructor(false);
+
+        Run Console::printLine(String::Constructor(""));
+        Run Console::printLine(String::Constructor("=== Boolean Compile-Time Tests ==="));
+        Run Console::printLine(String::Constructor("Testing compile-time booleans with If statements:"));
+        If (flag1) -> {
+            Run Console::printLine(String::Constructor("  -> flag1 is true (expected)"));
+        }
+        If (flag2) -> {
+            Run Console::printLine(String::Constructor("  -> flag2 is true (not expected)"));
+        }
+        If (flag2.not()) -> {
+            Run Console::printLine(String::Constructor("  -> flag2.not() is true (expected)"));
+        }
+
+        // ========================================
+        // Test 3: Using compile-time values in runtime expressions
+        // ========================================
+        Instantiate Integer^ As <runtime1> = Integer::Constructor(100);
+        Instantiate Integer^ As <combined> = runtime1.add(sum);
+
+        Run Console::printLine(String::Constructor(""));
+        Run Console::printLine(String::Constructor("=== Mixed Compile/Runtime Tests ==="));
+        Run Console::printLine(String::Constructor("runtime1 = ").append(runtime1.toString()));
+        Run Console::printLine(String::Constructor("runtime1 + compiletime_sum(15) = ").append(combined.toString()));
+
+        // ========================================
+        // Test 4: Compile-time String operations
+        // ========================================
+        Instantiate Compiletime String^ As <greeting> = String::Constructor("Hello");
+        Instantiate Compiletime String^ As <world> = String::Constructor("World");
+
+        Run Console::printLine(String::Constructor(""));
+        Run Console::printLine(String::Constructor("=== String Compile-Time Tests ==="));
+        Run Console::printLine(String::Constructor("greeting = ").append(greeting));
+        Run Console::printLine(String::Constructor("world = ").append(world));
+
+        // ========================================
+        // Test 5: Chained compile-time operations
+        // ========================================
+        Instantiate Compiletime Integer^ As <a> = Integer::Constructor(2);
+        Instantiate Compiletime Integer^ As <b> = Integer::Constructor(3);
+        Instantiate Compiletime Integer^ As <c> = Integer::Constructor(4);
+        Instantiate Compiletime Integer^ As <result> = a.add(b).multiply(c);
+
+        Run Console::printLine(String::Constructor(""));
+        Run Console::printLine(String::Constructor("=== Chained Compile-Time Operations ==="));
+        Run Console::printLine(String::Constructor("a = ").append(a.toString()));
+        Run Console::printLine(String::Constructor("b = ").append(b.toString()));
+        Run Console::printLine(String::Constructor("c = ").append(c.toString()));
+        Run Console::printLine(String::Constructor("(a + b) * c = ").append(result.toString()));
+
+        Run Console::printLine(String::Constructor(""));
+        Run Console::printLine(String::Constructor("All compile-time tests completed!"));
+    }
+]

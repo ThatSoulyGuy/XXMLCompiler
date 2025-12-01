@@ -302,6 +302,24 @@ void String_destroy(void* self) {
     xxml_free(str);
 }
 
+// djb2 hash algorithm for strings
+int64_t xxml_string_hash(void* self) {
+    if (!self) return 0;
+
+    String* str = (String*)self;
+    if (!str->data) return 0;
+
+    const char* s = str->data;
+    uint64_t hash = 5381;
+    int c;
+
+    while ((c = (unsigned char)*s++)) {
+        hash = ((hash << 5) + hash) + c;  // hash * 33 + c
+    }
+
+    return (int64_t)hash;
+}
+
 // ============================================
 // Bool Operations
 // ============================================

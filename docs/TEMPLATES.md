@@ -97,7 +97,30 @@ For no constraints, use `Constrains None`:
 [ Class <Box> <T Constrains None> Final Extends None
 ```
 
-For multiple constraints, use pipe `|`:
+### Constraint Template Arguments
+
+Constraints can take template arguments that bind to the class's template parameters. Two syntaxes are supported:
+
+```xxml
+// Angle bracket syntax
+[ Class <HashSet> <T Constrains Hashable<T>> Final Extends None
+
+// At-sign syntax
+[ Class <HashSet> <T Constrains Hashable@T> Final Extends None
+```
+
+### Multiple Constraints with AND Semantics
+
+Use parentheses for AND semantics - the type must satisfy **ALL** constraints:
+
+```xxml
+// K must satisfy BOTH Hashable AND Equatable
+[ Class <HashMap> <K Constrains (Hashable<K>, Equatable@K), V Constrains None> Final Extends None
+```
+
+### Multiple Constraints with OR Semantics
+
+Use pipe `|` for OR semantics - the type must satisfy **at least ONE** constraint:
 
 ```xxml
 [ Class <MyClass> <T Constrains Printable | Comparable> Final Extends None
@@ -137,11 +160,14 @@ Used for:
 ### Parameter Syntax Summary
 
 ```xxml
-Single parameter:    <T Constrains None>
-Multiple parameters: <T Constrains None, U Constrains None>
-With constraints:    <T Constrains Printable>
-Multiple constraints: <T Constrains Printable | Comparable>
-Non-type parameter:  <Size Constrains None>
+Single parameter:           <T Constrains None>
+Multiple parameters:        <T Constrains None, U Constrains None>
+With single constraint:     <T Constrains Printable>
+Constraint with type arg:   <T Constrains Hashable<T>>
+Constraint with @ syntax:   <T Constrains Hashable@T>
+AND constraints (all):      <T Constrains (Hashable<T>, Equatable@T)>
+OR constraints (any):       <T Constrains Printable | Comparable>
+Non-type parameter:         <Size Constrains None>
 ```
 
 ## Template Instantiation

@@ -163,6 +163,7 @@ private:
         Parser::OwnershipType returnOwnership;
         std::vector<std::pair<std::string, Parser::OwnershipType>> parameters; // (type, ownership) pairs
         bool isConstructor;
+        bool isCompiletime = false;  // Whether this method can be evaluated at compile-time
     };
 
     struct ClassInfo {
@@ -172,6 +173,7 @@ private:
         std::string baseClassName;  // ✅ SAFE: COPIED from AST, not pointer
         std::vector<Parser::TemplateParameter> templateParams;  // ✅ SAFE: COPIED from AST
         bool isTemplate = false;  // Whether this is a template class
+        bool isCompiletime = false;  // Whether this is a compile-time class (all methods must be compiletime)
         Parser::ClassDecl* astNode = nullptr;  // Optional: only valid for same-module access
     };
 
@@ -258,11 +260,19 @@ private:
     bool isValidAnnotationTarget(const AnnotationInfo& annotation, Parser::AnnotationTarget target);
     std::string annotationTargetToString(Parser::AnnotationTarget target);
 
-    bool validateConstraint(const std::string& typeName, const std::vector<std::string>& constraints);
+    bool validateConstraint(const std::string& typeName,
+                           const std::vector<Parser::ConstraintRef>& constraints,
+                           bool constraintsAreAnd,
+                           const std::unordered_map<std::string, std::string>& typeSubstitutions = {});
+    bool validateSingleConstraint(const std::string& typeName,
+                                  const Parser::ConstraintRef& constraint,
+                                  const std::unordered_map<std::string, std::string>& typeSubstitutions,
+                                  bool reportErrors = true);
     bool validateConstraintRequirements(const std::string& typeName,
                                        const ConstraintInfo& constraint,
                                        const Common::SourceLocation& loc,
-                                       const std::unordered_map<std::string, std::string>& providedSubstitutions = {});
+                                       const std::unordered_map<std::string, std::string>& providedSubstitutions = {},
+                                       bool reportErrors = true);
     bool hasMethod(const std::string& className,
                   const std::string& methodName,
                   Parser::TypeRef* returnType);
@@ -271,7 +281,11 @@ private:
     bool evaluateTruthCondition(Parser::Expression* expr,
                                const std::unordered_map<std::string, std::string>& typeSubstitutions);
     bool isTypeCompatible(const std::string& actualType, const std::string& constraintType);
-
+    // Compile-time helpers
+    bool isCompiletimeType(const std::string& typeName) const;
+    bool isCompiletimeMethod(const std::string& className, const std::string& methodName);
+    bool hasCompiletimeConstructor(const std::string& className,
+                                   const std::vector<std::unique_ptr<Parser::TypeRef>>& paramTypes);
     // Helper for class member lookup
     ClassInfo* findClass(const std::string& className);
     bool validateQualifiedIdentifier(const std::string& qualifiedName, const Common::SourceLocation& loc);

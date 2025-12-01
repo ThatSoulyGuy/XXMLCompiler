@@ -1,0 +1,14 @@
+// XXML Standard Library - Equatable Constraint
+// Types that satisfy this constraint can be compared for equality
+// Required for keys in HashMap to check if two keys are the same
+
+[ Namespace <Core>
+    [ Constraint <Equatable> <T Constrains None> (T a)
+        // Returns true if this object is equal to the other object
+        // Must satisfy:
+        // - Reflexivity: x.equals(x) is true
+        // - Symmetry: x.equals(y) == y.equals(x)
+        // - Transitivity: if x.equals(y) and y.equals(z), then x.equals(z)
+        Require (F(Bool^)(equals)(NativeType<"ptr">^) On a)
+    ]
+]

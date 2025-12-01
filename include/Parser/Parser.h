@@ -84,6 +84,7 @@ private:
     std::unique_ptr<TypeRef> parseFunctionTypeRef();
     OwnershipType parseOwnershipType();
     std::vector<TemplateParameter> parseTemplateParameters();
+    ConstraintRef parseConstraintRef();  // Parse constraint with optional template args
     std::string parseQualifiedIdentifier();
     std::string parseAngleBracketIdentifier();
 

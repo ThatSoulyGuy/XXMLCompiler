@@ -85,6 +85,20 @@
 				Return Bool::Constructor(false);
 			}
 
+			// Implements Hashable interface
+			// Returns djb2 hash code for this string
+			Method <hash> Returns NativeType<"int64">^ Parameters () ->
+			{
+				Instantiate NativeType<"string_ptr">^ As <ptr> = data;
+				Instantiate NativeType<"int64">^ As <hashValue> = Syscall::string_hash(ptr);
+				// Make hash positive
+				If (hashValue < 0) -> {
+					Instantiate NativeType<"int64">^ As <result> = 0 - hashValue;
+					Return result;
+				}
+				Return hashValue;
+			}
+
 			// Create from C string pointer (for reading from memory)
 			Method <FromCString> Returns String^ Parameters (
 				Parameter <ptr> Types NativeType<"ptr">

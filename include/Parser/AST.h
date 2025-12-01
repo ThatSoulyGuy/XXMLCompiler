@@ -318,6 +318,7 @@ public:
     std::vector<std::unique_ptr<ParameterDecl>> parameters;
     std::unique_ptr<TypeRef> returnType;
     std::vector<std::unique_ptr<Statement>> body;
+    bool isCompiletime = false;  // Compile-time lambda for Truth conditions
 
     LambdaExpr(std::vector<CaptureSpec> caps,
                std::vector<std::unique_ptr<ParameterDecl>> params,
@@ -348,6 +349,7 @@ public:
     std::string variableName;
     std::unique_ptr<Expression> initializer;
     std::vector<std::unique_ptr<AnnotationUsage>> annotations;  // Applied annotations
+    bool isCompiletime = false;  // Compile-time variable instantiation
 
     InstantiateStmt(std::unique_ptr<TypeRef> t, const std::string& name,
                     std::unique_ptr<Expression> init, const Common::SourceLocation& loc)
@@ -488,20 +490,61 @@ public:
     virtual std::unique_ptr<Declaration> cloneDecl() const = 0;
 };
 
+// Constraint reference with optional template arguments (e.g., Hashable<T> or Hashable@T)
+struct ConstraintRef {
+    std::string name;                          // "Hashable"
+    std::vector<std::string> templateArgs;     // ["T"] for Hashable<T>
+    Common::SourceLocation location;
+
+    ConstraintRef(const std::string& n, const std::vector<std::string>& args,
+                  const Common::SourceLocation& loc)
+        : name(n), templateArgs(args), location(loc) {}
+
+    // For backward compatibility - simple constraint name
+    ConstraintRef(const std::string& n, const Common::SourceLocation& loc)
+        : name(n), templateArgs(), location(loc) {}
+
+    // Default constructor for containers
+    ConstraintRef() : name(), templateArgs(), location() {}
+
+    // Convert to string representation for existing code
+    std::string toString() const {
+        if (templateArgs.empty()) return name;
+        std::string result = name + "<";
+        for (size_t i = 0; i < templateArgs.size(); ++i) {
+            if (i > 0) result += ", ";
+            result += templateArgs[i];
+        }
+        return result + ">";
+    }
+};
+
 // Template parameter (for template class and method definitions)
 struct TemplateParameter {
     enum class Kind { Type, Value };  // Type parameter (T) or non-type parameter (N)
 
     std::string name;
     Kind kind;
-    std::vector<std::string> constraints;  // Empty means no constraints (any type)
+    std::vector<ConstraintRef> constraints;  // Empty means no constraints (any type)
+    bool constraintsAreAnd = true;           // true = AND semantics (parenthesized), false = OR (pipe)
     std::string valueType;  // For non-type parameters: the type (e.g., "int64")
     Common::SourceLocation location;
 
+    // New constructor with ConstraintRef
+    TemplateParameter(const std::string& n, const std::vector<ConstraintRef>& c, bool andSemantics,
+                     const Common::SourceLocation& loc,
+                     Kind k = Kind::Type, const std::string& vType = "")
+        : name(n), kind(k), constraints(c), constraintsAreAnd(andSemantics), valueType(vType), location(loc) {}
+
+    // Backward compatibility constructor - converts strings to ConstraintRefs
     TemplateParameter(const std::string& n, const std::vector<std::string>& c,
                      const Common::SourceLocation& loc,
                      Kind k = Kind::Type, const std::string& vType = "")
-        : name(n), kind(k), constraints(c), valueType(vType), location(loc) {}
+        : name(n), kind(k), constraintsAreAnd(c.size() <= 1), valueType(vType), location(loc) {
+        for (const auto& s : c) {
+            constraints.emplace_back(s, loc);
+        }
+    }
 };
 
 class ParameterDecl : public Declaration {
@@ -520,6 +563,7 @@ public:
     std::string name;
     std::unique_ptr<TypeRef> type;
     std::vector<std::unique_ptr<AnnotationUsage>> annotations;  // Applied annotations
+    bool isCompiletime = false;  // Compile-time property
 
     PropertyDecl(const std::string& n, std::unique_ptr<TypeRef> t, const Common::SourceLocation& loc)
         : Declaration(loc), name(n), type(std::move(t)) {}
@@ -532,6 +576,7 @@ public:
     bool isDefault;
     std::vector<std::unique_ptr<ParameterDecl>> parameters;
     std::vector<std::unique_ptr<Statement>> body;
+    bool isCompiletime = false;  // Compile-time constructor
 
     ConstructorDecl(bool isDef, std::vector<std::unique_ptr<ParameterDecl>> params,
                     std::vector<std::unique_ptr<Statement>> bodyStmts,
@@ -563,6 +608,7 @@ public:
     std::vector<std::unique_ptr<ParameterDecl>> parameters;
     std::vector<std::unique_ptr<Statement>> body;
     std::vector<std::unique_ptr<AnnotationUsage>> annotations;  // Applied annotations
+    bool isCompiletime = false;  // Compile-time method
 
     // FFI fields (for @NativeFunction annotated methods)
     bool isNative = false;              // True if this is a native FFI method (semicolon-terminated)
@@ -614,6 +660,7 @@ public:
     std::string baseClass;  // Empty string if no base class (Extends None)
     std::vector<std::unique_ptr<AccessSection>> sections;
     std::vector<std::unique_ptr<AnnotationUsage>> annotations;  // Applied annotations
+    bool isCompiletime = false;  // Compile-time class
 
     ClassDecl(const std::string& n, const std::vector<TemplateParameter>& tparams,
               bool final, const std::string& base,
@@ -722,9 +769,11 @@ public:
 
 // Constraint requirement types
 enum class RequirementKind {
-    Method,       // Method requirement: F(Integer^)(run)(*) On a
-    Constructor,  // Constructor requirement: C(None) On a
-    Truth         // Truth assertion: Truth(expr)
+    Method,                 // Method requirement: F(Integer^)(run)(*) On a
+    Constructor,            // Constructor requirement: C(None) On a
+    Truth,                  // Truth assertion: Truth(expr)
+    CompiletimeMethod,      // Compile-time method requirement: FC(Integer^)(run)(*) On a
+    CompiletimeConstructor  // Compile-time constructor requirement: CC(None) On a
 };
 
 class RequireStmt : public Statement {

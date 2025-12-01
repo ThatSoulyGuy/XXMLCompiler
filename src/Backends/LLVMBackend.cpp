@@ -6,6 +6,8 @@
 #include "Core/FormatCompat.h"  // Compatibility layer for format
 #include "Utils/ProcessUtils.h"
 #include "Semantic/SemanticAnalyzer.h"  // For template instantiation
+#include "Semantic/CompiletimeInterpreter.h"  // For compile-time evaluation
+#include "Semantic/CompiletimeValue.h"  // For compile-time values
 #include <sstream>
 #include <fstream>
 #include <iostream>
@@ -1156,6 +1158,7 @@ std::string LLVMBackend::generatePreamble() {
     preamble << "; Utility Functions\n";
     preamble << "declare ptr @xxml_string_create(ptr)\n";
     preamble << "declare ptr @xxml_string_concat(ptr, ptr)\n";
+    preamble << "declare i64 @xxml_string_hash(ptr)\n";
     preamble << "declare i64 @xxml_ptr_is_null(ptr)\n";
     preamble << "declare ptr @xxml_ptr_null()\n";
     preamble << "\n";
@@ -2774,6 +2777,23 @@ void LLVMBackend::visit(Parser::EntrypointDecl& node) {
 }
 
 void LLVMBackend::visit(Parser::InstantiateStmt& node) {
+    // Handle compile-time variables: evaluate at compile-time and store as constants
+    if (node.isCompiletime && node.initializer && semanticAnalyzer_) {
+        Semantic::CompiletimeInterpreter interpreter(*semanticAnalyzer_);
+        auto ctValue = interpreter.evaluate(node.initializer.get());
+        if (ctValue) {
+            // Store the compile-time value for later use
+            compiletimeValues_[node.variableName] = std::move(ctValue);
+            emitLine("; Compile-time constant: " + node.variableName);
+
+            // For primitive types that can be directly emitted as constants,
+            // we don't need runtime allocation - just track the value
+            // The IdentifierExpr visitor will emit the constant directly
+            return;
+        }
+        // Fall through to runtime allocation if compile-time evaluation fails
+    }
+
     std::string varType = getLLVMType(node.type->typeName);
 
     // Determine ownership from type
@@ -3862,6 +3882,101 @@ void LLVMBackend::visit(Parser::ThisExpr& node) {
 }
 
 void LLVMBackend::visit(Parser::IdentifierExpr& node) {
+    // Check for compile-time constants first
+    auto ctIt = compiletimeValues_.find(node.name);
+    if (ctIt != compiletimeValues_.end()) {
+        // Emit the compile-time constant directly
+        Semantic::CompiletimeValue* ctValue = ctIt->second.get();
+        if (ctValue->isInteger()) {
+            auto* intVal = static_cast<Semantic::CompiletimeInteger*>(ctValue);
+            std::string valueReg = allocateRegister();
+            // For Integer type, we call Integer_Constructor to wrap the i64
+            emitLine(format("{} = call ptr @Integer_Constructor(i64 {})", valueReg, intVal->value));
+            valueMap_["__last_expr"] = valueReg;
+            registerTypes_[valueReg] = "Integer";
+
+            // IR: Create Integer constant and wrap
+            if (builder_) {
+                IR::Value* i64Val = builder_->getInt64(intVal->value);
+                IR::Function* intCtor = module_->getFunction("Integer_Constructor");
+                if (intCtor) {
+                    lastExprValue_ = builder_->CreateCall(intCtor, {i64Val}, "ct_int");
+                } else {
+                    lastExprValue_ = i64Val;
+                }
+            }
+            return;
+        }
+        if (ctValue->isBool()) {
+            auto* boolVal = static_cast<Semantic::CompiletimeBool*>(ctValue);
+            std::string valueReg = allocateRegister();
+            emitLine(format("{} = call ptr @Bool_Constructor(i1 {})", valueReg, boolVal->value ? "true" : "false"));
+            valueMap_["__last_expr"] = valueReg;
+            registerTypes_[valueReg] = "Bool";
+
+            if (builder_) {
+                IR::Value* i1Val = builder_->getInt1(boolVal->value);
+                IR::Function* boolCtor = module_->getFunction("Bool_Constructor");
+                if (boolCtor) {
+                    lastExprValue_ = builder_->CreateCall(boolCtor, {i1Val}, "ct_bool");
+                } else {
+                    lastExprValue_ = i1Val;
+                }
+            }
+            return;
+        }
+        if (ctValue->isFloat()) {
+            auto* floatVal = static_cast<Semantic::CompiletimeFloat*>(ctValue);
+            std::string valueReg = allocateRegister();
+            emitLine(format("{} = call ptr @Float_Constructor(float {})", valueReg, floatVal->value));
+            valueMap_["__last_expr"] = valueReg;
+            registerTypes_[valueReg] = "Float";
+
+            if (builder_) {
+                lastExprValue_ = builder_->getFloat(floatVal->value);
+            }
+            return;
+        }
+        if (ctValue->isDouble()) {
+            auto* doubleVal = static_cast<Semantic::CompiletimeDouble*>(ctValue);
+            std::string valueReg = allocateRegister();
+            emitLine(format("{} = call ptr @Double_Constructor(double {})", valueReg, doubleVal->value));
+            valueMap_["__last_expr"] = valueReg;
+            registerTypes_[valueReg] = "Double";
+
+            if (builder_) {
+                lastExprValue_ = builder_->getDouble(doubleVal->value);
+            }
+            return;
+        }
+        if (ctValue->isString()) {
+            auto* strVal = static_cast<Semantic::CompiletimeString*>(ctValue);
+            // Create a string literal and call String_Constructor
+            std::string label = "@.str.ct." + std::to_string(stringLiterals_.size());
+            stringLiterals_.push_back({label, strVal->value});
+
+            std::string ptrReg = allocateRegister();
+            emitLine(format("{} = getelementptr inbounds [{} x i8], ptr {}, i64 0, i64 0",
+                           ptrReg, strVal->value.length() + 1, label));
+
+            std::string valueReg = allocateRegister();
+            emitLine(format("{} = call ptr @String_Constructor(ptr {})", valueReg, ptrReg));
+            valueMap_["__last_expr"] = valueReg;
+            registerTypes_[valueReg] = "String";
+
+            if (builder_) {
+                // For IR, we would create a global string constant
+                // For now, emit as runtime constructor call
+                IR::Function* strCtor = module_->getFunction("String_Constructor");
+                if (strCtor) {
+                    // String handling in IR is more complex, fall back to legacy for now
+                }
+            }
+            return;
+        }
+        // For other compile-time types, fall through to runtime handling
+    }
+
     auto it = valueMap_.find(node.name);
     if (it != valueMap_.end()) {
         // Local variable - need to load its value
@@ -8373,6 +8488,43 @@ void LLVMBackend::storeIRValue(const std::string& name, IR::Value* value) {
 
     // Otherwise just track the value
     irValues_[name] = value;
+}
+
+IR::Value* LLVMBackend::emitCompiletimeConstant(Semantic::CompiletimeValue* value) {
+    if (!value || !builder_) return nullptr;
+
+    switch (value->kind) {
+        case Semantic::CompiletimeValue::Kind::Integer: {
+            auto* intVal = static_cast<Semantic::CompiletimeInteger*>(value);
+            return builder_->getInt64(intVal->value);
+        }
+        case Semantic::CompiletimeValue::Kind::Float: {
+            auto* floatVal = static_cast<Semantic::CompiletimeFloat*>(value);
+            // Create float constant - use double for now as that's what IR supports
+            return builder_->getFloat(floatVal->value);
+        }
+        case Semantic::CompiletimeValue::Kind::Double: {
+            auto* doubleVal = static_cast<Semantic::CompiletimeDouble*>(value);
+            return builder_->getDouble(doubleVal->value);
+        }
+        case Semantic::CompiletimeValue::Kind::Bool: {
+            auto* boolVal = static_cast<Semantic::CompiletimeBool*>(value);
+            return builder_->getInt1(boolVal->value);
+        }
+        case Semantic::CompiletimeValue::Kind::String: {
+            // Strings still need runtime allocation, return null for now
+            // Complex objects require runtime construction
+            return nullptr;
+        }
+        case Semantic::CompiletimeValue::Kind::Null: {
+            return builder_->getNullPtr();
+        }
+        case Semantic::CompiletimeValue::Kind::Object:
+        case Semantic::CompiletimeValue::Kind::Lambda:
+            // Complex types require runtime construction
+            return nullptr;
+    }
+    return nullptr;
 }
 
 void LLVMBackend::generateNativeMethodThunk(Parser::MethodDecl& node) {
