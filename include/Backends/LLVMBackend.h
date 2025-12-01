@@ -3,6 +3,7 @@
 #include "../Core/IBackend.h"
 #include "../Parser/AST.h"
 #include "IR/IR.h"  // New IR infrastructure
+#include "Codegen/ModularCodegen.h"  // Modular code generation
 #include <sstream>
 #include <unordered_map>
 #include <set>
@@ -161,6 +162,10 @@ public:
     void visit(Parser::FunctionTypeRef& node) override;
 
 private:
+    // === Modular Codegen (new type-safe IR system) ===
+    std::unique_ptr<Codegen::ModularCodegen> modularCodegen_;
+    bool useModularCodegen_ = true;  // Type-safe modular IR codegen enabled
+
     // === New IR Infrastructure ===
     std::unique_ptr<IR::Module> module_;           // IR Module being built
     std::unique_ptr<IR::IRBuilder> builder_;       // IR instruction builder

@@ -51,7 +51,18 @@
       "Bash(\"D:\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" \"D:\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\ConstraintViolationTest.XXML\" -o \"D:\\VisualStudio\\Projects\\XXMLCompiler\\multiconstrainttest.exe\")",
       "Bash(\"D:\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" \"D:\\VisualStudio\\Projects\\XXMLCompiler\\tests\\ConstraintViolationTest.XXML\" -o \"D:\\VisualStudio\\Projects\\XXMLCompiler\\shouldfail.exe\")",
       "Bash(\"D:\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" \"D:\\VisualStudio\\Projects\\XXMLCompiler\\tests\\TemplateSystemTest.XXML\" -o \"D:\\VisualStudio\\Projects\\XXMLCompiler\\templatesystemtest.exe\")",
-      "Bash(D:/VisualStudio/Projects/XXMLCompiler/compiletimetest.exe:*)"
+      "Bash(D:/VisualStudio/Projects/XXMLCompiler/compiletimetest.exe:*)",
+      "Bash(\"D:\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" \"D:\\VisualStudio\\Projects\\XXMLCompiler\\tests\\MinimalTest.XXML\" -o \"D:\\VisualStudio\\Projects\\XXMLCompiler\\minimaltest.exe\")",
+      "Bash(\"D:\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" \"D:\\VisualStudio\\Projects\\XXMLCompiler\\tests\\ForLoopTest.XXML\" -o \"D:\\VisualStudio\\Projects\\XXMLCompiler\\forlooptest.exe\")",
+      "Bash(D:/VisualStudio/Projects/XXMLCompiler/minimaltest.exe)",
+      "Bash(D:/VisualStudio/Projects/XXMLCompiler/simplearithtest.exe)",
+      "Bash(\"D:\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" \"D:\\VisualStudio\\Projects\\XXMLCompiler\\tests\\WhileLoopTest.XXML\" -o \"D:\\VisualStudio\\Projects\\XXMLCompiler\\whilelooptest.exe\")",
+      "Bash(\"D:\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" \"D:\\VisualStudio\\Projects\\XXMLCompiler\\tests\\EnumerationTest.XXML\" -o \"D:\\VisualStudio\\Projects\\XXMLCompiler\\enumtest.exe\")",
+      "Bash(D:/VisualStudio/Projects/XXMLCompiler/templatesystemtest.exe)",
+      "Bash(\"D:\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" \"D:\\VisualStudio\\Projects\\XXMLCompiler\\tests\\ConstructorTest.XXML\" -o \"D:\\VisualStudio\\Projects\\XXMLCompiler\\constructortest.exe\")",
+      "Bash(D:/VisualStudio/Projects/XXMLCompiler/constructortest.exe)",
+      "Bash(\"D:\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" \"D:\\VisualStudio\\Projects\\XXMLCompiler\\tests\\LambdaTest.XXML\" -o \"D:\\VisualStudio\\Projects\\XXMLCompiler\\lambdatest.exe\")",
+      "Bash(D:/VisualStudio/Projects/XXMLCompiler/lambdatest.exe)"
     ],
     "deny": [],
     "ask": []

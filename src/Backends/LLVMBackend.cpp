@@ -53,6 +53,9 @@ LLVMBackend::LLVMBackend(Core::CompilationContext* context)
     // Set capabilities
     addCapability(Core::BackendCapability::Optimizations);
     addCapability(Core::BackendCapability::ValueSemantics);
+
+    // Initialize modular codegen (type-safe IR generation)
+    modularCodegen_ = std::make_unique<Codegen::ModularCodegen>(context);
 }
 
 bool LLVMBackend::supportsFeature(std::string_view feature) const {
@@ -204,7 +207,17 @@ std::string LLVMBackend::generate(Parser::Program& program) {
     }
 
     // Visit main program (this collects string literals and reflection metadata)
-    program.accept(*this);
+    if (useModularCodegen_ && modularCodegen_) {
+        // Use the new type-safe modular codegen system
+        modularCodegen_->generateProgramDecls(program.declarations);
+
+        // Also run legacy visitor for reflection/annotation metadata collection
+        // TODO: Move reflection metadata collection to modular codegen
+        program.accept(*this);
+    } else {
+        // Legacy code generation via visitor pattern
+        program.accept(*this);
+    }
 
     // Generate reflection metadata after all classes are visited
     generateReflectionMetadata();
