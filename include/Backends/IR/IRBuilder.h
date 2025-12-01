@@ -27,6 +27,14 @@ public:
     Module& getModule() { return module_; }
     TypeContext& getContext() { return module_.getContext(); }
 
+    // ========== Function Context (for type validation) ==========
+
+    void setCurrentFunction(Function* func) { currentFunction_ = func; }
+    Function* getCurrentFunction() const { return currentFunction_; }
+
+    // Type compatibility checking for return type validation
+    bool typesCompatible(Type* expected, Type* actual);
+
     // ========== Type Shortcuts ==========
 
     Type* getVoidTy() { return getContext().getVoidTy(); }
@@ -264,6 +272,9 @@ private:
     Module& module_;
     BasicBlock* insertBlock_ = nullptr;
     BasicBlock::iterator insertPoint_;
+
+    // Current function context for type validation
+    Function* currentFunction_ = nullptr;
 
     // Register counter for naming
     unsigned registerCounter_ = 0;

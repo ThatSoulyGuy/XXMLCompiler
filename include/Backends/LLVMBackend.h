@@ -6,6 +6,7 @@
 #include "Codegen/ModularCodegen.h"  // Modular code generation
 #include <sstream>
 #include <unordered_map>
+#include <unordered_set>
 #include <set>
 #include <memory>
 
@@ -182,6 +183,26 @@ private:
     // Variables in this map are constants that don't need runtime allocation
     std::unordered_map<std::string, std::unique_ptr<Semantic::CompiletimeValue>> compiletimeValues_;
 
+    // Cache for materialized compile-time values: variable name -> LLVM register holding the object
+    // This ensures each compile-time value is only constructed once at runtime
+    std::unordered_map<std::string, std::string> compiletimeMaterialized_;
+
+    // Track NativeType compile-time variables (always emit raw values, never wrap)
+    std::unordered_set<std::string> compiletimeNativeTypes_;
+
+    // Value context tracking for compile-time constant folding
+    // Controls whether to emit raw constants or wrapper objects
+    enum class ValueContext {
+        Default,        // Needs wrapper object (e.g., for method calls that can't be evaluated at compile-time)
+        RawValue,       // Can use raw primitive (i64, float, etc.) - for arithmetic operands
+        MethodReceiver, // Method call - try compile-time eval first
+        OperandContext  // Binary operation operand
+    };
+    ValueContext currentValueContext_ = ValueContext::Default;
+
+    // Global string constant pool for compile-time string values
+    std::unordered_map<std::string, std::string> globalStringConstants_;  // content -> label
+
     // Expression result tracking (set by expression visitors, consumed by statement visitors)
     IR::Value* lastExprValue_ = nullptr;
 
@@ -242,7 +263,8 @@ private:
     std::string currentClassName_;
     std::string currentFunctionReturnType_;  // Track current function's return type for return statements
     struct ClassInfo {
-        std::vector<std::pair<std::string, std::string>> properties;  // name, type
+        // Properties: (name, llvmType, xxmlType)
+        std::vector<std::tuple<std::string, std::string, std::string>> properties;
     };
     std::unordered_map<std::string, ClassInfo> classes_;
 
@@ -423,6 +445,10 @@ private:
     /// Emit a compile-time constant value as an IR constant
     /// Returns the IR value for the constant, or nullptr if not evaluable
     IR::Value* emitCompiletimeConstant(Semantic::CompiletimeValue* value);
+
+    /// Get or create a global string constant, returning its label
+    /// Deduplicates identical strings to minimize code size
+    std::string getOrCreateGlobalString(const std::string& content);
 
     /// Reflection metadata generation
     void generateReflectionMetadata();

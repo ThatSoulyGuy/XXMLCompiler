@@ -3779,8 +3779,12 @@ std::vector<Parser::OwnershipType>* SemanticAnalyzer::getFunctionTypeParams(cons
 
 // ============ Compile-time helpers ============
 bool SemanticAnalyzer::isCompiletimeType(const std::string& typeName) const {
-    // Built-in primitive types are implicitly compile-time capable
-    if (typeName == "Integer" || typeName == "Bool" || typeName == "Float" || 
+    // Built-in primitive types are compile-time capable.
+    // Note: Integer, Bool, Float, Double, String are also marked as Compiletime in their
+    // class definitions (Language/Core/*.XXML), but we check them here explicitly because
+    // this function may be called before those classes are registered in the classRegistry
+    // during semantic analysis.
+    if (typeName == "Integer" || typeName == "Bool" || typeName == "Float" ||
         typeName == "Double" || typeName == "String" || typeName == "Void") {
         return true;
     }

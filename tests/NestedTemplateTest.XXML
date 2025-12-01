@@ -1,0 +1,82 @@
+// Template Test
+// Tests single-parameter template types
+
+#import Language::Core;
+
+// Simple wrapper template
+[ Class <Wrapper> <T Constrains None> Final Extends None
+    [ Private <>
+        Property <value> Types T^;
+    ]
+    [ Public <>
+        Constructor Parameters () ->
+        {
+        }
+
+        Constructor Parameters (Parameter <v> Types T^) ->
+        {
+            Set value = v;
+        }
+
+        Method <get> Returns T^ Parameters () Do
+        {
+            Return value;
+        }
+
+        Method <set> Returns None Parameters (Parameter <v> Types T^) Do
+        {
+            Set value = v;
+        }
+    ]
+]
+
+// Box template
+[ Class <Box> <T Constrains None> Final Extends None
+    [ Private <>
+        Property <contents> Types T^;
+    ]
+    [ Public <>
+        Constructor Parameters () ->
+        {
+        }
+
+        Constructor Parameters (Parameter <c> Types T^) ->
+        {
+            Set contents = c;
+        }
+
+        Method <unbox> Returns T^ Parameters () Do
+        {
+            Return contents;
+        }
+    ]
+]
+
+[ Entrypoint
+{
+    Run Console::printLine(String::Constructor("=== Template Tests ==="));
+
+    // TEST 1: Wrapper<Integer>
+    Instantiate Wrapper<Integer>^ As <wrapInt> = Wrapper@Integer::Constructor(Integer::Constructor(42));
+    Instantiate Integer^ As <intVal> = wrapInt.get();
+    Run Console::printLine(String::Constructor("Wrapper<Integer> value: ").append(intVal.toString()));
+
+    // TEST 2: Wrapper<String>
+    Instantiate Wrapper<String>^ As <wrapStr> = Wrapper@String::Constructor(String::Constructor("hello"));
+    Instantiate String^ As <strVal> = wrapStr.get();
+    Run Console::printLine(String::Constructor("Wrapper<String> value: ").append(strVal));
+
+    // TEST 3: Box<String>
+    Instantiate Box<String>^ As <strBox> = Box@String::Constructor(String::Constructor("boxed"));
+    Instantiate String^ As <boxVal> = strBox.unbox();
+    Run Console::printLine(String::Constructor("Box<String> value: ").append(boxVal));
+
+    // TEST 4: Multiple Wrapper<Integer> instances
+    Instantiate Wrapper<Integer>^ As <w1> = Wrapper@Integer::Constructor(Integer::Constructor(1));
+    Instantiate Wrapper<Integer>^ As <w2> = Wrapper@Integer::Constructor(Integer::Constructor(2));
+    Instantiate Integer^ As <v1> = w1.get();
+    Instantiate Integer^ As <v2> = w2.get();
+    Run Console::printLine(String::Constructor("Multiple wrappers: ").append(v1.toString()).append(String::Constructor(", ")).append(v2.toString()));
+
+    Run Console::printLine(String::Constructor("=== All Template Tests PASSED ==="));
+}]

@@ -1,0 +1,19 @@
+#import Language::Core;
+
+[ Entrypoint
+    {
+        // NativeType primitives should always be compile-time
+        Instantiate NativeType<"int64">^ As <x> = 10;
+        Instantiate NativeType<"int64">^ As <y> = 5;
+
+        // Arithmetic on NativeTypes should be folded at compile-time
+        Instantiate NativeType<"int64">^ As <sum> = x + y;
+        Instantiate NativeType<"int64">^ As <product> = x * y;
+
+        // Using NativeType with wrapper types for output
+        Run Console::printLine(String::Constructor("x = ").append(Integer::Constructor(x).toString()));
+        Run Console::printLine(String::Constructor("y = ").append(Integer::Constructor(y).toString()));
+        Run Console::printLine(String::Constructor("sum = ").append(Integer::Constructor(sum).toString()));
+        Run Console::printLine(String::Constructor("product = ").append(Integer::Constructor(product).toString()));
+    }
+]

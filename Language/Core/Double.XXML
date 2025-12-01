@@ -1,8 +1,9 @@
 // XXML Standard Library - Double Class
 // Double-precision floating point (64-bit)
+// Compiletime class - all pure methods can be evaluated at compile-time
 
 [ Namespace <Language::Core>
-	[ Class <Double> Final Extends None
+	[ Class <Double> Compiletime Final Extends None
 		[ Private <>
 			Property <value> Types NativeType<"double">^;
 		]

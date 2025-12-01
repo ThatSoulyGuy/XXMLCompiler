@@ -36,11 +36,76 @@ Source Code (.XXML)
 
 ## LLVM Backend Architecture
 
-The LLVM backend (`src/Backends/LLVMBackend.cpp`) generates LLVM IR from the validated AST:
+The LLVM backend generates LLVM IR from the validated AST using a modular, type-safe architecture.
 
-### IR Infrastructure (`include/Backends/IR/`)
+### Modular Codegen System (`include/Backends/Codegen/`)
 
-The compiler includes a custom LLVM-style IR infrastructure:
+The code generation is split into specialized modules, coordinated by `ModularCodegen`:
+
+```
+ModularCodegen (orchestrator)
+├── ExprCodegen     - Expression code generation
+│   ├── BinaryCodegen       - Binary operations (+, -, *, /, comparisons)
+│   ├── CallCodegen         - Method/function calls
+│   ├── IdentifierCodegen   - Variable references
+│   ├── LiteralCodegen      - Integer, float, string, bool literals
+│   └── MemberAccessCodegen - Property access, method resolution
+├── StmtCodegen     - Statement code generation
+│   ├── AssignmentCodegen   - Variable assignments
+│   ├── ControlFlowCodegen  - If/else, while, for loops
+│   └── ReturnCodegen       - Return statements
+├── DeclCodegen     - Declaration code generation
+│   ├── ClassCodegen        - Class structure generation
+│   ├── ConstructorCodegen  - Constructor methods
+│   ├── MethodCodegen       - Regular methods
+│   ├── NativeMethodCodegen - FFI native methods
+│   └── EntrypointCodegen   - Main function generation
+├── FFICodegen      - Foreign function interface
+├── MetadataGen     - Reflection metadata
+├── PreambleGen     - Runtime preamble generation
+└── TemplateGen     - Template instantiation
+```
+
+### CodegenContext
+
+Shared context for all codegen modules, providing:
+
+- **Variable Management**: Scoped variable tracking with allocas
+- **Class Registry**: Struct types and property information
+- **Loop Stack**: Break/continue target blocks
+- **Lambda Tracking**: Closure types and function names
+- **Native Method Info**: FFI parameter/return type mappings
+- **String Literals**: Global string constant deduplication
+
+### Type-Safe LLVM IR (`include/Backends/LLVMIR/`)
+
+A compile-time type-safe abstraction over LLVM IR:
+
+| Component | Description |
+|-----------|-------------|
+| `TypedValue<T>` | Type-safe value wrappers (`IntValue`, `FloatValue`, `PtrValue`, `BoolValue`) |
+| `AnyValue` | Runtime type variant when compile-time type is unknown |
+| `IRBuilder` | Type-safe instruction builder preventing invalid IR |
+| `TypedModule` | Module with type context and constant factories |
+| `TypedInstructions` | Type-safe instruction abstractions |
+
+**Key Design Principles:**
+- Integer operations only accept/return `IntValue`
+- Float operations only accept/return `FloatValue`
+- Pointer operations return `PtrValue`
+- Comparisons return `BoolValue` (i1)
+- Conditional branches require `BoolValue`, not generic integer
+
+**Example:**
+```cpp
+// Type-safe: compiler prevents passing float to integer add
+IntValue result = builder.createAdd(intA, intB);  // OK
+IntValue wrong = builder.createAdd(intA, floatB); // Compile error!
+```
+
+### Legacy IR Infrastructure (`include/Backends/IR/`)
+
+Lower-level IR representation (used internally):
 
 - **Types** (`Types.h`) - Type system (VoidType, IntegerType, PointerType, StructType, etc.)
 - **Values** (`Values.h`) - Value hierarchy (Constant, GlobalVariable, Function, Argument)
@@ -48,7 +113,6 @@ The compiler includes a custom LLVM-style IR infrastructure:
 - **BasicBlock** (`Function.h`) - Basic blocks with terminators
 - **Function** (`Function.h`) - Functions with arguments and basic blocks
 - **Module** (`Module.h`) - Top-level container
-- **IRBuilder** (`IRBuilder.h`) - Type-safe instruction construction
 - **Emitter** (`Emitter.h`) - LLVM IR text generation
 
 ### Runtime Integration
@@ -262,93 +326,103 @@ class SemanticAnalyzer : public ASTVisitor {
 };
 ```
 
-## Phase 4: Code Generation
+## Phase 4: Code Generation (LLVM IR)
 
-**Location:** `include/CodeGen/`, `src/CodeGen/`
+**Location:** `include/Backends/`, `src/Backends/`
 
 ### Components
 
-- **CodeGenerator** - AST visitor generating C++ code
+- **LLVMBackend** - Main entry point for LLVM IR generation
+- **ModularCodegen** - Orchestrates specialized codegen modules
+- **CodegenContext** - Shared state across all modules
 
-### Translation Rules
+### Translation to LLVM IR
 
-**Namespaces:**
-```xxml
-[ Namespace <Foo::Bar> ... ]
-```
-↓
-```cpp
-namespace Foo::Bar { ... }
-```
-
-**Classes:**
+**Classes → Structs:**
 ```xxml
 [ Class <MyClass> Final Extends None
-    [ Public <> ... ]
-    [ Private <> ... ]
+    [ Public <>
+        Property <x> Types Integer^;
+        Property <name> Types String^;
+    ]
 ]
 ```
 ↓
-```cpp
-class MyClass {
-public:
-    ...
-private:
-    ...
-};
+```llvm
+%MyClass = type { ptr, ptr }  ; x, name as pointers
 ```
 
-**Ownership Types:**
+**Ownership Types → Pointers:**
 ```xxml
 Property <data> Types String^;  // Owned
 Property <ref> Types String&;   // Reference
 Property <val> Types Integer%;  // Copy
 ```
 ↓
-```cpp
-std::unique_ptr<std::string> data;  // Owned
-std::string& ref;                   // Reference
-int64_t val;                        // Copy
+```llvm
+; All become ptr in LLVM IR (opaque pointers)
+; Ownership semantics enforced at semantic analysis phase
 ```
 
-**Methods:**
+**Methods → Functions:**
 ```xxml
-Method <foo> Returns Integer^ Parameters (Parameter <x> Types Integer%) ->
+Method <foo> Returns Integer^ Parameters (Parameter <x> Types Integer%) Do
 {
-    Return x + 1;
+    Return x.add(Integer::Constructor(1));
 }
 ```
 ↓
-```cpp
-std::unique_ptr<int64_t> foo(int64_t x) {
-    return x + 1;
+```llvm
+define ptr @MyClass_foo(ptr %this, ptr %x) {
+entry:
+    ; ... method body
+    ret ptr %result
 }
 ```
 
-**For Loops:**
+**For Loops → Basic Blocks:**
 ```xxml
-For (Integer <i> = 0 .. 10) -> { ... }
+For (Integer^ <i> = 0 .. 10) -> { ... }
 ```
 ↓
-```cpp
-for (int64_t i = 0; i < 10; i++) { ... }
+```llvm
+for.init:
+    %i = alloca ptr
+    store ptr %zero, ptr %i
+    br label %for.cond
+for.cond:
+    %cmp = icmp slt i64 %i.val, 10
+    br i1 %cmp, label %for.body, label %for.end
+for.body:
+    ; ... loop body
+    br label %for.inc
+for.inc:
+    ; increment i
+    br label %for.cond
+for.end:
+    ; continue after loop
 ```
 
-**Entrypoint:**
+**Entrypoint → main:**
 ```xxml
 [ Entrypoint { Exit(0); } ]
 ```
 ↓
-```cpp
-int main() { return 0; }
+```llvm
+define i32 @main() {
+entry:
+    call void @__xxml_init()
+    ; ... entrypoint body
+    ret i32 0
+}
 ```
 
 ### Code Generation Strategy
 
-1. **Top-Down Traversal**: Visit AST nodes in declaration order
-2. **Indentation Tracking**: Maintain proper C++ indentation
-3. **Type Conversion**: Map XXML types to C++ types
-4. **Comment Generation**: Add comments for generated code
+1. **Multi-Pass Generation**: Preamble → Classes → Methods → Entrypoint
+2. **Scope Tracking**: Variable scopes with proper lifetime management
+3. **Type Mapping**: XXML types → LLVM types via `CodegenContext::mapType()`
+4. **Name Mangling**: `ClassName_methodName` convention
 
 ## Common Infrastructure
 
@@ -395,8 +469,10 @@ struct SourceLocation {
 2. **Tokenize** → Vector<Token>
 3. **Parse** → unique_ptr<Program>
 4. **Analyze** → Validated AST + SymbolTable
-5. **Generate** → C++ Source String
-6. **Write** → .cpp File
+5. **Generate IR** → LLVM IR Module
+6. **Emit IR** → LLVM IR text (.ll)
+7. **Compile** → Object file (.obj) via Clang
+8. **Link** → Native executable
 
 ### Error Handling
 
@@ -451,10 +527,9 @@ return classDecl;
 
 ### Strategy Pattern
 
-Different code generation strategies could be swapped:
-- C++ Generator (current)
-- LLVM IR Generator (future)
-- Interpreter (future)
+Different code generation backends:
+- **LLVM Backend** (current) - Native executable via LLVM IR
+- Interpreter (future) - Direct AST interpretation
 
 ## Performance Considerations
 
@@ -490,7 +565,7 @@ Different code generation strategies could be swapped:
 
 ### Integration Tests
 
-- **End-to-End**: .xxml → .cpp → executable
+- **End-to-End**: .xxml → LLVM IR → native executable
 - **Runtime Library**: Compile and run XXML standard library
 - **Example Programs**: Test.XXML and others
 
@@ -502,23 +577,23 @@ Target: >90% code coverage across all modules
 
 ### Optimization Pass
 
-Add IR optimization between semantic analysis and code generation:
+The LLVM backend can leverage LLVM's optimization passes:
 
 ```
-AST → IR → Optimized IR → C++
+AST → LLVM IR → LLVM Optimized IR → Native Code
 ```
 
-Potential optimizations:
-- Constant folding
+Current optimizations via LLVM:
+- Constant folding (also done at compile-time evaluation)
 - Dead code elimination
 - Inline expansion
 - Common subexpression elimination
 
-### Alternative Backends
+### Additional Features
 
-- **LLVM Backend**: Generate LLVM IR for better optimizations
 - **Interpreter**: Direct AST interpretation for debugging
 - **JIT Compiler**: Runtime compilation for dynamic scenarios
+- **Debug Information**: DWARF debug info in generated binaries
 
 ### Language Server Protocol
 
@@ -542,4 +617,4 @@ Implement LSP for IDE integration:
 
 **XXML Compiler Architecture v2.0**
 
-> **Note**: The LLVM backend is the primary code generation target. The C++ translation rules above are for reference; actual compilation produces LLVM IR.
+> **Note**: The LLVM backend is the sole code generation target. All XXML programs compile to native executables via LLVM IR.

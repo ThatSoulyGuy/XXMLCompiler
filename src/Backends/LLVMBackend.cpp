@@ -1553,6 +1553,16 @@ std::string LLVMBackend::getLLVMType(const std::string& xxmlType) const {
         return "void";
     }
 
+    // Handle raw LLVM native types (when stored directly)
+    if (xxmlType == "float") return "float";
+    if (xxmlType == "double") return "double";
+    if (xxmlType == "i1") return "i1";
+    if (xxmlType == "i8") return "i8";
+    if (xxmlType == "i16") return "i16";
+    if (xxmlType == "i32") return "i32";
+    if (xxmlType == "i64") return "i64";
+    if (xxmlType == "ptr") return "ptr";
+
     // Check for template types (containing '<')
     // Template class instances are heap-allocated objects, so they should be ptr
     if (xxmlType.find('<') != std::string::npos) {
@@ -1647,6 +1657,20 @@ std::string LLVMBackend::getQualifiedName(const std::string& className, const st
         mangledClassName.replace(pos, 2, "_");
     }
     return mangledClassName + "_" + methodName;
+}
+
+std::string LLVMBackend::getOrCreateGlobalString(const std::string& content) {
+    // Check if this string content already has a global constant
+    auto it = globalStringConstants_.find(content);
+    if (it != globalStringConstants_.end()) {
+        return it->second;  // Reuse existing label
+    }
+
+    // Create a new global string constant label (without @. prefix)
+    // The @. prefix is added when the global is emitted in stringLiterals_
+    std::string label = "str.ct." + std::to_string(globalStringConstants_.size());
+    globalStringConstants_[content] = label;
+    return label;
 }
 
 // Template helper methods
@@ -1916,8 +1940,9 @@ void LLVMBackend::visit(Parser::ClassDecl& node) {
                 continue;
             }
             if (auto* prop = dynamic_cast<Parser::PropertyDecl*>(decl.get())) {
-                std::string propType = getLLVMType(prop->type->typeName);
-                classInfo.properties.push_back({prop->name, propType});
+                std::string llvmType = getLLVMType(prop->type->typeName);
+                std::string xxmlType = prop->type->typeName;  // Store original XXML type
+                classInfo.properties.push_back(std::make_tuple(prop->name, llvmType, xxmlType));
             }
         }
     }
@@ -1934,7 +1959,7 @@ void LLVMBackend::visit(Parser::ClassDecl& node) {
     structDef << "%class." << mangledClassName << " = type { ";
     for (size_t i = 0; i < classInfo.properties.size(); ++i) {
         if (i > 0) structDef << ", ";
-        structDef << classInfo.properties[i].second;
+        structDef << std::get<1>(classInfo.properties[i]);  // llvmType
     }
     if (classInfo.properties.empty()) {
         structDef << "i8";  // Empty struct needs at least one field in LLVM
@@ -1947,15 +1972,16 @@ void LLVMBackend::visit(Parser::ClassDecl& node) {
     if (module_) {
         std::vector<IR::Type*> fieldTypes;
         for (const auto& prop : classInfo.properties) {
-            if (prop.second == "ptr") {
+            const std::string& llvmType = std::get<1>(prop);
+            if (llvmType == "ptr") {
                 fieldTypes.push_back(builder_->getPtrTy());
-            } else if (prop.second == "i64") {
+            } else if (llvmType == "i64") {
                 fieldTypes.push_back(builder_->getInt64Ty());
-            } else if (prop.second == "i32") {
+            } else if (llvmType == "i32") {
                 fieldTypes.push_back(builder_->getInt32Ty());
-            } else if (prop.second == "float") {
+            } else if (llvmType == "float") {
                 fieldTypes.push_back(builder_->getFloatTy());
-            } else if (prop.second == "double") {
+            } else if (llvmType == "double") {
                 fieldTypes.push_back(builder_->getDoubleTy());
             } else {
                 fieldTypes.push_back(builder_->getPtrTy());  // Default
@@ -2403,6 +2429,7 @@ void LLVMBackend::visit(Parser::ConstructorDecl& node) {
             auto* entryBlock = ctorFunc->createBasicBlock("entry");
             builder_->setInsertPoint(entryBlock);
             currentFunction_ = ctorFunc;
+            builder_->setCurrentFunction(currentFunction_);  // For type validation
             currentBlock_ = entryBlock;
             // Map parameters to IR values
             for (size_t i = 0; i < ctorFunc->getNumArgs(); ++i) {
@@ -2425,14 +2452,18 @@ void LLVMBackend::visit(Parser::ConstructorDecl& node) {
                 mangledClassName.replace(pos, 2, "_");
             }
 
-            for (const auto& [propName, propType] : classInfo.properties) {
+            for (const auto& prop : classInfo.properties) {
+                // prop is tuple<propName, llvmType, xxmlType>
+                const std::string& propName = std::get<0>(prop);
+                const std::string& propType = std::get<1>(prop);  // This is already LLVM type
+
                 // Get pointer to field
                 std::string fieldPtrReg = allocateRegister();
                 emitLine(format("{} = getelementptr inbounds %class.{}, ptr %this, i32 0, i32 {}",
                                    fieldPtrReg, mangledClassName, fieldIndex));
 
-                // Get LLVM type for this property
-                std::string llvmType = getLLVMType(propType);
+                // The propType is already the LLVM type from class registration
+                std::string llvmType = propType;
 
                 // Get type-appropriate default value (null for pointers, 0 for integers, etc.)
                 std::string defaultValue = getDefaultValueForType(llvmType);
@@ -2481,6 +2512,7 @@ void LLVMBackend::visit(Parser::ConstructorDecl& node) {
 
     // Clear IR context
     currentFunction_ = nullptr;
+    if (builder_) builder_->setCurrentFunction(nullptr);  // Clear type validation context
     currentBlock_ = nullptr;
     irValues_.clear();
     localAllocas_.clear();
@@ -2518,6 +2550,7 @@ void LLVMBackend::visit(Parser::DestructorDecl& node) {
             auto* entryBlock = dtorFunc->createBasicBlock("entry");
             builder_->setInsertPoint(entryBlock);
             currentFunction_ = dtorFunc;
+            builder_->setCurrentFunction(currentFunction_);  // For type validation
             currentBlock_ = entryBlock;
             irValues_["this"] = dtorFunc->getArg(0);
         }
@@ -2545,6 +2578,7 @@ void LLVMBackend::visit(Parser::DestructorDecl& node) {
 
     // Clear IR context
     currentFunction_ = nullptr;
+    if (builder_) builder_->setCurrentFunction(nullptr);  // Clear type validation context
     currentBlock_ = nullptr;
     irValues_.clear();
     localAllocas_.clear();
@@ -2667,6 +2701,7 @@ void LLVMBackend::visit(Parser::MethodDecl& node) {
             auto* entry = irFunc->createBasicBlock("entry");
             builder_->setInsertPoint(entry);
             currentFunction_ = irFunc;
+            builder_->setCurrentFunction(currentFunction_);  // For type validation
             currentBlock_ = entry;
         }
     }
@@ -2683,6 +2718,7 @@ void LLVMBackend::visit(Parser::MethodDecl& node) {
         entryBlock = irFunc->createBasicBlock("entry");
         builder_->setInsertPoint(entryBlock);
         currentFunction_ = irFunc;
+        builder_->setCurrentFunction(currentFunction_);  // For type validation
         currentBlock_ = entryBlock;
 
         // Map IR function parameters to irValues_
@@ -2738,6 +2774,7 @@ void LLVMBackend::visit(Parser::MethodDecl& node) {
 
     // Clear IR context
     currentFunction_ = nullptr;
+    if (builder_) builder_->setCurrentFunction(nullptr);  // Clear type validation context
     currentBlock_ = nullptr;
     irValues_.clear();
     localAllocas_.clear();
@@ -2767,6 +2804,7 @@ void LLVMBackend::visit(Parser::EntrypointDecl& node) {
             entryBlock = mainFunc->createBasicBlock("entry");
             builder_->setInsertPoint(entryBlock);
             currentFunction_ = mainFunc;
+            builder_->setCurrentFunction(currentFunction_);  // For type validation
             currentBlock_ = entryBlock;
         }
     }
@@ -2786,18 +2824,36 @@ void LLVMBackend::visit(Parser::EntrypointDecl& node) {
 
     // Clear IR function context
     currentFunction_ = nullptr;
+    if (builder_) builder_->setCurrentFunction(nullptr);  // Clear type validation context
     currentBlock_ = nullptr;
 }
 
 void LLVMBackend::visit(Parser::InstantiateStmt& node) {
+    // Check if type is a NativeType (primitives are always compile-time)
+    bool isNativeType = (node.type->typeName.find("NativeType<") == 0 ||
+                         node.type->typeName.find("NativeType_") == 0);
+
     // Handle compile-time variables: evaluate at compile-time and store as constants
-    if (node.isCompiletime && node.initializer && semanticAnalyzer_) {
+    // NativeType primitives are always treated as compile-time
+    if ((node.isCompiletime || isNativeType) && node.initializer && semanticAnalyzer_) {
         Semantic::CompiletimeInterpreter interpreter(*semanticAnalyzer_);
+        // Propagate known compile-time values to the interpreter
+        // This allows method calls on compile-time values to be evaluated
+        for (const auto& [name, ctValue] : compiletimeValues_) {
+            interpreter.setVariable(name, ctValue->clone());
+        }
         auto ctValue = interpreter.evaluate(node.initializer.get());
         if (ctValue) {
             // Store the compile-time value for later use
             compiletimeValues_[node.variableName] = std::move(ctValue);
-            emitLine("; Compile-time constant: " + node.variableName);
+
+            // Track NativeType variables - they always use raw values (no wrappers)
+            if (isNativeType) {
+                compiletimeNativeTypes_.insert(node.variableName);
+                emitLine("; Compile-time NativeType constant: " + node.variableName);
+            } else {
+                emitLine("; Compile-time constant: " + node.variableName);
+            }
 
             // For primitive types that can be directly emitted as constants,
             // we don't need runtime allocation - just track the value
@@ -2876,24 +2932,83 @@ void LLVMBackend::visit(Parser::InstantiateStmt& node) {
         std::string storeType = varType;
         std::string storeValue = initValue;
 
+        // FIX: Handle compile-time folded values being assigned to runtime wrapper types
+        // When CallExpr folds x.add(y) to raw 18, but target is Integer^, we need to wrap it
+        if (varType == "ptr" && !storeValue.empty()) {
+            // Check if storeValue is a raw integer literal (could be from compile-time folding)
+            bool isRawIntLiteral = (std::isdigit(storeValue[0]) ||
+                                    (storeValue[0] == '-' && storeValue.length() > 1 && std::isdigit(storeValue[1])));
+
+            if (isRawIntLiteral) {
+                std::string typeName = node.type->typeName;
+                // Strip trailing ^ if present
+                if (!typeName.empty() && typeName.back() == '^') {
+                    typeName = typeName.substr(0, typeName.length() - 1);
+                }
+
+                if (typeName == "Integer") {
+                    // Wrap raw integer with Integer_Constructor
+                    std::string wrapReg = allocateRegister();
+                    emitLine(format("{} = call ptr @Integer_Constructor(i64 {})", wrapReg, storeValue));
+                    storeValue = wrapReg;
+
+                    // IR: Call Integer_Constructor to wrap raw value
+                    if (builder_ && module_) {
+                        IR::Function* intCtor = module_->getFunction("Integer_Constructor");
+                        if (!intCtor) {
+                            auto& ctx = module_->getContext();
+                            auto* funcTy = ctx.getFunctionTy(builder_->getPtrTy(), {builder_->getInt64Ty()}, false);
+                            intCtor = module_->createFunction(funcTy, "Integer_Constructor", IR::Function::Linkage::External);
+                        }
+                        if (lastExprValue_) {
+                            lastExprValue_ = builder_->CreateCall(intCtor, {lastExprValue_}, "ct_int_wrap");
+                        }
+                    }
+                } else if (typeName == "Float") {
+                    // For Float, we need to parse the value and call Float_Constructor
+                    std::string wrapReg = allocateRegister();
+                    emitLine(format("{} = call ptr @Float_Constructor(float {})", wrapReg, storeValue));
+                    storeValue = wrapReg;
+                } else if (typeName == "Double") {
+                    // For Double, call Double_Constructor
+                    std::string wrapReg = allocateRegister();
+                    emitLine(format("{} = call ptr @Double_Constructor(double {})", wrapReg, storeValue));
+                    storeValue = wrapReg;
+                }
+            }
+        }
+
         if (node.type->typeName == "Bool" && varType == "ptr") {
             // Check if initializer is a native boolean (i1) from comparison operations
             auto initTypeIt = registerTypes_.find(initValue);
+            bool needsWrap = false;
             if (initTypeIt != registerTypes_.end() && initTypeIt->second == "NativeType<\"bool\">") {
+                needsWrap = true;
+            }
+            // Also check for raw boolean literals "true" or "false" (from compile-time folding)
+            if (storeValue == "true" || storeValue == "false") {
+                needsWrap = true;
+            }
+            if (needsWrap) {
                 // Wrap i1 value with Bool_Constructor to create a Bool object
                 std::string boolObjReg = allocateRegister();
-                emitLine(format("{} = call ptr @Bool_Constructor(i1 {})", boolObjReg, initValue));
+                emitLine(format("{} = call ptr @Bool_Constructor(i1 {})", boolObjReg, storeValue));
                 storeValue = boolObjReg;
 
                 // IR: Call Bool_Constructor to wrap i1 value
-                if (builder_ && lastExprValue_) {
+                if (builder_) {
+                    IR::Value* boolVal = lastExprValue_;
+                    // If lastExprValue_ is null or wrong type, create the bool constant
+                    if (!boolVal || !boolVal->getType() || !boolVal->getType()->isInteger()) {
+                        boolVal = builder_->getInt1(initValue == "true" || storeValue == "true");
+                    }
                     IR::Function* boolCtor = module_->getFunction("Bool_Constructor");
                     if (!boolCtor) {
                         auto& ctx = module_->getContext();
                         auto* funcTy = ctx.getFunctionTy(builder_->getPtrTy(), {builder_->getInt1Ty()}, false);
                         boolCtor = module_->createFunction(funcTy, "Bool_Constructor", IR::Function::Linkage::External);
                     }
-                    lastExprValue_ = builder_->CreateCall(boolCtor, {lastExprValue_}, "bool_wrap");
+                    lastExprValue_ = builder_->CreateCall(boolCtor, {boolVal}, "bool_wrap");
                 }
             }
         }
@@ -3898,15 +4013,83 @@ void LLVMBackend::visit(Parser::IdentifierExpr& node) {
     // Check for compile-time constants first
     auto ctIt = compiletimeValues_.find(node.name);
     if (ctIt != compiletimeValues_.end()) {
-        // Emit the compile-time constant directly
         Semantic::CompiletimeValue* ctValue = ctIt->second.get();
+
+        // Check if this is a NativeType variable (always emit raw, never wrap)
+        bool isNativeTypeVar = (compiletimeNativeTypes_.find(node.name) != compiletimeNativeTypes_.end());
+
+        // NEW: Emit raw constant when context allows (constant folding optimization)
+        // This avoids runtime wrapper object creation when raw values suffice
+        // NativeType variables ALWAYS emit raw values
+        if (isNativeTypeVar ||
+            currentValueContext_ == ValueContext::RawValue ||
+            currentValueContext_ == ValueContext::OperandContext) {
+
+            if (ctValue->isInteger()) {
+                auto* intVal = static_cast<Semantic::CompiletimeInteger*>(ctValue);
+                // Direct i64 constant - NO constructor call!
+                emitLine(format("; Compile-time constant {} = {} (raw i64)", node.name, intVal->value));
+                valueMap_["__last_expr"] = std::to_string(intVal->value);
+                if (builder_) {
+                    lastExprValue_ = builder_->getInt64(intVal->value);
+                }
+                return;
+            }
+            if (ctValue->isBool()) {
+                auto* boolVal = static_cast<Semantic::CompiletimeBool*>(ctValue);
+                // Direct i1 constant - NO constructor call!
+                emitLine(format("; Compile-time constant {} = {} (raw i1)", node.name, boolVal->value ? "true" : "false"));
+                valueMap_["__last_expr"] = boolVal->value ? "true" : "false";
+                if (builder_) {
+                    lastExprValue_ = builder_->getInt1(boolVal->value);
+                }
+                return;
+            }
+            if (ctValue->isFloat()) {
+                auto* floatVal = static_cast<Semantic::CompiletimeFloat*>(ctValue);
+                // Direct float constant - NO constructor call!
+                emitLine(format("; Compile-time constant {} (raw float)", node.name));
+                std::ostringstream ss;
+                ss << std::hexfloat << floatVal->value;
+                valueMap_["__last_expr"] = ss.str();
+                if (builder_) {
+                    lastExprValue_ = builder_->getFloat(floatVal->value);
+                }
+                return;
+            }
+            if (ctValue->isDouble()) {
+                auto* doubleVal = static_cast<Semantic::CompiletimeDouble*>(ctValue);
+                // Direct double constant - NO constructor call!
+                emitLine(format("; Compile-time constant {} (raw double)", node.name));
+                std::ostringstream ss;
+                ss << std::hexfloat << doubleVal->value;
+                valueMap_["__last_expr"] = ss.str();
+                if (builder_) {
+                    lastExprValue_ = builder_->getDouble(doubleVal->value);
+                }
+                return;
+            }
+            // Strings can't use raw values, fall through to wrapper creation
+        }
+
+        // Check if this compile-time value has already been materialized
+        auto matIt = compiletimeMaterialized_.find(node.name);
+        if (matIt != compiletimeMaterialized_.end()) {
+            // Reuse the cached materialized value (optimization: don't create object again)
+            valueMap_["__last_expr"] = matIt->second;
+            return;
+        }
+
+        // First access - materialize the compile-time constant (wrapper object needed)
         if (ctValue->isInteger()) {
             auto* intVal = static_cast<Semantic::CompiletimeInteger*>(ctValue);
             std::string valueReg = allocateRegister();
             // For Integer type, we call Integer_Constructor to wrap the i64
+            emitLine(format("; Materializing compile-time Integer constant: {} = {}", node.name, intVal->value));
             emitLine(format("{} = call ptr @Integer_Constructor(i64 {})", valueReg, intVal->value));
             valueMap_["__last_expr"] = valueReg;
             registerTypes_[valueReg] = "Integer";
+            compiletimeMaterialized_[node.name] = valueReg;  // Cache for reuse
 
             // IR: Create Integer constant and wrap
             if (builder_) {
@@ -3923,9 +4106,11 @@ void LLVMBackend::visit(Parser::IdentifierExpr& node) {
         if (ctValue->isBool()) {
             auto* boolVal = static_cast<Semantic::CompiletimeBool*>(ctValue);
             std::string valueReg = allocateRegister();
+            emitLine(format("; Materializing compile-time Bool constant: {} = {}", node.name, boolVal->value ? "true" : "false"));
             emitLine(format("{} = call ptr @Bool_Constructor(i1 {})", valueReg, boolVal->value ? "true" : "false"));
             valueMap_["__last_expr"] = valueReg;
             registerTypes_[valueReg] = "Bool";
+            compiletimeMaterialized_[node.name] = valueReg;  // Cache for reuse
 
             if (builder_) {
                 IR::Value* i1Val = builder_->getInt1(boolVal->value);
@@ -3941,9 +4126,11 @@ void LLVMBackend::visit(Parser::IdentifierExpr& node) {
         if (ctValue->isFloat()) {
             auto* floatVal = static_cast<Semantic::CompiletimeFloat*>(ctValue);
             std::string valueReg = allocateRegister();
+            emitLine(format("; Materializing compile-time Float constant: {}", node.name));
             emitLine(format("{} = call ptr @Float_Constructor(float {})", valueReg, floatVal->value));
             valueMap_["__last_expr"] = valueReg;
             registerTypes_[valueReg] = "Float";
+            compiletimeMaterialized_[node.name] = valueReg;  // Cache for reuse
 
             if (builder_) {
                 lastExprValue_ = builder_->getFloat(floatVal->value);
@@ -3953,9 +4140,11 @@ void LLVMBackend::visit(Parser::IdentifierExpr& node) {
         if (ctValue->isDouble()) {
             auto* doubleVal = static_cast<Semantic::CompiletimeDouble*>(ctValue);
             std::string valueReg = allocateRegister();
+            emitLine(format("; Materializing compile-time Double constant: {}", node.name));
             emitLine(format("{} = call ptr @Double_Constructor(double {})", valueReg, doubleVal->value));
             valueMap_["__last_expr"] = valueReg;
             registerTypes_[valueReg] = "Double";
+            compiletimeMaterialized_[node.name] = valueReg;  // Cache for reuse
 
             if (builder_) {
                 lastExprValue_ = builder_->getDouble(doubleVal->value);
@@ -3965,17 +4154,20 @@ void LLVMBackend::visit(Parser::IdentifierExpr& node) {
         if (ctValue->isString()) {
             auto* strVal = static_cast<Semantic::CompiletimeString*>(ctValue);
             // Create a string literal and call String_Constructor
-            std::string label = "@.str.ct." + std::to_string(stringLiterals_.size());
+            std::string label = "str.ct." + std::to_string(stringLiterals_.size());
             stringLiterals_.push_back({label, strVal->value});
 
             std::string ptrReg = allocateRegister();
-            emitLine(format("{} = getelementptr inbounds [{} x i8], ptr {}, i64 0, i64 0",
+            emitLine(format("; Materializing compile-time String constant: {}", node.name));
+            // Reference global with @. prefix
+            emitLine(format("{} = getelementptr inbounds [{} x i8], ptr @.{}, i64 0, i64 0",
                            ptrReg, strVal->value.length() + 1, label));
 
             std::string valueReg = allocateRegister();
             emitLine(format("{} = call ptr @String_Constructor(ptr {})", valueReg, ptrReg));
             valueMap_["__last_expr"] = valueReg;
             registerTypes_[valueReg] = "String";
+            compiletimeMaterialized_[node.name] = valueReg;  // Cache for reuse
 
             if (builder_) {
                 // For IR, we would create a global string constant
@@ -4031,7 +4223,11 @@ void LLVMBackend::visit(Parser::IdentifierExpr& node) {
         if (classIt != classes_.end()) {
             const auto& properties = classIt->second.properties;
             for (size_t i = 0; i < properties.size(); ++i) {
-                if (properties[i].first == node.name) {
+                const std::string& propName = std::get<0>(properties[i]);
+                const std::string& llvmType = std::get<1>(properties[i]);
+                const std::string& xxmlType = std::get<2>(properties[i]);
+
+                if (propName == node.name) {
                     // This is a property access - generate getelementptr and load
                     std::string ptrReg = allocateRegister();
                     // Mangle class name to remove ::
@@ -4044,17 +4240,31 @@ void LLVMBackend::visit(Parser::IdentifierExpr& node) {
                                        ptrReg, mangledClassName, i));
 
                     std::string valueReg = allocateRegister();
-                    std::string llvmType = properties[i].second; // LLVM type (ptr, i64, etc.)
                     emitLine(format("{} = load {}, ptr {}",
                                        valueReg, llvmType, ptrReg));
 
                     valueMap_["__last_expr"] = valueReg;
-                    // Store the LLVM type as a pseudo-XXML type for later lookup
-                    // This allows BinaryExpr to determine if this is a ptr
-                    if (llvmType == "ptr") {
+
+                    // Store the XXML type for method call resolution
+                    // This is critical for template instantiations where T -> ConcreteType
+                    if (!xxmlType.empty()) {
+                        registerTypes_[valueReg] = xxmlType;
+                    } else if (llvmType == "ptr") {
                         registerTypes_[valueReg] = "NativeType<\"ptr\">";
                     } else if (llvmType == "i64") {
                         registerTypes_[valueReg] = "NativeType<\"int64\">";
+                    } else if (llvmType == "i32") {
+                        registerTypes_[valueReg] = "NativeType<\"int32\">";
+                    } else if (llvmType == "i16") {
+                        registerTypes_[valueReg] = "NativeType<\"int16\">";
+                    } else if (llvmType == "i8") {
+                        registerTypes_[valueReg] = "NativeType<\"int8\">";
+                    } else if (llvmType == "i1") {
+                        registerTypes_[valueReg] = "NativeType<\"bool\">";
+                    } else if (llvmType == "float") {
+                        registerTypes_[valueReg] = "float";
+                    } else if (llvmType == "double") {
+                        registerTypes_[valueReg] = "double";
                     } else {
                         registerTypes_[valueReg] = node.name; // Fallback to property name
                     }
@@ -4078,7 +4288,7 @@ void LLVMBackend::visit(Parser::IdentifierExpr& node) {
                         if (classTy && currentFunction_->getNumArgs() > 0) {
                             IR::Value* thisPtr = currentFunction_->getArg(0);
                             IR::Value* fieldPtr = builder_->CreateStructGEP(classTy, thisPtr, i, node.name + "_ptr");
-                            IR::Type* fieldTy = getIRType(properties[i].second);
+                            IR::Type* fieldTy = getIRType(llvmType);
                             lastExprValue_ = builder_->CreateLoad(fieldTy, fieldPtr, node.name);
                         }
                     }
@@ -4151,7 +4361,7 @@ void LLVMBackend::visit(Parser::ReferenceExpr& node) {
             if (classIt != classes_.end()) {
                 const auto& properties = classIt->second.properties;
                 for (size_t i = 0; i < properties.size(); ++i) {
-                    if (properties[i].first == ident->name) {
+                    if (std::get<0>(properties[i]) == ident->name) {
                         // Generate getelementptr to get address of the property
                         std::string fieldPtr = allocateRegister();
                         // Mangle class name for LLVM type (replace :: with _)
@@ -4199,7 +4409,7 @@ void LLVMBackend::visit(Parser::ReferenceExpr& node) {
                 if (classIt != classes_.end()) {
                     const auto& properties = classIt->second.properties;
                     for (size_t i = 0; i < properties.size(); ++i) {
-                        if (properties[i].first == memberAccess->member) {
+                        if (std::get<0>(properties[i]) == memberAccess->member) {
                             // Generate getelementptr to get address of the property
                             std::string objPtr = allocateRegister();
                             emitLine(objPtr + " = load ptr, ptr " + varIt->second.llvmRegister);
@@ -4326,7 +4536,7 @@ void LLVMBackend::visit(Parser::MemberAccessExpr& node) {
             // Find the property index
             const auto& properties = classIt->second.properties;
             for (size_t i = 0; i < properties.size(); ++i) {
-                if (properties[i].first == memberName) {
+                if (std::get<0>(properties[i]) == memberName) {
                     // Generate getelementptr to access the property
                     std::string ptrReg = allocateRegister();
 
@@ -4350,17 +4560,19 @@ void LLVMBackend::visit(Parser::MemberAccessExpr& node) {
 
                     // Load the field value
                     std::string valueReg = allocateRegister();
-                    std::string llvmType = properties[i].second; // LLVM type (ptr, i64, etc.)
+                    std::string llvmType = std::get<1>(properties[i]); // LLVM type (ptr, i64, etc.)
+                    std::string xxmlType = std::get<2>(properties[i]); // XXML type (KeyValue, Integer, etc.)
                     emitLine(valueReg + " = load " + llvmType + ", ptr " + ptrReg);
 
                     valueMap_["__last_expr"] = valueReg;
-                    // Store the LLVM type as a pseudo-XXML type for later lookup
-                    if (llvmType == "ptr") {
-                        registerTypes_[valueReg] = "NativeType<\"ptr\">";
-                    } else if (llvmType == "i64") {
-                        registerTypes_[valueReg] = "NativeType<\"int64\">";
+                    // Store the XXML type for method resolution
+                    // The xxmlType is the original XXML type name (e.g., "KeyValue", "Integer")
+                    // which is needed to find the correct class methods
+                    if (!xxmlType.empty()) {
+                        registerTypes_[valueReg] = xxmlType;
                     } else {
-                        registerTypes_[valueReg] = properties[i].first; // Fallback to property name
+                        // Fallback for properties without xxmlType
+                        registerTypes_[valueReg] = std::get<0>(properties[i]);
                     }
 
                     // IR: Load for this.property
@@ -4402,7 +4614,7 @@ void LLVMBackend::visit(Parser::MemberAccessExpr& node) {
                 // Find the property index
                 const auto& properties = classIt->second.properties;
                 for (size_t i = 0; i < properties.size(); ++i) {
-                    if (properties[i].first == memberName) {
+                    if (std::get<0>(properties[i]) == memberName) {
                         // Generate getelementptr to access the property
                         std::string ptrReg = allocateRegister();
 
@@ -4428,18 +4640,17 @@ void LLVMBackend::visit(Parser::MemberAccessExpr& node) {
 
                         // Load the field value
                         std::string valueReg = allocateRegister();
-                        std::string llvmType = properties[i].second; // LLVM type (ptr, i64, etc.)
+                        std::string llvmType = std::get<1>(properties[i]); // LLVM type (ptr, i64, etc.)
+                        std::string xxmlType = std::get<2>(properties[i]); // XXML type (KeyValue, Integer, etc.)
                         emitLine(valueReg + " = load " + llvmType + ", ptr " + ptrReg);
 
                         valueMap_["__last_expr"] = valueReg;
-                        // Store the LLVM type as a pseudo-XXML type for later lookup
-                        // This allows BinaryExpr to determine if this is a ptr
-                        if (llvmType == "ptr") {
-                            registerTypes_[valueReg] = "NativeType<\"ptr\">";
-                        } else if (llvmType == "i64") {
-                            registerTypes_[valueReg] = "NativeType<\"int64\">";
+                        // Store the XXML type for method resolution
+                        if (!xxmlType.empty()) {
+                            registerTypes_[valueReg] = xxmlType;
                         } else {
-                            registerTypes_[valueReg] = properties[i].first; // Fallback to property name
+                            // Fallback for properties without xxmlType
+                            registerTypes_[valueReg] = std::get<0>(properties[i]);
                         }
 
                         // IR: Load for obj.property
@@ -4482,6 +4693,170 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
         return;
     }
     struct DepthGuard { ~DepthGuard() { callExprDepth--; } } guard;
+
+    // NEW: Try compile-time method evaluation first (constant folding)
+    // This evaluates method calls like x.add(y) on compile-time values at compile-time
+    if (semanticAnalyzer_) {
+        Semantic::CompiletimeInterpreter interpreter(*semanticAnalyzer_);
+        // Propagate known compile-time values to the interpreter
+        for (const auto& [name, ctValue] : compiletimeValues_) {
+            interpreter.setVariable(name, ctValue->clone());
+        }
+
+        auto ctResult = interpreter.evaluate(&node);
+        if (ctResult) {
+            // Method call evaluated at compile-time!
+            if (ctResult->isInteger()) {
+                auto* intVal = static_cast<Semantic::CompiletimeInteger*>(ctResult.get());
+                // Check if this is a Constructor call that returns an object type (Integer^)
+                // If so, we need to wrap the folded value with Integer_Constructor
+                bool isConstructorCall = false;
+                if (auto* memberAccess = dynamic_cast<Parser::MemberAccessExpr*>(node.callee.get())) {
+                    // Parser stores member as "::Constructor" for static calls
+                    isConstructorCall = (memberAccess->member == "Constructor" || memberAccess->member == "::Constructor");
+                }
+                if (isConstructorCall) {
+                    // Constructor returns Integer^ (object), so wrap with Integer_Constructor
+                    std::string valueReg = allocateRegister();
+                    emitLine(format("; Compile-time folded Integer::Constructor to Integer object"));
+                    emitLine(format("{} = call ptr @Integer_Constructor(i64 {})", valueReg, intVal->value));
+                    valueMap_["__last_expr"] = valueReg;
+                    registerTypes_[valueReg] = "Integer";
+                    if (builder_ && module_) {
+                        IR::Value* i64Val = builder_->getInt64(intVal->value);
+                        IR::Function* intCtor = module_->getFunction("Integer_Constructor");
+                        if (!intCtor) {
+                            // Create external declaration if not found
+                            auto& ctx = module_->getContext();
+                            auto* funcTy = ctx.getFunctionTy(builder_->getPtrTy(), {builder_->getInt64Ty()}, false);
+                            intCtor = module_->createFunction(funcTy, "Integer_Constructor", IR::Function::Linkage::External);
+                        }
+                        lastExprValue_ = builder_->CreateCall(intCtor, {i64Val}, "ct_int");
+                    }
+                } else {
+                    // Raw integer result, emit as i64
+                    emitLine(format("; Compile-time folded method call to i64 {}", intVal->value));
+                    valueMap_["__last_expr"] = std::to_string(intVal->value);
+                    if (builder_) {
+                        lastExprValue_ = builder_->getInt64(intVal->value);
+                    }
+                }
+                return;  // NO RUNTIME METHOD CALL!
+            }
+            if (ctResult->isBool()) {
+                auto* boolVal = static_cast<Semantic::CompiletimeBool*>(ctResult.get());
+                // Check if this is a Constructor call that returns an object type (Bool^)
+                // If so, we need to wrap the folded value with Bool_Constructor
+                bool isConstructorCall = false;
+                if (auto* memberAccess = dynamic_cast<Parser::MemberAccessExpr*>(node.callee.get())) {
+                    // Parser stores member as "::Constructor" for static calls
+                    isConstructorCall = (memberAccess->member == "Constructor" || memberAccess->member == "::Constructor");
+                }
+                if (isConstructorCall) {
+                    // Constructor returns Bool^ (object), so wrap with Bool_Constructor
+                    std::string valueReg = allocateRegister();
+                    emitLine(format("; Compile-time folded Bool::Constructor to Bool object"));
+                    emitLine(format("{} = call ptr @Bool_Constructor(i1 {})", valueReg, boolVal->value ? "true" : "false"));
+                    valueMap_["__last_expr"] = valueReg;
+                    registerTypes_[valueReg] = "Bool";
+                    if (builder_ && module_) {
+                        IR::Value* i1Val = builder_->getInt1(boolVal->value);
+                        IR::Function* boolCtor = module_->getFunction("Bool_Constructor");
+                        if (!boolCtor) {
+                            // Create external declaration if not found
+                            auto& ctx = module_->getContext();
+                            auto* funcTy = ctx.getFunctionTy(builder_->getPtrTy(), {builder_->getInt1Ty()}, false);
+                            boolCtor = module_->createFunction(funcTy, "Bool_Constructor", IR::Function::Linkage::External);
+                        }
+                        lastExprValue_ = builder_->CreateCall(boolCtor, {i1Val}, "ct_bool");
+                    }
+                } else {
+                    // Raw bool result (e.g., comparison), emit as i1
+                    emitLine(format("; Compile-time folded method call to i1 {}", boolVal->value ? "true" : "false"));
+                    valueMap_["__last_expr"] = boolVal->value ? "true" : "false";
+                    if (builder_) {
+                        lastExprValue_ = builder_->getInt1(boolVal->value);
+                    }
+                }
+                return;
+            }
+            if (ctResult->isFloat()) {
+                auto* floatVal = static_cast<Semantic::CompiletimeFloat*>(ctResult.get());
+                // Check if this is a Constructor call that returns an object type (Float^)
+                bool isConstructorCall = false;
+                if (auto* memberAccess = dynamic_cast<Parser::MemberAccessExpr*>(node.callee.get())) {
+                    // Parser stores member as "::Constructor" for static calls
+                    isConstructorCall = (memberAccess->member == "Constructor" || memberAccess->member == "::Constructor");
+                }
+                if (isConstructorCall) {
+                    // DON'T fold Float::Constructor - let it emit the actual call
+                    // This avoids type mismatch issues between compile-time and runtime types
+                    // Fall through to regular method call handling
+                } else {
+                    // Raw float result
+                    emitLine(format("; Compile-time folded method call to float"));
+                    std::ostringstream ss;
+                    ss << std::hexfloat << floatVal->value;
+                    valueMap_["__last_expr"] = ss.str();
+                    if (builder_) {
+                        lastExprValue_ = builder_->getFloat(floatVal->value);
+                    }
+                    return;
+                }
+            }
+            if (ctResult->isDouble()) {
+                auto* doubleVal = static_cast<Semantic::CompiletimeDouble*>(ctResult.get());
+                // Check if this is a Constructor call that returns an object type (Double^)
+                bool isConstructorCall = false;
+                if (auto* memberAccess = dynamic_cast<Parser::MemberAccessExpr*>(node.callee.get())) {
+                    // Parser stores member as "::Constructor" for static calls
+                    isConstructorCall = (memberAccess->member == "Constructor" || memberAccess->member == "::Constructor");
+                }
+                if (isConstructorCall) {
+                    // DON'T fold Double::Constructor - let it emit the actual call
+                    // This avoids type mismatch issues between compile-time and runtime types
+                    // Fall through to regular method call handling
+                } else {
+                    // Raw double result
+                    emitLine(format("; Compile-time folded method call to double"));
+                    std::ostringstream ss;
+                    ss << std::hexfloat << doubleVal->value;
+                    valueMap_["__last_expr"] = ss.str();
+                    if (builder_) {
+                        lastExprValue_ = builder_->getDouble(doubleVal->value);
+                    }
+                    return;
+                }
+            }
+            if (ctResult->isString()) {
+                auto* strVal = static_cast<Semantic::CompiletimeString*>(ctResult.get());
+                // Emit global string constant
+                std::string label = getOrCreateGlobalString(strVal->value);
+                std::string ptrReg = allocateRegister();
+                emitLine(format("; Compile-time folded method call to string \"{}\"", strVal->value));
+                stringLiterals_.push_back({label, strVal->value});
+                // Reference global with @. prefix
+                emitLine(format("{} = getelementptr inbounds [{} x i8], ptr @.{}, i64 0, i64 0",
+                               ptrReg, strVal->value.length() + 1, label));
+
+                // Call String_Constructor with the constant string
+                std::string valueReg = allocateRegister();
+                emitLine(format("{} = call ptr @String_Constructor(ptr {})", valueReg, ptrReg));
+                valueMap_["__last_expr"] = valueReg;
+                registerTypes_[valueReg] = "String";
+
+                if (builder_ && module_) {
+                    IR::Value* strConstPtr = module_->getOrCreateStringLiteral(strVal->value);
+                    IR::Function* strCtor = module_->getFunction("String_Constructor");
+                    if (strCtor && strConstPtr) {
+                        lastExprValue_ = builder_->CreateCall(strCtor, {strConstPtr}, "ct_str");
+                    }
+                }
+                return;
+            }
+            // For other types, fall through to runtime evaluation
+        }
+    }
 
     // Check for lambda .call() invocation: lambdaVar.call(args)
     if (auto* memberAccess = dynamic_cast<Parser::MemberAccessExpr*>(node.callee.get())) {
@@ -4591,7 +4966,7 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
                 auto classIt = classes_.find(currentClassName_);
                 if (classIt != classes_.end()) {
                     for (const auto& prop : classIt->second.properties) {
-                        if (prop.first == ident->name) {
+                        if (std::get<0>(prop) == ident->name) {
                             isProperty = true;
                             break;
                         }
@@ -4608,8 +4983,8 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
                 std::string propTypeName;
                 size_t propIndex = 0;
                 for (size_t i = 0; i < classIt->second.properties.size(); ++i) {
-                    if (classIt->second.properties[i].first == ident->name) {
-                        propTypeName = classIt->second.properties[i].first;  // Property name, we'll look up type
+                    if (std::get<0>(classIt->second.properties[i]) == ident->name) {
+                        propTypeName = std::get<2>(classIt->second.properties[i]);  // XXML type for method resolution
                         propIndex = i;
                         break;
                     }
@@ -4636,7 +5011,7 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
 
                 // Load the property value
                 instanceRegister = allocateRegister();
-                std::string llvmType = classIt->second.properties[propIndex].second;
+                std::string llvmType = std::get<1>(classIt->second.properties[propIndex]);
                 emitLine(instanceRegister + " = load " + llvmType + ", ptr " + ptrReg);
 
                 // IR: Load for property in CallExpr
@@ -4655,20 +5030,13 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
                     }
                 }
 
-                // Determine the class name from the type (property type inference)
-                // TODO: This should come from semantic analysis, not be hardcoded
-                // For now, assume property name without 's' suffix (e.g., "salary" -> "Double")
-                // This is a simplification - ideally we'd track property types properly
-                std::string className = ident->name;
-                // Capitalize first letter and try to infer type
-                if (className == "salary" || className == "amount") {
-                    className = "Double";
-                } else if (className == "id" || className == "count" || className == "employeeCount") {
-                    className = "Integer";
-                } else if (className == "name" || className == "deptName") {
-                    className = "String";
-                } else if (className == "active") {
-                    className = "Bool";
+                // Use the actual XXML type from the property registration
+                // propTypeName is the xxmlType (e.g., "FullKeyType", "Integer") from ClassInfo
+                std::string className = propTypeName;
+
+                // Strip ownership suffix (^, &, %) if present
+                if (!className.empty() && (className.back() == '^' || className.back() == '&' || className.back() == '%')) {
+                    className = className.substr(0, className.length() - 1);
                 }
 
                 // Register the type so semantic lookup can find it
@@ -4894,7 +5262,7 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
                         auto classIt = classes_.find(currentClassName_);
                         if (classIt != classes_.end()) {
                             for (const auto& prop : classIt->second.properties) {
-                                if (prop.first == ident->name) {
+                                if (std::get<0>(prop) == ident->name) {
                                     isVariable = true;
                                     break;
                                 }
@@ -5176,17 +5544,15 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
         if (isVariable) {
             // It's a variable, load it
             std::string loadedReg = allocateRegister();
-            emitLine(loadedReg + " = load ptr, ptr " + argReg);
 
-            // IR: Load variable for FFI call
-            if (builder_ && lastExprValue_) {
-                lastExprValue_ = builder_->CreateLoad(builder_->getPtrTy(), lastExprValue_, "ffi_arg_load");
-            }
-
-            // Transfer type information, stripping ptr_to<> wrapper
+            // Check variable type to determine correct load type
             auto typeIt = registerTypes_.find(argReg);
+            std::string loadType = "ptr";  // Default to ptr
+            IR::Type* irLoadType = builder_ ? builder_->getPtrTy() : nullptr;
+            std::string transferType = "";
+
             if (typeIt != registerTypes_.end()) {
-                std::string transferType = typeIt->second;
+                transferType = typeIt->second;
                 // Strip ptr_to<> wrapper if present
                 if (transferType.find("ptr_to<") == 0) {
                     size_t start = 7;  // Length of "ptr_to<"
@@ -5195,6 +5561,45 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
                         transferType = transferType.substr(start, end - start);
                     }
                 }
+
+                // Check if it's a NativeType - use correct LLVM type for loading
+                if (transferType.find("NativeType<") == 0 || transferType.find("NativeType<\"") == 0) {
+                    // Extract the native type from NativeType<"..."> or NativeType<...>
+                    if (transferType.find("int32") != std::string::npos) {
+                        loadType = "i32";
+                        if (builder_) irLoadType = builder_->getInt32Ty();
+                    } else if (transferType.find("int64") != std::string::npos) {
+                        loadType = "i64";
+                        if (builder_) irLoadType = builder_->getInt64Ty();
+                    } else if (transferType.find("int8") != std::string::npos) {
+                        loadType = "i8";
+                        if (builder_) irLoadType = builder_->getInt8Ty();
+                    } else if (transferType.find("float32") != std::string::npos ||
+                               (transferType.find("float") != std::string::npos && transferType.find("float64") == std::string::npos)) {
+                        loadType = "float";
+                        if (builder_) irLoadType = builder_->getFloatTy();
+                    } else if (transferType.find("float64") != std::string::npos || transferType.find("double") != std::string::npos) {
+                        loadType = "double";
+                        if (builder_) irLoadType = builder_->getDoubleTy();
+                    } else if (transferType.find("bool") != std::string::npos) {
+                        loadType = "i1";
+                        if (builder_) irLoadType = builder_->getInt1Ty();
+                    } else if (transferType.find("cstr") != std::string::npos || transferType.find("ptr") != std::string::npos) {
+                        loadType = "ptr";
+                        if (builder_) irLoadType = builder_->getPtrTy();
+                    }
+                }
+            }
+
+            emitLine(loadedReg + " = load " + loadType + ", ptr " + argReg);
+
+            // IR: Load variable for FFI call
+            if (builder_ && lastExprValue_ && irLoadType) {
+                lastExprValue_ = builder_->CreateLoad(irLoadType, lastExprValue_, "ffi_arg_load");
+            }
+
+            // Transfer type information
+            if (!transferType.empty()) {
                 registerTypes_[loadedReg] = transferType;
             }
 
@@ -5639,19 +6044,28 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
             expectedType = (i < 2) ? "ptr" : "i64";
         }
         // Constructors that take primitive values
-        // Note: Function names may be namespaced (e.g., Language_Core_Float_Constructor)
-        // so we check if the name contains the pattern, not just exact match
-        else if (functionName.find("Integer_Constructor") != std::string::npos &&
-                 functionName.find("List_Integer_Constructor") == std::string::npos) {
+        // IMPORTANT: Only match the ACTUAL primitive constructors, not template instantiations.
+        // - "Integer_Constructor" or "Integer_Constructor_0" -> YES (i64)
+        // - "Wrapper_Integer_Constructor" -> NO (template, takes ptr)
+        // Key check: if there's a "_" before "Integer_Constructor", it's a template
+        else if ((functionName == "Integer_Constructor" ||
+                  functionName.find("Integer_Constructor_") == 0) &&  // Overloads like Integer_Constructor_0
+                 functionName.find("_Integer_Constructor") == std::string::npos) {  // Excludes templates
             expectedType = "i64";  // Integer constructor takes i64
         }
-        else if (functionName.find("Bool_Constructor") != std::string::npos) {
+        else if ((functionName == "Bool_Constructor" ||
+                  functionName.find("Bool_Constructor_") == 0) &&
+                 functionName.find("_Bool_Constructor") == std::string::npos) {
             expectedType = "i1";  // Bool constructor takes i1
         }
-        else if (functionName.find("Float_Constructor") != std::string::npos) {
+        else if ((functionName == "Float_Constructor" ||
+                  functionName.find("Float_Constructor_") == 0) &&
+                 functionName.find("_Float_Constructor") == std::string::npos) {
             expectedType = "float";  // Float constructor takes float
         }
-        else if (functionName.find("Double_Constructor") != std::string::npos) {
+        else if ((functionName == "Double_Constructor" ||
+                  functionName.find("Double_Constructor_") == 0) &&
+                 functionName.find("_Double_Constructor") == std::string::npos) {
             expectedType = "double";  // Double constructor takes double
         }
         // Threading functions with specific parameter types
@@ -5852,6 +6266,101 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
                 argValue = truncReg;
                 argType = expectedType;
             }
+        } else if (argType == "ptr" && expectedType == "float") {
+            // Handle Float^ or NativeType<"float">^ to float conversion
+            // ONLY convert if we have type info and it's actually a pointer type
+            auto typeIt = registerTypes_.find(argValue);
+            bool needsConversion = false;
+            bool isFloatObject = false;
+            bool isNativeFloatPtr = false;
+            if (typeIt != registerTypes_.end()) {
+                std::string xxmlType = typeIt->second;
+                // Check if this is a Float^ object that needs value extraction
+                if (xxmlType == "Float" || xxmlType == "Float^") {
+                    isFloatObject = true;
+                    needsConversion = true;
+                }
+                // Check if this is NativeType<"float">^ that needs loading
+                else if (xxmlType.find("NativeType<") == 0 && xxmlType.find("float") != std::string::npos) {
+                    isNativeFloatPtr = true;
+                    needsConversion = true;
+                }
+                // Check if it's an actual pointer type that needs loading
+                else if (xxmlType.find("ptr") != std::string::npos ||
+                         xxmlType.find("Ptr") != std::string::npos) {
+                    needsConversion = true;
+                }
+            }
+            // Don't convert if the value doesn't look like it needs conversion
+            // (no type info and no conversion needed)
+
+            if (isFloatObject) {
+                // Extract float value from Float^ object
+                std::string extractedReg = allocateRegister();
+                emitLine(format("{} = call float @Float_toFloat(ptr {})", extractedReg, argValue));
+                argValue = extractedReg;
+                argType = "float";
+            } else if (isNativeFloatPtr) {
+                // Load the float value from the pointer
+                std::string loadedReg = allocateRegister();
+                emitLine(format("{} = load float, ptr {}", loadedReg, argValue));
+                argValue = loadedReg;
+                argType = "float";
+            } else if (needsConversion) {
+                // Only load if we determined conversion is needed
+                std::string loadedReg = allocateRegister();
+                emitLine(format("{} = load float, ptr {}", loadedReg, argValue));
+                argValue = loadedReg;
+                argType = "float";
+            }
+            // If no conversion needed, use the value as-is (it might already be float)
+        } else if (argType == "ptr" && expectedType == "double") {
+            // Handle Double^ or NativeType<"double">^ to double conversion
+            // ONLY convert if we have type info and it's actually a pointer type
+            auto typeIt = registerTypes_.find(argValue);
+            bool needsConversion = false;
+            bool isDoubleObject = false;
+            bool isNativeDoublePtr = false;
+            if (typeIt != registerTypes_.end()) {
+                std::string xxmlType = typeIt->second;
+                // Check if this is a Double^ object that needs value extraction
+                if (xxmlType == "Double" || xxmlType == "Double^") {
+                    isDoubleObject = true;
+                    needsConversion = true;
+                }
+                // Check if this is NativeType<"double">^ that needs loading
+                else if (xxmlType.find("NativeType<") == 0 && xxmlType.find("double") != std::string::npos) {
+                    isNativeDoublePtr = true;
+                    needsConversion = true;
+                }
+                // Check if it's an actual pointer type that needs loading
+                else if (xxmlType.find("ptr") != std::string::npos ||
+                         xxmlType.find("Ptr") != std::string::npos) {
+                    needsConversion = true;
+                }
+            }
+            // Don't convert if the value doesn't look like it needs conversion
+
+            if (isDoubleObject) {
+                // Extract double value from Double^ object
+                std::string extractedReg = allocateRegister();
+                emitLine(format("{} = call double @Double_toDouble(ptr {})", extractedReg, argValue));
+                argValue = extractedReg;
+                argType = "double";
+            } else if (isNativeDoublePtr) {
+                // Load the double value from the pointer
+                std::string loadedReg = allocateRegister();
+                emitLine(format("{} = load double, ptr {}", loadedReg, argValue));
+                argValue = loadedReg;
+                argType = "double";
+            } else if (needsConversion) {
+                // Only load if we determined conversion is needed
+                std::string loadedReg = allocateRegister();
+                emitLine(format("{} = load double, ptr {}", loadedReg, argValue));
+                argValue = loadedReg;
+                argType = "double";
+            }
+            // If no conversion needed, use the value as-is (it might already be double)
         } else if (argType == "i64" && expectedType == "float") {
             // Convert integer to float using sitofp (signed integer to floating point)
             std::string convertedReg = allocateRegister();
@@ -6039,16 +6548,18 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
             lastExprValue_ = nullptr;
         } else {
             // Determine IR type from return type
+            // NOTE: Integer^, Float^, Bool^, Double^ are OBJECT types (ptr)
+            // Only raw native types map to primitives
             if (returnType == "NativeType<\"bool\">" || returnType == "NativeType<bool>") {
                 irRetType = builder_->getInt1Ty();
-            } else if (returnType == "Integer" || returnType == "Integer^" || returnType == "i64") {
+            } else if (returnType == "i64") {
                 irRetType = builder_->getInt64Ty();
-            } else if (returnType == "Float" || returnType == "Float^") {
+            } else if (returnType == "f32") {
                 irRetType = builder_->getFloatTy();
-            } else if (returnType == "Double" || returnType == "Double^") {
+            } else if (returnType == "f64") {
                 irRetType = builder_->getDoubleTy();
             } else {
-                // Default to pointer type for objects
+                // Default to pointer type for objects (Integer^, Float^, Bool^, class types, etc.)
                 irRetType = builder_->getPtrTy();
             }
 
@@ -6079,6 +6590,66 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
 }
 
 void LLVMBackend::visit(Parser::BinaryExpr& node) {
+    // NEW: Try compile-time evaluation first (constant folding)
+    // If all operands are compile-time constants, evaluate the entire expression at compile-time
+    if (semanticAnalyzer_) {
+        Semantic::CompiletimeInterpreter interpreter(*semanticAnalyzer_);
+        // Propagate known compile-time values to the interpreter
+        for (const auto& [name, ctValue] : compiletimeValues_) {
+            interpreter.setVariable(name, ctValue->clone());
+        }
+
+        auto ctResult = interpreter.evaluate(&node);
+        if (ctResult) {
+            // Entire expression folded at compile-time!
+            if (ctResult->isInteger()) {
+                auto* intVal = static_cast<Semantic::CompiletimeInteger*>(ctResult.get());
+                emitLine(format("; Compile-time folded binary expression to i64 {}", intVal->value));
+                valueMap_["__last_expr"] = std::to_string(intVal->value);
+                if (builder_) {
+                    lastExprValue_ = builder_->getInt64(intVal->value);
+                }
+                return;  // NO RUNTIME OPERATION!
+            }
+            if (ctResult->isBool()) {
+                auto* boolVal = static_cast<Semantic::CompiletimeBool*>(ctResult.get());
+                emitLine(format("; Compile-time folded binary expression to i1 {}", boolVal->value ? "true" : "false"));
+                valueMap_["__last_expr"] = boolVal->value ? "true" : "false";
+                if (builder_) {
+                    lastExprValue_ = builder_->getInt1(boolVal->value);
+                }
+                return;
+            }
+            if (ctResult->isFloat()) {
+                auto* floatVal = static_cast<Semantic::CompiletimeFloat*>(ctResult.get());
+                emitLine(format("; Compile-time folded binary expression to float"));
+                std::ostringstream ss;
+                ss << std::hexfloat << floatVal->value;
+                valueMap_["__last_expr"] = ss.str();
+                if (builder_) {
+                    lastExprValue_ = builder_->getFloat(floatVal->value);
+                }
+                return;
+            }
+            if (ctResult->isDouble()) {
+                auto* doubleVal = static_cast<Semantic::CompiletimeDouble*>(ctResult.get());
+                emitLine(format("; Compile-time folded binary expression to double"));
+                std::ostringstream ss;
+                ss << std::hexfloat << doubleVal->value;
+                valueMap_["__last_expr"] = ss.str();
+                if (builder_) {
+                    lastExprValue_ = builder_->getDouble(doubleVal->value);
+                }
+                return;
+            }
+            // For string and other types, fall through to runtime evaluation
+        }
+    }
+
+    // Set operand context for raw value optimization
+    ValueContext saved = currentValueContext_;
+    currentValueContext_ = ValueContext::OperandContext;
+
     // Generate code for left operand
     node.left->accept(*this);
     std::string leftValue = valueMap_["__last_expr"];
@@ -6087,9 +6658,14 @@ void LLVMBackend::visit(Parser::BinaryExpr& node) {
     node.right->accept(*this);
     std::string rightValue = valueMap_["__last_expr"];
 
+    // Restore the value context after operand evaluation
+    currentValueContext_ = saved;
+
     // Determine LLVM types of operands
     std::string leftType = "i64";  // Default
     std::string rightType = "i64"; // Default
+    bool leftTypeKnown = false;    // Track if we found a real type
+    bool rightTypeKnown = false;
 
     // Check if operands are variables or have known types
     for (const auto& var : variables_) {
@@ -6098,6 +6674,7 @@ void LLVMBackend::visit(Parser::BinaryExpr& node) {
             auto typeIt = registerTypes_.find(leftValue);
             if (typeIt != registerTypes_.end()) {
                 leftType = getLLVMType(typeIt->second);
+                leftTypeKnown = true;
             }
             break;
         }
@@ -6107,6 +6684,7 @@ void LLVMBackend::visit(Parser::BinaryExpr& node) {
             auto typeIt = registerTypes_.find(rightValue);
             if (typeIt != registerTypes_.end()) {
                 rightType = getLLVMType(typeIt->second);
+                rightTypeKnown = true;
             }
             break;
         }
@@ -6116,6 +6694,7 @@ void LLVMBackend::visit(Parser::BinaryExpr& node) {
     auto leftRegType = registerTypes_.find(leftValue);
     if (leftRegType != registerTypes_.end()) {
         leftType = getLLVMType(leftRegType->second);
+        leftTypeKnown = true;
         DEBUG_OUT("DEBUG BinaryExpr: leftValue=" << leftValue << " has type=" << leftRegType->second << " -> LLVM type=" << leftType << "\n");
     } else {
         DEBUG_OUT("DEBUG BinaryExpr: leftValue=" << leftValue << " NOT FOUND in registerTypes_\n");
@@ -6123,6 +6702,7 @@ void LLVMBackend::visit(Parser::BinaryExpr& node) {
     auto rightRegType = registerTypes_.find(rightValue);
     if (rightRegType != registerTypes_.end()) {
         rightType = getLLVMType(rightRegType->second);
+        rightTypeKnown = true;
         DEBUG_OUT("DEBUG BinaryExpr: rightValue=" << rightValue << " has type=" << rightRegType->second << " -> LLVM type=" << rightType << "\n");
     } else {
         DEBUG_OUT("DEBUG BinaryExpr: rightValue=" << rightValue << " NOT FOUND in registerTypes_\n");
@@ -6465,30 +7045,50 @@ void LLVMBackend::visit(Parser::BinaryExpr& node) {
         bool leftIsLiteral = isLiteral(leftValue);
         bool rightIsLiteral = isLiteral(rightValue);
 
+        // Helper to get integer rank (higher = wider)
+        auto intRank = [](const std::string& type) -> int {
+            if (type == "i1") return 1;
+            if (type == "i8") return 8;
+            if (type == "i16") return 16;
+            if (type == "i32") return 32;
+            if (type == "i64") return 64;
+            return 0;  // Not an integer type
+        };
+
         if (leftType == "double" || rightType == "double") {
             opType = "double";
             DEBUG_OUT("DEBUG BinaryExpr: Setting opType to double\n");
         } else if (leftType == "float" || rightType == "float") {
             opType = "float";
             DEBUG_OUT("DEBUG BinaryExpr: Setting opType to float\n");
-        } else if (leftType == "i32" && rightType == "i32") {
-            // Both are i32
-            opType = "i32";
-            DEBUG_OUT("DEBUG BinaryExpr: Both i32, setting opType to i32\n");
-        } else if (leftType == "i32" && rightIsLiteral) {
-            // Left is i32, right is a literal - use i32
-            opType = "i32";
-            DEBUG_OUT("DEBUG BinaryExpr: Left i32 + literal, setting opType to i32\n");
-        } else if (rightType == "i32" && leftIsLiteral) {
-            // Right is i32, left is a literal - use i32
-            opType = "i32";
-            DEBUG_OUT("DEBUG BinaryExpr: Literal + right i32, setting opType to i32\n");
-        } else if (leftType == "i64" || rightType == "i64") {
-            opType = "i64";
-            DEBUG_OUT("DEBUG BinaryExpr: Setting opType to i64\n");
-        } else if (leftType == "i32" || rightType == "i32") {
-            opType = "i32";
-            DEBUG_OUT("DEBUG BinaryExpr: Setting opType to i32\n");
+        } else {
+            // Integer type handling - use the wider of the two KNOWN types
+            // Only consider a type's rank if we actually found it in registerTypes_
+            int leftRank = leftTypeKnown ? intRank(leftType) : 0;
+            int rightRank = rightTypeKnown ? intRank(rightType) : 0;
+
+            if (leftRank > 0 && rightRank > 0) {
+                // Both are known integer types - use the wider one
+                opType = (leftRank >= rightRank) ? leftType : rightType;
+                DEBUG_OUT("DEBUG BinaryExpr: Both known integers, using wider type " << opType << "\n");
+            } else if (leftRank > 0 && (rightIsLiteral || !rightTypeKnown)) {
+                // Left is known integer type, right is literal or unknown - use left type
+                opType = leftType;
+                DEBUG_OUT("DEBUG BinaryExpr: Left " << leftType << " + literal/unknown, using " << opType << "\n");
+            } else if (rightRank > 0 && (leftIsLiteral || !leftTypeKnown)) {
+                // Right is known integer type, left is literal or unknown - use right type
+                opType = rightType;
+                DEBUG_OUT("DEBUG BinaryExpr: Literal/unknown + right " << rightType << ", using " << opType << "\n");
+            } else if (leftRank > 0) {
+                // Only left is known integer
+                opType = leftType;
+                DEBUG_OUT("DEBUG BinaryExpr: Using left type " << opType << "\n");
+            } else if (rightRank > 0) {
+                // Only right is known integer
+                opType = rightType;
+                DEBUG_OUT("DEBUG BinaryExpr: Using right type " << opType << "\n");
+            }
+            // else default to i64
         }
         DEBUG_OUT("DEBUG BinaryExpr: Final opType='" << opType << "' for op='" << node.op << "'\n");
 
@@ -6507,6 +7107,12 @@ void LLVMBackend::visit(Parser::BinaryExpr& node) {
                 registerTypes_[resultReg] = "NativeType<\"double\">";
             } else if (opType == "float") {
                 registerTypes_[resultReg] = "NativeType<\"float\">";
+            } else if (opType == "i8") {
+                registerTypes_[resultReg] = "NativeType<\"int8\">";
+            } else if (opType == "i16") {
+                registerTypes_[resultReg] = "NativeType<\"int16\">";
+            } else if (opType == "i32") {
+                registerTypes_[resultReg] = "NativeType<\"int32\">";
             } else {
                 registerTypes_[resultReg] = "NativeType<\"int64\">";
             }
@@ -6590,7 +7196,28 @@ void LLVMBackend::visit(Parser::AssignmentStmt& node) {
         if (targetIt != variables_.end()) {
             // Store the value to the variable's memory location using the actual LLVM type
             std::string llvmType = targetIt->second.llvmType.empty() ? "i64" : targetIt->second.llvmType;
-            emitLine("store " + llvmType + " " + valueReg + ", ptr " + targetIt->second.llvmRegister);
+            std::string storeValue = valueReg;
+
+            // FIX: Handle raw boolean literals being assigned to Bool^ variables
+            if (targetIt->second.type == "Bool" && llvmType == "ptr") {
+                if (storeValue == "true" || storeValue == "false") {
+                    // Wrap i1 value with Bool_Constructor
+                    std::string wrapReg = allocateRegister();
+                    emitLine(format("{} = call ptr @Bool_Constructor(i1 {})", wrapReg, storeValue));
+                    storeValue = wrapReg;
+
+                    // IR: Call Bool_Constructor to wrap i1 value
+                    if (builder_) {
+                        IR::Value* boolVal = builder_->getInt1(valueReg == "true");
+                        IR::Function* boolCtor = module_->getFunction("Bool_Constructor");
+                        if (boolCtor) {
+                            valueIR = builder_->CreateCall(boolCtor, {boolVal}, "bool_wrap");
+                        }
+                    }
+                }
+            }
+
+            emitLine("store " + llvmType + " " + storeValue + ", ptr " + targetIt->second.llvmRegister);
 
             // IR generation: Store to local alloca
             if (builder_ && valueIR) {
@@ -6617,7 +7244,7 @@ void LLVMBackend::visit(Parser::AssignmentStmt& node) {
                 const auto& properties = classIt->second.properties;
                 bool found = false;
                 for (size_t i = 0; i < properties.size(); ++i) {
-                    if (properties[i].first == varName) {
+                    if (std::get<0>(properties[i]) == varName) {
                         // Generate getelementptr to get address of the field
                         std::string ptrReg = allocateRegister();
 
@@ -6632,7 +7259,7 @@ void LLVMBackend::visit(Parser::AssignmentStmt& node) {
                                 ", ptr %this, i32 0, i32 " + std::to_string(i));
 
                         // Store the value to the field
-                        std::string llvmType = properties[i].second;
+                        std::string llvmType = std::get<1>(properties[i]);
                         emitLine("store " + llvmType + " " + valueReg + ", ptr " + ptrReg);
 
                         // IR: Create GEP and Store for implicit this.property assignment
@@ -6678,7 +7305,7 @@ void LLVMBackend::visit(Parser::AssignmentStmt& node) {
                     // Find the property index
                     const auto& properties = classIt->second.properties;
                     for (size_t i = 0; i < properties.size(); ++i) {
-                        if (properties[i].first == memberName) {
+                        if (std::get<0>(properties[i]) == memberName) {
                             // Generate getelementptr to get address of the field
                             std::string ptrReg = allocateRegister();
 
@@ -6693,7 +7320,7 @@ void LLVMBackend::visit(Parser::AssignmentStmt& node) {
                                     ", ptr %this, i32 0, i32 " + std::to_string(i));
 
                             // Store the value to the field
-                            std::string llvmType = properties[i].second; // LLVM type
+                            std::string llvmType = std::get<1>(properties[i]); // LLVM type
                             emitLine("store " + llvmType + " " + valueReg + ", ptr " + ptrReg);
 
                             // IR: Create GEP and Store for this.property assignment
@@ -8035,7 +8662,10 @@ size_t LLVMBackend::calculateClassSize(const std::string& className) const {
     size_t totalSize = 0;
 
     // Calculate size based on properties
-    for (const auto& [propName, propType] : classInfo.properties) {
+    for (const auto& prop : classInfo.properties) {
+        // prop is tuple<propName, llvmType, xxmlType>
+        const std::string& propType = std::get<1>(prop);  // LLVM type
+
         // Remove ownership indicators (^, &, %)
         std::string baseType = propType;
         if (!baseType.empty() && (baseType.back() == '^' || baseType.back() == '&' || baseType.back() == '%')) {
@@ -8365,8 +8995,18 @@ IR::Type* LLVMBackend::getIRType(const std::string& xxmlType) {
     if (!module_) return nullptr;
     auto& ctx = module_->getContext();
 
-    // Handle primitive types
-    if (xxmlType == "Integer" || xxmlType == "i64" || xxmlType == "Int64") {
+    // IMPORTANT: In XXML, Integer/Bool/Float/Double are OBJECT types (heap-allocated)
+    // They should map to ptr, not native types. Only raw native types map to primitives.
+    // This matches getLLVMType behavior for consistency.
+
+    // Wrapper object types -> ptr (they are heap-allocated objects)
+    if (xxmlType == "Integer" || xxmlType == "Bool" || xxmlType == "Boolean" ||
+        xxmlType == "Float" || xxmlType == "Double" || xxmlType == "String") {
+        return ctx.getPtrTy();
+    }
+
+    // Raw native integer types
+    if (xxmlType == "i64" || xxmlType == "Int64") {
         return ctx.getInt64Ty();
     }
     if (xxmlType == "Int32" || xxmlType == "i32") {
@@ -8378,21 +9018,21 @@ IR::Type* LLVMBackend::getIRType(const std::string& xxmlType) {
     if (xxmlType == "Int8" || xxmlType == "i8" || xxmlType == "Byte") {
         return ctx.getInt8Ty();
     }
-    if (xxmlType == "Bool" || xxmlType == "Boolean" || xxmlType == "i1") {
+    if (xxmlType == "i1") {
         return ctx.getInt1Ty();
     }
-    if (xxmlType == "Float" || xxmlType == "f32") {
+    if (xxmlType == "f32") {
         return ctx.getFloatTy();
     }
-    if (xxmlType == "Double" || xxmlType == "f64") {
+    if (xxmlType == "f64") {
         return ctx.getDoubleTy();
     }
     if (xxmlType == "Void" || xxmlType == "void") {
         return ctx.getVoidTy();
     }
 
-    // For pointer types (String, object references, etc.)
-    if (xxmlType == "String" || xxmlType == "ptr") {
+    // ptr type explicitly
+    if (xxmlType == "ptr") {
         return ctx.getPtrTy();
     }
 
@@ -8417,8 +9057,9 @@ IR::StructType* LLVMBackend::getOrCreateClassType(const std::string& className) 
     auto it = classes_.find(className);
     if (it != classes_.end()) {
         std::vector<IR::Type*> fieldTypes;
-        for (const auto& [propName, propType] : it->second.properties) {
-            fieldTypes.push_back(getIRType(propType));
+        for (const auto& prop : it->second.properties) {
+            // prop is tuple<propName, llvmType, xxmlType>, we need llvmType
+            fieldTypes.push_back(getIRType(std::get<1>(prop)));
         }
         if (!fieldTypes.empty()) {
             structTy->setBody(fieldTypes);

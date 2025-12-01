@@ -1,0 +1,15 @@
+#import Language::Core;
+
+[ Entrypoint
+    {
+        // Test compile-time integer constant folding
+        Instantiate Compiletime Integer^ As <x> = Integer::Constructor(10);
+        Instantiate Compiletime Integer^ As <y> = Integer::Constructor(8);
+
+        // This should be folded to 18 at compile time
+        Instantiate Compiletime Integer^ As <sum> = x.add(y);
+
+        // Print result - this is the only runtime operation
+        Run Console::printLine(sum.toString());
+    }
+]

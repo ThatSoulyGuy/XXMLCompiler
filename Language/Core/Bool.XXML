@@ -1,8 +1,9 @@
 // XXML Standard Library - Bool Class
 // Working implementation using NativeType
+// Compiletime class - all pure methods can be evaluated at compile-time
 
 [ Namespace <Language::Core>
-	[ Class <Bool> Final Extends None
+	[ Class <Bool> Compiletime Final Extends None
 		[ Private <>
 			Property <value> Types NativeType<"bool">^;
 		]

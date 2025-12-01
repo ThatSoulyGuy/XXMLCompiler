@@ -1,8 +1,9 @@
 // XXML Standard Library - String Class
 // Working implementation using NativeType
+// Compiletime class - all pure methods can be evaluated at compile-time
 
 [ Namespace <Language::Core>
-	[ Class <String> Final Extends None
+	[ Class <String> Compiletime Final Extends None
 		[ Private <>
 			Property <data> Types NativeType<"string_ptr">^;
 		]

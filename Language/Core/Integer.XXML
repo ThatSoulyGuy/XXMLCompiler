@@ -1,8 +1,9 @@
 // XXML Standard Library - Integer Class
 // Working implementation using NativeType
+// Compiletime class - all pure methods can be evaluated at compile-time
 
 [ Namespace <Language::Core>
-	[ Class <Integer> Final Extends None
+	[ Class <Integer> Compiletime Final Extends None
 		[ Private <>
 			Property <value> Types NativeType<"int64">^;
 		]

@@ -8,6 +8,7 @@ A production-ready compiler for the XXML programming language that compiles to L
 - **Native Compilation**: Direct compilation to native executables via LLVM
 - **Ownership Semantics**: Explicit memory management with `^` (owned), `&` (reference), and `%` (copy)
 - **Generic Templates**: Full template support with [constraints](docs/CONSTRAINTS.md)
+- **Compile-Time Evaluation**: Constant expressions evaluated at compile-time ([details](docs/COMPILETIME.md))
 - **Object-Oriented**: Classes, inheritance, access modifiers, methods, and properties
 - **Type-Safe**: Static type checking with comprehensive error reporting
 - **Reflection System**: Runtime type introspection ([details](docs/REFLECTION_SYSTEM.md))
@@ -114,6 +115,40 @@ Instantiate Box<Integer>^ As <box> = Box@Integer::Constructor(Integer::Construct
 
 See [Templates](docs/TEMPLATES.md) and [Constraints](docs/CONSTRAINTS.md).
 
+### Constraints
+
+Constraints restrict template parameters to types with specific capabilities:
+
+```xxml
+// Define a constraint requiring a 'getValue' method
+[ Constraint <HasValue> <T>
+    Require (F(Integer^)(*)() On a);  // Must have method returning Integer^
+]
+
+// Use constraint on template class
+[ Class <ValuePrinter> <T Constrains HasValue<T>> Final Extends None
+    [ Public <>
+        Property <item> Types T^;
+
+        Method <printValue> Returns None Parameters () Do
+        {
+            Run Console::printLine(item.getValue().toString());
+        }
+    ]
+]
+
+// Combine constraints with AND (,) or OR (|)
+[ Class <Container> <T Constrains (Hashable<T>, Equatable<T>)> Final Extends None
+    // T must satisfy BOTH Hashable AND Equatable
+]
+
+[ Class <Printable> <T Constrains Stringable<T> | Debuggable<T>> Final Extends None
+    // T must satisfy EITHER Stringable OR Debuggable
+]
+```
+
+See [Constraints](docs/CONSTRAINTS.md) for full documentation.
+
 ### Lambdas
 
 ```xxml
@@ -129,6 +164,23 @@ Instantiate Integer^ As <result> = multiply.call(Integer::Constructor(3));  // 1
 ```
 
 See [Lambdas](docs/LANGUAGE_SPEC.md#lambdas-and-function-references).
+
+### Compile-Time Evaluation
+
+```xxml
+// Compile-time constants are evaluated at compilation
+Instantiate Compiletime Integer^ As <x> = Integer::Constructor(10);
+Instantiate Compiletime Integer^ As <y> = Integer::Constructor(5);
+Instantiate Compiletime Integer^ As <sum> = x.add(y);  // Computed at compile-time
+
+// Compile-time strings
+Instantiate Compiletime String^ As <greeting> = String::Constructor("Hello");
+
+// Compile-time booleans for conditional compilation
+Instantiate Compiletime Bool^ As <debug> = Bool::Constructor(true);
+```
+
+See [Compile-Time Evaluation](docs/COMPILETIME.md).
 
 ### Control Flow
 
@@ -212,6 +264,7 @@ XXMLCompiler/
 | [Language Specification](docs/LANGUAGE_SPEC.md) | Complete language syntax and semantics |
 | [Templates](docs/TEMPLATES.md) | Generic programming with templates |
 | [Constraints](docs/CONSTRAINTS.md) | Template constraints system |
+| [Compile-Time Evaluation](docs/COMPILETIME.md) | Compile-time constant evaluation |
 | [Foreign Function Interface](docs/FFI.md) | Foreign function interface system |
 | [Imports](docs/IMPORTS.md) | Imports (#import ...) system |
 | [Advanced Features](docs/ADVANCED_FEATURES.md) | Destructors, native types, syscalls |

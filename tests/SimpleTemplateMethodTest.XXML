@@ -1,0 +1,37 @@
+// Simple Template Method Test
+// Specifically tests calling methods on template instances
+
+#import Language::Core;
+
+// Simple template wrapper
+[ Class <Wrapper> <T Constrains None> Final Extends None
+    [ Private <>
+        Property <value> Types T^;
+    ]
+    [ Public <>
+        Constructor Parameters (Parameter <v> Types T^) ->
+        {
+            Set value = v;
+        }
+
+        Method <get> Returns T^ Parameters () Do
+        {
+            Return value;
+        }
+    ]
+]
+
+[ Entrypoint
+{
+    Run Console::printLine(String::Constructor("=== Simple Template Method Test ==="));
+
+    // Create wrapper with Integer
+    Instantiate Wrapper<Integer>^ As <w> = Wrapper@Integer::Constructor(Integer::Constructor(42));
+
+    // Call method on template instance - THIS IS WHERE BUG 5 TRIGGERS
+    Run Console::printLine(String::Constructor("Calling w.get()..."));
+    Instantiate Integer^ As <result> = w.get();
+
+    Run Console::printLine(String::Constructor("Value: ").append(result.toString()));
+    Run Console::printLine(String::Constructor("=== Test Complete ==="));
+}]

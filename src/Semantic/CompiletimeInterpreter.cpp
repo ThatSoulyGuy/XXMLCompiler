@@ -2,6 +2,7 @@
 #include "../../include/Semantic/SemanticAnalyzer.h"
 #include <cmath>
 #include <algorithm>
+#include <iostream>  // For debug output
 
 namespace XXML {
 namespace Semantic {
@@ -178,13 +179,24 @@ bool CompiletimeInterpreter::extractCalleeInfo(Parser::Expression* callee,
         if (auto* ident = dynamic_cast<Parser::IdentifierExpr*>(memberAccess->object.get())) {
             className = ident->name;
             methodName = memberAccess->member;
+            // Strip leading "::" from method name (parser stores it for static calls)
+            if (methodName.length() > 2 && methodName.substr(0, 2) == "::") {
+                methodName = methodName.substr(2);
+            }
             return true;
         }
         // Handle nested member access like Namespace::Class::Method
         if (auto* nested = dynamic_cast<Parser::MemberAccessExpr*>(memberAccess->object.get())) {
             if (auto* ident = dynamic_cast<Parser::IdentifierExpr*>(nested->object.get())) {
-                className = ident->name + "::" + nested->member;
+                std::string nestedMember = nested->member;
+                if (nestedMember.length() > 2 && nestedMember.substr(0, 2) == "::") {
+                    nestedMember = nestedMember.substr(2);
+                }
+                className = ident->name + "::" + nestedMember;
                 methodName = memberAccess->member;
+                if (methodName.length() > 2 && methodName.substr(0, 2) == "::") {
+                    methodName = methodName.substr(2);
+                }
                 return true;
             }
         }

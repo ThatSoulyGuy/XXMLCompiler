@@ -33,7 +33,13 @@ public:
     explicit CompiletimeValue(Kind k) : kind(k) {}
     virtual ~CompiletimeValue() = default;
     virtual std::unique_ptr<CompiletimeValue> clone() const = 0;
-    
+
+    // Raw LLVM value support for constant folding
+    // Returns true if this value can be used as a raw LLVM primitive (i64, float, etc.)
+    virtual bool canUseRawValue() const { return false; }
+    // Returns the LLVM type string for the raw value (e.g., "i64", "float", "double", "i1")
+    virtual std::string getRawLLVMType() const { return "ptr"; }
+
     // Type checking helpers
     bool isInteger() const { return kind == Kind::Integer; }
     bool isFloat() const { return kind == Kind::Float; }
@@ -48,37 +54,46 @@ public:
 class CompiletimeInteger : public CompiletimeValue {
 public:
     int64_t value;
-    
-    explicit CompiletimeInteger(int64_t v) 
+
+    explicit CompiletimeInteger(int64_t v)
         : CompiletimeValue(Kind::Integer), value(v) {}
-    
+
     std::unique_ptr<CompiletimeValue> clone() const override {
         return std::make_unique<CompiletimeInteger>(value);
     }
+
+    bool canUseRawValue() const override { return true; }
+    std::string getRawLLVMType() const override { return "i64"; }
 };
 
 class CompiletimeFloat : public CompiletimeValue {
 public:
     float value;
-    
-    explicit CompiletimeFloat(float v) 
+
+    explicit CompiletimeFloat(float v)
         : CompiletimeValue(Kind::Float), value(v) {}
-    
+
     std::unique_ptr<CompiletimeValue> clone() const override {
         return std::make_unique<CompiletimeFloat>(value);
     }
+
+    bool canUseRawValue() const override { return true; }
+    std::string getRawLLVMType() const override { return "float"; }
 };
 
 class CompiletimeDouble : public CompiletimeValue {
 public:
     double value;
-    
-    explicit CompiletimeDouble(double v) 
+
+    explicit CompiletimeDouble(double v)
         : CompiletimeValue(Kind::Double), value(v) {}
-    
+
     std::unique_ptr<CompiletimeValue> clone() const override {
         return std::make_unique<CompiletimeDouble>(value);
     }
+
+    bool canUseRawValue() const override { return true; }
+    std::string getRawLLVMType() const override { return "double"; }
 };
 
 class CompiletimeString : public CompiletimeValue {
@@ -96,13 +111,16 @@ public:
 class CompiletimeBool : public CompiletimeValue {
 public:
     bool value;
-    
-    explicit CompiletimeBool(bool v) 
+
+    explicit CompiletimeBool(bool v)
         : CompiletimeValue(Kind::Bool), value(v) {}
-    
+
     std::unique_ptr<CompiletimeValue> clone() const override {
         return std::make_unique<CompiletimeBool>(value);
     }
+
+    bool canUseRawValue() const override { return true; }
+    std::string getRawLLVMType() const override { return "i1"; }
 };
 
 class CompiletimeNull : public CompiletimeValue {

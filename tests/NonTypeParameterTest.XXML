@@ -1,0 +1,100 @@
+// Non-Type Template Parameter Test
+// Tests compile-time constant parameters in templates
+
+#import Language::Core;
+
+// Basic non-type parameter
+[ Class <FixedArray> <T Constrains None, Size Constrains None> Final Extends None
+    [ Private <>
+        Property <capacity> Types Integer^;
+    ]
+    [ Public <>
+        Constructor Parameters () ->
+        {
+            Set capacity = Integer::Constructor(Size);
+        }
+
+        Method <getCapacity> Returns Integer^ Parameters () Do
+        {
+            Return capacity;
+        }
+    ]
+]
+
+// Non-type with type parameter
+[ Class <Buffer> <T Constrains None, Capacity Constrains None> Final Extends None
+    [ Private <>
+        Property <maxSize> Types Integer^;
+    ]
+    [ Public <>
+        Constructor Parameters () ->
+        {
+            Set maxSize = Integer::Constructor(Capacity);
+        }
+
+        Method <getMaxSize> Returns Integer^ Parameters () Do
+        {
+            Return maxSize;
+        }
+    ]
+]
+
+// Multiple non-type parameters
+[ Class <Matrix> <T Constrains None, Rows Constrains None, Cols Constrains None> Final Extends None
+    [ Private <>
+        Property <numRows> Types Integer^;
+        Property <numCols> Types Integer^;
+    ]
+    [ Public <>
+        Constructor Parameters () ->
+        {
+            Set numRows = Integer::Constructor(Rows);
+            Set numCols = Integer::Constructor(Cols);
+        }
+
+        Method <getRows> Returns Integer^ Parameters () Do
+        {
+            Return numRows;
+        }
+
+        Method <getCols> Returns Integer^ Parameters () Do
+        {
+            Return numCols;
+        }
+
+        Method <size> Returns Integer^ Parameters () Do
+        {
+            Return numRows.multiply(numCols);
+        }
+    ]
+]
+
+[ Entrypoint
+{
+    Run Console::printLine(String::Constructor("=== Non-Type Parameter Tests ==="));
+
+    // TEST 1: Basic non-type parameter
+    Instantiate FixedArray<Integer, 10>^ As <arr10> = FixedArray@Integer, 10::Constructor();
+    Instantiate Integer^ As <cap10> = arr10.getCapacity();
+    Run Console::printLine(String::Constructor("FixedArray<Integer, 10> capacity: ").append(cap10.toString()));
+
+    Instantiate FixedArray<String, 5>^ As <arr5> = FixedArray@String, 5::Constructor();
+    Instantiate Integer^ As <cap5> = arr5.getCapacity();
+    Run Console::printLine(String::Constructor("FixedArray<String, 5> capacity: ").append(cap5.toString()));
+
+    // TEST 2: Non-type with type parameter
+    Instantiate Buffer<Integer, 100>^ As <intBuf> = Buffer@Integer, 100::Constructor();
+    Instantiate Integer^ As <max100> = intBuf.getMaxSize();
+    Run Console::printLine(String::Constructor("Buffer<Integer, 100> maxSize: ").append(max100.toString()));
+
+    // TEST 3: Multiple non-type parameters
+    Instantiate Matrix<Integer, 3, 4>^ As <mat3x4> = Matrix@Integer, 3, 4::Constructor();
+    Instantiate Integer^ As <rows> = mat3x4.getRows();
+    Instantiate Integer^ As <cols> = mat3x4.getCols();
+    Instantiate Integer^ As <matSize> = mat3x4.size();
+    Run Console::printLine(String::Constructor("Matrix<Integer, 3, 4> rows: ").append(rows.toString()));
+    Run Console::printLine(String::Constructor("Matrix<Integer, 3, 4> cols: ").append(cols.toString()));
+    Run Console::printLine(String::Constructor("Matrix<Integer, 3, 4> size: ").append(matSize.toString()));
+
+    Run Console::printLine(String::Constructor("=== All Non-Type Parameter Tests PASSED ==="));
+}]

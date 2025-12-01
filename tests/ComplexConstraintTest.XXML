@@ -1,0 +1,273 @@
+// Complex Constraint Test
+// Tests constraint combinations
+
+#import Language::Core;
+
+// Hashable constraint
+[ Constraint <Hashable> <T Constrains None> (T a)
+    Require (F(Integer^)(hash)(*) On a)
+]
+
+// Equatable constraint
+[ Constraint <Equatable> <T Constrains None> (T a)
+    Require (F(Integer^)(equals)(T^) On a)
+]
+
+// Stringable constraint
+[ Constraint <Stringable> <T Constrains None> (T a)
+    Require (F(String^)(toString)(*) On a)
+]
+
+// Serializable constraint
+[ Constraint <Serializable> <T Constrains None> (T a)
+    Require (F(String^)(serialize)(*) On a)
+]
+
+// Default constructor constraint
+[ Constraint <DefaultConstructible> <T Constrains None> (T a)
+    Require (C(None) On a)
+]
+
+// Int constructor constraint
+[ Constraint <IntConstructible> <T Constrains None> (T a)
+    Require (C(Integer^) On a)
+]
+
+// Cloneable constraint
+[ Constraint <Cloneable> <T Constrains None> (T a)
+    Require (F(T^)(clone)(*) On a)
+]
+
+// Test class satisfying multiple constraints
+[ Class <FullKeyType> Final Extends None
+    [ Private <>
+        Property <id> Types Integer^;
+    ]
+    [ Public <>
+        Constructor Parameters () ->
+        {
+            Set id = Integer::Constructor(0);
+        }
+
+        Constructor Parameters (Parameter <i> Types Integer^) ->
+        {
+            Set id = i;
+        }
+
+        Method <hash> Returns Integer^ Parameters () Do
+        {
+            Return id;
+        }
+
+        Method <equals> Returns Integer^ Parameters (Parameter <other> Types FullKeyType^) Do
+        {
+            Return id;
+        }
+
+        Method <toString> Returns String^ Parameters () Do
+        {
+            Return String::Constructor("FullKeyType(").append(id.toString()).append(String::Constructor(")"));
+        }
+
+        Method <getId> Returns Integer^ Parameters () Do
+        {
+            Return id;
+        }
+    ]
+]
+
+// Cloneable type
+[ Class <CloneableType> Final Extends None
+    [ Private <>
+        Property <value> Types Integer^;
+    ]
+    [ Public <>
+        Constructor Parameters () ->
+        {
+            Set value = Integer::Constructor(0);
+        }
+
+        Constructor Parameters (Parameter <v> Types Integer^) ->
+        {
+            Set value = v;
+        }
+
+        Method <clone> Returns CloneableType^ Parameters () Do
+        {
+            Return CloneableType::Constructor(value);
+        }
+
+        Method <getValue> Returns Integer^ Parameters () Do
+        {
+            Return value;
+        }
+    ]
+]
+
+// Simple data item for factory tests
+[ Class <DataItem> Final Extends None
+    [ Private <>
+        Property <value> Types Integer^;
+    ]
+    [ Public <>
+        Constructor Parameters () ->
+        {
+            Set value = Integer::Constructor(0);
+        }
+
+        Method <getValue> Returns Integer^ Parameters () Do
+        {
+            Return value;
+        }
+    ]
+]
+
+// Test class for serializable
+[ Class <SerializableType> Final Extends None
+    [ Private <>
+        Property <data> Types String^;
+    ]
+    [ Public <>
+        Constructor Parameters () ->
+        {
+            Set data = String::Constructor("");
+        }
+
+        Constructor Parameters (Parameter <d> Types String^) ->
+        {
+            Set data = d;
+        }
+
+        Method <toString> Returns String^ Parameters () Do
+        {
+            Return data;
+        }
+
+        Method <serialize> Returns String^ Parameters () Do
+        {
+            Return String::Constructor("{data:").append(data).append(String::Constructor("}"));
+        }
+    ]
+]
+
+// Triple AND constraint container
+[ Class <TripleAndContainer> <T Constrains (Hashable<T>, Equatable@T, Stringable<T>)> Final Extends None
+    [ Private <>
+        Property <item> Types T^;
+    ]
+    [ Public <>
+        Constructor Parameters () ->
+        {
+        }
+
+        Method <store> Returns None Parameters (Parameter <i> Types T^) Do
+        {
+            Set item = i;
+        }
+
+        Method <getHash> Returns Integer^ Parameters () Do
+        {
+            Return item.hash();
+        }
+
+        Method <describe> Returns String^ Parameters () Do
+        {
+            Return item.toString();
+        }
+    ]
+]
+
+// OR constraint container
+[ Class <FlexPrinter> <T Constrains Stringable | Serializable> Final Extends None
+    [ Private <>
+        Property <item> Types T^;
+    ]
+    [ Public <>
+        Constructor Parameters () ->
+        {
+        }
+
+        Method <setItem> Returns None Parameters (Parameter <i> Types T^) Do
+        {
+            Set item = i;
+        }
+    ]
+]
+
+// Factory with default constructor constraint
+[ Class <DefaultFactory> <T Constrains DefaultConstructible> Final Extends None
+    [ Public <>
+        Constructor Parameters () ->
+        {
+        }
+
+        Method <create> Returns T^ Parameters () Do
+        {
+            Return T::Constructor();
+        }
+    ]
+]
+
+// Duplicator with cloneable constraint
+[ Class <Duplicator> <T Constrains Cloneable<T>> Final Extends None
+    [ Private <>
+        Property <original> Types T^;
+    ]
+    [ Public <>
+        Constructor Parameters () ->
+        {
+        }
+
+        Method <setOriginal> Returns None Parameters (Parameter <o> Types T^) Do
+        {
+            Set original = o;
+        }
+
+        Method <duplicate> Returns T^ Parameters () Do
+        {
+            Return original.clone();
+        }
+    ]
+]
+
+[ Entrypoint
+{
+    Run Console::printLine(String::Constructor("=== Complex Constraint Tests ==="));
+
+    // TEST 1: Triple AND constraint
+    Run Console::printLine(String::Constructor("Test 1: Triple AND constraint"));
+    Instantiate TripleAndContainer<FullKeyType>^ As <tripleAnd> = TripleAndContainer@FullKeyType::Constructor();
+    Instantiate FullKeyType^ As <fullKey> = FullKeyType::Constructor(Integer::Constructor(42));
+    Run tripleAnd.store(fullKey);
+    Instantiate Integer^ As <hashVal> = tripleAnd.getHash();
+    Instantiate String^ As <descVal> = tripleAnd.describe();
+    Run Console::printLine(String::Constructor("  Hash: ").append(hashVal.toString()));
+    Run Console::printLine(String::Constructor("  Description: ").append(descVal));
+
+    // TEST 2: OR constraint
+    Run Console::printLine(String::Constructor("Test 2: OR constraint"));
+    Instantiate FlexPrinter<SerializableType>^ As <flexPrint> = FlexPrinter@SerializableType::Constructor();
+    Instantiate SerializableType^ As <serType> = SerializableType::Constructor(String::Constructor("test"));
+    Run flexPrint.setItem(serType);
+    Run Console::printLine(String::Constructor("  SerializableType stored"));
+
+    // TEST 3: Default constructor constraint
+    Run Console::printLine(String::Constructor("Test 3: Default constructor constraint"));
+    Instantiate DefaultFactory<DataItem>^ As <factory> = DefaultFactory@DataItem::Constructor();
+    Instantiate DataItem^ As <created> = factory.create();
+    Instantiate Integer^ As <createdVal> = created.getValue();
+    Run Console::printLine(String::Constructor("  Created value: ").append(createdVal.toString()));
+
+    // TEST 4: Cloneable constraint
+    Run Console::printLine(String::Constructor("Test 4: Cloneable constraint"));
+    Instantiate Duplicator<CloneableType>^ As <duplicator> = Duplicator@CloneableType::Constructor();
+    Instantiate CloneableType^ As <original> = CloneableType::Constructor(Integer::Constructor(999));
+    Instantiate Integer^ As <origVal> = original.getValue();
+    Run duplicator.setOriginal(original);
+    Instantiate CloneableType^ As <cloned> = duplicator.duplicate();
+    Instantiate Integer^ As <clonedVal> = cloned.getValue();
+    Run Console::printLine(String::Constructor("  Original: ").append(origVal.toString()));
+    Run Console::printLine(String::Constructor("  Cloned: ").append(clonedVal.toString()));
+
+    Run Console::printLine(String::Constructor("=== All Complex Constraint Tests PASSED ==="));
+}]

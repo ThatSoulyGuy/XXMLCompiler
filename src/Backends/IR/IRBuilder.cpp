@@ -284,6 +284,31 @@ void IRBuilder::validateComparisonTypes(Value* lhs, Value* rhs) {
            "Comparison requires matching types");
 }
 
+bool IRBuilder::typesCompatible(Type* expected, Type* actual) {
+    if (!expected || !actual) return true;  // Allow null (void returns)
+    if (expected == actual) return true;
+    if (expected->equals(*actual)) return true;
+
+    // Pointer types are compatible with ptr
+    if (expected->isPointer() && actual->isPointer()) return true;
+
+    // Check integer width compatibility
+    if (expected->isInteger() && actual->isInteger()) {
+        auto* expInt = static_cast<IntegerType*>(expected);
+        auto* actInt = static_cast<IntegerType*>(actual);
+        return expInt->getBitWidth() == actInt->getBitWidth();
+    }
+
+    // Float types match if both are floating point
+    if (expected->isFloatingPoint() && actual->isFloatingPoint()) {
+        auto* expFloat = static_cast<FloatType*>(expected);
+        auto* actFloat = static_cast<FloatType*>(actual);
+        return expFloat->isDouble() == actFloat->isDouble();
+    }
+
+    return false;
+}
+
 Value* IRBuilder::CreateICmp(ICmpInst::Predicate pred, Value* lhs, Value* rhs,
                               const std::string& name) {
     validateComparisonTypes(lhs, rhs);
@@ -474,6 +499,19 @@ ReturnInst* IRBuilder::CreateRetVoid() {
 }
 
 ReturnInst* IRBuilder::CreateRet(Value* value) {
+    // Validate return type matches function signature
+    if (currentFunction_ && value) {
+        Type* expectedType = currentFunction_->getReturnType();
+        Type* actualType = value->getType();
+
+        if (expectedType && actualType && !typesCompatible(expectedType, actualType)) {
+            std::string funcName = currentFunction_->getName();
+            std::string error = "Return type mismatch in function '" + funcName +
+                "': expected " + expectedType->toString() +
+                ", got " + actualType->toString();
+            throw std::runtime_error(error);
+        }
+    }
     return insert(ReturnInst::Create(value));
 }
 
