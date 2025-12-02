@@ -2,6 +2,47 @@
 
 All notable changes to the XXML Compiler project will be documented in this file.
 
+## [2.2.0] - 2025-12-02
+
+### Added
+
+#### Lambda Templates
+- **Generic Lambda Functions**: Lambdas can now have their own type parameters using the `Templates` keyword
+- **Monomorphization**: Lambda templates are instantiated on-demand with concrete type arguments
+- **Two Call Syntaxes**: Both `lambda<Type>.call()` and `lambda@Type.call()` syntaxes are supported
+
+```xxml
+// Define a generic identity lambda
+Instantiate __function^ As <identity> = [ Lambda [] Templates <T Constrains None> Returns T^ Parameters (Parameter <x> Types T^)
+{
+    Return x;
+} ];
+
+// Call with different types
+Instantiate Integer^ As <r1> = identity<Integer>.call(intVal);
+Instantiate String^ As <r2> = identity<String>.call(strVal);
+```
+
+#### LLVM Backend Changes
+- `generateLambdaTemplateInstantiations()`: New function for generating monomorphized lambda template code
+- Template lambda definition skipping in `visit(LambdaExpr&)`: Template lambdas are not compiled until instantiated
+- Template lambda call handling in `visit(CallExpr&)`: Detects `lambda<Type>.call()` pattern and generates correct function calls
+- Name mangling for lambda templates: `identity<Integer>` becomes `@lambda.template.identity_LT_Integer_GT_`
+
+#### Parser Improvements
+- Support for `@Type` syntax after identifiers (parsed in `parsePrimary()`)
+- `AngleBracketId` token handling for template arguments in expressions
+
+#### Semantic Analyzer Additions
+- `TemplateLambdaInfo` structure for tracking template lambda definitions
+- `LambdaTemplateInstantiation` structure for tracking instantiations
+- `recordLambdaTemplateInstantiation()` function
+- `getTemplateLambdas()` and `getLambdaTemplateInstantiations()` accessors
+
+### Documentation
+- Added comprehensive "Lambda Templates" section to `docs/TEMPLATES.md`
+- Added Lambda Templates section to README.md
+
 ## [2.1.0] - 2025-11-26
 
 ### Added

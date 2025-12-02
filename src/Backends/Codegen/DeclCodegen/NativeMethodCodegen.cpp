@@ -1,4 +1,6 @@
 #include "Backends/Codegen/DeclCodegen/DeclCodegen.h"
+#include "Backends/TypeNormalizer.h"
+#include "Core/TypeRegistry.h"
 
 namespace XXML {
 namespace Backends {
@@ -53,57 +55,38 @@ public:
 
 private:
     std::string mapNativeType(const std::string& typeName) {
-        // Handle NativeType<"..."> or NativeType<...>
-        if (typeName.find("NativeType<") == 0) {
-            // Try quoted form: NativeType<"int32">
-            size_t start = typeName.find("\"");
-            size_t end = typeName.rfind("\"");
-            std::string nativeType;
-            if (start != std::string::npos && end != std::string::npos && end > start) {
-                nativeType = typeName.substr(start + 1, end - start - 1);
-            } else {
-                // Unquoted form: NativeType<int32>
-                size_t angleStart = typeName.find('<');
-                size_t angleEnd = typeName.find('>');
-                if (angleStart != std::string::npos && angleEnd != std::string::npos) {
-                    nativeType = typeName.substr(angleStart + 1, angleEnd - angleStart - 1);
-                }
-            }
+        // Handle NativeType<...> using TypeNormalizer
+        if (TypeNormalizer::isNativeType(typeName)) {
+            std::string nativeType = TypeNormalizer::extractNativeTypeName(typeName);
             return mapNativeTypeToLLVM(nativeType);
         }
 
-        // Standard XXML type mapping
-        if (typeName == "Integer" || typeName == "Int") return "i64";
-        if (typeName == "Float") return "float";
-        if (typeName == "Double") return "double";
-        if (typeName == "Bool") return "i1";
-        if (typeName == "None" || typeName == "void") return "void";
+        // Handle primitive XXML types using TypeRegistry
+        if (Core::TypeRegistry::isPrimitiveXXML(typeName)) {
+            return Core::TypeRegistry::getPrimitiveLLVMType(typeName);
+        }
+
+        // Handle special cases
+        if (typeName == "Int") return "i64";
+        if (typeName == "void") return "void";
+
         return "ptr";  // Default to pointer for objects
     }
 
     std::string mapNativeTypeToLLVM(const std::string& nativeType) {
-        if (nativeType == "int8" || nativeType == "i8") return "i8";
-        if (nativeType == "int16" || nativeType == "i16") return "i16";
-        if (nativeType == "int32" || nativeType == "i32" || nativeType == "int") return "i32";
-        if (nativeType == "int64" || nativeType == "i64") return "i64";
-        if (nativeType == "uint8" || nativeType == "u8") return "i8";
-        if (nativeType == "uint16" || nativeType == "u16") return "i16";
-        if (nativeType == "uint32" || nativeType == "u32") return "i32";
-        if (nativeType == "uint64" || nativeType == "u64") return "i64";
-        if (nativeType == "float" || nativeType == "f32") return "float";
-        if (nativeType == "double" || nativeType == "f64") return "double";
-        if (nativeType == "void") return "void";
-        if (nativeType == "ptr" || nativeType == "pointer") return "ptr";
-        return "ptr";  // Default
+        // Use TypeRegistry for native type lookup
+        static Core::TypeRegistry registry;
+        static bool initialized = false;
+        if (!initialized) {
+            registry.registerBuiltinTypes();
+            initialized = true;
+        }
+        return registry.getNativeTypeLLVM(nativeType);
     }
 
     bool checkIsCallback(const std::string& typeName) {
-        // Strip ownership modifiers
-        std::string baseType = typeName;
-        if (!baseType.empty() && (baseType.back() == '^' ||
-            baseType.back() == '%' || baseType.back() == '&')) {
-            baseType = baseType.substr(0, baseType.length() - 1);
-        }
+        // Strip ownership modifiers using TypeNormalizer
+        std::string baseType = TypeNormalizer::stripOwnershipMarker(typeName);
         // Check if registered as callback
         return ctx_.getCallbackThunk(baseType) != nullptr;
     }

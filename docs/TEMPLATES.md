@@ -6,10 +6,12 @@ Version 2.0 - CORRECTED DOCUMENTATION
 
 1. [Introduction](#introduction)
 2. [Template Class Declaration](#template-class-declaration)
-3. [Template Parameters](#template-parameters)
-4. [Template Instantiation](#template-instantiation)
-5. [Examples](#examples)
-6. [Best Practices](#best-practices)
+3. [Method Templates](#method-templates)
+4. [Lambda Templates](#lambda-templates)
+5. [Template Parameters](#template-parameters)
+6. [Template Instantiation](#template-instantiation)
+7. [Examples](#examples)
+8. [Best Practices](#best-practices)
 
 ## Introduction
 
@@ -124,6 +126,276 @@ Use pipe `|` for OR semantics - the type must satisfy **at least ONE** constrain
 
 ```xxml
 [ Class <MyClass> <T Constrains Printable | Comparable> Final Extends None
+```
+
+## Method Templates
+
+In addition to class templates, XXML supports **method templates** - methods that have their own type parameters independent of their containing class.
+
+### Syntax
+
+Method templates use the `Templates` keyword after the method name:
+
+```xxml
+Method <methodName> Templates <T Constrains None> Returns ReturnType^ Parameters (...) Do
+{
+    // Method body using type parameter T
+}
+```
+
+### Basic Example
+
+```xxml
+[ Class <Container> Final Extends None
+    [ Public <>
+        Constructor = default;
+
+        // Method template - identity function that works with any type
+        Method <identity> Templates <T Constrains None> Returns T^ Parameters (Parameter <value> Types T^) Do
+        {
+            Return value;
+        }
+    ]
+]
+
+[ Entrypoint
+{
+    Instantiate Container^ As <c> = Container::Constructor();
+
+    // Call with Integer
+    Instantiate Integer^ As <intVal> = Integer::Constructor(42);
+    Instantiate Integer^ As <result1> = c.identity<Integer>(intVal);
+    // result1 is 42
+
+    // Call with String
+    Instantiate String^ As <strVal> = String::Constructor("Hello");
+    Instantiate String^ As <result2> = c.identity<String>(strVal);
+    // result2 is "Hello"
+}
+]
+```
+
+### Key Features
+
+1. **Independent Type Parameters**: Method templates have their own type parameters that are separate from any class template parameters.
+
+2. **Call Syntax**: When calling a method template, specify the type argument using angle brackets:
+   ```xxml
+   object.methodName<TypeArg>(arguments)
+   ```
+
+3. **Type Inference**: The compiler generates a separate instantiation for each unique combination of type arguments used.
+
+4. **Constraints**: Method template parameters support the same constraint syntax as class templates:
+   ```xxml
+   Method <sort> Templates <T Constrains Comparable> Returns None Parameters (...) Do
+   ```
+
+### Multiple Type Parameters
+
+Method templates can have multiple type parameters:
+
+```xxml
+Method <convert> Templates <From Constrains None, To Constrains None> Returns To^ Parameters (Parameter <value> Types From^) Do
+{
+    // Conversion logic
+}
+```
+
+### Combining with Class Templates
+
+Method templates can be used inside template classes, with both class and method type parameters available:
+
+```xxml
+[ Class <Processor> <T Constrains None> Final Extends None
+    [ Public <>
+        // Method template inside a template class
+        // Can use both T (class param) and U (method param)
+        Method <transform> Templates <U Constrains None> Returns U^ Parameters (Parameter <input> Types T^) Do
+        {
+            // Implementation
+        }
+    ]
+]
+```
+
+## Lambda Templates
+
+In addition to class and method templates, XXML supports **lambda templates** - anonymous functions that have their own type parameters.
+
+### Syntax
+
+Lambda templates use the `Templates` keyword after the capture list:
+
+```xxml
+[ Lambda [captures] Templates <T Constrains None> Returns ReturnType^ Parameters (Parameter <param> Types T^)
+{
+    // Lambda body using type parameter T
+} ]
+```
+
+### Basic Example
+
+```xxml
+[ Entrypoint
+{
+    // Define a lambda template - identity function that works with any type
+    Instantiate __function^ As <identity> = [ Lambda [] Templates <T Constrains None> Returns T^ Parameters (Parameter <x> Types T^)
+    {
+        Return x;
+    } ];
+
+    // Call with Integer using angle bracket syntax
+    Instantiate Integer^ As <intVal> = Integer::Constructor(42);
+    Instantiate Integer^ As <result1> = identity<Integer>.call(intVal);
+    Run System::Console::printLine(result1.toString());  // Prints: 42
+
+    // Call with String
+    Instantiate String^ As <strVal> = String::Constructor("Hello");
+    Instantiate String^ As <result2> = identity<String>.call(strVal);
+    Run System::Console::printLine(result2);  // Prints: Hello
+
+    Exit(0);
+}
+]
+```
+
+### Call Syntax
+
+Lambda templates support two syntaxes for specifying type arguments:
+
+#### 1. Angle Bracket Syntax (`< >`)
+
+```xxml
+lambdaVar<TypeArg>.call(arguments)
+```
+
+#### 2. At-Sign Syntax (`@`)
+
+```xxml
+lambdaVar@TypeArg.call(arguments)
+```
+
+Both syntaxes are equivalent:
+
+```xxml
+// These are equivalent
+Instantiate Integer^ As <r1> = identity<Integer>.call(intVal);
+Instantiate Integer^ As <r2> = identity@Integer.call(intVal);
+```
+
+### Key Features
+
+1. **Type Parameters**: Lambda templates have their own type parameters declared with the `Templates` keyword.
+
+2. **Monomorphization**: The compiler generates a separate function for each unique type argument used. For example, `identity<Integer>` and `identity<String>` result in two different generated functions.
+
+3. **Type-Safe Calls**: The return type and parameter types are determined by the template arguments at the call site.
+
+4. **Constraints Support**: Lambda template parameters support the same constraint syntax as class and method templates:
+   ```xxml
+   [ Lambda [] Templates <T Constrains Printable> Returns None Parameters (Parameter <x> Types T^)
+   {
+       Run System::Console::printLine(x.toString());
+   } ]
+   ```
+
+### Multiple Type Parameters
+
+Lambda templates can have multiple type parameters:
+
+```xxml
+Instantiate __function^ As <swap> = [ Lambda [] Templates <T Constrains None, U Constrains None> Returns U^ Parameters (Parameter <first> Types T^, Parameter <second> Types U^)
+{
+    Return second;
+} ];
+
+// Call with different types
+Instantiate String^ As <result> = swap<Integer, String>.call(
+    Integer::Constructor(42),
+    String::Constructor("Hello")
+);
+```
+
+### Lambda Templates with Captures
+
+Lambda templates can capture variables from their enclosing scope, just like regular lambdas:
+
+```xxml
+Instantiate Integer^ As <offset> = Integer::Constructor(10);
+
+Instantiate __function^ As <addOffset> = [ Lambda [^offset] Templates <T Constrains None> Returns T^ Parameters (Parameter <x> Types T^)
+{
+    Return x.add(offset);
+} ];
+
+// Note: The captured variable is available in all instantiations
+Instantiate Integer^ As <result> = addOffset<Integer>.call(Integer::Constructor(5));
+// result is 15
+```
+
+### Differences from Method Templates
+
+| Feature | Method Templates | Lambda Templates |
+|---------|------------------|------------------|
+| Declaration | Inside a class | Anywhere (local or global) |
+| Syntax | `Method <name> Templates <T>` | `Lambda [] Templates <T>` |
+| Call syntax | `obj.method<T>(args)` | `lambda<T>.call(args)` |
+| Captures | N/A (uses `this`) | Explicit capture list |
+| Storage | Class method table | Closure pointer |
+
+### Implementation Notes
+
+1. **Deferred Generation**: Template lambdas are not compiled when defined. Instead, the compiler records the template definition and generates concrete implementations only when specific type arguments are used.
+
+2. **Name Mangling**: The compiler internally mangles lambda template instantiations:
+   - `identity<Integer>` → `lambda.template.identity_LT_Integer_GT_`
+   - `identity<String>` → `lambda.template.identity_LT_String_GT_`
+
+3. **Closure Structure**: Each lambda template instantiation has its own closure structure containing:
+   - A function pointer to the generated implementation
+   - Captured variables (if any)
+
+### Complete Example
+
+```xxml
+#import Language::Core;
+
+[ Entrypoint
+{
+    Run System::Console::printLine(String::Constructor("Testing Lambda Templates"));
+
+    // Lambda template - identity function
+    Instantiate __function^ As <identity> = [ Lambda [] Templates <T Constrains None> Returns T^ Parameters (Parameter <x> Types T^)
+    {
+        Return x;
+    } ];
+
+    // Call with Integer
+    Instantiate Integer^ As <intVal> = Integer::Constructor(42);
+    Instantiate Integer^ As <result1> = identity<Integer>.call(intVal);
+    Run System::Console::print(String::Constructor("identity<Integer>(42) = "));
+    Run System::Console::printLine(result1.toString());
+
+    // Call with String
+    Instantiate String^ As <strVal> = String::Constructor("Hello Lambda");
+    Instantiate String^ As <result2> = identity<String>.call(strVal);
+    Run System::Console::print(String::Constructor("identity<String> = "));
+    Run System::Console::printLine(result2);
+
+    Run System::Console::printLine(String::Constructor("Lambda template test passed!"));
+
+    Exit(0);
+}
+]
+```
+
+**Output:**
+```
+Testing Lambda Templates
+identity<Integer>(42) = 42
+identity<String> = Hello Lambda
+Lambda template test passed!
 ```
 
 ## Template Parameters

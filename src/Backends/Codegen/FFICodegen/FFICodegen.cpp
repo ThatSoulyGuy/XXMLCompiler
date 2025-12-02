@@ -1,4 +1,6 @@
 #include "Backends/Codegen/FFICodegen/FFICodegen.h"
+#include "Backends/TypeNormalizer.h"
+#include "Core/TypeRegistry.h"
 
 namespace XXML {
 namespace Backends {
@@ -33,45 +35,33 @@ LLVMIR::Function* FFICodegen::getCallbackThunk(const std::string& typeName) cons
 }
 
 std::string FFICodegen::mapXXMLTypeToLLVM(const std::string& xxmlType) const {
-    if (xxmlType.find("NativeType<") == 0) {
-        size_t start = xxmlType.find("\"");
-        size_t end = xxmlType.rfind("\"");
-        std::string nativeType;
-        if (start != std::string::npos && end != std::string::npos && end > start) {
-            nativeType = xxmlType.substr(start + 1, end - start - 1);
-        } else {
-            size_t angleStart = xxmlType.find('<');
-            size_t angleEnd = xxmlType.find('>');
-            if (angleStart != std::string::npos && angleEnd != std::string::npos) {
-                nativeType = xxmlType.substr(angleStart + 1, angleEnd - angleStart - 1);
-            }
-        }
+    // Handle NativeType<...> using TypeNormalizer
+    if (TypeNormalizer::isNativeType(xxmlType)) {
+        std::string nativeType = TypeNormalizer::extractNativeTypeName(xxmlType);
         return mapNativeTypeToLLVM(nativeType);
     }
 
-    if (xxmlType == "Integer" || xxmlType == "Int") return "i64";
-    if (xxmlType == "Float") return "float";
-    if (xxmlType == "Double") return "double";
-    if (xxmlType == "Bool") return "i1";
-    if (xxmlType == "None" || xxmlType == "void") return "void";
-    if (xxmlType == "String") return "ptr";
-    return "ptr";
+    // Handle primitive XXML types using TypeRegistry
+    if (Core::TypeRegistry::isPrimitiveXXML(xxmlType)) {
+        return Core::TypeRegistry::getPrimitiveLLVMType(xxmlType);
+    }
+
+    // Handle special cases
+    if (xxmlType == "Int") return "i64";
+    if (xxmlType == "void") return "void";
+
+    return "ptr";  // Default for objects/classes
 }
 
 std::string FFICodegen::mapNativeTypeToLLVM(const std::string& nativeType) const {
-    if (nativeType == "int8" || nativeType == "i8") return "i8";
-    if (nativeType == "int16" || nativeType == "i16") return "i16";
-    if (nativeType == "int32" || nativeType == "i32" || nativeType == "int") return "i32";
-    if (nativeType == "int64" || nativeType == "i64") return "i64";
-    if (nativeType == "uint8" || nativeType == "u8") return "i8";
-    if (nativeType == "uint16" || nativeType == "u16") return "i16";
-    if (nativeType == "uint32" || nativeType == "u32") return "i32";
-    if (nativeType == "uint64" || nativeType == "u64") return "i64";
-    if (nativeType == "float" || nativeType == "f32") return "float";
-    if (nativeType == "double" || nativeType == "f64") return "double";
-    if (nativeType == "void") return "void";
-    if (nativeType == "ptr" || nativeType == "pointer") return "ptr";
-    return "ptr";
+    // Use TypeRegistry for native type lookup
+    static Core::TypeRegistry registry;
+    static bool initialized = false;
+    if (!initialized) {
+        registry.registerBuiltinTypes();
+        initialized = true;
+    }
+    return registry.getNativeTypeLLVM(nativeType);
 }
 
 LLVMIR::Type* FFICodegen::getLLVMType(const std::string& typeStr) const {

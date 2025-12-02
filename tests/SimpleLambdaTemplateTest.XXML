@@ -1,0 +1,24 @@
+// Simple test for lambda template call parsing
+
+[ Entrypoint
+{
+    Run System::Console::printLine(String::Constructor("Testing Lambda Templates"));
+
+    // Lambda template - identity function
+    Instantiate __function^ As <identity> = [ Lambda [] Templates <T Constrains None> Returns T^ Parameters (Parameter <x> Types T^)
+    {
+        Return x;
+    } ];
+
+    Run System::Console::printLine(String::Constructor("Lambda defined"));
+
+    // Test: create an integer
+    Instantiate Integer^ As <intVal> = Integer::Constructor(42);
+
+    // Test: try calling with explicit template argument using @ syntax instead
+    Instantiate Integer^ As <result1> = identity@Integer.call(intVal);
+    Run System::Console::printLine(result1.toString());
+
+    Exit(0);
+}
+]

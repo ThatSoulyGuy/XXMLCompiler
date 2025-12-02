@@ -35,6 +35,7 @@ std::string TemplateGen::mangleTemplateName(const std::string& templateName,
 void TemplateGen::generateAll() {
     if (!semanticAnalyzer_) return;
 
+    // Generate class template instantiations
     const auto& instantiations = semanticAnalyzer_->getTemplateInstantiations();
     const auto& templateClasses = semanticAnalyzer_->getTemplateClasses();
 
@@ -76,6 +77,12 @@ void TemplateGen::generateAll() {
             // The actual code generation is handled by DeclCodegen
         }
     }
+
+    // Generate method template instantiations
+    generateMethodInstantiations();
+
+    // Generate lambda template instantiations
+    generateLambdaInstantiations();
 }
 
 void TemplateGen::generateInstantiation(const std::string& templateName,
@@ -83,6 +90,128 @@ void TemplateGen::generateInstantiation(const std::string& templateName,
     std::string mangledName = mangleTemplateName(templateName, args);
     if (!isGenerated(mangledName)) {
         markGenerated(mangledName);
+    }
+}
+
+void TemplateGen::generateMethodInstantiations() {
+    if (!semanticAnalyzer_) return;
+
+    const auto& instantiations = semanticAnalyzer_->getMethodTemplateInstantiations();
+    const auto& templateMethods = semanticAnalyzer_->getTemplateMethods();
+
+    for (const auto& inst : instantiations) {
+        std::string methodKey = inst.className + "::" + inst.methodName;
+        auto it = templateMethods.find(methodKey);
+        if (it == templateMethods.end()) continue;
+
+        const auto& methodInfo = it->second;
+        Parser::MethodDecl* templateMethodDecl = methodInfo.astNode;
+        if (!templateMethodDecl) continue;
+
+        // Generate mangled name: ClassName_MethodName_LT_TypeArg1_GT_ (matching call site format)
+        std::string mangledName = inst.className + "_" + inst.methodName + "_LT_";
+        bool first = true;
+        for (const auto& arg : inst.arguments) {
+            if (arg.kind == Parser::TemplateArgument::Kind::Type) {
+                if (!first) mangledName += "_C_";  // Comma separator
+                first = false;
+                std::string cleanType = arg.typeArg;
+                size_t pos = 0;
+                while ((pos = cleanType.find("::")) != std::string::npos) {
+                    cleanType.replace(pos, 2, "_");
+                }
+                mangledName += cleanType;
+            }
+        }
+        mangledName += "_GT_";
+
+        if (isGenerated(mangledName)) continue;
+        markGenerated(mangledName);
+
+        // Build type substitution map
+        std::unordered_map<std::string, std::string> typeMap;
+        size_t valueIndex = 0;
+        for (size_t i = 0; i < methodInfo.templateParams.size() && i < inst.arguments.size(); ++i) {
+            const auto& param = methodInfo.templateParams[i];
+            const auto& arg = inst.arguments[i];
+
+            if (param.kind == Parser::TemplateParameter::Kind::Type) {
+                if (arg.kind == Parser::TemplateArgument::Kind::Type) {
+                    typeMap[param.name] = arg.typeArg;
+                }
+            } else {
+                if (valueIndex < inst.evaluatedValues.size()) {
+                    typeMap[param.name] = std::to_string(inst.evaluatedValues[valueIndex]);
+                    valueIndex++;
+                }
+            }
+        }
+
+        // Clone method with substitutions - the cloned method will be generated
+        auto clonedMethod = cloneMethod(templateMethodDecl, typeMap);
+        if (clonedMethod) {
+            clonedMethod->name = mangledName;
+            // Store for later code generation (the backend will pick this up)
+            // The actual code generation happens when the method is visited
+        }
+    }
+}
+
+void TemplateGen::generateLambdaInstantiations() {
+    if (!semanticAnalyzer_) return;
+
+    const auto& instantiations = semanticAnalyzer_->getLambdaTemplateInstantiations();
+    const auto& templateLambdas = semanticAnalyzer_->getTemplateLambdas();
+
+    for (const auto& inst : instantiations) {
+        auto it = templateLambdas.find(inst.variableName);
+        if (it == templateLambdas.end()) continue;
+
+        const auto& lambdaInfo = it->second;
+        Parser::LambdaExpr* templateLambdaExpr = lambdaInfo.astNode;
+        if (!templateLambdaExpr) continue;
+
+        // Generate mangled name: variableName_TypeArg1_TypeArg2
+        std::string mangledName = inst.variableName;
+        for (const auto& arg : inst.arguments) {
+            if (arg.kind == Parser::TemplateArgument::Kind::Type) {
+                std::string cleanType = arg.typeArg;
+                size_t pos = 0;
+                while ((pos = cleanType.find("::")) != std::string::npos) {
+                    cleanType.replace(pos, 2, "_");
+                }
+                mangledName += "_" + cleanType;
+            }
+        }
+
+        if (isGenerated(mangledName)) continue;
+        markGenerated(mangledName);
+
+        // Build type substitution map
+        std::unordered_map<std::string, std::string> typeMap;
+        size_t valueIndex = 0;
+        for (size_t i = 0; i < lambdaInfo.templateParams.size() && i < inst.arguments.size(); ++i) {
+            const auto& param = lambdaInfo.templateParams[i];
+            const auto& arg = inst.arguments[i];
+
+            if (param.kind == Parser::TemplateParameter::Kind::Type) {
+                if (arg.kind == Parser::TemplateArgument::Kind::Type) {
+                    typeMap[param.name] = arg.typeArg;
+                }
+            } else {
+                if (valueIndex < inst.evaluatedValues.size()) {
+                    typeMap[param.name] = std::to_string(inst.evaluatedValues[valueIndex]);
+                    valueIndex++;
+                }
+            }
+        }
+
+        // Clone lambda with substitutions
+        auto clonedLambda = cloneLambda(templateLambdaExpr, typeMap);
+        if (clonedLambda) {
+            // The cloned lambda will be generated with the mangled name
+            // Store the mapping for code generation
+        }
     }
 }
 
@@ -191,6 +320,46 @@ std::unique_ptr<Parser::MethodDecl> TemplateGen::cloneMethod(
     cloned->nativeSymbol = method->nativeSymbol;
     cloned->callingConvention = method->callingConvention;
     cloned->isCompiletime = method->isCompiletime;
+
+    return cloned;
+}
+
+std::unique_ptr<Parser::LambdaExpr> TemplateGen::cloneLambda(
+    Parser::LambdaExpr* lambda,
+    const std::unordered_map<std::string, std::string>& typeMap) {
+    if (!lambda) return nullptr;
+
+    // Clone captures
+    std::vector<Parser::LambdaExpr::CaptureSpec> captures = lambda->captures;
+
+    // Clone parameters
+    std::vector<std::unique_ptr<Parser::ParameterDecl>> params;
+    for (const auto& param : lambda->parameters) {
+        auto clonedType = cloneTypeRef(param->type.get(), typeMap);
+        params.push_back(std::make_unique<Parser::ParameterDecl>(
+            param->name, std::move(clonedType), param->location));
+    }
+
+    // Clone return type
+    auto clonedReturnType = cloneTypeRef(lambda->returnType.get(), typeMap);
+
+    // Clone body statements
+    std::vector<std::unique_ptr<Parser::Statement>> bodyStmts;
+    for (const auto& stmt : lambda->body) {
+        if (auto clonedStmt = cloneStatement(stmt.get(), typeMap)) {
+            bodyStmts.push_back(std::move(clonedStmt));
+        }
+    }
+
+    auto cloned = std::make_unique<Parser::LambdaExpr>(
+        std::move(captures),
+        std::move(params),
+        std::move(clonedReturnType),
+        std::move(bodyStmts),
+        lambda->location);
+
+    cloned->isCompiletime = lambda->isCompiletime;
+    // Don't copy templateParams - the cloned lambda is an instantiation
 
     return cloned;
 }

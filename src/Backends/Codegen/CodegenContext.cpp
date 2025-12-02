@@ -1,4 +1,5 @@
 #include "Backends/Codegen/CodegenContext.h"
+#include "Backends/TypeNormalizer.h"
 #include "Core/TypeRegistry.h"
 #include <algorithm>
 
@@ -106,12 +107,8 @@ bool CodegenContext::hasClass(const std::string& name) const {
 LLVMIR::Type* CodegenContext::mapType(std::string_view xxmlType) {
     auto& ctx = module_->getContext();
 
-    std::string type(xxmlType);
-
-    // Strip ownership modifiers
-    if (!type.empty() && (type.back() == '^' || type.back() == '%' || type.back() == '&')) {
-        type = type.substr(0, type.length() - 1);
-    }
+    // Strip ownership modifiers using TypeNormalizer
+    std::string type = TypeNormalizer::stripOwnershipMarker(xxmlType);
 
     // Primitive types
     if (type == "Integer" || type == "Int" || type == "Int64") {
@@ -144,12 +141,8 @@ LLVMIR::Type* CodegenContext::mapType(std::string_view xxmlType) {
 }
 
 std::string CodegenContext::getLLVMTypeString(std::string_view xxmlType) const {
-    std::string type(xxmlType);
-
-    // Strip ownership modifiers
-    if (!type.empty() && (type.back() == '^' || type.back() == '%' || type.back() == '&')) {
-        type = type.substr(0, type.length() - 1);
-    }
+    // Strip ownership modifiers using TypeNormalizer
+    std::string type = TypeNormalizer::stripOwnershipMarker(xxmlType);
 
     // Primitive types
     if (type == "Integer" || type == "Int" || type == "Int64") return "i64";
@@ -189,31 +182,30 @@ std::string CodegenContext::mangleFunctionName(std::string_view className, std::
         result.replace(pos, 2, "_");
     }
 
+    // Replace template characters with valid LLVM identifiers
+    // < -> _LT_
+    while ((pos = result.find("<")) != std::string::npos) {
+        result.replace(pos, 1, "_LT_");
+    }
+    // > -> _GT_
+    while ((pos = result.find(">")) != std::string::npos) {
+        result.replace(pos, 1, "_GT_");
+    }
+    // , -> _C_
+    while ((pos = result.find(",")) != std::string::npos) {
+        result.replace(pos, 1, "_C_");
+    }
+    // Replace spaces
+    while ((pos = result.find(" ")) != std::string::npos) {
+        result.replace(pos, 1, "");
+    }
+
     return result;
 }
 
 std::string CodegenContext::mangleTypeName(std::string_view typeName) const {
-    std::string result(typeName);
-
-    // Replace ::, <, >, ,, space with _
-    size_t pos = 0;
-    while ((pos = result.find("::")) != std::string::npos) {
-        result.replace(pos, 2, "_");
-    }
-    while ((pos = result.find("<")) != std::string::npos) {
-        result.replace(pos, 1, "_");
-    }
-    while ((pos = result.find(">")) != std::string::npos) {
-        result.erase(pos, 1);
-    }
-    while ((pos = result.find(",")) != std::string::npos) {
-        result.replace(pos, 1, "_");
-    }
-    while ((pos = result.find(" ")) != std::string::npos) {
-        result.erase(pos, 1);
-    }
-
-    return result;
+    // Use TypeNormalizer for consistent name mangling
+    return TypeNormalizer::mangleForLLVM(typeName);
 }
 
 // === Loop Stack ===

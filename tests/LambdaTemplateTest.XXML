@@ -1,0 +1,29 @@
+// Test file for lambda templates
+
+[ Entrypoint
+{
+    Run System::Console::printLine(String::Constructor("Testing Lambda Templates"));
+
+    // Lambda template - identity function
+    Instantiate __function^ As <identity> = [ Lambda [] Templates <T Constrains None> Returns T^ Parameters (Parameter <x> Types T^)
+    {
+        Return x;
+    } ];
+
+    // Call with Integer
+    Instantiate Integer^ As <intVal> = Integer::Constructor(42);
+    Instantiate Integer^ As <result1> = identity<Integer>.call(intVal);
+    Run System::Console::print(String::Constructor("identity<Integer>(42) = "));
+    Run System::Console::printLine(result1.toString());
+
+    // Call with String
+    Instantiate String^ As <strVal> = String::Constructor("Hello Lambda");
+    Instantiate String^ As <result2> = identity<String>.call(strVal);
+    Run System::Console::print(String::Constructor("identity<String> = "));
+    Run System::Console::printLine(result2);
+
+    Run System::Console::printLine(String::Constructor("Lambda template test passed!"));
+
+    Exit(0);
+}
+]

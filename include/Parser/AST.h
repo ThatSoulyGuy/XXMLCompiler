@@ -19,6 +19,7 @@ class NativeStructureDecl;
 class CallbackTypeDecl;
 class EnumerationDecl;
 class EnumValueDecl;
+struct TemplateParameter;  // Forward declare for LambdaExpr
 
 // Base AST node
 class ASTNode {
@@ -319,6 +320,7 @@ public:
     std::unique_ptr<TypeRef> returnType;
     std::vector<std::unique_ptr<Statement>> body;
     bool isCompiletime = false;  // Compile-time lambda for Truth conditions
+    std::vector<TemplateParameter> templateParams;  // Template parameters for template lambdas
 
     LambdaExpr(std::vector<CaptureSpec> caps,
                std::vector<std::unique_ptr<ParameterDecl>> params,

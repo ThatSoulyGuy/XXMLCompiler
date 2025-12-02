@@ -28,6 +28,7 @@ void TypeRegistry::registerBuiltinTypes() {
     registerSystemTypes();
     registerCollectionTypes();
     registerMathTypes();
+    registerNativeTypes();
 }
 
 void TypeRegistry::registerCoreTypes() {
@@ -341,6 +342,144 @@ std::string TypeRegistry::extractBaseType(std::string_view fullType) const {
 
 bool TypeRegistry::isGenericTemplateType(std::string_view typeName) const {
     return typeName.find('<') != std::string_view::npos;
+}
+
+// ========== NativeType Implementation ==========
+
+void TypeRegistry::registerNativeTypes() {
+    // Helper lambda to register a native type with optional aliases
+    auto registerNative = [this](const std::string& name, const std::string& llvm,
+                                  const std::string& cpp, int bits, bool isSigned,
+                                  bool isFloat, bool isPtr,
+                                  std::initializer_list<std::string> aliases = {}) {
+        NativeTypeInfo info{name, llvm, cpp, bits, isSigned, isFloat, isPtr};
+        nativeTypes_[name] = info;
+        for (const auto& alias : aliases) {
+            nativeAliases_[alias] = name;
+        }
+    };
+
+    // Signed integers
+    registerNative("int64", "i64", "int64_t", 64, true, false, false, {"i64"});
+    registerNative("int32", "i32", "int32_t", 32, true, false, false, {"i32", "int"});
+    registerNative("int16", "i16", "int16_t", 16, true, false, false, {"i16"});
+    registerNative("int8", "i8", "int8_t", 8, true, false, false, {"i8"});
+
+    // Unsigned integers
+    registerNative("uint64", "i64", "uint64_t", 64, false, false, false, {"u64"});
+    registerNative("uint32", "i32", "uint32_t", 32, false, false, false, {"u32"});
+    registerNative("uint16", "i16", "uint16_t", 16, false, false, false, {"u16"});
+    registerNative("uint8", "i8", "uint8_t", 8, false, false, false, {"u8"});
+
+    // Floating point
+    registerNative("float", "float", "float", 32, true, true, false, {"f32"});
+    registerNative("double", "double", "double", 64, true, true, false, {"f64"});
+
+    // Boolean
+    registerNative("bool", "i1", "bool", 1, false, false, false, {"i1"});
+
+    // Pointer types
+    registerNative("ptr", "ptr", "void*", 0, false, false, true, {"pointer"});
+    registerNative("cstr", "ptr", "const char*", 0, false, false, true, {});
+    registerNative("string_ptr", "ptr", "void*", 0, false, false, true, {});
+
+    // Void
+    registerNative("void", "void", "void", 0, false, false, false, {});
+}
+
+const NativeTypeInfo* TypeRegistry::lookupNativeType(std::string_view name) const {
+    std::string nameStr(name);
+
+    // Check direct lookup first
+    auto it = nativeTypes_.find(nameStr);
+    if (it != nativeTypes_.end()) {
+        return &it->second;
+    }
+
+    // Check aliases
+    auto aliasIt = nativeAliases_.find(nameStr);
+    if (aliasIt != nativeAliases_.end()) {
+        auto canonicalIt = nativeTypes_.find(aliasIt->second);
+        if (canonicalIt != nativeTypes_.end()) {
+            return &canonicalIt->second;
+        }
+    }
+
+    return nullptr;
+}
+
+std::string TypeRegistry::getNativeTypeLLVM(std::string_view name) const {
+    if (auto* info = lookupNativeType(name)) {
+        return info->llvmType;
+    }
+    return "ptr";  // Default to pointer for unknown types
+}
+
+std::string TypeRegistry::getNativeTypeCpp(std::string_view name) const {
+    if (auto* info = lookupNativeType(name)) {
+        return info->cppType;
+    }
+    return "void*";  // Default to void* for unknown types
+}
+
+bool TypeRegistry::isNativeTypeSigned(std::string_view name) const {
+    if (auto* info = lookupNativeType(name)) {
+        return info->isSigned;
+    }
+    return false;
+}
+
+bool TypeRegistry::isNativeTypeFloat(std::string_view name) const {
+    if (auto* info = lookupNativeType(name)) {
+        return info->isFloatingPoint;
+    }
+    return false;
+}
+
+bool TypeRegistry::isNativeTypePointer(std::string_view name) const {
+    if (auto* info = lookupNativeType(name)) {
+        return info->isPointer;
+    }
+    return false;
+}
+
+int TypeRegistry::getNativeTypeBitWidth(std::string_view name) const {
+    if (auto* info = lookupNativeType(name)) {
+        return info->bitWidth;
+    }
+    return 0;
+}
+
+// ========== Primitive Type Utilities (Static) ==========
+
+bool TypeRegistry::isPrimitiveXXML(std::string_view typeName) {
+    return typeName == "Integer" || typeName == "Float" ||
+           typeName == "Double" || typeName == "Bool" ||
+           typeName == "String" || typeName == "None";
+}
+
+bool TypeRegistry::isNumericPrimitive(std::string_view typeName) {
+    return typeName == "Integer" || typeName == "Float" || typeName == "Double";
+}
+
+std::string TypeRegistry::getPrimitiveLLVMType(std::string_view typeName) {
+    if (typeName == "Integer") return "i64";
+    if (typeName == "Float") return "float";
+    if (typeName == "Double") return "double";
+    if (typeName == "Bool") return "i1";
+    if (typeName == "String") return "ptr";
+    if (typeName == "None") return "void";
+    return "ptr";  // Default
+}
+
+std::string TypeRegistry::getPrimitiveCppType(std::string_view typeName) {
+    if (typeName == "Integer") return "Integer";
+    if (typeName == "Float") return "Float";
+    if (typeName == "Double") return "Double";
+    if (typeName == "Bool") return "Bool";
+    if (typeName == "String") return "String";
+    if (typeName == "None") return "void";
+    return std::string(typeName);  // Return as-is for user types
 }
 
 } // namespace XXML::Core

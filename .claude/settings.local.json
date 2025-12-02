@@ -91,7 +91,22 @@
       "Bash(\"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" \"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\tests\\SimpleTemplateMethodTest.XXML\" --emit-llvm -o \"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\simpletemplatetest.ll\")",
       "Bash(\"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" \"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\tests\\ComplexConstraintTest.XXML\" --emit-llvm)",
       "Bash(\"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" \"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\tests\\ComplexConstraintTest.XXML\" -o \"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\complextest.ll\" --ir)",
-      "Bash(\"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\complextest.exe\")"
+      "Bash(\"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\complextest.exe\")",
+      "Bash(Select-Object -First 80)",
+      "Bash(\"D:\\VisualStudio\\Projects\\XXMLCompiler\\templatesystemtest.exe\")",
+      "Bash(\"D:\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" \"D:\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\Hello.XXML\" -o \"D:\\VisualStudio\\Projects\\XXMLCompiler\\hello.exe\")",
+      "Bash(\"D:\\VisualStudio\\Projects\\XXMLCompiler\\enumtest.exe\")",
+      "Bash(\"D:\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" \"D:\\VisualStudio\\Projects\\XXMLCompiler\\tests\\MethodTemplateTest.XXML\")",
+      "Bash(\"D:\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" \"D:\\VisualStudio\\Projects\\XXMLCompiler\\tests\\MethodTemplateTest.XXML\" -o \"D:\\VisualStudio\\Projects\\XXMLCompiler\\methodtest.exe\")",
+      "Bash(\"D:\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" \"D:\\VisualStudio\\Projects\\XXMLCompiler\\tests\\MethodTemplateTest.XXML\" -o \"D:\\VisualStudio\\Projects\\XXMLCompiler\\methodtemplatetest.exe\")",
+      "Bash(\"D:\\VisualStudio\\Projects\\XXMLCompiler\\build\\bin\\xxml.exe\":*)",
+      "Bash(D:/VisualStudio/Projects/XXMLCompiler/methodtemplatetest.exe)",
+      "Bash(\"D:\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" \"D:\\VisualStudio\\Projects\\XXMLCompiler\\tests\\LambdaTemplateTest.XXML\" -o \"D:\\VisualStudio\\Projects\\XXMLCompiler\\lambdatest.exe\")",
+      "Bash(\"D:\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" \"D:\\VisualStudio\\Projects\\XXMLCompiler\\tests\\SimpleLambdaTemplateTest.XXML\" -o \"D:\\VisualStudio\\Projects\\XXMLCompiler\\simplelambdatest.exe\")",
+      "Bash(./build/release/bin/xxml.exe:*)",
+      "Bash(./build/bin/xxml.exe:*)",
+      "Bash(./simplelambdatest.exe)",
+      "Bash(./lambdatemplatetest.exe)"
     ],
     "deny": [],
     "ask": []

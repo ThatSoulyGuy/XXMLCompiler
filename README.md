@@ -165,6 +165,31 @@ Instantiate Integer^ As <result> = multiply.call(Integer::Constructor(3));  // 1
 
 See [Lambdas](docs/LANGUAGE_SPEC.md#lambdas-and-function-references).
 
+### Lambda Templates
+
+Lambda templates are generic anonymous functions with their own type parameters:
+
+```xxml
+// Define a generic identity function
+Instantiate __function^ As <identity> = [ Lambda [] Templates <T Constrains None> Returns T^ Parameters (Parameter <x> Types T^)
+{
+    Return x;
+} ];
+
+// Call with different types
+Instantiate Integer^ As <intResult> = identity<Integer>.call(Integer::Constructor(42));
+Instantiate String^ As <strResult> = identity<String>.call(String::Constructor("Hello"));
+```
+
+Both `<Type>` and `@Type` syntaxes work for template arguments:
+
+```xxml
+identity<Integer>.call(x)   // Angle bracket syntax
+identity@Integer.call(x)    // At-sign syntax
+```
+
+See [Lambda Templates](docs/TEMPLATES.md#lambda-templates) for full documentation.
+
 ### Compile-Time Evaluation
 
 ```xxml

@@ -1,0 +1,42 @@
+// Test file for method templates using the new Templates keyword
+
+[ Namespace <Test>
+    [ Class <Container> Final Extends None
+        [ Public <>
+            Constructor = default;
+
+            // Method template with identity function - returns the same value
+            Method <identity> Templates <T Constrains None> Returns T^ Parameters (Parameter <value> Types T^) Do
+            {
+                Return value;
+            }
+        ]
+    ]
+]
+
+[ Entrypoint
+{
+    // Create a container instance
+    Instantiate Test::Container^ As <c> = Test::Container::Constructor();
+
+    // Test method template call with Integer
+    Instantiate Integer^ As <intVal> = Integer::Constructor(42);
+    Instantiate Integer^ As <result1> = c.identity<Integer>(intVal);
+
+    Run System::Console::printLine(String::Constructor("Testing method template with Integer:"));
+    Run System::Console::print(String::Constructor("identity<Integer>(42) = "));
+    Run System::Console::printLine(result1.toString());
+
+    // Test method template with String
+    Instantiate String^ As <strVal> = String::Constructor("Hello World");
+    Instantiate String^ As <result2> = c.identity<String>(strVal);
+
+    Run System::Console::printLine(String::Constructor("Testing method template with String:"));
+    Run System::Console::print(String::Constructor("identity<String>(Hello World) = "));
+    Run System::Console::printLine(result2);
+
+    Run System::Console::printLine(String::Constructor("Method template test passed!"));
+
+    Exit(0);
+}
+]

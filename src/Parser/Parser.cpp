@@ -594,9 +594,9 @@ std::unique_ptr<MethodDecl> Parser::parseMethod() {
 
     std::string methodName = parseAngleBracketIdentifier();
 
-    // Parse template parameters if present
+    // Parse template parameters if present (using 'Templates' keyword)
     std::vector<TemplateParameter> templateParams;
-    if (check(Lexer::TokenType::LeftAngle)) {
+    if (match(Lexer::TokenType::Templates)) {
         templateParams = parseTemplateParameters();
     }
 
@@ -1492,7 +1492,77 @@ std::unique_ptr<Expression> Parser::parseCallOrMemberAccess(std::unique_ptr<Expr
             // Member access
             if (check(Lexer::TokenType::Identifier)) {
                 std::string member = advance().lexeme;
-                expr = std::make_unique<MemberAccessExpr>(std::move(expr), member, previous().location);
+                auto memberLoc = previous().location;
+
+                // Check for template arguments after member name: obj.method<T>(args)
+                // Handle AngleBracketId token (lexer tokenized <Identifier> as a single token)
+                if (check(Lexer::TokenType::AngleBracketId)) {
+                    // The lexer has already tokenized <Type> as AngleBracketId
+                    std::string templateArg = advance().stringValue;
+                    member += "<" + templateArg + ">";
+                }
+                else if (check(Lexer::TokenType::LeftAngle)) {
+                    // Lookahead to distinguish template from comparison
+                    size_t savedPos = current;
+                    advance(); // consume <
+
+                    bool looksLikeTemplate = false;
+                    if (check(Lexer::TokenType::Identifier) || check(Lexer::TokenType::Question)) {
+                        advance();
+                        // Handle qualified names like Namespace::Type
+                        while (check(Lexer::TokenType::DoubleColon)) {
+                            advance(); // consume ::
+                            if (check(Lexer::TokenType::Identifier)) {
+                                advance(); // consume identifier
+                            }
+                        }
+                        if (check(Lexer::TokenType::RightAngle) || check(Lexer::TokenType::Comma)) {
+                            looksLikeTemplate = true;
+                        }
+                    } else if (check(Lexer::TokenType::IntegerLiteral)) {
+                        advance();
+                        if (check(Lexer::TokenType::RightAngle) || check(Lexer::TokenType::Comma)) {
+                            looksLikeTemplate = true;
+                        }
+                    }
+
+                    // Restore position
+                    current = savedPos;
+
+                    if (looksLikeTemplate) {
+                        advance(); // consume <
+                        member += "<";
+
+                        // Parse template arguments
+                        bool first = true;
+                        do {
+                            if (!first) {
+                                member += ", ";
+                            }
+                            first = false;
+
+                            // Check for wildcard
+                            if (match(Lexer::TokenType::Question)) {
+                                member += "?";
+                            }
+                            // Parse type or value argument (could be qualified name)
+                            else if (check(Lexer::TokenType::Identifier)) {
+                                std::string argName = parseQualifiedIdentifier();
+                                member += argName;
+                            } else if (check(Lexer::TokenType::IntegerLiteral)) {
+                                member += std::to_string(advance().intValue);
+                            } else {
+                                error("Expected type or value in template arguments");
+                                break;
+                            }
+                        } while (match(Lexer::TokenType::Comma));
+
+                        consume(Lexer::TokenType::RightAngle, "Expected '>' after template arguments");
+                        member += ">";
+                    }
+                }
+
+                expr = std::make_unique<MemberAccessExpr>(std::move(expr), member, memberLoc);
             } else {
                 error("Expected identifier after '.'");
                 break;
@@ -1727,6 +1797,13 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
                 name += ">";
                 DEBUG_OUT("DEBUG Parser parsePrimary: final name with template = '" << name << "'" << std::endl);
             }
+        }
+
+        // Check for AngleBracketId (lexer tokenized <Type> as single token): identity<Integer>
+        if (check(Lexer::TokenType::AngleBracketId)) {
+            std::string templateArg = advance().stringValue;
+            name += "<" + templateArg + ">";
+            DEBUG_OUT("DEBUG Parser parsePrimary: found AngleBracketId, name = '" << name << "'" << std::endl);
         }
 
         // Check for template arguments using @ syntax: List@Integer (alternative)
@@ -2098,6 +2175,12 @@ std::unique_ptr<Expression> Parser::parseLambda() {
         consume(Lexer::TokenType::RightBracket, "Expected ']' after capture list");
     }
 
+    // Parse template parameters if present (using 'Templates' keyword)
+    std::vector<TemplateParameter> templateParams;
+    if (match(Lexer::TokenType::Templates)) {
+        templateParams = parseTemplateParameters();
+    }
+
     // Parse Returns TypeRef
     consume(Lexer::TokenType::Returns, "Expected 'Returns' in lambda");
     auto returnType = parseTypeRef();
@@ -2131,6 +2214,7 @@ std::unique_ptr<Expression> Parser::parseLambda() {
         loc
     );
     lambda->isCompiletime = isCompiletime;
+    lambda->templateParams = std::move(templateParams);
     return lambda;
 }
 

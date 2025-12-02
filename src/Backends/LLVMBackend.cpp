@@ -1,5 +1,6 @@
 #include "Backends/LLVMBackend.h"
 #include "Backends/IR/IR.h"  // New IR infrastructure
+#include "Backends/TypeNormalizer.h"  // For type string utilities
 #include "Core/CompilationContext.h"
 #include "Core/TypeRegistry.h"
 #include "Core/OperatorRegistry.h"
@@ -33,17 +34,40 @@ namespace XXML::Backends {
 
 using XXML::Core::format;
 
-// Helper to map NativeType string to LLVM type
+// Helper to map NativeType string to LLVM type - uses TypeRegistry
 static std::string mapNativeTypeToLLVM(const std::string& nativeType) {
-    if (nativeType == "int8" || nativeType == "uint8") return "i8";
-    if (nativeType == "int16" || nativeType == "uint16") return "i16";
-    if (nativeType == "int32" || nativeType == "uint32") return "i32";
-    if (nativeType == "int64" || nativeType == "uint64") return "i64";
-    if (nativeType == "float") return "float";
-    if (nativeType == "double") return "double";
-    if (nativeType == "ptr") return "ptr";
-    if (nativeType == "void") return "void";
-    return "ptr";  // Default to pointer for unknown types
+    // Use TypeRegistry for centralized native type lookup
+    static Core::TypeRegistry registry;
+    static bool initialized = false;
+    if (!initialized) {
+        registry.registerBuiltinTypes();
+        initialized = true;
+    }
+    return registry.getNativeTypeLLVM(nativeType);
+}
+
+// Helper to sanitize method names for LLVM IR
+// Replaces template characters <, >, , with valid LLVM identifier characters
+static std::string sanitizeMethodNameForLLVM(const std::string& methodName) {
+    std::string result = methodName;
+    size_t pos = 0;
+    // Replace < with _LT_
+    while ((pos = result.find("<")) != std::string::npos) {
+        result.replace(pos, 1, "_LT_");
+    }
+    // Replace > with _GT_
+    while ((pos = result.find(">")) != std::string::npos) {
+        result.replace(pos, 1, "_GT_");
+    }
+    // Replace , with _C_
+    while ((pos = result.find(",")) != std::string::npos) {
+        result.replace(pos, 1, "_C_");
+    }
+    // Remove spaces
+    while ((pos = result.find(" ")) != std::string::npos) {
+        result.erase(pos, 1);
+    }
+    return result;
 }
 
 LLVMBackend::LLVMBackend(Core::CompilationContext* context)
@@ -155,6 +179,8 @@ std::string LLVMBackend::generate(Parser::Program& program) {
 
     // Generate template instantiations (monomorphization) before main code
     generateTemplateInstantiations();
+    generateMethodTemplateInstantiations();
+    generateLambdaTemplateInstantiations();
 
     // NOTE: Template AST ownership issues were fixed (TemplateClassInfo/TemplateMethodInfo
     // now store copied data instead of raw pointers). Imported module code generation is
@@ -353,12 +379,8 @@ void LLVMBackend::generateTemplateInstantiations() {
         size_t valueIndex = 0;
         for (const auto& arg : inst.arguments) {
             if (arg.kind == Parser::TemplateArgument::Kind::Type) {
-                // Replace namespace separators with underscores
-                std::string cleanType = arg.typeArg;
-                size_t pos = 0;
-                while ((pos = cleanType.find("::")) != std::string::npos) {
-                    cleanType.replace(pos, 2, "_");
-                }
+                // Replace namespace separators with underscores using TypeNormalizer
+                std::string cleanType = TypeNormalizer::mangleForLLVM(arg.typeArg);
                 mangledName += "_" + cleanType;
             } else {
                 // Use evaluated value for non-type parameters
@@ -400,6 +422,294 @@ void LLVMBackend::generateTemplateInstantiations() {
     }
 }
 
+void LLVMBackend::generateMethodTemplateInstantiations() {
+    if (!semanticAnalyzer_) {
+        return; // No semantic analyzer, skip template generation
+    }
+
+    const auto& instantiations = semanticAnalyzer_->getMethodTemplateInstantiations();
+    const auto& templateMethods = semanticAnalyzer_->getTemplateMethods();
+
+    for (const auto& inst : instantiations) {
+        std::string methodKey = inst.className + "::" + inst.methodName;
+        auto it = templateMethods.find(methodKey);
+        if (it == templateMethods.end()) {
+            continue; // Template method not found, skip
+        }
+
+        const auto& methodInfo = it->second;
+        Parser::MethodDecl* templateMethodDecl = methodInfo.astNode;
+        if (!templateMethodDecl) {
+            continue; // AST node not available
+        }
+
+        // Generate mangled name matching the call site format:
+        // Note: The method name should NOT include the class prefix here,
+        // because visit(Parser::MethodDecl) will add currentClassName_ as prefix.
+        // Method name should be: MethodName_LT_TypeArg1_GT_
+        std::string mangledName = inst.methodName + "_LT_";
+        bool first = true;
+        for (const auto& arg : inst.arguments) {
+            if (arg.kind == Parser::TemplateArgument::Kind::Type) {
+                if (!first) mangledName += "_C_";  // Comma separator
+                first = false;
+                std::string cleanType = arg.typeArg;
+                size_t pos = 0;
+                while ((pos = cleanType.find("::")) != std::string::npos) {
+                    cleanType.replace(pos, 2, "_");
+                }
+                mangledName += cleanType;
+            }
+        }
+        mangledName += "_GT_";
+
+        // Skip if already generated
+        if (generatedMethodInstantiations_.find(mangledName) != generatedMethodInstantiations_.end()) {
+            continue;
+        }
+        generatedMethodInstantiations_.insert(mangledName);
+
+        // Build type substitution map
+        std::unordered_map<std::string, std::string> typeMap;
+        size_t valueIndex = 0;
+        for (size_t i = 0; i < methodInfo.templateParams.size() && i < inst.arguments.size(); ++i) {
+            const auto& param = methodInfo.templateParams[i];
+            const auto& arg = inst.arguments[i];
+
+            if (param.kind == Parser::TemplateParameter::Kind::Type) {
+                if (arg.kind == Parser::TemplateArgument::Kind::Type) {
+                    typeMap[param.name] = arg.typeArg;
+                }
+            } else {
+                if (valueIndex < inst.evaluatedValues.size()) {
+                    typeMap[param.name] = std::to_string(inst.evaluatedValues[valueIndex]);
+                    valueIndex++;
+                }
+            }
+        }
+
+        // Clone method and substitute types
+        auto clonedMethod = cloneAndSubstituteMethodDecl(templateMethodDecl, mangledName, typeMap);
+        if (clonedMethod) {
+            // Set the current class context for the method
+            std::string savedClassName = currentClassName_;
+            currentClassName_ = inst.className;
+
+            // Generate the instantiated method
+            clonedMethod->accept(*this);
+
+            currentClassName_ = savedClassName;
+        }
+    }
+}
+
+void LLVMBackend::generateLambdaTemplateInstantiations() {
+    if (!semanticAnalyzer_) {
+        return; // No semantic analyzer, skip template generation
+    }
+
+    const auto& instantiations = semanticAnalyzer_->getLambdaTemplateInstantiations();
+    const auto& templateLambdas = semanticAnalyzer_->getTemplateLambdas();
+
+    for (const auto& inst : instantiations) {
+        // Find the template lambda by variable name
+        auto it = templateLambdas.find(inst.variableName);
+        if (it == templateLambdas.end()) {
+            continue; // Template lambda not found, skip
+        }
+
+        const auto& lambdaInfo = it->second;
+        Parser::LambdaExpr* templateLambdaExpr = lambdaInfo.astNode;
+        if (!templateLambdaExpr) {
+            continue; // AST node not available
+        }
+
+        // Generate mangled name: variableName_LT_Type_GT_
+        std::string mangledName = inst.variableName + "_LT_";
+        bool first = true;
+        for (const auto& arg : inst.arguments) {
+            if (arg.kind == Parser::TemplateArgument::Kind::Type) {
+                if (!first) mangledName += "_C_";  // Comma separator
+                first = false;
+                std::string cleanType = arg.typeArg;
+                // Replace :: with _
+                size_t pos = 0;
+                while ((pos = cleanType.find("::")) != std::string::npos) {
+                    cleanType.replace(pos, 2, "_");
+                }
+                mangledName += cleanType;
+            }
+        }
+        mangledName += "_GT_";
+
+        // Skip if already generated
+        if (generatedLambdaInstantiations_.find(mangledName) != generatedLambdaInstantiations_.end()) {
+            continue;
+        }
+        generatedLambdaInstantiations_.insert(mangledName);
+
+        // Build type substitution map
+        std::unordered_map<std::string, std::string> typeMap;
+        size_t valueIndex = 0;
+        for (size_t i = 0; i < lambdaInfo.templateParams.size() && i < inst.arguments.size(); ++i) {
+            const auto& param = lambdaInfo.templateParams[i];
+            const auto& arg = inst.arguments[i];
+
+            if (param.kind == Parser::TemplateParameter::Kind::Type) {
+                if (arg.kind == Parser::TemplateArgument::Kind::Type) {
+                    typeMap[param.name] = arg.typeArg;
+                }
+            } else {
+                if (valueIndex < inst.evaluatedValues.size()) {
+                    typeMap[param.name] = std::to_string(inst.evaluatedValues[valueIndex]);
+                    valueIndex++;
+                }
+            }
+        }
+
+        // Clone lambda with type substitutions
+        auto clonedLambda = cloneLambdaExpr(templateLambdaExpr, typeMap);
+        if (clonedLambda) {
+            // Generate unique function name for this instantiation
+            int lambdaId = lambdaCounter_++;
+            std::string lambdaFuncName = "@lambda.template." + mangledName;
+
+            emitLine(format("; Lambda template instantiation: {}", mangledName));
+
+            // Determine return type
+            std::string returnType = "ptr";  // Default to ptr for objects
+            if (clonedLambda->returnType) {
+                returnType = getLLVMType(clonedLambda->returnType->typeName);
+            }
+
+            // Build parameter types list (closure ptr + actual params)
+            std::vector<std::string> paramTypes;
+            paramTypes.push_back("ptr");  // First param is always closure pointer
+            for (const auto& param : clonedLambda->parameters) {
+                std::string paramType = getLLVMType(param->type->typeName);
+                paramTypes.push_back(paramType);
+            }
+
+            // Build closure struct type (minimal - just function pointer for template lambdas)
+            std::string closureTypeStr = "{ ptr }";
+
+            // Generate lambda function definition
+            std::stringstream lambdaDef;
+            lambdaDef << "\n; Lambda template function: " << mangledName << "\n";
+            lambdaDef << "define " << returnType << " " << lambdaFuncName << "(ptr %closure";
+            for (size_t i = 0; i < clonedLambda->parameters.size(); ++i) {
+                lambdaDef << ", " << paramTypes[i + 1] << " %" << clonedLambda->parameters[i]->name;
+            }
+            lambdaDef << ") {\n";
+            lambdaDef << "entry:\n";
+
+            // Save current context
+            auto savedVariables = variables_;
+            auto savedValueMap = valueMap_;
+            auto savedRegisterTypes = registerTypes_;
+            auto savedOutput = output_.str();
+            auto savedReturnType = currentFunctionReturnType_;
+            output_.str("");
+
+            // Set return type for lambda body
+            currentFunctionReturnType_ = returnType;
+
+            // Set up parameter mappings for lambda body
+            valueMap_.clear();
+            variables_.clear();
+
+            // Map parameters with ownership modifiers
+            for (const auto& param : clonedLambda->parameters) {
+                valueMap_[param->name] = "%" + param->name;
+                std::string typeWithOwnership = param->type->typeName;
+                switch (param->type->ownership) {
+                    case Parser::OwnershipType::Reference: typeWithOwnership += "&"; break;
+                    case Parser::OwnershipType::Owned: typeWithOwnership += "^"; break;
+                    case Parser::OwnershipType::Copy: typeWithOwnership += "%"; break;
+                    default: break;
+                }
+                registerTypes_["%" + param->name] = typeWithOwnership;
+            }
+
+            // Check if body contains a return statement
+            bool hasReturn = false;
+            for (const auto& stmt : clonedLambda->body) {
+                if (dynamic_cast<Parser::ReturnStmt*>(stmt.get())) {
+                    hasReturn = true;
+                    break;
+                }
+            }
+
+            // Generate lambda body statements
+            for (const auto& stmt : clonedLambda->body) {
+                stmt->accept(*this);
+            }
+
+            // Get generated body and add to lambda definition
+            std::string bodyCode = output_.str();
+            std::istringstream iss(bodyCode);
+            std::string line;
+            while (std::getline(iss, line)) {
+                if (!line.empty()) {
+                    lambdaDef << "  " << line << "\n";
+                }
+            }
+
+            // Only add default return if body doesn't have one
+            if (!hasReturn) {
+                if (returnType == "ptr") {
+                    lambdaDef << "  ret ptr null\n";
+                } else if (returnType == "void") {
+                    lambdaDef << "  ret void\n";
+                } else if (returnType == "i64") {
+                    lambdaDef << "  ret i64 0\n";
+                } else if (returnType == "i1") {
+                    lambdaDef << "  ret i1 false\n";
+                } else {
+                    lambdaDef << "  ret " << returnType << " zeroinitializer\n";
+                }
+            }
+            lambdaDef << "}\n";
+
+            // Store lambda definition for later emission
+            pendingLambdaDefinitions_.push_back(lambdaDef.str());
+
+            // Restore context
+            output_.str(savedOutput);
+            output_.clear();
+            output_.seekp(0, std::ios_base::end);
+            variables_ = savedVariables;
+            valueMap_ = savedValueMap;
+            registerTypes_ = savedRegisterTypes;
+            currentFunctionReturnType_ = savedReturnType;
+
+            // Build the key for lookup: "identity<Integer>"
+            std::string lookupKey = inst.variableName + "<";
+            bool firstArg = true;
+            for (const auto& arg : inst.arguments) {
+                if (arg.kind == Parser::TemplateArgument::Kind::Type) {
+                    if (!firstArg) lookupKey += ", ";
+                    firstArg = false;
+                    lookupKey += arg.typeArg;
+                }
+            }
+            lookupKey += ">";
+
+            // Store function mapping for call site lookup
+            templateLambdaFunctions_[lookupKey] = lambdaFuncName;
+            templateLambdaFunctions_[mangledName] = lambdaFuncName;
+
+            // Also store LambdaInfo for parameter types etc.
+            LambdaInfo info;
+            info.functionName = lambdaFuncName;
+            info.returnType = returnType;
+            info.paramTypes = paramTypes;
+            templateLambdaInfos_[lookupKey] = info;
+            templateLambdaInfos_[mangledName] = info;
+        }
+    }
+}
+
 void LLVMBackend::generateFunctionDeclarations(Parser::Program& program) {
     // Forward declare all user-defined functions to avoid "undefined value" errors
     // when the main function calls methods before their definitions are emitted
@@ -425,24 +735,8 @@ void LLVMBackend::generateFunctionDeclarations(Parser::Program& program) {
         std::string fullClassName = namespacePrefix.empty() ?
             classDecl->name : namespacePrefix + "_" + classDecl->name;
 
-        // Mangle template arguments in class name
-        std::string mangledClassName = fullClassName;
-        size_t pos = 0;
-        while ((pos = mangledClassName.find("::")) != std::string::npos) {
-            mangledClassName.replace(pos, 2, "_");
-        }
-        while ((pos = mangledClassName.find("<")) != std::string::npos) {
-            mangledClassName.replace(pos, 1, "_");
-        }
-        while ((pos = mangledClassName.find(">")) != std::string::npos) {
-            mangledClassName.erase(pos, 1);
-        }
-        while ((pos = mangledClassName.find(",")) != std::string::npos) {
-            mangledClassName.replace(pos, 1, "_");
-        }
-        while ((pos = mangledClassName.find(" ")) != std::string::npos) {
-            mangledClassName.erase(pos, 1);
-        }
+        // Mangle template arguments in class name using TypeNormalizer
+        std::string mangledClassName = TypeNormalizer::mangleForLLVM(fullClassName);
 
         // Process constructors and methods from sections
         for (const auto& section : classDecl->sections) {
@@ -1435,13 +1729,10 @@ std::string LLVMBackend::qualifyTypeName(const std::string& typeName) const {
         "NativeType", "ptr", "__DynamicValue"
     };
 
-    // Extract base type name (strip ownership modifier)
-    std::string baseType = typeName;
-    std::string suffix;
-    if (!baseType.empty() && (baseType.back() == '^' || baseType.back() == '%' || baseType.back() == '&')) {
-        suffix = baseType.back();
-        baseType = baseType.substr(0, baseType.length() - 1);
-    }
+    // Extract base type name (strip ownership modifier) using TypeNormalizer
+    char marker = TypeNormalizer::getOwnershipMarker(typeName);
+    std::string suffix = marker != '\0' ? std::string(1, marker) : "";
+    std::string baseType = TypeNormalizer::stripOwnershipMarker(typeName);
 
     // Don't qualify built-in types
     if (builtinTypes.count(baseType) > 0) {
@@ -1511,10 +1802,8 @@ std::string LLVMBackend::getLLVMType(const std::string& xxmlType) const {
         // Check for mangled form first: NativeType_type (e.g., NativeType_ptr, NativeType_int64)
         if (xxmlType.find("NativeType_") == 0) {
             std::string suffix = xxmlType.substr(11);  // Skip "NativeType_"
-            // Remove trailing "^" if present (ownership marker)
-            if (!suffix.empty() && suffix.back() == '^') {
-                suffix = suffix.substr(0, suffix.size() - 1);
-            }
+            // Remove ownership marker using TypeNormalizer
+            suffix = TypeNormalizer::stripOwnershipMarker(suffix);
             return suffix;  // Return "ptr", "int64", etc.
         }
 
@@ -1650,12 +1939,8 @@ std::string LLVMBackend::generateBinaryOp(const std::string& op,
 }
 
 std::string LLVMBackend::getQualifiedName(const std::string& className, const std::string& methodName) const {
-    // Replace :: with _ for valid LLVM identifiers
-    std::string mangledClassName = className;
-    size_t pos = 0;
-    while ((pos = mangledClassName.find("::")) != std::string::npos) {
-        mangledClassName.replace(pos, 2, "_");
-    }
+    // Replace :: with _ for valid LLVM identifiers using TypeNormalizer
+    std::string mangledClassName = TypeNormalizer::mangleForLLVM(className);
     return mangledClassName + "_" + methodName;
 }
 
@@ -1682,20 +1967,8 @@ std::string LLVMBackend::mangleTemplateName(const std::string& baseName,
 
     std::string mangled = baseName;
     for (const auto& arg : typeArgs) {
-        // Replace problematic characters in type names
-        std::string cleanArg = arg;
-        // Remove namespace separators
-        size_t pos = 0;
-        while ((pos = cleanArg.find("::")) != std::string::npos) {
-            cleanArg.replace(pos, 2, "_");
-        }
-        // Remove angle brackets from nested templates
-        while ((pos = cleanArg.find("<")) != std::string::npos) {
-            cleanArg.erase(pos, 1);
-        }
-        while ((pos = cleanArg.find(">")) != std::string::npos) {
-            cleanArg.erase(pos, 1);
-        }
+        // Replace problematic characters in type names using TypeNormalizer
+        std::string cleanArg = TypeNormalizer::mangleForLLVM(arg);
 
         mangled += "_" + cleanArg;
     }
@@ -1878,20 +2151,7 @@ void LLVMBackend::visit(Parser::ClassDecl& node) {
 
     // Check if this is a template instantiation (avoid duplicate generation)
     if (node.name.find('<') != std::string::npos) {
-        std::string mangledName = node.name;
-        size_t pos = 0;
-        while ((pos = mangledName.find("::")) != std::string::npos) {
-            mangledName.replace(pos, 2, "_");
-        }
-        while ((pos = mangledName.find("<")) != std::string::npos) {
-            mangledName.replace(pos, 1, "_");
-        }
-        while ((pos = mangledName.find(">")) != std::string::npos) {
-            mangledName.erase(pos, 1);
-        }
-        while ((pos = mangledName.find(",")) != std::string::npos) {
-            mangledName.replace(pos, 1, "_");
-        }
+        std::string mangledName = TypeNormalizer::mangleForLLVM(node.name);
 
         // Skip if already generated
         if (generatedTemplateInstantiations_.find(mangledName) != generatedTemplateInstantiations_.end()) {
@@ -1949,13 +2209,9 @@ void LLVMBackend::visit(Parser::ClassDecl& node) {
 
     // Generate struct type definition
     std::stringstream structDef;
-    // Mangle class name to remove :: (invalid in LLVM type names)
+    // Mangle class name to remove :: (invalid in LLVM type names) using TypeNormalizer
     // Use currentClassName_ which includes namespace, not node.name
-    std::string mangledClassName = currentClassName_;
-    size_t pos = 0;
-    while ((pos = mangledClassName.find("::")) != std::string::npos) {
-        mangledClassName.replace(pos, 2, "_");
-    }
+    std::string mangledClassName = TypeNormalizer::mangleForLLVM(currentClassName_);
     structDef << "%class." << mangledClassName << " = type { ";
     for (size_t i = 0; i < classInfo.properties.size(); ++i) {
         if (i > 0) structDef << ", ";
@@ -2158,10 +2414,7 @@ void LLVMBackend::visit(Parser::NativeStructureDecl& node) {
 
     // IR: Create struct type for NativeStructure
     if (module_) {
-        std::string mangledName = node.name;
-        while (mangledName.find("::") != std::string::npos) {
-            mangledName.replace(mangledName.find("::"), 2, "_");
-        }
+        std::string mangledName = TypeNormalizer::mangleForLLVM(node.name);
         module_->createStructType("class." + mangledName);
     }
 }
@@ -2224,11 +2477,8 @@ void LLVMBackend::generateCallbackThunk(const std::string& callbackTypeName) {
 
     const CallbackThunkInfo& info = it->second;
 
-    // Mangle the callback type name for the global context variable
-    std::string mangledName = callbackTypeName;
-    while (mangledName.find("::") != std::string::npos) {
-        mangledName.replace(mangledName.find("::"), 2, "_");
-    }
+    // Mangle the callback type name for the global context variable using TypeNormalizer
+    std::string mangledName = TypeNormalizer::mangleForLLVM(callbackTypeName);
 
     // Declare global variable to hold the lambda closure pointer
     std::string closureGlobalName = "@xxml_callback_closure_" + mangledName;
@@ -2445,12 +2695,8 @@ void LLVMBackend::visit(Parser::ConstructorDecl& node) {
             const ClassInfo& classInfo = classIt->second;
             int fieldIndex = 0;
 
-            // Mangle class name for LLVM type (replace :: with _)
-            std::string mangledClassName = currentClassName_;
-            size_t pos = 0;
-            while ((pos = mangledClassName.find("::")) != std::string::npos) {
-                mangledClassName.replace(pos, 2, "_");
-            }
+            // Mangle class name for LLVM type using TypeNormalizer
+            std::string mangledClassName = TypeNormalizer::mangleForLLVM(currentClassName_);
 
             for (const auto& prop : classInfo.properties) {
                 // prop is tuple<propName, llvmType, xxmlType>
@@ -2592,6 +2838,12 @@ void LLVMBackend::visit(Parser::MethodDecl& node) {
     valueMap_.clear();  // Also clear valueMap to avoid stale entries
     registerTypes_.clear();  // Clear register types to avoid stale type information
     localAllocas_.clear();  // Clear IR allocas
+
+    // Skip template method declarations - only generate instantiated versions
+    // Template methods have templateParams but are not instantiated (no concrete types)
+    if (!node.templateParams.empty()) {
+        return;  // This is a template method declaration, skip it
+    }
 
     // Handle native FFI methods
     if (node.isNative) {
@@ -2940,11 +3192,8 @@ void LLVMBackend::visit(Parser::InstantiateStmt& node) {
                                     (storeValue[0] == '-' && storeValue.length() > 1 && std::isdigit(storeValue[1])));
 
             if (isRawIntLiteral) {
-                std::string typeName = node.type->typeName;
-                // Strip trailing ^ if present
-                if (!typeName.empty() && typeName.back() == '^') {
-                    typeName = typeName.substr(0, typeName.length() - 1);
-                }
+                // Strip ownership marker using TypeNormalizer
+                std::string typeName = TypeNormalizer::stripOwnershipMarker(node.type->typeName);
 
                 if (typeName == "Integer") {
                     // Wrap raw integer with Integer_Constructor
@@ -4230,12 +4479,8 @@ void LLVMBackend::visit(Parser::IdentifierExpr& node) {
                 if (propName == node.name) {
                     // This is a property access - generate getelementptr and load
                     std::string ptrReg = allocateRegister();
-                    // Mangle class name to remove ::
-                    std::string mangledClassName = currentClassName_;
-                    size_t pos = 0;
-                    while ((pos = mangledClassName.find("::")) != std::string::npos) {
-                        mangledClassName.replace(pos, 2, "_");
-                    }
+                    // Mangle class name using TypeNormalizer
+                    std::string mangledClassName = TypeNormalizer::mangleForLLVM(currentClassName_);
                     emitLine(format("{} = getelementptr inbounds %class.{}, ptr %this, i32 0, i32 {}",
                                        ptrReg, mangledClassName, i));
 
@@ -4364,12 +4609,8 @@ void LLVMBackend::visit(Parser::ReferenceExpr& node) {
                     if (std::get<0>(properties[i]) == ident->name) {
                         // Generate getelementptr to get address of the property
                         std::string fieldPtr = allocateRegister();
-                        // Mangle class name for LLVM type (replace :: with _)
-                        std::string mangledClassName = currentClassName_;
-                        size_t pos = 0;
-                        while ((pos = mangledClassName.find("::")) != std::string::npos) {
-                            mangledClassName.replace(pos, 2, "_");
-                        }
+                        // Mangle class name for LLVM type using TypeNormalizer
+                        std::string mangledClassName = TypeNormalizer::mangleForLLVM(currentClassName_);
                         emitLine(fieldPtr + " = getelementptr inbounds %class." + mangledClassName +
                                 ", ptr %this, i32 0, i32 " + std::to_string(i));
 
@@ -4423,11 +4664,7 @@ void LLVMBackend::visit(Parser::ReferenceExpr& node) {
                             }
 
                             std::string fieldPtr = allocateRegister();
-                            std::string mangledTypeName = typeName;
-                            size_t pos = 0;
-                            while ((pos = mangledTypeName.find("::")) != std::string::npos) {
-                                mangledTypeName.replace(pos, 2, "_");
-                            }
+                            std::string mangledTypeName = TypeNormalizer::mangleForLLVM(typeName);
                             emitLine(fieldPtr + " = getelementptr inbounds %class." + mangledTypeName +
                                     ", ptr " + objPtr + ", i32 0, i32 " + std::to_string(i));
 
@@ -4540,12 +4777,8 @@ void LLVMBackend::visit(Parser::MemberAccessExpr& node) {
                     // Generate getelementptr to access the property
                     std::string ptrReg = allocateRegister();
 
-                    // Mangle class name to remove ::
-                    std::string mangledTypeName = currentClassName_;
-                    size_t pos = 0;
-                    while ((pos = mangledTypeName.find("::")) != std::string::npos) {
-                        mangledTypeName.replace(pos, 2, "_");
-                    }
+                    // Mangle class name using TypeNormalizer
+                    std::string mangledTypeName = TypeNormalizer::mangleForLLVM(currentClassName_);
                     emitLine(ptrReg + " = getelementptr inbounds %class." + mangledTypeName +
                             ", ptr %this, i32 0, i32 " + std::to_string(i));
 
@@ -4622,13 +4855,8 @@ void LLVMBackend::visit(Parser::MemberAccessExpr& node) {
                         std::string objPtr = allocateRegister();
                         emitLine(objPtr + " = load ptr, ptr " + varIt->second.llvmRegister);
 
-                        // Get pointer to the field
-                        // Mangle class name to remove ::
-                        std::string mangledTypeName = typeName;
-                        size_t pos = 0;
-                        while ((pos = mangledTypeName.find("::")) != std::string::npos) {
-                            mangledTypeName.replace(pos, 2, "_");
-                        }
+                        // Get pointer to the field - mangle class name using TypeNormalizer
+                        std::string mangledTypeName = TypeNormalizer::mangleForLLVM(typeName);
                         emitLine(ptrReg + " = getelementptr inbounds %class." + mangledTypeName +
                                 ", ptr " + objPtr + ", i32 0, i32 " + std::to_string(i));
 
@@ -4858,10 +5086,63 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
         }
     }
 
-    // Check for lambda .call() invocation: lambdaVar.call(args)
+    // Check for lambda .call() invocation: lambdaVar.call(args) or lambdaVar<Type>.call(args)
     if (auto* memberAccess = dynamic_cast<Parser::MemberAccessExpr*>(node.callee.get())) {
         if (memberAccess->member == "call") {
             if (auto* ident = dynamic_cast<Parser::IdentifierExpr*>(memberAccess->object.get())) {
+                // Check for template lambda call: identity<Integer>.call()
+                // The identifier will contain the template args like "identity<Integer>"
+                if (ident->name.find('<') != std::string::npos) {
+                    auto templateIt = templateLambdaFunctions_.find(ident->name);
+                    if (templateIt != templateLambdaFunctions_.end()) {
+                        std::string funcName = templateIt->second;
+                        emitLine(format("; Template lambda call: {}.call()", ident->name));
+
+                        // Get lambda info for proper parameter types
+                        auto infoIt = templateLambdaInfos_.find(ident->name);
+
+                        // Build argument list: null closure + actual args
+                        // Template lambdas without captures can use null closure
+                        std::vector<std::string> argRegs;
+                        argRegs.push_back("null");  // Null closure for template lambdas
+
+                        for (const auto& arg : node.arguments) {
+                            arg->accept(*this);
+                            argRegs.push_back(valueMap_["__last_expr"]);
+                        }
+
+                        // Build call arguments string with proper types
+                        std::stringstream callArgs;
+                        if (infoIt != templateLambdaInfos_.end()) {
+                            const auto& info = infoIt->second;
+                            for (size_t i = 0; i < argRegs.size() && i < info.paramTypes.size(); ++i) {
+                                if (i > 0) callArgs << ", ";
+                                callArgs << info.paramTypes[i] << " " << argRegs[i];
+                            }
+                        } else {
+                            // Fallback: all ptrs
+                            for (size_t i = 0; i < argRegs.size(); ++i) {
+                                if (i > 0) callArgs << ", ";
+                                callArgs << "ptr " << argRegs[i];
+                            }
+                        }
+
+                        // Determine return type
+                        std::string returnType = "ptr";
+                        if (infoIt != templateLambdaInfos_.end()) {
+                            returnType = infoIt->second.returnType;
+                        }
+
+                        // Generate direct call to the template lambda function
+                        std::string resultReg = allocateRegister();
+                        emitLine(format("{} = call {} {}({})", resultReg, returnType, funcName, callArgs.str()));
+                        valueMap_["__last_expr"] = resultReg;
+                        registerTypes_[resultReg] = returnType;
+
+                        return;
+                    }
+                }
+
                 // Check if the identifier is a lambda/function variable
                 auto varIt = variables_.find(ident->name);
                 if (varIt != variables_.end()) {
@@ -4992,11 +5273,7 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
 
                 // Load the property value from this
                 std::string ptrReg = allocateRegister();
-                std::string mangledTypeName = currentClassName_;
-                size_t pos = 0;
-                while ((pos = mangledTypeName.find("::")) != std::string::npos) {
-                    mangledTypeName.replace(pos, 2, "_");
-                }
+                std::string mangledTypeName = TypeNormalizer::mangleForLLVM(currentClassName_);
                 emitLine(ptrReg + " = getelementptr inbounds %class." + mangledTypeName +
                         ", ptr %this, i32 0, i32 " + std::to_string(propIndex));
 
@@ -5032,18 +5309,14 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
 
                 // Use the actual XXML type from the property registration
                 // propTypeName is the xxmlType (e.g., "FullKeyType", "Integer") from ClassInfo
-                std::string className = propTypeName;
-
-                // Strip ownership suffix (^, &, %) if present
-                if (!className.empty() && (className.back() == '^' || className.back() == '&' || className.back() == '%')) {
-                    className = className.substr(0, className.length() - 1);
-                }
+                // Strip ownership suffix using TypeNormalizer
+                std::string className = TypeNormalizer::stripOwnershipMarker(propTypeName);
 
                 // Register the type so semantic lookup can find it
                 registerTypes_[instanceRegister] = className + "^";
 
-                // Generate qualified method name
-                functionName = className + "_" + memberAccess->member;
+                // Generate qualified method name (sanitize for template arguments)
+                functionName = className + "_" + sanitizeMethodNameForLLVM(memberAccess->member);
             } else if (varIt != variables_.end()) {
                 // Instance method on local variable: obj.method
                 isInstanceMethod = true;
@@ -5063,41 +5336,9 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
                     }
                 }
 
-                // Strip ownership modifiers (^, %, &) before mangling for function name
-                if (!className.empty() && (className.back() == '^' ||
-                                           className.back() == '%' ||
-                                           className.back() == '&')) {
-                    className = className.substr(0, className.length() - 1);
-                }
-
-                // Mangle template arguments if present (e.g., SomeClass<Integer> -> SomeClass_Integer)
-                if (className.find('<') != std::string::npos) {
-                    // Replace namespace separators
-                    size_t pos = 0;
-                    while ((pos = className.find("::")) != std::string::npos) {
-                        className.replace(pos, 2, "_");
-                    }
-                    // Replace template brackets
-                    while ((pos = className.find("<")) != std::string::npos) {
-                        className.replace(pos, 1, "_");
-                    }
-                    while ((pos = className.find(">")) != std::string::npos) {
-                        className.erase(pos, 1);
-                    }
-                    while ((pos = className.find(",")) != std::string::npos) {
-                        className.replace(pos, 1, "_");
-                    }
-                    while ((pos = className.find(" ")) != std::string::npos) {
-                        className.erase(pos, 1);
-                    }
-                } else {
-                    // Mangle namespace separators for non-template classes
-                    // e.g., "MyNamespace::MyClass" -> "MyNamespace_MyClass"
-                    size_t pos = 0;
-                    while ((pos = className.find("::")) != std::string::npos) {
-                        className.replace(pos, 2, "_");
-                    }
-                }
+                // Strip ownership modifiers and mangle using TypeNormalizer
+                className = TypeNormalizer::stripOwnershipMarker(className);
+                className = TypeNormalizer::mangleForLLVM(className);
 
                 // Generate qualified method name
                 // Special handling for compiler intrinsic types (ReflectionContext, CompilationContext)
@@ -5105,7 +5346,7 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
                     className = "Processor";
                 }
 
-                functionName = className + "_" + memberAccess->member;
+                functionName = className + "_" + sanitizeMethodNameForLLVM(memberAccess->member);
             } else if (paramIt != valueMap_.end() && paramIt->second[0] == '%') {
                 // Instance method on parameter: param.method
                 isInstanceMethod = true;
@@ -5127,25 +5368,16 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
 
                     // Strip ownership modifiers (^, %, &) before mangling for function name
                     // Note: Reference parameters (&) receive object pointers directly
-                    // like owned parameters - the & is semantic only (no ownership transfer)
-                    if (!className.empty() && (className.back() == '^' ||
-                                               className.back() == '%' ||
-                                               className.back() == '&')) {
-                        className = className.substr(0, className.length() - 1);
-                    }
-
-                    // Mangle namespace separators (same as getQualifiedName)
-                    size_t pos = 0;
-                    while ((pos = className.find("::")) != std::string::npos) {
-                        className.replace(pos, 2, "_");
-                    }
+                    // Strip ownership modifiers and mangle using TypeNormalizer
+                    className = TypeNormalizer::stripOwnershipMarker(className);
+                    className = TypeNormalizer::mangleForLLVM(className);
 
                     // Special handling for compiler intrinsic types (ReflectionContext, CompilationContext)
                     if (className == "ReflectionContext" || className == "CompilationContext") {
                         className = "Processor";
                     }
 
-                    functionName = className + "_" + memberAccess->member;
+                    functionName = className + "_" + sanitizeMethodNameForLLVM(memberAccess->member);
                 } else {
                     emitLine("; instance method call on parameter with unknown type: " + ident->name);
                     valueMap_["__last_expr"] = "null";
@@ -5168,33 +5400,12 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
                     return;
                 }
 
-                // Mangle template arguments if present (e.g., SomeClass<Integer> -> SomeClass_Integer)
-                if (className.find('<') != std::string::npos) {
-                    size_t pos = 0;
-                    while ((pos = className.find("::")) != std::string::npos) {
-                        className.replace(pos, 2, "_");
-                    }
-                    while ((pos = className.find("<")) != std::string::npos) {
-                        className.replace(pos, 1, "_");
-                    }
-                    while ((pos = className.find(">")) != std::string::npos) {
-                        className.erase(pos, 1);
-                    }
-                    while ((pos = className.find(",")) != std::string::npos) {
-                        className.replace(pos, 1, "_");
-                    }
-                    while ((pos = className.find(" ")) != std::string::npos) {
-                        className.erase(pos, 1);
-                    }
-                }
+                // Mangle class name using TypeNormalizer
+                className = TypeNormalizer::mangleForLLVM(className);
 
                 functionName = className + memberAccess->member;
-                // Replace :: with _ for C runtime compatibility
-                size_t pos = functionName.find("::");
-                while (pos != std::string::npos) {
-                    functionName.replace(pos, 2, "_");
-                    pos = functionName.find("::", pos + 1);
-                }
+                // Mangle the full function name for C runtime compatibility
+                functionName = TypeNormalizer::mangleForLLVM(functionName);
             }
         } else {
             // Check if this is a Constructor call on a namespaced/templated type
@@ -5210,31 +5421,8 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
                     return;
                 }
 
-                // Mangle template arguments if present (e.g., SomeClass<Integer> -> SomeClass_Integer)
-                if (className.find('<') != std::string::npos) {
-                    size_t pos = 0;
-                    while ((pos = className.find("::")) != std::string::npos) {
-                        className.replace(pos, 2, "_");
-                    }
-                    while ((pos = className.find("<")) != std::string::npos) {
-                        className.replace(pos, 1, "_");
-                    }
-                    while ((pos = className.find(">")) != std::string::npos) {
-                        className.erase(pos, 1);
-                    }
-                    while ((pos = className.find(",")) != std::string::npos) {
-                        className.replace(pos, 1, "_");
-                    }
-                    while ((pos = className.find(" ")) != std::string::npos) {
-                        className.erase(pos, 1);
-                    }
-                } else {
-                    // Mangle namespace separators
-                    size_t pos = 0;
-                    while ((pos = className.find("::")) != std::string::npos) {
-                        className.replace(pos, 2, "_");
-                    }
-                }
+                // Mangle class name using TypeNormalizer
+                className = TypeNormalizer::mangleForLLVM(className);
 
                 // Strip :: prefix from member name if present
                 std::string memberName = memberAccess->member;
@@ -5242,7 +5430,7 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
                     memberName = memberName.substr(2);
                 }
 
-                functionName = className + "_" + memberName;
+                functionName = className + "_" + sanitizeMethodNameForLLVM(memberName);
             } else {
                 // Could be either:
                 // 1. Static method on nested namespace: System::Console::printLine
@@ -5273,12 +5461,8 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
 
                 if (!staticClassName.empty() && !isVariable) {
                     // This looks like a static method call (e.g., System::Console::printLine)
-                    // Mangle the namespace/class name
-                    std::string mangledClassName = staticClassName;
-                    size_t pos = 0;
-                    while ((pos = mangledClassName.find("::")) != std::string::npos) {
-                        mangledClassName.replace(pos, 2, "_");
-                    }
+                    // Mangle the namespace/class name using TypeNormalizer
+                    std::string mangledClassName = TypeNormalizer::mangleForLLVM(staticClassName);
 
                     // Strip :: prefix from member name if present
                     std::string memberName = memberAccess->member;
@@ -5286,7 +5470,7 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
                         memberName = memberName.substr(2);
                     }
 
-                    functionName = mangledClassName + "_" + memberName;
+                    functionName = mangledClassName + "_" + sanitizeMethodNameForLLVM(memberName);
 
                     // For static method calls on user-defined classes, pass null for 'this'
                     // since the method is generated with a 'this' parameter
@@ -5341,42 +5525,11 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
                         }
                     }
 
-                    // Strip ownership modifiers (^, %, &) before mangling for function name
-                    if (!className.empty() && (className.back() == '^' ||
-                                               className.back() == '%' ||
-                                               className.back() == '&')) {
-                        className = className.substr(0, className.length() - 1);
-                    }
+                    // Strip ownership modifiers and mangle using TypeNormalizer
+                    className = TypeNormalizer::stripOwnershipMarker(className);
+                    className = TypeNormalizer::mangleForLLVM(className);
 
-                    // Mangle template arguments if present
-                    if (className.find('<') != std::string::npos) {
-                        // Replace namespace separators
-                        size_t pos = 0;
-                        while ((pos = className.find("::")) != std::string::npos) {
-                            className.replace(pos, 2, "_");
-                        }
-                        // Replace template brackets
-                        while ((pos = className.find("<")) != std::string::npos) {
-                            className.replace(pos, 1, "_");
-                        }
-                        while ((pos = className.find(">")) != std::string::npos) {
-                            className.erase(pos, 1);
-                        }
-                        while ((pos = className.find(",")) != std::string::npos) {
-                            className.replace(pos, 1, "_");
-                        }
-                        while ((pos = className.find(" ")) != std::string::npos) {
-                            className.erase(pos, 1);
-                        }
-                    } else {
-                        // Mangle namespace separators (same as getQualifiedName)
-                        size_t pos = 0;
-                        while ((pos = className.find("::")) != std::string::npos) {
-                            className.replace(pos, 2, "_");
-                        }
-                    }
-
-                    functionName = className + "_" + memberAccess->member;
+                    functionName = className + "_" + sanitizeMethodNameForLLVM(memberAccess->member);
                 }
             }
         }
@@ -5487,21 +5640,15 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
                 std::string closureReg = valueMap_["__last_expr"];
 
                 // Get the callback type name from the native method info
-                std::string callbackTypeName = nativeMethodIt->second.xxmlParamTypes[argIdx];
-                // Strip ownership modifiers
-                if (!callbackTypeName.empty() && (callbackTypeName.back() == '^' ||
-                    callbackTypeName.back() == '%' || callbackTypeName.back() == '&')) {
-                    callbackTypeName = callbackTypeName.substr(0, callbackTypeName.length() - 1);
-                }
+                // Strip ownership modifiers using TypeNormalizer
+                std::string callbackTypeName = TypeNormalizer::stripOwnershipMarker(
+                    nativeMethodIt->second.xxmlParamTypes[argIdx]);
 
                 // Find the callback thunk info
                 auto thunkIt = callbackThunks_.find(callbackTypeName);
                 if (thunkIt != callbackThunks_.end()) {
                     // Mangle the callback type name for the global variable
-                    std::string mangledName = callbackTypeName;
-                    while (mangledName.find("::") != std::string::npos) {
-                        mangledName.replace(mangledName.find("::"), 2, "_");
-                    }
+                    std::string mangledName = TypeNormalizer::mangleForLLVM(callbackTypeName);
                     std::string closureGlobalName = "@xxml_callback_closure_" + mangledName;
 
                     // Store the lambda closure to the global variable
@@ -5803,13 +5950,8 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
                 }
             }
 
-            // Strip ownership modifiers (^, %, &) for type lookup
-            std::string baseInstanceType = instanceType;
-            if (!baseInstanceType.empty() && (baseInstanceType.back() == '^' ||
-                                              baseInstanceType.back() == '%' ||
-                                              baseInstanceType.back() == '&')) {
-                baseInstanceType = baseInstanceType.substr(0, baseInstanceType.length() - 1);
-            }
+            // Strip ownership modifiers using TypeNormalizer
+            std::string baseInstanceType = TypeNormalizer::stripOwnershipMarker(instanceType);
 
             // Extract method name from function name
             size_t underscorePos = functionName.rfind('_');
@@ -7248,12 +7390,8 @@ void LLVMBackend::visit(Parser::AssignmentStmt& node) {
                         // Generate getelementptr to get address of the field
                         std::string ptrReg = allocateRegister();
 
-                        // Mangle class name for LLVM type
-                        std::string mangledTypeName = currentClassName_;
-                        size_t pos = 0;
-                        while ((pos = mangledTypeName.find("::")) != std::string::npos) {
-                            mangledTypeName.replace(pos, 2, "_");
-                        }
+                        // Mangle class name using TypeNormalizer
+                        std::string mangledTypeName = TypeNormalizer::mangleForLLVM(currentClassName_);
 
                         emitLine(ptrReg + " = getelementptr inbounds %class." + mangledTypeName +
                                 ", ptr %this, i32 0, i32 " + std::to_string(i));
@@ -7309,12 +7447,8 @@ void LLVMBackend::visit(Parser::AssignmentStmt& node) {
                             // Generate getelementptr to get address of the field
                             std::string ptrReg = allocateRegister();
 
-                            // Mangle class name
-                            std::string mangledTypeName = currentClassName_;
-                            size_t pos = 0;
-                            while ((pos = mangledTypeName.find("::")) != std::string::npos) {
-                                mangledTypeName.replace(pos, 2, "_");
-                            }
+                            // Mangle class name using TypeNormalizer
+                            std::string mangledTypeName = TypeNormalizer::mangleForLLVM(currentClassName_);
 
                             emitLine(ptrReg + " = getelementptr inbounds %class." + mangledTypeName +
                                     ", ptr %this, i32 0, i32 " + std::to_string(i));
@@ -7369,12 +7503,21 @@ void LLVMBackend::visit(Parser::TypeOfExpr& node) {
 }
 
 void LLVMBackend::visit(Parser::LambdaExpr& node) {
+    // Skip template lambdas - they will be instantiated on-demand
+    if (!node.templateParams.empty()) {
+        emitLine("; Template lambda - skipping definition (will be instantiated on-demand)");
+        // Set a placeholder result so the variable assignment has something
+        // Template lambdas are essentially "undefined" until instantiated
+        valueMap_["__last_expr"] = "null";
+        return;
+    }
+
     // Generate unique names for this lambda
     int lambdaId = lambdaCounter_++;
     std::string closureTypeName = "%closure." + std::to_string(lambdaId);
     std::string lambdaFuncName = "@lambda." + std::to_string(lambdaId);
 
-    emitLine(format("; Lambda expression #{}", lambdaId));
+    emitLine(format("; Lambda_Expr_#{}_TemplateParams_{}", lambdaId, node.templateParams.size()));
 
     // Determine return type
     std::string returnType = "ptr";  // Default to ptr for objects
@@ -8377,6 +8520,47 @@ std::unique_ptr<Parser::MethodDecl> LLVMBackend::cloneMethodDecl(
     );
 }
 
+std::unique_ptr<Parser::MethodDecl> LLVMBackend::cloneAndSubstituteMethodDecl(
+    Parser::MethodDecl* original,
+    const std::string& newName,
+    const std::unordered_map<std::string, std::string>& typeMap) {
+
+    if (!original) return nullptr;
+
+    auto clonedRetType = cloneTypeRef(original->returnType.get(), typeMap);
+
+    std::vector<std::unique_ptr<Parser::ParameterDecl>> clonedParams;
+    for (const auto& param : original->parameters) {
+        auto clonedType = cloneTypeRef(param->type.get(), typeMap);
+        auto clonedParam = std::make_unique<Parser::ParameterDecl>(
+            param->name,
+            std::move(clonedType),
+            param->location
+        );
+        clonedParams.push_back(std::move(clonedParam));
+    }
+
+    std::vector<std::unique_ptr<Parser::Statement>> clonedBody;
+    for (const auto& stmt : original->body) {
+        auto clonedStmt = cloneStatement(stmt.get(), typeMap);
+        if (clonedStmt) clonedBody.push_back(std::move(clonedStmt));
+    }
+
+    // Create method with the new (mangled) name
+    auto clonedMethod = std::make_unique<Parser::MethodDecl>(
+        newName,  // Use the provided mangled name
+        std::move(clonedRetType),
+        std::move(clonedParams),
+        std::move(clonedBody),
+        original->location
+    );
+
+    // Clear template params since this is an instantiated (concrete) method
+    clonedMethod->templateParams.clear();
+
+    return clonedMethod;
+}
+
 std::unique_ptr<Parser::PropertyDecl> LLVMBackend::clonePropertyDecl(
     const Parser::PropertyDecl* original,
     const std::unordered_map<std::string, std::string>& typeMap) {
@@ -8619,6 +8803,46 @@ std::unique_ptr<Parser::Expression> LLVMBackend::cloneExpression(
     return nullptr;
 }
 
+std::unique_ptr<Parser::LambdaExpr> LLVMBackend::cloneLambdaExpr(
+    const Parser::LambdaExpr* lambda,
+    const std::unordered_map<std::string, std::string>& typeMap) {
+    if (!lambda) return nullptr;
+
+    // Clone captures (they don't have types that need substitution)
+    std::vector<Parser::LambdaExpr::CaptureSpec> captures = lambda->captures;
+
+    // Clone parameters with type substitution
+    std::vector<std::unique_ptr<Parser::ParameterDecl>> params;
+    for (const auto& param : lambda->parameters) {
+        auto clonedType = cloneTypeRef(param->type.get(), typeMap);
+        params.push_back(std::make_unique<Parser::ParameterDecl>(
+            param->name, std::move(clonedType), param->location));
+    }
+
+    // Clone return type with substitution
+    auto clonedReturnType = cloneTypeRef(lambda->returnType.get(), typeMap);
+
+    // Clone body statements with type substitution
+    std::vector<std::unique_ptr<Parser::Statement>> bodyStmts;
+    for (const auto& stmt : lambda->body) {
+        if (auto clonedStmt = cloneStatement(stmt.get(), typeMap)) {
+            bodyStmts.push_back(std::move(clonedStmt));
+        }
+    }
+
+    auto cloned = std::make_unique<Parser::LambdaExpr>(
+        std::move(captures),
+        std::move(params),
+        std::move(clonedReturnType),
+        std::move(bodyStmts),
+        lambda->location);
+
+    cloned->isCompiletime = lambda->isCompiletime;
+    // Don't copy templateParams - the cloned lambda is a concrete instantiation
+
+    return cloned;
+}
+
 size_t LLVMBackend::calculateClassSize(const std::string& className) const {
     // Look up class in the classes_ map
     auto it = classes_.find(className);
@@ -8666,11 +8890,8 @@ size_t LLVMBackend::calculateClassSize(const std::string& className) const {
         // prop is tuple<propName, llvmType, xxmlType>
         const std::string& propType = std::get<1>(prop);  // LLVM type
 
-        // Remove ownership indicators (^, &, %)
-        std::string baseType = propType;
-        if (!baseType.empty() && (baseType.back() == '^' || baseType.back() == '&' || baseType.back() == '%')) {
-            baseType = baseType.substr(0, baseType.length() - 1);
-        }
+        // Remove ownership indicators using TypeNormalizer
+        std::string baseType = TypeNormalizer::stripOwnershipMarker(propType);
 
         // Calculate size based on type
         if (baseType == "NativeType" || baseType == "Integer" || baseType == "Float" || baseType == "Double") {
@@ -9271,11 +9492,8 @@ void LLVMBackend::generateNativeMethodThunk(Parser::MethodDecl& node) {
         bool isCallback = false;
         if (paramIndex < node.parameters.size() && node.parameters[paramIndex]->type) {
             xxmlType = node.parameters[paramIndex]->type->typeName;
-            // Strip ownership modifiers to get base type name
-            std::string baseType = xxmlType;
-            if (!baseType.empty() && (baseType.back() == '^' || baseType.back() == '%' || baseType.back() == '&')) {
-                baseType = baseType.substr(0, baseType.length() - 1);
-            }
+            // Strip ownership modifiers using TypeNormalizer
+            std::string baseType = TypeNormalizer::stripOwnershipMarker(xxmlType);
             // Check if this type is a registered callback type
             // Try both unqualified and namespace-qualified names
             if (callbackThunks_.find(baseType) != callbackThunks_.end()) {

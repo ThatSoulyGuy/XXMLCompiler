@@ -32,6 +32,13 @@ public:
         Parser::MethodDecl* astNode = nullptr;  // Optional: only valid for same-module access
     };
 
+    // ✅ Template lambda info stores COPIES of template parameters
+    struct TemplateLambdaInfo {
+        std::string variableName;  // Variable name holding the lambda
+        std::vector<Parser::TemplateParameter> templateParams;  // COPIED from AST
+        Parser::LambdaExpr* astNode = nullptr;  // Optional: only valid for same-module access
+    };
+
     // Annotation parameter info - made public for cross-module sharing
     struct AnnotationParamInfo {
         std::string name;
@@ -150,12 +157,38 @@ private:
         }
     };
 
+    struct LambdaTemplateInstantiation {
+        std::string variableName;  // Variable name holding the lambda
+        std::vector<Parser::TemplateArgument> arguments;
+        std::vector<int64_t> evaluatedValues;
+
+        bool operator<(const LambdaTemplateInstantiation& other) const {
+            if (variableName != other.variableName) return variableName < other.variableName;
+            if (arguments.size() != other.arguments.size()) return arguments.size() < other.arguments.size();
+            for (size_t i = 0; i < arguments.size(); ++i) {
+                if (arguments[i].kind != other.arguments[i].kind) return arguments[i].kind < other.arguments[i].kind;
+                if (arguments[i].kind == Parser::TemplateArgument::Kind::Type) {
+                    if (arguments[i].typeArg != other.arguments[i].typeArg)
+                        return arguments[i].typeArg < other.arguments[i].typeArg;
+                } else if (i < evaluatedValues.size() && i < other.evaluatedValues.size()) {
+                    if (evaluatedValues[i] != other.evaluatedValues[i])
+                        return evaluatedValues[i] < other.evaluatedValues[i];
+                }
+            }
+            return false;
+        }
+    };
+
     std::unordered_map<std::string, TemplateClassInfo> templateClasses;  // Template class name -> info
     std::set<TemplateInstantiation> templateInstantiations;  // Set of template instantiations
 
     // Method template tracking (key: className::methodName -> info)
     std::unordered_map<std::string, TemplateMethodInfo> templateMethods;
     std::set<MethodTemplateInstantiation> methodTemplateInstantiations;
+
+    // Lambda template tracking (key: variableName -> info)
+    std::unordered_map<std::string, TemplateLambdaInfo> templateLambdas_;
+    std::set<LambdaTemplateInstantiation> lambdaTemplateInstantiations_;
 
     // Class member registry for validation
     struct MethodInfo {
@@ -203,9 +236,11 @@ private:
     // Helper for templates
     void recordTemplateInstantiation(const std::string& templateName, const std::vector<Parser::TemplateArgument>& args);
     void recordMethodTemplateInstantiation(const std::string& className, const std::string& methodName, const std::vector<Parser::TemplateArgument>& args);
+    void recordLambdaTemplateInstantiation(const std::string& variableName, const std::vector<Parser::TemplateArgument>& args);
     int64_t evaluateConstantExpression(Parser::Expression* expr);  // Evaluate constant expressions at compile time
     bool isTemplateClass(const std::string& className);
     bool isTemplateMethod(const std::string& className, const std::string& methodName);
+    bool isTemplateLambda(const std::string& variableName);
 
     // Constraint registry and validation
     struct ConstraintInfo {
@@ -318,6 +353,12 @@ public:
     }
     const std::unordered_map<std::string, TemplateMethodInfo>& getTemplateMethods() const {
         return templateMethods;
+    }
+    const std::set<LambdaTemplateInstantiation>& getLambdaTemplateInstantiations() const {
+        return lambdaTemplateInstantiations_;
+    }
+    const std::unordered_map<std::string, TemplateLambdaInfo>& getTemplateLambdas() const {
+        return templateLambdas_;
     }
 
     // Register template classes and instantiations from other modules

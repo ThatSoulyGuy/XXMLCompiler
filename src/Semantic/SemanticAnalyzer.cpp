@@ -1305,6 +1305,17 @@ void SemanticAnalyzer::visit(Parser::InstantiateStmt& node) {
     // Register variable type in TypeContext for code generation
     registerVariableType(node.variableName, fullTypeName, node.type->ownership);
 
+    // If initializer is a template lambda, register it for template instantiation tracking
+    if (auto* lambdaExpr = dynamic_cast<Parser::LambdaExpr*>(node.initializer.get())) {
+        if (!lambdaExpr->templateParams.empty()) {
+            TemplateLambdaInfo lambdaInfo;
+            lambdaInfo.variableName = node.variableName;
+            lambdaInfo.templateParams = lambdaExpr->templateParams;
+            lambdaInfo.astNode = lambdaExpr;
+            templateLambdas_[node.variableName] = lambdaInfo;
+        }
+    }
+
     // If this is a function type, register it for .call() ownership validation
     if (auto* funcTypeRef = dynamic_cast<Parser::FunctionTypeRef*>(node.type.get())) {
         registerFunctionType(node.variableName, funcTypeRef);
@@ -1570,8 +1581,58 @@ void SemanticAnalyzer::visit(Parser::IdentifierExpr& node) {
 
         // Don't error on qualified names, constructor calls, or template instantiations
         if (node.name.find("Constructor") != std::string::npos ||
-            node.name.find("::") != std::string::npos ||
-            node.name.find("<") != std::string::npos) {  // Template instantiation like List<Integer>
+            node.name.find("::") != std::string::npos) {
+            expressionTypes[&node] = "Unknown";
+            expressionOwnerships[&node] = Parser::OwnershipType::Owned;
+            return;
+        }
+
+        // Check for lambda template instantiation like identity<Integer>
+        if (node.name.find("<") != std::string::npos) {
+            size_t angleStart = node.name.find('<');
+            std::string baseName = node.name.substr(0, angleStart);
+
+            // Check if the base name is a registered template lambda
+            if (templateLambdas_.find(baseName) != templateLambdas_.end()) {
+                // Extract template arguments from the name
+                size_t angleEnd = node.name.rfind('>');
+                if (angleEnd != std::string::npos && angleEnd > angleStart) {
+                    std::string argsStr = node.name.substr(angleStart + 1, angleEnd - angleStart - 1);
+
+                    // Parse template arguments (simplified - handles single type arg)
+                    std::vector<Parser::TemplateArgument> args;
+                    std::string currentArg;
+                    for (char c : argsStr) {
+                        if (c == ',') {
+                            if (!currentArg.empty()) {
+                                // Trim whitespace
+                                size_t start = currentArg.find_first_not_of(" \t");
+                                size_t end = currentArg.find_last_not_of(" \t");
+                                if (start != std::string::npos && end != std::string::npos) {
+                                    std::string trimmed = currentArg.substr(start, end - start + 1);
+                                    args.emplace_back(trimmed, node.location);
+                                }
+                                currentArg.clear();
+                            }
+                        } else {
+                            currentArg += c;
+                        }
+                    }
+                    // Add the last argument
+                    if (!currentArg.empty()) {
+                        size_t start = currentArg.find_first_not_of(" \t");
+                        size_t end = currentArg.find_last_not_of(" \t");
+                        if (start != std::string::npos && end != std::string::npos) {
+                            std::string trimmed = currentArg.substr(start, end - start + 1);
+                            args.emplace_back(trimmed, node.location);
+                        }
+                    }
+
+                    // Record the lambda template instantiation
+                    recordLambdaTemplateInstantiation(baseName, args);
+                }
+            }
+
             expressionTypes[&node] = "Unknown";
             expressionOwnerships[&node] = Parser::OwnershipType::Owned;
             return;
@@ -1992,7 +2053,64 @@ void SemanticAnalyzer::visit(Parser::CallExpr& node) {
                 }
             }
 
-            MethodInfo* method = findMethod(baseType, methodName);
+            // Check if this is a method template call (e.g., identity<Integer>)
+            std::string actualMethodName = methodName;
+            bool isMethodTemplateCall = false;
+            std::vector<Parser::TemplateArgument> methodTemplateArgs;
+            size_t methodAnglePos = methodName.find('<');
+
+            if (methodAnglePos != std::string::npos) {
+                // Extract base method name and template arguments
+                std::string baseMethodName = methodName.substr(0, methodAnglePos);
+                size_t endAngle = methodName.rfind('>');
+
+                if (endAngle != std::string::npos && endAngle > methodAnglePos) {
+                    std::string argsStr = methodName.substr(methodAnglePos + 1, endAngle - methodAnglePos - 1);
+
+                    // Parse the template arguments (simple comma-separated list)
+                    std::vector<std::string> argStrings;
+                    size_t start = 0;
+                    int depth = 0;
+                    for (size_t i = 0; i < argsStr.size(); ++i) {
+                        if (argsStr[i] == '<') depth++;
+                        else if (argsStr[i] == '>') depth--;
+                        else if (argsStr[i] == ',' && depth == 0) {
+                            std::string arg = argsStr.substr(start, i - start);
+                            // Trim whitespace
+                            size_t first = arg.find_first_not_of(" \t");
+                            size_t last = arg.find_last_not_of(" \t");
+                            if (first != std::string::npos) {
+                                argStrings.push_back(arg.substr(first, last - first + 1));
+                            }
+                            start = i + 1;
+                        }
+                    }
+                    // Add the last argument
+                    std::string lastArg = argsStr.substr(start);
+                    size_t first = lastArg.find_first_not_of(" \t");
+                    size_t last = lastArg.find_last_not_of(" \t");
+                    if (first != std::string::npos) {
+                        argStrings.push_back(lastArg.substr(first, last - first + 1));
+                    }
+
+                    // Convert to TemplateArguments
+                    for (const auto& argStr : argStrings) {
+                        methodTemplateArgs.emplace_back(argStr, node.location);
+                    }
+
+                    // Check if this is actually a template method
+                    std::string methodKey = baseType + "::" + baseMethodName;
+                    if (templateMethods.find(methodKey) != templateMethods.end()) {
+                        isMethodTemplateCall = true;
+                        actualMethodName = baseMethodName;
+
+                        // Record the method template instantiation
+                        recordMethodTemplateInstantiation(baseType, baseMethodName, methodTemplateArgs);
+                    }
+                }
+            }
+
+            MethodInfo* method = findMethod(baseType, actualMethodName);
 
             // Only validate if validation is enabled
             if (enableValidation) {
@@ -2003,7 +2121,7 @@ void SemanticAnalyzer::visit(Parser::CallExpr& node) {
                                     objectType == "__function" || baseType == "__function" ||
                                     objectType == "__DynamicValue" || baseType == "__DynamicValue" ||
                                     objectType.find("Language::") == 0 || baseType.find("Language::") == 0);
-                bool isTemplateInstantiation = !templateSubstitutions.empty();
+                bool isTemplateInstantiation = !templateSubstitutions.empty() || isMethodTemplateCall;
                 // Skip validation if the object is a template parameter (will be validated at instantiation)
                 bool isTemplateParameter = (templateTypeParameters.find(baseType) != templateTypeParameters.end());
 
@@ -2040,9 +2158,27 @@ void SemanticAnalyzer::visit(Parser::CallExpr& node) {
 
                             // Substitute template parameters in expected type
                             std::string substitutedExpectedType = expectedType;
+
+                            // First, substitute class template parameters
                             for (const auto& [param, arg] : templateSubstitutions) {
                                 if (substitutedExpectedType == param) {
                                     substitutedExpectedType = arg;
+                                }
+                            }
+
+                            // Then, substitute method template parameters
+                            if (isMethodTemplateCall && !methodTemplateArgs.empty()) {
+                                std::string methodKey = baseType + "::" + actualMethodName;
+                                auto methodIt = templateMethods.find(methodKey);
+                                if (methodIt != templateMethods.end()) {
+                                    const auto& methodInfo = methodIt->second;
+                                    for (size_t j = 0; j < methodInfo.templateParams.size() && j < methodTemplateArgs.size(); ++j) {
+                                        const std::string& paramName = methodInfo.templateParams[j].name;
+                                        const std::string& argTypeStr = methodTemplateArgs[j].typeArg;
+                                        if (substitutedExpectedType == paramName) {
+                                            substitutedExpectedType = argTypeStr;
+                                        }
+                                    }
                                 }
                             }
 
@@ -2111,10 +2247,28 @@ void SemanticAnalyzer::visit(Parser::CallExpr& node) {
 
                 // Substitute template parameters in return type
                 std::string returnType = method->returnType;
+
+                // First, substitute class template parameters
                 for (const auto& [param, arg] : templateSubstitutions) {
                     // Simple substitution: replace exact matches
                     if (returnType == param) {
                         returnType = arg;
+                    }
+                }
+
+                // Then, substitute method template parameters
+                if (isMethodTemplateCall && !methodTemplateArgs.empty()) {
+                    std::string methodKey = baseType + "::" + actualMethodName;
+                    auto methodIt = templateMethods.find(methodKey);
+                    if (methodIt != templateMethods.end()) {
+                        const auto& methodInfo = methodIt->second;
+                        for (size_t i = 0; i < methodInfo.templateParams.size() && i < methodTemplateArgs.size(); ++i) {
+                            const std::string& paramName = methodInfo.templateParams[i].name;
+                            const std::string& argType = methodTemplateArgs[i].typeArg;
+                            if (returnType == paramName) {
+                                returnType = argType;
+                            }
+                        }
                     }
                 }
 
@@ -2881,6 +3035,100 @@ void SemanticAnalyzer::recordMethodTemplateInstantiation(const std::string& clas
 bool SemanticAnalyzer::isTemplateMethod(const std::string& className, const std::string& methodName) {
     std::string methodKey = className + "::" + methodName;
     return templateMethods.find(methodKey) != templateMethods.end();
+}
+
+void SemanticAnalyzer::recordLambdaTemplateInstantiation(const std::string& variableName, const std::vector<Parser::TemplateArgument>& args) {
+    // Check if this template lambda exists
+    auto it = templateLambdas_.find(variableName);
+    if (it == templateLambdas_.end()) {
+        // Not a template lambda - might be a regular lambda or error caught elsewhere
+        return;
+    }
+
+    const TemplateLambdaInfo& lambdaInfo = it->second;
+
+    // Validate argument count
+    if (lambdaInfo.templateParams.size() != args.size()) {
+        errorReporter.reportError(
+            Common::ErrorCode::TypeMismatch,
+            "Lambda template '" + variableName + "' expects " +
+            std::to_string(lambdaInfo.templateParams.size()) +
+            " arguments but got " + std::to_string(args.size()),
+            args.empty() ? Common::SourceLocation{} : args[0].location
+        );
+        return;
+    }
+
+    // Create instantiation record
+    LambdaTemplateInstantiation inst;
+    inst.variableName = variableName;
+    inst.arguments = args;
+
+    // Validate and evaluate template arguments
+    for (size_t i = 0; i < args.size(); ++i) {
+        const auto& arg = args[i];
+        const auto& param = lambdaInfo.templateParams[i];
+
+        // Wildcard can match any type parameter
+        if (arg.kind == Parser::TemplateArgument::Kind::Wildcard) {
+            if (param.kind != Parser::TemplateParameter::Kind::Type) {
+                errorReporter.reportError(
+                    Common::ErrorCode::TypeMismatch,
+                    "Wildcard '?' can only be used for type parameters, not value parameters",
+                    arg.location
+                );
+            }
+            continue;
+        }
+
+        // Validate argument kind matches parameter kind
+        if (param.kind == Parser::TemplateParameter::Kind::Type) {
+            if (arg.kind != Parser::TemplateArgument::Kind::Type) {
+                errorReporter.reportError(
+                    Common::ErrorCode::TypeMismatch,
+                    "Lambda template parameter '" + param.name + "' expects a type, but got a value",
+                    arg.location
+                );
+            } else {
+                // Validate type constraints
+                if (!validateConstraint(arg.typeArg, param.constraints, param.constraintsAreAnd)) {
+                    std::string constraintList;
+                    std::string separator = param.constraintsAreAnd ? ", " : " | ";
+                    for (size_t j = 0; j < param.constraints.size(); ++j) {
+                        if (j > 0) constraintList += separator;
+                        constraintList += param.constraints[j].toString();
+                    }
+                    std::string semanticsMsg = param.constraintsAreAnd
+                        ? " (must satisfy ALL)" : " (must satisfy at least one)";
+                    errorReporter.reportError(
+                        Common::ErrorCode::TypeMismatch,
+                        "Type '" + arg.typeArg + "' does not satisfy constraint '" +
+                        constraintList + "'" + semanticsMsg + " for lambda template parameter '" + param.name + "'",
+                        arg.location
+                    );
+                }
+            }
+        } else {  // Non-type parameter
+            if (arg.kind != Parser::TemplateArgument::Kind::Value) {
+                errorReporter.reportError(
+                    Common::ErrorCode::TypeMismatch,
+                    "Lambda template parameter '" + param.name + "' expects a value, but got a type",
+                    arg.location
+                );
+            } else {
+                // Evaluate the constant expression
+                int64_t value = evaluateConstantExpression(arg.valueArg.get());
+                inst.evaluatedValues.push_back(value);
+            }
+        }
+    }
+
+    // Record the instantiation
+    lambdaTemplateInstantiations_.insert(inst);
+}
+
+bool SemanticAnalyzer::isTemplateLambda(const std::string& variableName) {
+    return templateLambdas_.find(variableName) != templateLambdas_.end();
 }
 
 bool SemanticAnalyzer::isTypeCompatible(const std::string& actualType, const std::string& constraintType) {

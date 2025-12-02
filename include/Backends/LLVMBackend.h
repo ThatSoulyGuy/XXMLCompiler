@@ -286,6 +286,9 @@ private:
 
     // Template instantiation tracking
     std::set<std::string> generatedTemplateInstantiations_;  // Track generated template types
+    std::set<std::string> generatedMethodInstantiations_;    // Track generated method template instantiations
+    std::set<std::string> generatedLambdaInstantiations_;    // Track generated lambda template instantiations
+    std::unordered_map<std::string, std::string> templateLambdaFunctions_;  // Map template lambda name to function
 
     // String literal storage
     std::vector<std::pair<std::string, std::string>> stringLiterals_;  // label -> content
@@ -300,6 +303,7 @@ private:
         std::vector<std::pair<std::string, Parser::LambdaExpr::CaptureMode>> captures;  // varName, mode
     };
     std::unordered_map<std::string, LambdaInfo> lambdaInfos_;  // closure register -> info
+    std::unordered_map<std::string, LambdaInfo> templateLambdaInfos_;  // template lambda name -> info
     std::vector<std::string> pendingLambdaDefinitions_;  // Lambda function definitions to emit later
 
     // Native FFI method tracking for string marshalling and callback support
@@ -381,6 +385,8 @@ private:
 
     /// Template instantiation (monomorphization)
     void generateTemplateInstantiations();
+    void generateMethodTemplateInstantiations();
+    void generateLambdaTemplateInstantiations();
 
     /// Forward declare all user-defined functions before code generation
     void generateFunctionDeclarations(Parser::Program& program);
@@ -399,6 +405,10 @@ private:
     std::unique_ptr<Parser::MethodDecl> cloneMethodDecl(
         const Parser::MethodDecl* original,
         const std::unordered_map<std::string, std::string>& typeMap);
+    std::unique_ptr<Parser::MethodDecl> cloneAndSubstituteMethodDecl(
+        Parser::MethodDecl* original,
+        const std::string& newName,
+        const std::unordered_map<std::string, std::string>& typeMap);
     std::unique_ptr<Parser::PropertyDecl> clonePropertyDecl(
         const Parser::PropertyDecl* original,
         const std::unordered_map<std::string, std::string>& typeMap);
@@ -407,6 +417,9 @@ private:
         const std::unordered_map<std::string, std::string>& typeMap);
     std::unique_ptr<Parser::Expression> cloneExpression(
         const Parser::Expression* original,
+        const std::unordered_map<std::string, std::string>& typeMap);
+    std::unique_ptr<Parser::LambdaExpr> cloneLambdaExpr(
+        const Parser::LambdaExpr* original,
         const std::unordered_map<std::string, std::string>& typeMap);
 
     /// Generate LLVM instruction for binary operation using OperatorRegistry

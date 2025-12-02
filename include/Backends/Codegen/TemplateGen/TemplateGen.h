@@ -34,6 +34,12 @@ public:
     /// Generate all pending template instantiations
     void generateAll();
 
+    /// Generate method template instantiations
+    void generateMethodInstantiations();
+
+    /// Generate lambda template instantiations
+    void generateLambdaInstantiations();
+
     /// Generate a specific template instantiation
     void generateInstantiation(const std::string& templateName,
                                const std::vector<Parser::TemplateArgument>& args);
@@ -82,6 +88,11 @@ private:
     /// Clone a method declaration with substitutions
     std::unique_ptr<Parser::MethodDecl> cloneMethod(
         Parser::MethodDecl* method,
+        const std::unordered_map<std::string, std::string>& typeMap);
+
+    /// Clone a lambda expression with substitutions
+    std::unique_ptr<Parser::LambdaExpr> cloneLambda(
+        Parser::LambdaExpr* lambda,
         const std::unordered_map<std::string, std::string>& typeMap);
 
     /// Clone a constructor declaration with substitutions
