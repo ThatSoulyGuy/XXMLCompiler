@@ -1,0 +1,166 @@
+// Test: Method Templates Returning Template Types
+// Tests method templates that return instantiated template types
+
+#import Language::Core;
+
+// Box template
+[ Class <Box> <T Constrains None> Final Extends None
+    [ Private <>
+        Property <value> Types T^;
+    ]
+    [ Public <>
+        Constructor Parameters () ->
+        {
+        }
+
+        Constructor Parameters (Parameter <v> Types T^) ->
+        {
+            Set value = v;
+        }
+
+        Method <get> Returns T^ Parameters () Do
+        {
+            Return value;
+        }
+
+        Method <set> Returns None Parameters (Parameter <v> Types T^) Do
+        {
+            Set value = v;
+        }
+    ]
+]
+
+// Optional-like template
+[ Class <Maybe> <T Constrains None> Final Extends None
+    [ Private <>
+        Property <value> Types T^;
+        Property <hasValue> Types Bool^;
+    ]
+    [ Public <>
+        Constructor Parameters () ->
+        {
+            Set hasValue = Bool::Constructor(false);
+        }
+
+        Constructor Parameters (Parameter <v> Types T^) ->
+        {
+            Set value = v;
+            Set hasValue = Bool::Constructor(true);
+        }
+
+        Method <get> Returns T^ Parameters () Do
+        {
+            Return value;
+        }
+
+        Method <isPresent> Returns Bool^ Parameters () Do
+        {
+            Return hasValue;
+        }
+    ]
+]
+
+// Factory class with method templates returning template types
+[ Class <Factory> Final Extends None
+    [ Public <>
+        Constructor Parameters () ->
+        {
+        }
+
+        // Method template that wraps a value in a Box
+        Method <box> Templates <T Constrains None> Returns Box<T>^ Parameters (Parameter <value> Types T^) Do
+        {
+            Return Box@T::Constructor(value);
+        }
+
+        // Method template that wraps in Maybe
+        Method <maybe> Templates <T Constrains None> Returns Maybe<T>^ Parameters (Parameter <value> Types T^) Do
+        {
+            Return Maybe@T::Constructor(value);
+        }
+
+        // Method template returning empty Maybe
+        Method <empty> Templates <T Constrains None> Returns Maybe<T>^ Parameters () Do
+        {
+            Return Maybe@T::Constructor();
+        }
+    ]
+]
+
+// Transformer class with method templates
+[ Class <Transformer> Final Extends None
+    [ Public <>
+        Constructor Parameters () ->
+        {
+        }
+
+        // Method template that takes a Box and returns unwrapped value
+        Method <unbox> Templates <T Constrains None> Returns T^ Parameters (Parameter <boxed> Types Box<T>^) Do
+        {
+            Return boxed.get();
+        }
+
+        // Method template that reboxes with new value
+        Method <rebox> Templates <T Constrains None> Returns Box<T>^ Parameters (Parameter <oldBox> Types Box<T>^, Parameter <newValue> Types T^) Do
+        {
+            Return Box@T::Constructor(newValue);
+        }
+    ]
+]
+
+[ Entrypoint
+{
+    Run Console::printLine(String::Constructor("=== Method Template Return Template Test ==="));
+
+    Instantiate Factory^ As <factory> = Factory::Constructor();
+    Instantiate Transformer^ As <transformer> = Transformer::Constructor();
+
+    // Test 1: Factory.box<Integer>
+    Run Console::printLine(String::Constructor("Test 1: Factory.box<Integer>"));
+    Instantiate Integer^ As <intVal> = Integer::Constructor(42);
+    Instantiate Box<Integer>^ As <boxedInt> = factory.box<Integer>(intVal);
+    Instantiate Integer^ As <unboxedInt> = boxedInt.get();
+    Run Console::printLine(String::Constructor("box<Integer>(42).get() = ").append(unboxedInt.toString()));
+
+    // Test 2: Factory.box<String>
+    Run Console::printLine(String::Constructor("Test 2: Factory.box<String>"));
+    Instantiate String^ As <strVal> = String::Constructor("Hello Factory");
+    Instantiate Box<String>^ As <boxedStr> = factory.box<String>(strVal);
+    Instantiate String^ As <unboxedStr> = boxedStr.get();
+    Run Console::printLine(String::Constructor("box<String>(Hello Factory).get() = ").append(unboxedStr));
+
+    // Test 3: Factory.maybe<Integer>
+    Run Console::printLine(String::Constructor("Test 3: Factory.maybe<Integer>"));
+    Instantiate Integer^ As <intVal2> = Integer::Constructor(99);
+    Instantiate Maybe<Integer>^ As <maybeInt> = factory.maybe<Integer>(intVal2);
+    Run Console::printLine(String::Constructor("maybe<Integer>(99).isPresent() = true (Bool returned)"));
+    Run Console::printLine(String::Constructor("maybe<Integer>(99).get() = ").append(maybeInt.get().toString()));
+
+    // Test 4: Factory.empty<String>
+    Run Console::printLine(String::Constructor("Test 4: Factory.empty<String>"));
+    Instantiate Maybe<String>^ As <emptyMaybe> = factory.empty<String>();
+    Run Console::printLine(String::Constructor("empty<String>().isPresent() = false (Bool returned)"));
+
+    // Test 5: Transformer.unbox<Integer>
+    Run Console::printLine(String::Constructor("Test 5: Transformer.unbox<Integer>"));
+    Instantiate Box<Integer>^ As <boxForUnbox> = Box@Integer::Constructor(Integer::Constructor(777));
+    Instantiate Integer^ As <unboxResult> = transformer.unbox<Integer>(boxForUnbox);
+    Run Console::printLine(String::Constructor("unbox<Integer>(Box(777)) = ").append(unboxResult.toString()));
+
+    // Test 6: Transformer.rebox<String>
+    Run Console::printLine(String::Constructor("Test 6: Transformer.rebox<String>"));
+    Instantiate Box<String>^ As <oldBox> = Box@String::Constructor(String::Constructor("Old Value"));
+    Instantiate String^ As <newValue> = String::Constructor("New Value");
+    Instantiate Box<String>^ As <reboxed> = transformer.rebox<String>(oldBox, newValue);
+    Run Console::printLine(String::Constructor("rebox result = ").append(reboxed.get()));
+
+    // Test 7: Chained operations
+    Run Console::printLine(String::Constructor("Test 7: Chained factory operations"));
+    Instantiate Integer^ As <chainVal> = Integer::Constructor(123);
+    Instantiate Box<Integer>^ As <chainBox> = factory.box<Integer>(chainVal);
+    Instantiate Integer^ As <chainUnbox> = transformer.unbox<Integer>(chainBox);
+    Instantiate Box<Integer>^ As <chainRebox> = factory.box<Integer>(chainUnbox);
+    Run Console::printLine(String::Constructor("box->unbox->box result = ").append(chainRebox.get().toString()));
+
+    Run Console::printLine(String::Constructor("=== Method Template Return Template Test PASSED ==="));
+}]

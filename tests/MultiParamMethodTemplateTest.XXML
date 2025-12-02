@@ -1,0 +1,115 @@
+// Test: Multi-Parameter Method Templates
+// Tests method templates with multiple type parameters <T, U>
+
+#import Language::Core;
+
+// Converter class with multi-param method templates
+[ Class <Converter> Final Extends None
+    [ Public <>
+        Constructor Parameters () ->
+        {
+        }
+
+        // Two-parameter method template: returns first argument
+        Method <first> Templates <T Constrains None, U Constrains None> Returns T^ Parameters (Parameter <a> Types T^, Parameter <b> Types U^) Do
+        {
+            Return a;
+        }
+
+        // Two-parameter method template: returns second argument
+        Method <second> Templates <T Constrains None, U Constrains None> Returns U^ Parameters (Parameter <a> Types T^, Parameter <b> Types U^) Do
+        {
+            Return b;
+        }
+
+        // Swap-like template (returns a pair conceptually - but we'll return second type)
+        Method <selectSecond> Templates <A Constrains None, B Constrains None> Returns B^ Parameters (Parameter <x> Types A^, Parameter <y> Types B^) Do
+        {
+            Return y;
+        }
+    ]
+]
+
+// Another class to test with
+[ Class <Container> <T Constrains None> Final Extends None
+    [ Private <>
+        Property <value> Types T^;
+    ]
+    [ Public <>
+        Constructor Parameters () ->
+        {
+        }
+
+        Constructor Parameters (Parameter <v> Types T^) ->
+        {
+            Set value = v;
+        }
+
+        Method <get> Returns T^ Parameters () Do
+        {
+            Return value;
+        }
+
+        // Method template with two params, using class's T
+        Method <combine> Templates <U Constrains None> Returns String^ Parameters (Parameter <other> Types U^) Do
+        {
+            Return String::Constructor("Combined");
+        }
+    ]
+]
+
+[ Entrypoint
+{
+    Run Console::printLine(String::Constructor("=== Multi-Parameter Method Template Test ==="));
+
+    Instantiate Converter^ As <conv> = Converter::Constructor();
+
+    // Test 1: first<Integer, String>
+    Run Console::printLine(String::Constructor("Test 1: first<Integer, String>"));
+    Instantiate Integer^ As <intVal> = Integer::Constructor(42);
+    Instantiate String^ As <strVal> = String::Constructor("Hello");
+    Instantiate Integer^ As <firstResult> = conv.first<Integer, String>(intVal, strVal);
+    Run Console::printLine(String::Constructor("first(42, Hello) = ").append(firstResult.toString()));
+
+    // Test 2: second<Integer, String>
+    Run Console::printLine(String::Constructor("Test 2: second<Integer, String>"));
+    Instantiate Integer^ As <intVal2> = Integer::Constructor(42);
+    Instantiate String^ As <strVal2> = String::Constructor("Hello");
+    Instantiate String^ As <secondResult> = conv.second<Integer, String>(intVal2, strVal2);
+    Run Console::printLine(String::Constructor("second(42, Hello) = ").append(secondResult));
+
+    // Test 3: first<String, Integer> (reversed types)
+    Run Console::printLine(String::Constructor("Test 3: first<String, Integer> (reversed)"));
+    Instantiate String^ As <str2> = String::Constructor("World");
+    Instantiate Integer^ As <int2> = Integer::Constructor(100);
+    Instantiate String^ As <firstReversed> = conv.first<String, Integer>(str2, int2);
+    Run Console::printLine(String::Constructor("first(World, 100) = ").append(firstReversed));
+
+    // Test 4: selectSecond with Bool and Integer
+    Run Console::printLine(String::Constructor("Test 4: selectSecond<Bool, Integer>"));
+    Instantiate Bool^ As <boolVal> = Bool::Constructor(true);
+    Instantiate Integer^ As <int3> = Integer::Constructor(999);
+    Instantiate Integer^ As <selectedInt> = conv.selectSecond<Bool, Integer>(boolVal, int3);
+    Run Console::printLine(String::Constructor("selectSecond(true, 999) = ").append(selectedInt.toString()));
+
+    // Test 5: Container with method template adding another type parameter
+    Run Console::printLine(String::Constructor("Test 5: Container<Integer>.combine<String>"));
+    Instantiate Container<Integer>^ As <cont> = Container@Integer::Constructor(Integer::Constructor(50));
+    Instantiate String^ As <strArg> = String::Constructor("extra");
+    Instantiate String^ As <combineResult> = cont.combine<String>(strArg);
+    Run Console::printLine(String::Constructor("Container<Integer>.combine<String> = ").append(combineResult));
+
+    // Test 6: Multiple calls with different type combinations
+    Run Console::printLine(String::Constructor("Test 6: Multiple type combinations"));
+    Instantiate Integer^ As <a1> = Integer::Constructor(1);
+    Instantiate Integer^ As <b1> = Integer::Constructor(2);
+    Instantiate Integer^ As <res1> = conv.first<Integer, Integer>(a1, b1);
+    Run Console::printLine(String::Constructor("first<Integer, Integer>(1, 2) = ").append(res1.toString()));
+
+    Instantiate String^ As <a2> = String::Constructor("AA");
+    Instantiate String^ As <b2> = String::Constructor("BB");
+    Instantiate String^ As <res2> = conv.first<String, String>(a2, b2);
+    Run Console::printLine(String::Constructor("first<String, String>(AA, BB) = ").append(res2));
+
+    Run Console::printLine(String::Constructor("=== Multi-Parameter Method Template Test PASSED ==="));
+}]

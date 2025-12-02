@@ -1,0 +1,203 @@
+// Test: Template Stress Test
+// Heavy instantiation of templates with many different types
+
+#import Language::Core;
+
+// Generic container
+[ Class <Container> <T Constrains None> Final Extends None
+    [ Private <>
+        Property <value> Types T^;
+    ]
+    [ Public <>
+        Constructor Parameters () ->
+        {
+        }
+
+        Constructor Parameters (Parameter <v> Types T^) ->
+        {
+            Set value = v;
+        }
+
+        Method <get> Returns T^ Parameters () Do
+        {
+            Return value;
+        }
+
+        Method <set> Returns None Parameters (Parameter <v> Types T^) Do
+        {
+            Set value = v;
+        }
+    ]
+]
+
+// Custom types for testing
+[ Class <TypeA> Final Extends None
+    [ Private <>
+        Property <id> Types Integer^;
+    ]
+    [ Public <>
+        Constructor Parameters () ->
+        {
+            Set id = Integer::Constructor(1);
+        }
+        Method <getId> Returns Integer^ Parameters () Do
+        {
+            Return id;
+        }
+    ]
+]
+
+[ Class <TypeB> Final Extends None
+    [ Private <>
+        Property <id> Types Integer^;
+    ]
+    [ Public <>
+        Constructor Parameters () ->
+        {
+            Set id = Integer::Constructor(2);
+        }
+        Method <getId> Returns Integer^ Parameters () Do
+        {
+            Return id;
+        }
+    ]
+]
+
+[ Class <TypeC> Final Extends None
+    [ Private <>
+        Property <id> Types Integer^;
+    ]
+    [ Public <>
+        Constructor Parameters () ->
+        {
+            Set id = Integer::Constructor(3);
+        }
+        Method <getId> Returns Integer^ Parameters () Do
+        {
+            Return id;
+        }
+    ]
+]
+
+[ Class <TypeD> Final Extends None
+    [ Private <>
+        Property <id> Types Integer^;
+    ]
+    [ Public <>
+        Constructor Parameters () ->
+        {
+            Set id = Integer::Constructor(4);
+        }
+        Method <getId> Returns Integer^ Parameters () Do
+        {
+            Return id;
+        }
+    ]
+]
+
+[ Class <TypeE> Final Extends None
+    [ Private <>
+        Property <id> Types Integer^;
+    ]
+    [ Public <>
+        Constructor Parameters () ->
+        {
+            Set id = Integer::Constructor(5);
+        }
+        Method <getId> Returns Integer^ Parameters () Do
+        {
+            Return id;
+        }
+    ]
+]
+
+// Handler with method template
+[ Class <Handler> Final Extends None
+    [ Public <>
+        Constructor Parameters () ->
+        {
+        }
+
+        Method <process> Templates <T Constrains None> Returns Integer^ Parameters (Parameter <val> Types T^) Do
+        {
+            Return Integer::Constructor(1);
+        }
+    ]
+]
+
+[ Entrypoint
+{
+    Run Console::printLine(String::Constructor("=== Template Stress Test ==="));
+    Run Console::printLine(String::Constructor("Testing many template instantiations..."));
+
+    // Stress test 1: Container<T> with many types
+    Run Console::printLine(String::Constructor("Test 1: Container with primitive types"));
+    Instantiate Container<Integer>^ As <cInt> = Container@Integer::Constructor(Integer::Constructor(1));
+    Instantiate Container<String>^ As <cStr> = Container@String::Constructor(String::Constructor("s"));
+    Instantiate Container<Bool>^ As <cBool> = Container@Bool::Constructor(Bool::Constructor(true));
+
+    Run Console::printLine(String::Constructor("  Container<Integer> = ").append(cInt.get().toString()));
+    Run Console::printLine(String::Constructor("  Container<String> = ").append(cStr.get()));
+    Run Console::printLine(String::Constructor("  Container<Bool> instantiated successfully"));
+
+    // Stress test 2: Container<T> with custom types
+    Run Console::printLine(String::Constructor("Test 2: Container with custom types"));
+    Instantiate Container<TypeA>^ As <cA> = Container@TypeA::Constructor(TypeA::Constructor());
+    Instantiate Container<TypeB>^ As <cB> = Container@TypeB::Constructor(TypeB::Constructor());
+    Instantiate Container<TypeC>^ As <cC> = Container@TypeC::Constructor(TypeC::Constructor());
+    Instantiate Container<TypeD>^ As <cD> = Container@TypeD::Constructor(TypeD::Constructor());
+    Instantiate Container<TypeE>^ As <cE> = Container@TypeE::Constructor(TypeE::Constructor());
+
+    Run Console::printLine(String::Constructor("  Container<TypeA>.get().getId() = ").append(cA.get().getId().toString()));
+    Run Console::printLine(String::Constructor("  Container<TypeB>.get().getId() = ").append(cB.get().getId().toString()));
+    Run Console::printLine(String::Constructor("  Container<TypeC>.get().getId() = ").append(cC.get().getId().toString()));
+    Run Console::printLine(String::Constructor("  Container<TypeD>.get().getId() = ").append(cD.get().getId().toString()));
+    Run Console::printLine(String::Constructor("  Container<TypeE>.get().getId() = ").append(cE.get().getId().toString()));
+
+    // Stress test 3: Method template with many types
+    Run Console::printLine(String::Constructor("Test 3: Method template with many types"));
+    Instantiate Handler^ As <proc> = Handler::Constructor();
+
+    Instantiate Integer^ As <pInt> = proc.process<Integer>(Integer::Constructor(0));
+    Instantiate Integer^ As <pStr> = proc.process<String>(String::Constructor("x"));
+    Instantiate Integer^ As <pBool> = proc.process<Bool>(Bool::Constructor(false));
+    Instantiate Integer^ As <pA> = proc.process<TypeA>(TypeA::Constructor());
+    Instantiate Integer^ As <pB> = proc.process<TypeB>(TypeB::Constructor());
+    Instantiate Integer^ As <pC> = proc.process<TypeC>(TypeC::Constructor());
+    Instantiate Integer^ As <pD> = proc.process<TypeD>(TypeD::Constructor());
+    Instantiate Integer^ As <pE> = proc.process<TypeE>(TypeE::Constructor());
+
+    Instantiate Integer^ As <total> = pInt.add(pStr).add(pBool).add(pA).add(pB).add(pC).add(pD).add(pE);
+    Run Console::printLine(String::Constructor("  Total method template calls: ").append(total.toString()));
+
+    // Stress test 4: Lambda template with many types
+    Run Console::printLine(String::Constructor("Test 4: Lambda template with many types"));
+    Instantiate __function^ As <identity> = [ Lambda [] Templates <T Constrains None> Returns T^ Parameters (Parameter <x> Types T^)
+    {
+        Return x;
+    } ];
+
+    Instantiate Integer^ As <lInt> = identity<Integer>.call(Integer::Constructor(100));
+    Instantiate String^ As <lStr> = identity<String>.call(String::Constructor("lambda"));
+    Instantiate Bool^ As <lBool> = identity<Bool>.call(Bool::Constructor(true));
+    Instantiate TypeA^ As <lA> = identity<TypeA>.call(TypeA::Constructor());
+    Instantiate TypeB^ As <lB> = identity<TypeB>.call(TypeB::Constructor());
+    Instantiate TypeC^ As <lC> = identity<TypeC>.call(TypeC::Constructor());
+
+    Run Console::printLine(String::Constructor("  identity<Integer>(100) = ").append(lInt.toString()));
+    Run Console::printLine(String::Constructor("  identity<String>(lambda) = ").append(lStr));
+    Run Console::printLine(String::Constructor("  identity<Bool>(true) instantiated successfully"));
+    Run Console::printLine(String::Constructor("  identity<TypeA>().getId() = ").append(lA.getId().toString()));
+    Run Console::printLine(String::Constructor("  identity<TypeB>().getId() = ").append(lB.getId().toString()));
+    Run Console::printLine(String::Constructor("  identity<TypeC>().getId() = ").append(lC.getId().toString()));
+
+    // Stress test 5: Additional template instantiations
+    Run Console::printLine(String::Constructor("Test 5: Additional template instantiations"));
+    Instantiate Container<TypeD>^ As <cD2> = Container@TypeD::Constructor(TypeD::Constructor());
+    Instantiate Container<TypeE>^ As <cE2> = Container@TypeE::Constructor(TypeE::Constructor());
+    Run Console::printLine(String::Constructor("  Container<TypeD> x2 = ").append(cD2.get().getId().toString()));
+    Run Console::printLine(String::Constructor("  Container<TypeE> x2 = ").append(cE2.get().getId().toString()));
+
+    Run Console::printLine(String::Constructor("=== Template Stress Test PASSED ==="));
+    Run Console::printLine(String::Constructor("All instantiations successful!"));
+}]

@@ -1,0 +1,72 @@
+// Test: Multi-Parameter Lambda Templates
+// Tests lambda templates with multiple type parameters <T, U>
+
+#import Language::Core;
+
+[ Entrypoint
+{
+    Run Console::printLine(String::Constructor("=== Multi-Parameter Lambda Template Test ==="));
+
+    // Test 1: Lambda template that returns first argument
+    Run Console::printLine(String::Constructor("Test 1: Lambda template returning first arg"));
+    Instantiate __function^ As <first> = [ Lambda [] Templates <T Constrains None, U Constrains None> Returns T^ Parameters (Parameter <a> Types T^, Parameter <b> Types U^)
+    {
+        Return a;
+    } ];
+
+    Instantiate Integer^ As <intVal> = Integer::Constructor(42);
+    Instantiate String^ As <strVal> = String::Constructor("Hello");
+    Instantiate Integer^ As <firstResult> = first<Integer, String>.call(intVal, strVal);
+    Run Console::printLine(String::Constructor("first<Integer, String>(42, Hello) = ").append(firstResult.toString()));
+
+    // Test 2: Lambda template that returns second argument
+    Run Console::printLine(String::Constructor("Test 2: Lambda template returning second arg"));
+    Instantiate __function^ As <second> = [ Lambda [] Templates <T Constrains None, U Constrains None> Returns U^ Parameters (Parameter <a> Types T^, Parameter <b> Types U^)
+    {
+        Return b;
+    } ];
+
+    Instantiate String^ As <secondResult> = second<Integer, String>.call(intVal, strVal);
+    Run Console::printLine(String::Constructor("second<Integer, String>(42, Hello) = ").append(secondResult));
+
+    // Test 3: Reversed type arguments
+    Run Console::printLine(String::Constructor("Test 3: Reversed type arguments"));
+    Instantiate String^ As <str2> = String::Constructor("World");
+    Instantiate Integer^ As <int2> = Integer::Constructor(100);
+    Instantiate String^ As <reversedFirst> = first<String, Integer>.call(str2, int2);
+    Run Console::printLine(String::Constructor("first<String, Integer>(World, 100) = ").append(reversedFirst));
+
+    // Test 4: Same types for both parameters
+    Run Console::printLine(String::Constructor("Test 4: Same type for both params"));
+    Instantiate Integer^ As <a1> = Integer::Constructor(10);
+    Instantiate Integer^ As <b1> = Integer::Constructor(20);
+    Instantiate Integer^ As <sameFirst> = first<Integer, Integer>.call(a1, b1);
+    Instantiate Integer^ As <sameSecond> = second<Integer, Integer>.call(a1, b1);
+    Run Console::printLine(String::Constructor("first<Integer, Integer>(10, 20) = ").append(sameFirst.toString()));
+    Run Console::printLine(String::Constructor("second<Integer, Integer>(10, 20) = ").append(sameSecond.toString()));
+
+    // Test 5: Lambda template with Integer and String (more types)
+    Run Console::printLine(String::Constructor("Test 5: More type combinations"));
+    Instantiate Integer^ As <int5a> = Integer::Constructor(77);
+    Instantiate String^ As <strVal5> = String::Constructor("SevenSeven");
+    Instantiate Integer^ As <int5First> = first<Integer, String>.call(int5a, strVal5);
+    Run Console::printLine(String::Constructor("first<Integer, String>(77) = ").append(int5First.toString()));
+    Instantiate Integer^ As <int5b> = Integer::Constructor(88);
+    Instantiate String^ As <strVal5b> = String::Constructor("EightEight");
+    Instantiate String^ As <strSecond> = second<Integer, String>.call(int5b, strVal5b);
+    Run Console::printLine(String::Constructor("second<Integer, String> = ").append(strSecond));
+
+    // Test 6: Multiple instantiations of same lambda
+    Run Console::printLine(String::Constructor("Test 6: Multiple instantiations"));
+    Instantiate Integer^ As <i1> = Integer::Constructor(1);
+    Instantiate String^ As <s1> = String::Constructor("A");
+    Instantiate Integer^ As <r1> = first<Integer, String>.call(i1, s1);
+    Run Console::printLine(String::Constructor("first<Integer, String>(1, A) = ").append(r1.toString()));
+
+    Instantiate String^ As <s2> = String::Constructor("B");
+    Instantiate Integer^ As <i3> = Integer::Constructor(3);
+    Instantiate String^ As <r3> = first<String, Integer>.call(s2, i3);
+    Run Console::printLine(String::Constructor("first<String, Integer>(B, 3) = ").append(r3));
+
+    Run Console::printLine(String::Constructor("=== Multi-Parameter Lambda Template Test PASSED ==="));
+}]

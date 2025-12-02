@@ -1,0 +1,142 @@
+// Test: Method Templates Combined with Lambda Templates
+// Tests interaction between method templates and lambda templates
+
+#import Language::Core;
+
+// Class with method template that works with lambda templates
+[ Class <FunctionProcessor> Final Extends None
+    [ Public <>
+        Constructor Parameters () ->
+        {
+        }
+
+        // Method template that applies a transformation
+        Method <transform> Templates <T Constrains None> Returns T^ Parameters (Parameter <value> Types T^) Do
+        {
+            Return value;
+        }
+
+        // Method template returning Integer (for counting/processing)
+        Method <count> Templates <T Constrains None> Returns Integer^ Parameters (Parameter <item> Types T^) Do
+        {
+            Return Integer::Constructor(1);
+        }
+    ]
+]
+
+// Class that stores a value and has method templates
+[ Class <Holder> <T Constrains None> Final Extends None
+    [ Private <>
+        Property <value> Types T^;
+    ]
+    [ Public <>
+        Constructor Parameters () ->
+        {
+        }
+
+        Constructor Parameters (Parameter <v> Types T^) ->
+        {
+            Set value = v;
+        }
+
+        Method <get> Returns T^ Parameters () Do
+        {
+            Return value;
+        }
+
+        // Method template on a template class
+        Method <as> Templates <U Constrains None> Returns U^ Parameters (Parameter <converter> Types U^) Do
+        {
+            Return converter;
+        }
+    ]
+]
+
+[ Entrypoint
+{
+    Run Console::printLine(String::Constructor("=== Method and Lambda Template Combined Test ==="));
+
+    // Test 1: Define lambda templates
+    Run Console::printLine(String::Constructor("Test 1: Define lambda templates"));
+
+    Instantiate __function^ As <identity> = [ Lambda [] Templates <T Constrains None> Returns T^ Parameters (Parameter <x> Types T^)
+    {
+        Return x;
+    } ];
+
+    Instantiate __function^ As <getOne> = [ Lambda [] Templates <T Constrains None> Returns Integer^ Parameters (Parameter <x> Types T^)
+    {
+        Return Integer::Constructor(1);
+    } ];
+
+    Run Console::printLine(String::Constructor("  Lambda templates defined"));
+
+    // Test 2: Use method templates
+    Run Console::printLine(String::Constructor("Test 2: Use method templates"));
+    Instantiate FunctionProcessor^ As <proc> = FunctionProcessor::Constructor();
+
+    Instantiate Integer^ As <intVal> = Integer::Constructor(42);
+    Instantiate Integer^ As <transformed> = proc.transform<Integer>(intVal);
+    Run Console::printLine(String::Constructor("  transform<Integer>(42) = ").append(transformed.toString()));
+
+    Instantiate String^ As <strVal> = String::Constructor("Hello");
+    Instantiate String^ As <transformedStr> = proc.transform<String>(strVal);
+    Run Console::printLine(String::Constructor("  transform<String>(Hello) = ").append(transformedStr));
+
+    // Test 3: Use lambda templates with same types
+    Run Console::printLine(String::Constructor("Test 3: Lambda templates with same types"));
+    Instantiate Integer^ As <intVal2> = Integer::Constructor(42);
+    Instantiate Integer^ As <lambdaInt> = identity<Integer>.call(intVal2);
+    Instantiate String^ As <strVal2> = String::Constructor("Hello");
+    Instantiate String^ As <lambdaStr> = identity<String>.call(strVal2);
+    Run Console::printLine(String::Constructor("  identity<Integer>(42) = ").append(lambdaInt.toString()));
+    Run Console::printLine(String::Constructor("  identity<String>(Hello) = ").append(lambdaStr));
+
+    // Test 4: Method template on template class + lambda template
+    Run Console::printLine(String::Constructor("Test 4: Holder<T> with method template"));
+    Instantiate Holder<Integer>^ As <intHolder> = Holder@Integer::Constructor(Integer::Constructor(100));
+    Instantiate Integer^ As <holderVal> = intHolder.get();
+    Run Console::printLine(String::Constructor("  Holder<Integer>.get() = ").append(holderVal.toString()));
+
+    // Use the 'as' method template
+    Instantiate String^ As <asStr> = String::Constructor("Converted");
+    Instantiate String^ As <converted> = intHolder.as<String>(asStr);
+    Run Console::printLine(String::Constructor("  Holder<Integer>.as<String>() = ").append(converted));
+
+    // Test 5: Chain method template results through lambda template
+    Run Console::printLine(String::Constructor("Test 5: Chain method -> lambda"));
+    Instantiate Integer^ As <methodResult> = proc.transform<Integer>(Integer::Constructor(50));
+    Instantiate Integer^ As <chainedResult> = identity<Integer>.call(methodResult);
+    Run Console::printLine(String::Constructor("  transform then identity = ").append(chainedResult.toString()));
+
+    // Test 6: Chain lambda template results through method template
+    Run Console::printLine(String::Constructor("Test 6: Chain lambda -> method"));
+    Instantiate String^ As <lambdaResult> = identity<String>.call(String::Constructor("Test"));
+    Instantiate String^ As <methodChained> = proc.transform<String>(lambdaResult);
+    Run Console::printLine(String::Constructor("  identity then transform = ").append(methodChained));
+
+    // Test 7: Multiple types through both
+    Run Console::printLine(String::Constructor("Test 7: Multiple types through both"));
+    Instantiate Integer^ As <count1> = proc.count<Integer>(Integer::Constructor(0));
+    Instantiate Integer^ As <count2> = proc.count<String>(String::Constructor("x"));
+    Instantiate Integer^ As <count3> = proc.count<Bool>(Bool::Constructor(true));
+
+    Instantiate Integer^ As <lcount1> = getOne<Integer>.call(Integer::Constructor(0));
+    Instantiate Integer^ As <lcount2> = getOne<String>.call(String::Constructor("y"));
+    Instantiate Integer^ As <lcount3> = getOne<Bool>.call(Bool::Constructor(false));
+
+    Instantiate Integer^ As <totalMethod> = count1.add(count2).add(count3);
+    Instantiate Integer^ As <totalLambda> = lcount1.add(lcount2).add(lcount3);
+
+    Run Console::printLine(String::Constructor("  Method template total: ").append(totalMethod.toString()));
+    Run Console::printLine(String::Constructor("  Lambda template total: ").append(totalLambda.toString()));
+
+    // Test 8: Holder with different types using both
+    Run Console::printLine(String::Constructor("Test 8: Holder with multiple types"));
+    Instantiate Holder<String>^ As <strHolder> = Holder@String::Constructor(String::Constructor("Stored"));
+    Instantiate String^ As <heldStr> = strHolder.get();
+    Instantiate String^ As <lambdaHeld> = identity<String>.call(heldStr);
+    Run Console::printLine(String::Constructor("  Holder->get->identity = ").append(lambdaHeld));
+
+    Run Console::printLine(String::Constructor("=== Method and Lambda Template Combined Test PASSED ==="));
+}]

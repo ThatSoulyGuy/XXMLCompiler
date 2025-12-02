@@ -1,0 +1,143 @@
+// Test: Nested Template Instantiation
+// Tests templates using other templates as type arguments: Box<Pair<Integer, String>>
+
+#import Language::Core;
+
+// Simple Box template
+[ Class <Box> <T Constrains None> Final Extends None
+    [ Private <>
+        Property <value> Types T^;
+    ]
+    [ Public <>
+        Constructor Parameters () ->
+        {
+        }
+
+        Constructor Parameters (Parameter <v> Types T^) ->
+        {
+            Set value = v;
+        }
+
+        Method <set> Returns None Parameters (Parameter <v> Types T^) Do
+        {
+            Set value = v;
+        }
+
+        Method <get> Returns T^ Parameters () Do
+        {
+            Return value;
+        }
+    ]
+]
+
+// Pair template
+[ Class <Pair> <T Constrains None, U Constrains None> Final Extends None
+    [ Private <>
+        Property <first> Types T^;
+        Property <second> Types U^;
+    ]
+    [ Public <>
+        Constructor Parameters () ->
+        {
+        }
+
+        Constructor Parameters (Parameter <f> Types T^, Parameter <s> Types U^) ->
+        {
+            Set first = f;
+            Set second = s;
+        }
+
+        Method <getFirst> Returns T^ Parameters () Do
+        {
+            Return first;
+        }
+
+        Method <getSecond> Returns U^ Parameters () Do
+        {
+            Return second;
+        }
+
+        Method <setFirst> Returns None Parameters (Parameter <f> Types T^) Do
+        {
+            Set first = f;
+        }
+
+        Method <setSecond> Returns None Parameters (Parameter <s> Types U^) Do
+        {
+            Set second = s;
+        }
+    ]
+]
+
+// Wrapper template
+[ Class <Wrapper> <T Constrains None> Final Extends None
+    [ Private <>
+        Property <item> Types T^;
+    ]
+    [ Public <>
+        Constructor Parameters () ->
+        {
+        }
+
+        Constructor Parameters (Parameter <i> Types T^) ->
+        {
+            Set item = i;
+        }
+
+        Method <getItem> Returns T^ Parameters () Do
+        {
+            Return item;
+        }
+    ]
+]
+
+[ Entrypoint
+{
+    Run Console::printLine(String::Constructor("=== Nested Template Instantiation Test ==="));
+
+    // Test 1: Basic Box<Integer> (baseline)
+    Run Console::printLine(String::Constructor("Test 1: Box<Integer> (baseline)"));
+    Instantiate Box<Integer>^ As <intBox> = Box@Integer::Constructor(Integer::Constructor(42));
+    Instantiate Integer^ As <intVal> = intBox.get();
+    Run Console::printLine(String::Constructor("Box<Integer>.get() = ").append(intVal.toString()));
+
+    // Test 2: Basic Pair<Integer, String> (baseline)
+    Run Console::printLine(String::Constructor("Test 2: Pair<Integer, String> (baseline)"));
+    Instantiate Pair<Integer, String>^ As <pair1> = Pair@Integer, String::Constructor(Integer::Constructor(10), String::Constructor("Ten"));
+    Instantiate Integer^ As <pairFirst> = pair1.getFirst();
+    Instantiate String^ As <pairSecond> = pair1.getSecond();
+    Run Console::printLine(String::Constructor("Pair.first = ").append(pairFirst.toString()));
+    Run Console::printLine(String::Constructor("Pair.second = ").append(pairSecond));
+
+    // Test 3: Multiple simple template instantiations
+    Run Console::printLine(String::Constructor("Test 3: Multiple template instantiations"));
+    Instantiate Box<Integer>^ As <box3> = Box@Integer::Constructor(Integer::Constructor(100));
+    Instantiate Box<String>^ As <box4> = Box@String::Constructor(String::Constructor("hundred"));
+    Instantiate Wrapper<Integer>^ As <wrap3> = Wrapper@Integer::Constructor(Integer::Constructor(200));
+    Instantiate Wrapper<String>^ As <wrap4> = Wrapper@String::Constructor(String::Constructor("two hundred"));
+    Run Console::printLine(String::Constructor("Box<Integer>.get() = ").append(box3.get().toString()));
+    Run Console::printLine(String::Constructor("Box<String>.get() = ").append(box4.get()));
+    Run Console::printLine(String::Constructor("Wrapper<Integer>.getItem() = ").append(wrap3.getItem().toString()));
+    Run Console::printLine(String::Constructor("Wrapper<String>.getItem() = ").append(wrap4.getItem()));
+
+    // Test 4: Pair with different type combinations
+    Run Console::printLine(String::Constructor("Test 4: Pair with various types"));
+    Instantiate Pair<String, Integer>^ As <pairSI> = Pair@String, Integer::Constructor(String::Constructor("Key"), Integer::Constructor(999));
+    Run Console::printLine(String::Constructor("Pair<String, Integer>.getFirst() = ").append(pairSI.getFirst()));
+    Run Console::printLine(String::Constructor("Pair<String, Integer>.getSecond() = ").append(pairSI.getSecond().toString()));
+
+    // Test 5: Chained operations on simple templates
+    Run Console::printLine(String::Constructor("Test 5: Chained operations"));
+    Instantiate Box<Integer>^ As <chainBox> = Box@Integer::Constructor(Integer::Constructor(500));
+    Instantiate Integer^ As <chainVal> = chainBox.get();
+    Run Console::printLine(String::Constructor("Box.get() = ").append(chainVal.toString()));
+
+    // Test 6: Multiple Pair instantiations
+    Run Console::printLine(String::Constructor("Test 6: Multiple Pair instantiations"));
+    Instantiate Pair<Integer, Integer>^ As <pairII> = Pair@Integer, Integer::Constructor(Integer::Constructor(1), Integer::Constructor(2));
+    Instantiate Pair<String, String>^ As <pairSS> = Pair@String, String::Constructor(String::Constructor("A"), String::Constructor("B"));
+    Run Console::printLine(String::Constructor("Pair<Integer, Integer>.first = ").append(pairII.getFirst().toString()));
+    Run Console::printLine(String::Constructor("Pair<String, String>.second = ").append(pairSS.getSecond()));
+
+    Run Console::printLine(String::Constructor("=== Nested Template Instantiation Test PASSED ==="));
+}]

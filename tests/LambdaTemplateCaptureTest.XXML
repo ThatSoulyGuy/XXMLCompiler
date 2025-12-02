@@ -1,0 +1,78 @@
+// Test: Lambda Templates with Captures
+// Tests combining lambda templates with variable capture (%, &, ^)
+
+#import Language::Core;
+
+[ Entrypoint
+{
+    Run Console::printLine(String::Constructor("=== Lambda Template Capture Test ==="));
+
+    // Test 1: Lambda template with copy capture (%)
+    Run Console::printLine(String::Constructor("Test 1: Lambda template with copy capture"));
+    Instantiate Integer^ As <multiplier> = Integer::Constructor(5);
+
+    Instantiate __function^ As <multiply> = [ Lambda [%multiplier] Templates <T Constrains None> Returns Integer^ Parameters (Parameter <x> Types T^)
+    {
+        Return multiplier;
+    } ];
+
+    Instantiate Integer^ As <val1> = Integer::Constructor(10);
+    Instantiate Integer^ As <result1> = multiply<Integer>.call(val1);
+    Run Console::printLine(String::Constructor("Captured multiplier = ").append(result1.toString()));
+
+    // Test 2: Lambda template with copy capture - different type argument
+    Run Console::printLine(String::Constructor("Test 2: Same template, different type"));
+    Instantiate String^ As <strVal> = String::Constructor("ignored");
+    Instantiate Integer^ As <result2> = multiply<String>.call(strVal);
+    Run Console::printLine(String::Constructor("Captured multiplier (with String arg) = ").append(result2.toString()));
+
+    // Test 3: Lambda template with multiple captures
+    Run Console::printLine(String::Constructor("Test 3: Lambda template with multiple captures"));
+    Instantiate Integer^ As <base> = Integer::Constructor(100);
+    Instantiate Integer^ As <offset> = Integer::Constructor(7);
+
+    Instantiate __function^ As <compute> = [ Lambda [%base, %offset] Templates <T Constrains None> Returns Integer^ Parameters (Parameter <x> Types T^)
+    {
+        Return base.add(offset);
+    } ];
+
+    Instantiate Integer^ As <dummy> = Integer::Constructor(0);
+    Instantiate Integer^ As <computeResult> = compute<Integer>.call(dummy);
+    Run Console::printLine(String::Constructor("base + offset = ").append(computeResult.toString()));
+
+    // Test 4: Lambda template with String capture
+    Run Console::printLine(String::Constructor("Test 4: Lambda template with String capture"));
+    Instantiate String^ As <prefix> = String::Constructor("PREFIX: ");
+
+    Instantiate __function^ As <addPrefix> = [ Lambda [%prefix] Templates <T Constrains None> Returns String^ Parameters (Parameter <x> Types T^)
+    {
+        Return prefix;
+    } ];
+
+    Instantiate Integer^ As <someInt> = Integer::Constructor(42);
+    Instantiate String^ As <prefixResult> = addPrefix<Integer>.call(someInt);
+    Run Console::printLine(String::Constructor("Captured prefix = ").append(prefixResult));
+
+    // Test 5: Multiple instantiations of same captured lambda template
+    Run Console::printLine(String::Constructor("Test 5: Multiple instantiations with capture"));
+    Instantiate Integer^ As <factor> = Integer::Constructor(10);
+
+    Instantiate __function^ As <getFactor> = [ Lambda [%factor] Templates <T Constrains None> Returns Integer^ Parameters (Parameter <x> Types T^)
+    {
+        Return factor;
+    } ];
+
+    Instantiate Integer^ As <int1> = Integer::Constructor(1);
+    Instantiate String^ As <str1> = String::Constructor("a");
+    Instantiate Bool^ As <bool1> = Bool::Constructor(true);
+
+    Instantiate Integer^ As <r1> = getFactor<Integer>.call(int1);
+    Instantiate Integer^ As <r2> = getFactor<String>.call(str1);
+    Instantiate Integer^ As <r3> = getFactor<Bool>.call(bool1);
+
+    Run Console::printLine(String::Constructor("getFactor<Integer> = ").append(r1.toString()));
+    Run Console::printLine(String::Constructor("getFactor<String> = ").append(r2.toString()));
+    Run Console::printLine(String::Constructor("getFactor<Bool> = ").append(r3.toString()));
+
+    Run Console::printLine(String::Constructor("=== Lambda Template Capture Test PASSED ==="));
+}]

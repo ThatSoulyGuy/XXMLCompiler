@@ -202,6 +202,7 @@ private:
 
     // Global string constant pool for compile-time string values
     std::unordered_map<std::string, std::string> globalStringConstants_;  // content -> label
+    size_t stringConstantCounter_ = 0;  // Dedicated counter for unique string labels
 
     // Expression result tracking (set by expression visitors, consumed by statement visitors)
     IR::Value* lastExprValue_ = nullptr;

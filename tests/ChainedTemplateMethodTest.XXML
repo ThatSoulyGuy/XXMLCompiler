@@ -1,0 +1,175 @@
+// Test: Chained Method Calls on Template Instances
+// Tests method chaining: box.set(v).get().toString() style operations
+
+#import Language::Core;
+
+// Fluent builder-style Box
+[ Class <FluentBox> <T Constrains None> Final Extends None
+    [ Private <>
+        Property <value> Types T^;
+    ]
+    [ Public <>
+        Constructor Parameters () ->
+        {
+        }
+
+        Constructor Parameters (Parameter <v> Types T^) ->
+        {
+            Set value = v;
+        }
+
+        // Returns self for chaining (conceptually - returns new instance)
+        Method <set> Returns FluentBox<T>^ Parameters (Parameter <v> Types T^) Do
+        {
+            Return FluentBox@T::Constructor(v);
+        }
+
+        Method <get> Returns T^ Parameters () Do
+        {
+            Return value;
+        }
+    ]
+]
+
+// Wrapper with chained operations
+[ Class <ChainWrapper> <T Constrains None> Final Extends None
+    [ Private <>
+        Property <item> Types T^;
+        Property <count> Types Integer^;
+    ]
+    [ Public <>
+        Constructor Parameters () ->
+        {
+            Set count = Integer::Constructor(0);
+        }
+
+        Constructor Parameters (Parameter <i> Types T^) ->
+        {
+            Set item = i;
+            Set count = Integer::Constructor(1);
+        }
+
+        Method <wrap> Returns ChainWrapper<T>^ Parameters (Parameter <i> Types T^) Do
+        {
+            Return ChainWrapper@T::Constructor(i);
+        }
+
+        Method <unwrap> Returns T^ Parameters () Do
+        {
+            Return item;
+        }
+
+        Method <getCount> Returns Integer^ Parameters () Do
+        {
+            Return count;
+        }
+    ]
+]
+
+// Processor with method templates for chaining
+[ Class <ChainProcessor> Final Extends None
+    [ Public <>
+        Constructor Parameters () ->
+        {
+        }
+
+        // Method template that can chain
+        Method <process> Templates <T Constrains None> Returns T^ Parameters (Parameter <x> Types T^) Do
+        {
+            Return x;
+        }
+
+        // Another method template
+        Method <transform> Templates <T Constrains None> Returns T^ Parameters (Parameter <x> Types T^) Do
+        {
+            Return x;
+        }
+    ]
+]
+
+[ Entrypoint
+{
+    Run Console::printLine(String::Constructor("=== Chained Template Method Test ==="));
+
+    // Test 1: Basic FluentBox chaining
+    Run Console::printLine(String::Constructor("Test 1: FluentBox basic operations"));
+    Instantiate FluentBox<Integer>^ As <box1> = FluentBox@Integer::Constructor(Integer::Constructor(10));
+    Instantiate Integer^ As <val1> = box1.get();
+    Run Console::printLine(String::Constructor("  FluentBox(10).get() = ").append(val1.toString()));
+
+    // Test 2: FluentBox.set().get() chain
+    Run Console::printLine(String::Constructor("Test 2: FluentBox.set().get() chain"));
+    Instantiate FluentBox<Integer>^ As <box2> = FluentBox@Integer::Constructor(Integer::Constructor(0));
+    Instantiate FluentBox<Integer>^ As <box2Updated> = box2.set(Integer::Constructor(42));
+    Instantiate Integer^ As <val2> = box2Updated.get();
+    Run Console::printLine(String::Constructor("  FluentBox(0).set(42).get() = ").append(val2.toString()));
+
+    // Test 3: Multiple set operations
+    Run Console::printLine(String::Constructor("Test 3: Multiple set operations"));
+    Instantiate FluentBox<String>^ As <strBox> = FluentBox@String::Constructor(String::Constructor("initial"));
+    Instantiate FluentBox<String>^ As <strBox2> = strBox.set(String::Constructor("second"));
+    Instantiate FluentBox<String>^ As <strBox3> = strBox2.set(String::Constructor("final"));
+    Instantiate String^ As <finalStr> = strBox3.get();
+    Run Console::printLine(String::Constructor("  set->set->set->get = ").append(finalStr));
+
+    // Test 4: ChainWrapper operations
+    Run Console::printLine(String::Constructor("Test 4: ChainWrapper operations"));
+    Instantiate ChainWrapper<Integer>^ As <wrap1> = ChainWrapper@Integer::Constructor(Integer::Constructor(100));
+    Instantiate Integer^ As <unwrapped1> = wrap1.unwrap();
+    Instantiate Integer^ As <wrapCount> = wrap1.getCount();
+    Run Console::printLine(String::Constructor("  ChainWrapper(100).unwrap() = ").append(unwrapped1.toString()));
+    Run Console::printLine(String::Constructor("  ChainWrapper(100).getCount() = ").append(wrapCount.toString()));
+
+    // Test 5: wrap().unwrap() chain
+    Run Console::printLine(String::Constructor("Test 5: wrap().unwrap() chain"));
+    Instantiate ChainWrapper<String>^ As <emptyWrap> = ChainWrapper@String::Constructor();
+    Instantiate ChainWrapper<String>^ As <filledWrap> = emptyWrap.wrap(String::Constructor("wrapped"));
+    Instantiate String^ As <unwrappedStr> = filledWrap.unwrap();
+    Run Console::printLine(String::Constructor("  wrap(wrapped).unwrap() = ").append(unwrappedStr));
+
+    // Test 6: Method template chaining
+    Run Console::printLine(String::Constructor("Test 6: Method template chaining"));
+    Instantiate ChainProcessor^ As <proc> = ChainProcessor::Constructor();
+
+    Instantiate Integer^ As <input> = Integer::Constructor(50);
+    Instantiate Integer^ As <processed> = proc.process<Integer>(input);
+    Instantiate Integer^ As <transformed> = proc.transform<Integer>(processed);
+    Run Console::printLine(String::Constructor("  process->transform = ").append(transformed.toString()));
+
+    // Test 7: Method template with different types in sequence
+    Run Console::printLine(String::Constructor("Test 7: Different types in sequence"));
+    Instantiate String^ As <strInput> = String::Constructor("start");
+    Instantiate String^ As <strProcessed> = proc.process<String>(strInput);
+    Instantiate String^ As <strTransformed> = proc.transform<String>(strProcessed);
+    Run Console::printLine(String::Constructor("  process<String>->transform<String> = ").append(strTransformed));
+
+    // Test 8: Mix FluentBox and ChainProcessor
+    Run Console::printLine(String::Constructor("Test 8: Mix FluentBox and ChainProcessor"));
+    Instantiate FluentBox<Integer>^ As <mixBox> = FluentBox@Integer::Constructor(Integer::Constructor(25));
+    Instantiate Integer^ As <mixVal> = mixBox.get();
+    Instantiate Integer^ As <mixProcessed> = proc.process<Integer>(mixVal);
+    Run Console::printLine(String::Constructor("  FluentBox.get() -> process = ").append(mixProcessed.toString()));
+
+    // Test 9: Multiple instantiations in chain
+    Run Console::printLine(String::Constructor("Test 9: Multiple instantiations"));
+    Instantiate FluentBox<Integer>^ As <fb1> = FluentBox@Integer::Constructor(Integer::Constructor(1));
+    Instantiate FluentBox<String>^ As <fb2> = FluentBox@String::Constructor(String::Constructor("two"));
+    Instantiate FluentBox<Bool>^ As <fb3> = FluentBox@Bool::Constructor(Bool::Constructor(true));
+
+    Instantiate Integer^ As <v1> = fb1.get();
+    Instantiate String^ As <v2> = fb2.get();
+    Instantiate Bool^ As <v3> = fb3.get();
+
+    Run Console::printLine(String::Constructor("  FluentBox<Integer> = ").append(v1.toString()));
+    Run Console::printLine(String::Constructor("  FluentBox<String> = ").append(v2));
+    Run Console::printLine(String::Constructor("  FluentBox<Bool> retrieved successfully"));
+
+    // Test 10: toString() on retrieved values
+    Run Console::printLine(String::Constructor("Test 10: toString() after get()"));
+    Instantiate FluentBox<Integer>^ As <toStrBox> = FluentBox@Integer::Constructor(Integer::Constructor(999));
+    Instantiate Integer^ As <toStrVal> = toStrBox.get();
+    Instantiate String^ As <toStrResult> = toStrVal.toString();
+    Run Console::printLine(String::Constructor("  FluentBox.get().toString() = ").append(toStrResult));
+
+    Run Console::printLine(String::Constructor("=== Chained Template Method Test PASSED ==="));
+}]

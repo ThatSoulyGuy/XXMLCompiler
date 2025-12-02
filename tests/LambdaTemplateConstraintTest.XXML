@@ -1,0 +1,118 @@
+// Test: Lambda Templates with Constraints
+// Tests lambda templates that have constrained type parameters
+
+#import Language::Core;
+
+// Hashable constraint
+[ Constraint <Hashable> <T Constrains None> (T a)
+    Require (F(Integer^)(hash)(*) On a)
+]
+
+// Printable constraint
+[ Constraint <Printable> <T Constrains None> (T a)
+    Require (F(String^)(toString)(*) On a)
+]
+
+// Class satisfying Hashable
+[ Class <Key> Final Extends None
+    [ Private <>
+        Property <id> Types Integer^;
+    ]
+    [ Public <>
+        Constructor Parameters () ->
+        {
+            Set id = Integer::Constructor(0);
+        }
+
+        Constructor Parameters (Parameter <i> Types Integer^) ->
+        {
+            Set id = i;
+        }
+
+        Method <hash> Returns Integer^ Parameters () Do
+        {
+            Return id;
+        }
+
+        Method <getId> Returns Integer^ Parameters () Do
+        {
+            Return id;
+        }
+    ]
+]
+
+// Class satisfying Printable
+[ Class <Label> Final Extends None
+    [ Private <>
+        Property <text> Types String^;
+    ]
+    [ Public <>
+        Constructor Parameters () ->
+        {
+            Set text = String::Constructor("");
+        }
+
+        Constructor Parameters (Parameter <t> Types String^) ->
+        {
+            Set text = t;
+        }
+
+        Method <toString> Returns String^ Parameters () Do
+        {
+            Return String::Constructor("[Label: ").append(text).append(String::Constructor("]"));
+        }
+
+        Method <getText> Returns String^ Parameters () Do
+        {
+            Return text;
+        }
+    ]
+]
+
+[ Entrypoint
+{
+    Run Console::printLine(String::Constructor("=== Lambda Template Constraint Test ==="));
+
+    // Test 1: Lambda template with Hashable constraint
+    Run Console::printLine(String::Constructor("Test 1: Lambda template with Hashable constraint"));
+    Instantiate __function^ As <getHash> = [ Lambda [] Templates <T Constrains Hashable<T>> Returns Integer^ Parameters (Parameter <item> Types T^)
+    {
+        Return item.hash();
+    } ];
+
+    Instantiate Key^ As <key1> = Key::Constructor(Integer::Constructor(42));
+    Instantiate Integer^ As <hash1> = getHash<Key>.call(key1);
+    Run Console::printLine(String::Constructor("Hash of Key(42) = ").append(hash1.toString()));
+
+    Instantiate Key^ As <key2> = Key::Constructor(Integer::Constructor(100));
+    Instantiate Integer^ As <hash2> = getHash<Key>.call(key2);
+    Run Console::printLine(String::Constructor("Hash of Key(100) = ").append(hash2.toString()));
+
+    // Test 2: Lambda template with Printable constraint
+    Run Console::printLine(String::Constructor("Test 2: Lambda template with Printable constraint"));
+    Instantiate __function^ As <describe> = [ Lambda [] Templates <T Constrains Printable> Returns String^ Parameters (Parameter <item> Types T^)
+    {
+        Return String::Constructor("Described: ").append(item.toString());
+    } ];
+
+    Instantiate Label^ As <label1> = Label::Constructor(String::Constructor("Hello"));
+    Instantiate String^ As <desc1> = describe<Label>.call(label1);
+    Run Console::printLine(desc1);
+
+    // Test 3: Lambda template with no constraint (baseline)
+    Run Console::printLine(String::Constructor("Test 3: Lambda template with no constraint"));
+    Instantiate __function^ As <identity> = [ Lambda [] Templates <T Constrains None> Returns T^ Parameters (Parameter <x> Types T^)
+    {
+        Return x;
+    } ];
+
+    Instantiate Integer^ As <intVal> = Integer::Constructor(999);
+    Instantiate Integer^ As <intResult> = identity<Integer>.call(intVal);
+    Run Console::printLine(String::Constructor("identity<Integer>(999) = ").append(intResult.toString()));
+
+    Instantiate String^ As <strVal> = String::Constructor("Test String");
+    Instantiate String^ As <strResult> = identity<String>.call(strVal);
+    Run Console::printLine(String::Constructor("identity<String> = ").append(strResult));
+
+    Run Console::printLine(String::Constructor("=== Lambda Template Constraint Test PASSED ==="));
+}]

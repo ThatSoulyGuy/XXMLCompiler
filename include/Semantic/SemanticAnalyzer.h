@@ -37,6 +37,7 @@ public:
         std::string variableName;  // Variable name holding the lambda
         std::vector<Parser::TemplateParameter> templateParams;  // COPIED from AST
         Parser::LambdaExpr* astNode = nullptr;  // Optional: only valid for same-module access
+        std::unordered_map<std::string, std::string> capturedVarTypes;  // varName -> type (e.g., "Integer^")
     };
 
     // Annotation parameter info - made public for cross-module sharing
@@ -134,13 +135,15 @@ private:
     };
 
     struct MethodTemplateInstantiation {
-        std::string className;  // Class containing the method
+        std::string className;  // Base class containing the method (e.g., "Holder")
+        std::string instantiatedClassName;  // Full instantiated class name (e.g., "Holder_Integer")
         std::string methodName;  // Template method name
         std::vector<Parser::TemplateArgument> arguments;
         std::vector<int64_t> evaluatedValues;
 
         bool operator<(const MethodTemplateInstantiation& other) const {
             if (className != other.className) return className < other.className;
+            if (instantiatedClassName != other.instantiatedClassName) return instantiatedClassName < other.instantiatedClassName;
             if (methodName != other.methodName) return methodName < other.methodName;
             if (arguments.size() != other.arguments.size()) return arguments.size() < other.arguments.size();
             for (size_t i = 0; i < arguments.size(); ++i) {
@@ -235,7 +238,7 @@ private:
 
     // Helper for templates
     void recordTemplateInstantiation(const std::string& templateName, const std::vector<Parser::TemplateArgument>& args);
-    void recordMethodTemplateInstantiation(const std::string& className, const std::string& methodName, const std::vector<Parser::TemplateArgument>& args);
+    void recordMethodTemplateInstantiation(const std::string& className, const std::string& instantiatedClassName, const std::string& methodName, const std::vector<Parser::TemplateArgument>& args);
     void recordLambdaTemplateInstantiation(const std::string& variableName, const std::vector<Parser::TemplateArgument>& args);
     int64_t evaluateConstantExpression(Parser::Expression* expr);  // Evaluate constant expressions at compile time
     bool isTemplateClass(const std::string& className);

@@ -1,0 +1,130 @@
+// Test: Method Templates with Constraints
+// Tests method templates that have their own type constraints
+
+#import Language::Core;
+
+// Printable constraint - requires toString method
+[ Constraint <Printable> <T Constrains None> (T a)
+    Require (F(String^)(toString)(*) On a)
+]
+
+// Hashable constraint
+[ Constraint <Hashable> <T Constrains None> (T a)
+    Require (F(Integer^)(hash)(*) On a)
+]
+
+// Class that satisfies Printable
+[ Class <PrintableValue> Final Extends None
+    [ Private <>
+        Property <data> Types Integer^;
+    ]
+    [ Public <>
+        Constructor Parameters () ->
+        {
+            Set data = Integer::Constructor(0);
+        }
+
+        Constructor Parameters (Parameter <d> Types Integer^) ->
+        {
+            Set data = d;
+        }
+
+        Method <toString> Returns String^ Parameters () Do
+        {
+            Return String::Constructor("PrintableValue(").append(data.toString()).append(String::Constructor(")"));
+        }
+
+        Method <getData> Returns Integer^ Parameters () Do
+        {
+            Return data;
+        }
+    ]
+]
+
+// Class that satisfies Hashable
+[ Class <HashableValue> Final Extends None
+    [ Private <>
+        Property <id> Types Integer^;
+    ]
+    [ Public <>
+        Constructor Parameters () ->
+        {
+            Set id = Integer::Constructor(0);
+        }
+
+        Constructor Parameters (Parameter <i> Types Integer^) ->
+        {
+            Set id = i;
+        }
+
+        Method <hash> Returns Integer^ Parameters () Do
+        {
+            Return id.multiply(Integer::Constructor(31));
+        }
+
+        Method <getId> Returns Integer^ Parameters () Do
+        {
+            Return id;
+        }
+    ]
+]
+
+// Class with method templates that have constraints
+[ Class <Handler> Final Extends None
+    [ Public <>
+        Constructor Parameters () ->
+        {
+        }
+
+        // Method template with Printable constraint
+        Method <describe> Templates <T Constrains Printable> Returns String^ Parameters (Parameter <item> Types T^) Do
+        {
+            Return String::Constructor("Description: ").append(item.toString());
+        }
+
+        // Method template with Hashable constraint
+        Method <computeHash> Templates <T Constrains Hashable<T>> Returns Integer^ Parameters (Parameter <item> Types T^) Do
+        {
+            Return item.hash();
+        }
+
+        // Method template with no constraint (for comparison)
+        Method <identity> Templates <T Constrains None> Returns T^ Parameters (Parameter <item> Types T^) Do
+        {
+            Return item;
+        }
+    ]
+]
+
+[ Entrypoint
+{
+    Run Console::printLine(String::Constructor("=== Method Template Constraint Test ==="));
+
+    Instantiate Handler^ As <proc> = Handler::Constructor();
+
+    // Test 1: Method template with Printable constraint
+    Run Console::printLine(String::Constructor("Test 1: Method template with Printable constraint"));
+    Instantiate PrintableValue^ As <pv> = PrintableValue::Constructor(Integer::Constructor(42));
+    Instantiate String^ As <desc> = proc.describe<PrintableValue>(pv);
+    Run Console::printLine(desc);
+
+    // Test 2: Method template with Hashable constraint
+    Run Console::printLine(String::Constructor("Test 2: Method template with Hashable constraint"));
+    Instantiate HashableValue^ As <hv> = HashableValue::Constructor(Integer::Constructor(7));
+    Instantiate Integer^ As <hashResult> = proc.computeHash<HashableValue>(hv);
+    Run Console::printLine(String::Constructor("Hash: ").append(hashResult.toString()));
+
+    // Test 3: Identity method template (no constraint)
+    Run Console::printLine(String::Constructor("Test 3: Identity method template"));
+    Instantiate Integer^ As <intVal> = Integer::Constructor(100);
+    Instantiate Integer^ As <identityResult> = proc.identity<Integer>(intVal);
+    Run Console::printLine(String::Constructor("Identity(100) = ").append(identityResult.toString()));
+
+    // Test 4: Multiple calls with different types
+    Run Console::printLine(String::Constructor("Test 4: Multiple types with same method template"));
+    Instantiate String^ As <strVal> = String::Constructor("Hello World");
+    Instantiate String^ As <strResult> = proc.identity<String>(strVal);
+    Run Console::printLine(String::Constructor("Identity(Hello World) = ").append(strResult));
+
+    Run Console::printLine(String::Constructor("=== Method Template Constraint Test PASSED ==="));
+}]

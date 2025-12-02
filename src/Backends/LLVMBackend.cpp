@@ -18,6 +18,7 @@
 #include <cctype>     // For std::isdigit
 #include <cstring>    // For std::memcpy
 #include <cstdint>    // For uint32_t
+#include <unordered_set>  // For duplicate string label tracking
 
 #ifdef _WIN32
 #include <windows.h>  // For GetShortPathNameA
@@ -268,7 +269,11 @@ std::string LLVMBackend::generate(Parser::Program& program) {
         finalOutput << "; ============================================\n";
         finalOutput << "; String Literal Constants\n";
         finalOutput << "; ============================================\n";
+        std::unordered_set<std::string> emittedLabels;  // Track emitted labels to avoid duplicates
         for (const auto& [label, content] : stringLiterals_) {
+            // Skip if we've already emitted this label
+            if (emittedLabels.count(label)) continue;
+            emittedLabels.insert(label);
             // Properly escape string for LLVM IR and count actual bytes
             size_t byteCount = 0;
             std::string escapedContent;
@@ -492,8 +497,26 @@ void LLVMBackend::generateMethodTemplateInstantiations() {
         auto clonedMethod = cloneAndSubstituteMethodDecl(templateMethodDecl, mangledName, typeMap);
         if (clonedMethod) {
             // Set the current class context for the method
+            // Use instantiatedClassName if available (e.g., "Holder<Integer>" -> "Holder_Integer")
             std::string savedClassName = currentClassName_;
-            currentClassName_ = inst.className;
+            std::string classNameForMethod = inst.instantiatedClassName.empty() ? inst.className : inst.instantiatedClassName;
+
+            // Mangle the class name: replace < with _, > with nothing, and , with _
+            size_t pos;
+            while ((pos = classNameForMethod.find('<')) != std::string::npos) {
+                classNameForMethod.replace(pos, 1, "_");
+            }
+            while ((pos = classNameForMethod.find('>')) != std::string::npos) {
+                classNameForMethod.erase(pos, 1);
+            }
+            while ((pos = classNameForMethod.find(',')) != std::string::npos) {
+                classNameForMethod.replace(pos, 1, "_");
+            }
+            while ((pos = classNameForMethod.find(' ')) != std::string::npos) {
+                classNameForMethod.erase(pos, 1);
+            }
+
+            currentClassName_ = classNameForMethod;
 
             // Generate the instantiated method
             clonedMethod->accept(*this);
@@ -590,8 +613,12 @@ void LLVMBackend::generateLambdaTemplateInstantiations() {
                 paramTypes.push_back(paramType);
             }
 
-            // Build closure struct type (minimal - just function pointer for template lambdas)
-            std::string closureTypeStr = "{ ptr }";
+            // Build closure struct type: { ptr (func), ptr (capture0), ptr (capture1), ... }
+            std::string closureTypeStr = "{ ptr";
+            for (size_t i = 0; i < clonedLambda->captures.size(); ++i) {
+                closureTypeStr += ", ptr";
+            }
+            closureTypeStr += " }";
 
             // Generate lambda function definition
             std::stringstream lambdaDef;
@@ -629,6 +656,26 @@ void LLVMBackend::generateLambdaTemplateInstantiations() {
                     default: break;
                 }
                 registerTypes_["%" + param->name] = typeWithOwnership;
+            }
+
+            // Load captured variables from closure struct and map them
+            for (size_t i = 0; i < clonedLambda->captures.size(); ++i) {
+                const auto& capture = clonedLambda->captures[i];
+                std::string captureReg = "%capture." + capture.varName;
+                // GEP to get pointer to capture field (index i+1, since index 0 is function ptr)
+                lambdaDef << "  " << captureReg << ".ptr = getelementptr inbounds "
+                          << closureTypeStr << ", ptr %closure, i32 0, i32 " << (i + 1) << "\n";
+                // Load the captured value pointer
+                lambdaDef << "  " << captureReg << " = load ptr, ptr " << captureReg << ".ptr\n";
+                // Map the captured variable name to the loaded register
+                valueMap_[capture.varName] = captureReg;
+                // Get captured variable type from semantic analyzer info
+                auto capturedTypeIt = lambdaInfo.capturedVarTypes.find(capture.varName);
+                if (capturedTypeIt != lambdaInfo.capturedVarTypes.end()) {
+                    registerTypes_[captureReg] = capturedTypeIt->second;
+                } else {
+                    registerTypes_[captureReg] = "ptr";
+                }
             }
 
             // Check if body contains a return statement
@@ -1953,7 +2000,7 @@ std::string LLVMBackend::getOrCreateGlobalString(const std::string& content) {
 
     // Create a new global string constant label (without @. prefix)
     // The @. prefix is added when the global is emitted in stringLiterals_
-    std::string label = "str.ct." + std::to_string(globalStringConstants_.size());
+    std::string label = "str.ct." + std::to_string(stringConstantCounter_++);
     globalStringConstants_[content] = label;
     return label;
 }
@@ -2890,9 +2937,18 @@ void LLVMBackend::visit(Parser::MethodDecl& node) {
         paramTypes.push_back(paramType);
 
         // Store parameter in value map and track its type
-        // Use qualifyTypeName to get the full namespace-qualified type
+        // Reconstruct full type name including template arguments
+        std::string fullParamType = param->type->typeName;
+        if (!param->type->templateArgs.empty()) {
+            fullParamType += "<";
+            for (size_t j = 0; j < param->type->templateArgs.size(); ++j) {
+                if (j > 0) fullParamType += ", ";
+                fullParamType += param->type->templateArgs[j].typeArg;
+            }
+            fullParamType += ">";
+        }
         valueMap_[param->name] = "%" + param->name;
-        registerTypes_["%" + param->name] = qualifyTypeName(param->type->typeName);
+        registerTypes_["%" + param->name] = qualifyTypeName(fullParamType);
 
         // Add to IR params
         if (builder_) {
@@ -5101,10 +5157,22 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
                         // Get lambda info for proper parameter types
                         auto infoIt = templateLambdaInfos_.find(ident->name);
 
-                        // Build argument list: null closure + actual args
-                        // Template lambdas without captures can use null closure
+                        // Extract base lambda variable name (e.g., "multiply" from "multiply<Integer>")
+                        std::string baseName = ident->name.substr(0, ident->name.find('<'));
+
+                        // Build argument list: closure + actual args
+                        // For lambdas with captures, load the closure from the variable
                         std::vector<std::string> argRegs;
-                        argRegs.push_back("null");  // Null closure for template lambdas
+                        auto varIt = variables_.find(baseName);
+                        if (varIt != variables_.end()) {
+                            // Load closure pointer from the lambda variable
+                            std::string closureReg = allocateRegister();
+                            emitLine(format("{} = load ptr, ptr {}", closureReg, varIt->second.llvmRegister));
+                            argRegs.push_back(closureReg);
+                        } else {
+                            // No variable found - lambda without captures, use null
+                            argRegs.push_back("null");
+                        }
 
                         for (const auto& arg : node.arguments) {
                             arg->accept(*this);
@@ -7503,12 +7571,69 @@ void LLVMBackend::visit(Parser::TypeOfExpr& node) {
 }
 
 void LLVMBackend::visit(Parser::LambdaExpr& node) {
-    // Skip template lambdas - they will be instantiated on-demand
+    // For template lambdas WITH captures, we still need to create the closure
+    // containing captured values - only the function body is deferred
     if (!node.templateParams.empty()) {
-        emitLine("; Template lambda - skipping definition (will be instantiated on-demand)");
-        // Set a placeholder result so the variable assignment has something
-        // Template lambdas are essentially "undefined" until instantiated
-        valueMap_["__last_expr"] = "null";
+        if (node.captures.empty()) {
+            // No captures - can use null closure
+            emitLine("; Template lambda (no captures) - skipping definition");
+            valueMap_["__last_expr"] = "null";
+            return;
+        }
+
+        // Template lambda WITH captures - create closure struct to hold captures
+        emitLine("; Template lambda with captures - creating closure for captured values");
+
+        // Build closure struct type: { ptr (func placeholder), ptr (capture0), ... }
+        std::string closureTypeStr = "{ ptr";
+        for (size_t i = 0; i < node.captures.size(); ++i) {
+            closureTypeStr += ", ptr";
+        }
+        closureTypeStr += " }";
+
+        // Allocate closure on heap
+        std::string closureReg = allocateRegister();
+        emitLine(format("{} = call ptr @xxml_malloc(i64 {})",
+                        closureReg, 8 * (1 + node.captures.size())));
+
+        // Store null function pointer at offset 0 (will be resolved at call time)
+        std::string funcPtrSlot = allocateRegister();
+        emitLine(format("{} = getelementptr inbounds {}, ptr {}, i32 0, i32 0",
+                        funcPtrSlot, closureTypeStr, closureReg));
+        emitLine(format("store ptr null, ptr {}", funcPtrSlot));
+
+        // Store captured values at offsets 1, 2, ...
+        for (size_t i = 0; i < node.captures.size(); ++i) {
+            const auto& capture = node.captures[i];
+            std::string captureSlot = allocateRegister();
+            emitLine(format("{} = getelementptr inbounds {}, ptr {}, i32 0, i32 {}",
+                            captureSlot, closureTypeStr, closureReg, i + 1));
+
+            std::string capturedValue;
+            auto varIt = variables_.find(capture.varName);
+            if (varIt != variables_.end()) {
+                if (capture.isReference()) {
+                    capturedValue = varIt->second.llvmRegister;
+                } else {
+                    std::string loadReg = allocateRegister();
+                    emitLine(format("{} = load ptr, ptr {}", loadReg, varIt->second.llvmRegister));
+                    capturedValue = loadReg;
+                }
+            } else {
+                auto paramIt = valueMap_.find(capture.varName);
+                if (paramIt != valueMap_.end()) {
+                    capturedValue = paramIt->second;
+                } else {
+                    emitLine(format("; Warning: captured variable '{}' not found", capture.varName));
+                    capturedValue = "null";
+                }
+            }
+
+            emitLine(format("store ptr {}, ptr {}", capturedValue, captureSlot));
+        }
+
+        valueMap_["__last_expr"] = closureReg;
+        registerTypes_[closureReg] = "__function";
         return;
     }
 

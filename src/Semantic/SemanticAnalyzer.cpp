@@ -576,12 +576,32 @@ void SemanticAnalyzer::visit(Parser::ClassDecl& node) {
                 }
 
                 MethodInfo methodInfo;
-                methodInfo.returnType = methodDecl->returnType->typeName;
+                // Reconstruct full return type including template arguments
+                std::string fullReturnType = methodDecl->returnType->typeName;
+                if (!methodDecl->returnType->templateArgs.empty()) {
+                    fullReturnType += "<";
+                    for (size_t i = 0; i < methodDecl->returnType->templateArgs.size(); ++i) {
+                        if (i > 0) fullReturnType += ", ";
+                        fullReturnType += methodDecl->returnType->templateArgs[i].typeArg;
+                    }
+                    fullReturnType += ">";
+                }
+                methodInfo.returnType = fullReturnType;
                 methodInfo.returnOwnership = methodDecl->returnType->ownership;
                 methodInfo.isConstructor = (methodDecl->name == "Constructor");
                 methodInfo.isCompiletime = methodDecl->isCompiletime;
                 for (auto& param : methodDecl->parameters) {
-                    methodInfo.parameters.push_back({param->type->typeName, param->type->ownership});
+                    // Reconstruct full parameter type including template arguments
+                    std::string fullParamType = param->type->typeName;
+                    if (!param->type->templateArgs.empty()) {
+                        fullParamType += "<";
+                        for (size_t i = 0; i < param->type->templateArgs.size(); ++i) {
+                            if (i > 0) fullParamType += ", ";
+                            fullParamType += param->type->templateArgs[i].typeArg;
+                        }
+                        fullParamType += ">";
+                    }
+                    methodInfo.parameters.push_back({fullParamType, param->type->ownership});
                 }
 
                 classInfo.methods[methodDecl->name] = methodInfo;
@@ -1312,6 +1332,21 @@ void SemanticAnalyzer::visit(Parser::InstantiateStmt& node) {
             lambdaInfo.variableName = node.variableName;
             lambdaInfo.templateParams = lambdaExpr->templateParams;
             lambdaInfo.astNode = lambdaExpr;
+            // Store captured variable types for IR generation
+            for (const auto& capture : lambdaExpr->captures) {
+                Symbol* capturedSymbol = symbolTable_->resolve(capture.varName);
+                if (capturedSymbol) {
+                    std::string capturedType = capturedSymbol->typeName;
+                    // Add ownership modifier
+                    switch (capturedSymbol->ownership) {
+                        case Parser::OwnershipType::Owned: capturedType += "^"; break;
+                        case Parser::OwnershipType::Reference: capturedType += "&"; break;
+                        case Parser::OwnershipType::Copy: capturedType += "%"; break;
+                        default: break;
+                    }
+                    lambdaInfo.capturedVarTypes[capture.varName] = capturedType;
+                }
+            }
             templateLambdas_[node.variableName] = lambdaInfo;
         }
     }
@@ -2041,9 +2076,30 @@ void SemanticAnalyzer::visit(Parser::CallExpr& node) {
                     if (endBracket != std::string::npos) {
                         std::string argsStr = objectType.substr(angleBracketPos + 1, endBracket - angleBracketPos - 1);
 
-                        // Simple parsing: split by comma (assuming single argument for now)
+                        // Parse template arguments (split by comma, respecting nested brackets)
                         std::vector<std::string> args;
-                        args.push_back(argsStr); // For now, handle single template arg
+                        size_t start = 0;
+                        int depth = 0;
+                        for (size_t i = 0; i < argsStr.size(); ++i) {
+                            if (argsStr[i] == '<') depth++;
+                            else if (argsStr[i] == '>') depth--;
+                            else if (argsStr[i] == ',' && depth == 0) {
+                                std::string arg = argsStr.substr(start, i - start);
+                                size_t first = arg.find_first_not_of(" \t");
+                                size_t last = arg.find_last_not_of(" \t");
+                                if (first != std::string::npos) {
+                                    args.push_back(arg.substr(first, last - first + 1));
+                                }
+                                start = i + 1;
+                            }
+                        }
+                        // Add the last argument
+                        std::string lastArg = argsStr.substr(start);
+                        size_t first = lastArg.find_first_not_of(" \t");
+                        size_t last = lastArg.find_last_not_of(" \t");
+                        if (first != std::string::npos) {
+                            args.push_back(lastArg.substr(first, last - first + 1));
+                        }
 
                         // Build substitution map (T -> Integer, etc.)
                         for (size_t i = 0; i < templateInfo->templateParams.size() && i < args.size(); ++i) {
@@ -2105,7 +2161,8 @@ void SemanticAnalyzer::visit(Parser::CallExpr& node) {
                         actualMethodName = baseMethodName;
 
                         // Record the method template instantiation
-                        recordMethodTemplateInstantiation(baseType, baseMethodName, methodTemplateArgs);
+                        // Pass objectType as the instantiated class name (e.g., "Holder<Integer>")
+                        recordMethodTemplateInstantiation(baseType, objectType, baseMethodName, methodTemplateArgs);
                     }
                 }
             }
@@ -2161,8 +2218,23 @@ void SemanticAnalyzer::visit(Parser::CallExpr& node) {
 
                             // First, substitute class template parameters
                             for (const auto& [param, arg] : templateSubstitutions) {
+                                // Handle direct match (T -> Integer)
                                 if (substitutedExpectedType == param) {
                                     substitutedExpectedType = arg;
+                                } else {
+                                    // Handle parameterized types (Box<T> -> Box<Integer>)
+                                    size_t pos = 0;
+                                    while ((pos = substitutedExpectedType.find(param, pos)) != std::string::npos) {
+                                        bool validStart = (pos == 0 || !std::isalnum(substitutedExpectedType[pos-1]));
+                                        bool validEnd = (pos + param.length() == substitutedExpectedType.length() ||
+                                                       !std::isalnum(substitutedExpectedType[pos + param.length()]));
+                                        if (validStart && validEnd) {
+                                            substitutedExpectedType.replace(pos, param.length(), arg);
+                                            pos += arg.length();
+                                        } else {
+                                            pos++;
+                                        }
+                                    }
                                 }
                             }
 
@@ -2177,6 +2249,20 @@ void SemanticAnalyzer::visit(Parser::CallExpr& node) {
                                         const std::string& argTypeStr = methodTemplateArgs[j].typeArg;
                                         if (substitutedExpectedType == paramName) {
                                             substitutedExpectedType = argTypeStr;
+                                        } else {
+                                            // Handle parameterized types (Box<U> -> Box<String>)
+                                            size_t pos = 0;
+                                            while ((pos = substitutedExpectedType.find(paramName, pos)) != std::string::npos) {
+                                                bool validStart = (pos == 0 || !std::isalnum(substitutedExpectedType[pos-1]));
+                                                bool validEnd = (pos + paramName.length() == substitutedExpectedType.length() ||
+                                                               !std::isalnum(substitutedExpectedType[pos + paramName.length()]));
+                                                if (validStart && validEnd) {
+                                                    substitutedExpectedType.replace(pos, paramName.length(), argTypeStr);
+                                                    pos += argTypeStr.length();
+                                                } else {
+                                                    pos++;
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -2250,9 +2336,23 @@ void SemanticAnalyzer::visit(Parser::CallExpr& node) {
 
                 // First, substitute class template parameters
                 for (const auto& [param, arg] : templateSubstitutions) {
-                    // Simple substitution: replace exact matches
+                    // Handle direct match (T -> Integer)
                     if (returnType == param) {
                         returnType = arg;
+                    } else {
+                        // Handle parameterized types (FluentBox<T> -> FluentBox<Integer>)
+                        size_t pos = 0;
+                        while ((pos = returnType.find(param, pos)) != std::string::npos) {
+                            bool validStart = (pos == 0 || !std::isalnum(returnType[pos-1]));
+                            bool validEnd = (pos + param.length() == returnType.length() ||
+                                           !std::isalnum(returnType[pos + param.length()]));
+                            if (validStart && validEnd) {
+                                returnType.replace(pos, param.length(), arg);
+                                pos += arg.length();
+                            } else {
+                                pos++;
+                            }
+                        }
                     }
                 }
 
@@ -2265,8 +2365,25 @@ void SemanticAnalyzer::visit(Parser::CallExpr& node) {
                         for (size_t i = 0; i < methodInfo.templateParams.size() && i < methodTemplateArgs.size(); ++i) {
                             const std::string& paramName = methodInfo.templateParams[i].name;
                             const std::string& argType = methodTemplateArgs[i].typeArg;
+
+                            // Handle direct match (T -> Integer)
                             if (returnType == paramName) {
                                 returnType = argType;
+                            } else {
+                                // Handle parameterized types (Box<T> -> Box<Integer>)
+                                size_t pos = 0;
+                                while ((pos = returnType.find(paramName, pos)) != std::string::npos) {
+                                    // Check it's a complete token (not part of larger identifier)
+                                    bool validStart = (pos == 0 || !std::isalnum(returnType[pos-1]));
+                                    bool validEnd = (pos + paramName.length() == returnType.length() ||
+                                                   !std::isalnum(returnType[pos + paramName.length()]));
+                                    if (validStart && validEnd) {
+                                        returnType.replace(pos, paramName.length(), argType);
+                                        pos += argType.length();
+                                    } else {
+                                        pos++;
+                                    }
+                                }
                             }
                         }
                     }
@@ -2935,7 +3052,7 @@ std::string SemanticAnalyzer::extractMethodName(const std::string& qualifiedName
     return qualifiedName;  // No :: found, return the whole name
 }
 
-void SemanticAnalyzer::recordMethodTemplateInstantiation(const std::string& className, const std::string& methodName, const std::vector<Parser::TemplateArgument>& args) {
+void SemanticAnalyzer::recordMethodTemplateInstantiation(const std::string& className, const std::string& instantiatedClassName, const std::string& methodName, const std::vector<Parser::TemplateArgument>& args) {
     std::string methodKey = className + "::" + methodName;
 
     // Check if this template method exists
@@ -2963,6 +3080,7 @@ void SemanticAnalyzer::recordMethodTemplateInstantiation(const std::string& clas
     // Create instantiation record
     MethodTemplateInstantiation inst;
     inst.className = className;
+    inst.instantiatedClassName = instantiatedClassName;
     inst.methodName = methodName;
     inst.arguments = args;
 
@@ -3090,8 +3208,10 @@ void SemanticAnalyzer::recordLambdaTemplateInstantiation(const std::string& vari
                     arg.location
                 );
             } else {
-                // Validate type constraints
-                if (!validateConstraint(arg.typeArg, param.constraints, param.constraintsAreAnd)) {
+                // Validate type constraints with type substitution for lambda template param
+                std::unordered_map<std::string, std::string> lambdaSubs;
+                lambdaSubs[param.name] = arg.typeArg;
+                if (!validateConstraint(arg.typeArg, param.constraints, param.constraintsAreAnd, lambdaSubs)) {
                     std::string constraintList;
                     std::string separator = param.constraintsAreAnd ? ", " : " | ";
                     for (size_t j = 0; j < param.constraints.size(); ++j) {
@@ -3912,6 +4032,14 @@ void SemanticAnalyzer::visit(Parser::TypeOfExpr& node) {
 }
 
 void SemanticAnalyzer::visit(Parser::LambdaExpr& node) {
+    // Save and add lambda template parameters so body analysis knows they're template types
+    std::set<std::string> previousTemplateParams = templateTypeParameters;
+    for (const auto& templateParam : node.templateParams) {
+        if (templateParam.kind == Parser::TemplateParameter::Kind::Type) {
+            templateTypeParameters.insert(templateParam.name);
+        }
+    }
+
     // Validate captures and check ownership semantics
     for (const auto& capture : node.captures) {
         // Check variable exists
@@ -3955,6 +4083,9 @@ void SemanticAnalyzer::visit(Parser::LambdaExpr& node) {
     movedVariables_ = savedMovedVariables;
 
     symbolTable_->exitScope();
+
+    // Restore previous template parameters
+    templateTypeParameters = previousTemplateParams;
 
     // Store lambda expression type as function type
     expressionTypes[&node] = "__function";
