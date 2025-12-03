@@ -24,11 +24,20 @@ public:
         Parser::ClassDecl* astNode = nullptr;  // Optional: only valid for same-module access
     };
 
+    // Information about a call expression in a template body (extracted at registration)
+    struct TemplateBodyCallInfo {
+        std::string className;      // Class being called (may be template param like "T")
+        std::string methodName;     // Method being called (e.g., "Constructor")
+        std::vector<std::string> argumentTypes;  // Types of arguments (e.g., ["Integer"])
+    };
+
     // ✅ SAFE: Template method info stores COPIES of template parameters
     struct TemplateMethodInfo {
         std::string className;
         std::string methodName;
+        std::string returnTypeName;  // COPIED from AST for safe access
         std::vector<Parser::TemplateParameter> templateParams;  // COPIED from AST
+        std::vector<TemplateBodyCallInfo> callsInBody;  // Extracted calls for validation
         Parser::MethodDecl* astNode = nullptr;  // Optional: only valid for same-module access
     };
 
@@ -245,6 +254,25 @@ private:
     bool isTemplateMethod(const std::string& className, const std::string& methodName);
     bool isTemplateLambda(const std::string& variableName);
 
+    // Template instantiation body validation
+    void validateMethodTemplateBody(
+        const std::string& className,
+        const std::string& methodName,
+        const std::vector<Parser::TemplateArgument>& args,
+        const Common::SourceLocation& callLocation);
+    void validateLambdaTemplateBody(
+        const std::string& variableName,
+        const std::vector<Parser::TemplateArgument>& args,
+        const Common::SourceLocation& callLocation);
+    void validateStatementWithSubstitution(
+        Parser::Statement* stmt,
+        const std::unordered_map<std::string, std::string>& typeMap,
+        const Common::SourceLocation& callLocation);
+    void validateExpressionWithSubstitution(
+        Parser::Expression* expr,
+        const std::unordered_map<std::string, std::string>& typeMap,
+        const Common::SourceLocation& callLocation);
+
     // Constraint registry and validation
     struct ConstraintInfo {
         std::string name;
@@ -332,6 +360,17 @@ private:
     std::string extractClassName(const std::string& qualifiedName);
     std::string extractMethodName(const std::string& qualifiedName);
     std::string buildQualifiedName(Parser::Expression* expr);
+
+    // Extract call expressions from template method body for validation
+    void extractCallsFromExpression(Parser::Expression* expr,
+                                    const std::set<std::string>& templateParams,
+                                    std::vector<TemplateBodyCallInfo>& calls);
+    void extractCallsFromStatement(Parser::Statement* stmt,
+                                   const std::set<std::string>& templateParams,
+                                   std::vector<TemplateBodyCallInfo>& calls);
+    std::vector<TemplateBodyCallInfo> extractCallsFromMethodBody(
+        Parser::MethodDecl* method,
+        const std::vector<Parser::TemplateParameter>& templateParams);
 
 public:
     // Method lookup for code generation (needed by backends)

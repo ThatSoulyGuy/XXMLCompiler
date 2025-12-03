@@ -156,7 +156,10 @@
       "Bash(\"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\forlooptest.exe\")",
       "Bash(\"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\whilelooptest.exe\")",
       "Bash(\"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\constructortest.exe\")",
-      "Bash(\"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\enumtest.exe\")"
+      "Bash(\"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\enumtest.exe\")",
+      "Bash(\"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" \"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\Hello.XXML\")",
+      "Bash(\"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" \"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\Hello.XXML\" -o \"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\hellotest.exe\")",
+      "Bash(\"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" \"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\tests\\MethodTemplateReturnTemplateTest.XXML\" -o \"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\methodreturntest.exe\")"
     ],
     "deny": [],
     "ask": []
