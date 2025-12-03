@@ -84,6 +84,13 @@ struct CallbackThunkInfo {
     std::vector<std::string> paramLLVMTypes;
 };
 
+// RAII destructor tracking for scope cleanup
+struct ScopeDestructorInfo {
+    std::string varName;
+    std::string typeName;
+    LLVMIR::AllocaInst* alloca;
+};
+
 /**
  * @brief Shared context for all codegen modules
  *
@@ -197,8 +204,19 @@ public:
     void setSemanticAnalyzer(Semantic::SemanticAnalyzer* analyzer) { semanticAnalyzer_ = analyzer; }
     Semantic::SemanticAnalyzer* semanticAnalyzer() const { return semanticAnalyzer_; }
 
+    // === Template Parameter Substitution ===
+    void setTemplateSubstitutions(const std::unordered_map<std::string, std::string>& subs);
+    void clearTemplateSubstitutions();
+    std::string substituteTemplateParams(const std::string& typeName) const;
+
     // === Compilation Context ===
     Core::CompilationContext* compilationContext() const { return compCtx_; }
+
+    // === RAII Destructor Management ===
+    void registerForDestruction(const std::string& varName, const std::string& typeName, LLVMIR::AllocaInst* alloca);
+    void emitScopeDestructors();    // Emit destructors for current scope (LIFO order)
+    void emitAllDestructors();      // Emit all scope destructors (before return)
+    bool needsDestruction(const std::string& typeName) const;
 
     // === Scope Management ===
     void pushScope();
@@ -260,6 +278,12 @@ private:
     // External references
     Semantic::SemanticAnalyzer* semanticAnalyzer_ = nullptr;
     Core::CompilationContext* compCtx_ = nullptr;
+
+    // Template parameter substitution map (T -> Integer, etc.)
+    std::unordered_map<std::string, std::string> templateSubstitutions_;
+
+    // RAII destructor scopes (stack of scope destructor lists)
+    std::vector<std::vector<ScopeDestructorInfo>> destructorScopes_;
 };
 
 } // namespace Codegen

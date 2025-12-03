@@ -54,6 +54,15 @@ void xxml_write_byte(void* ptr, uint8_t value) {
     *(uint8_t*)ptr = value;
 }
 
+// Int64 operations for reading/writing int64 from heap memory
+int64_t xxml_int64_read(void* ptr) {
+    return *(int64_t*)ptr;
+}
+
+void xxml_int64_write(void* ptr, int64_t value) {
+    *(int64_t*)ptr = value;
+}
+
 // ============================================
 // Integer Operations
 // ============================================

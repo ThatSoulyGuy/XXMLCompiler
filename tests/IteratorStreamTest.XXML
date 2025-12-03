@@ -1,0 +1,124 @@
+// Test: Iterator and Stream API with lambdas
+#import Language::Core;
+#import Collections;
+#import System;
+
+[ Entrypoint
+{
+	Run System::Console::printLine(String::Constructor("=== Iterator and Stream API Test ==="));
+
+	// Create and populate a list
+	Run System::Console::printLine(String::Constructor("Creating list with 5 elements..."));
+	Instantiate List<Integer>^ As <numbers> = List@Integer::Constructor();
+	Run numbers.init();
+	Run numbers.add(Integer::Constructor(10));
+	Run numbers.add(Integer::Constructor(20));
+	Run numbers.add(Integer::Constructor(30));
+	Run numbers.add(Integer::Constructor(40));
+	Run numbers.add(Integer::Constructor(50));
+
+	// Test Iterator (manually create using getDataPtr/getCount)
+	Run System::Console::printLine(String::Constructor("--- Iterator Test ---"));
+	Instantiate Iterator<Integer>^ As <iter> = Iterator@Integer::Constructor();
+	Run iter.init(numbers.getDataPtr(), numbers.getCount());
+
+	While (iter.hasNext()) -> {
+		Instantiate Integer^ As <num> = iter.next();
+		Run System::Console::print(String::Constructor("  Iterator element: "));
+		Run System::Console::printLine(num.toString());
+	}
+
+	// Test reset and remaining
+	Run iter.reset();
+	Instantiate Integer^ As <remaining> = iter.remaining();
+	Run System::Console::print(String::Constructor("After reset, remaining: "));
+	Run System::Console::printLine(remaining.toString());
+
+	// Test Stream forEach with lambda (manually create Stream)
+	Run System::Console::printLine(String::Constructor("--- Stream forEach Test ---"));
+	Instantiate Stream<Integer>^ As <stream> = Stream@Integer::Constructor();
+	Run stream.initFrom(numbers.getDataPtr(), numbers.getCount());
+
+	// Create lambda for forEach
+	Instantiate F(None)(Integer^)^ As <printElement> = [ Lambda [] Returns None Parameters (
+		Parameter <elem> Types Integer^
+	) {
+		Run System::Console::print(String::Constructor("  Stream element: "));
+		Run System::Console::printLine(elem.toString());
+	}];
+
+	Run stream.forEach(printElement);
+
+	// Test anyMatch
+	Run System::Console::printLine(String::Constructor("--- Stream anyMatch Test ---"));
+	Instantiate Stream<Integer>^ As <stream2> = Stream@Integer::Constructor();
+	Run stream2.initFrom(numbers.getDataPtr(), numbers.getCount());
+
+	Instantiate F(Bool^)(Integer^)^ As <isThirty> = [ Lambda [] Returns Bool^ Parameters (
+		Parameter <n> Types Integer^
+	) {
+		Return n.equals(Integer::Constructor(30));
+	}];
+
+	Instantiate Bool^ As <hasThirty> = stream2.anyMatch(isThirty);
+	Run System::Console::print(String::Constructor("Contains 30: "));
+	If (hasThirty) -> {
+		Run System::Console::printLine(String::Constructor("true"));
+	} Else -> {
+		Run System::Console::printLine(String::Constructor("false"));
+	}
+
+	// Test allMatch
+	Run System::Console::printLine(String::Constructor("--- Stream allMatch Test ---"));
+	Instantiate Stream<Integer>^ As <stream3> = Stream@Integer::Constructor();
+	Run stream3.initFrom(numbers.getDataPtr(), numbers.getCount());
+
+	Instantiate F(Bool^)(Integer^)^ As <isPositive> = [ Lambda [] Returns Bool^ Parameters (
+		Parameter <n> Types Integer^
+	) {
+		Return n.greaterThan(Integer::Constructor(0));
+	}];
+
+	Instantiate Bool^ As <allPositive> = stream3.allMatch(isPositive);
+	Run System::Console::print(String::Constructor("All positive: "));
+	If (allPositive) -> {
+		Run System::Console::printLine(String::Constructor("true"));
+	} Else -> {
+		Run System::Console::printLine(String::Constructor("false"));
+	}
+
+	// Test first and toList
+	Run System::Console::printLine(String::Constructor("--- Stream first/toList Test ---"));
+	Instantiate Stream<Integer>^ As <stream4> = Stream@Integer::Constructor();
+	Run stream4.initFrom(numbers.getDataPtr(), numbers.getCount());
+	Instantiate Optional<Integer>^ As <firstOpt> = stream4.first();
+
+	If (firstOpt.isPresent()) -> {
+		Instantiate Integer^ As <firstVal> = firstOpt.get();
+		Run System::Console::print(String::Constructor("First element: "));
+		Run System::Console::printLine(firstVal.toString());
+	}
+
+	// Test manual collection (toList was removed due to template limitation)
+	Run System::Console::printLine(String::Constructor("--- Manual Collection Test ---"));
+	Instantiate List<Integer>^ As <copiedList> = List@Integer::Constructor();
+	Run copiedList.init();
+	Instantiate Stream<Integer>^ As <stream5> = Stream@Integer::Constructor();
+	Run stream5.initFrom(numbers.getDataPtr(), numbers.getCount());
+
+	// Lambda to add each element to the copied list
+	Instantiate F(None)(Integer^)^ As <addToList> = [ Lambda [] Returns None Parameters (
+		Parameter <elem> Types Integer^
+	) {
+		Run copiedList.add(elem);
+	}];
+	Run stream5.forEach(addToList);
+
+	Instantiate Integer^ As <copiedSize> = copiedList.size();
+	Run System::Console::print(String::Constructor("Copied list size: "));
+	Run System::Console::printLine(copiedSize.toString());
+
+	Run System::Console::printLine(String::Constructor("=== All Tests Passed! ==="));
+	Exit(0);
+}
+]

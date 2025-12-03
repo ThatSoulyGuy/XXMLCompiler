@@ -2557,6 +2557,48 @@ void SemanticAnalyzer::recordTemplateInstantiation(const std::string& templateNa
         return;
     }
 
+    // Skip if any type argument is itself a template parameter (not a concrete type)
+    // This prevents recording instantiations like HashMap<K, V> when K and V are unbound
+    // template parameters (e.g., in self-referential return types within template class definitions)
+    for (const auto& arg : args) {
+        if (arg.kind == Parser::TemplateArgument::Kind::Type) {
+            // Check if this type argument is a known template parameter
+            bool isTemplateParam = false;
+
+            // Check all registered template classes for matching parameter names
+            for (const auto& [name, tplInfo] : templateClasses) {
+                for (const auto& param : tplInfo.templateParams) {
+                    if (param.name == arg.typeArg) {
+                        isTemplateParam = true;
+                        break;
+                    }
+                }
+                if (isTemplateParam) break;
+            }
+
+            // Also check global template registry
+            if (!isTemplateParam && context_) {
+                auto* globalTemplates = context_->getCustomData<std::unordered_map<std::string, TemplateClassInfo>>("globalTemplateClasses");
+                if (globalTemplates) {
+                    for (const auto& [name, tplInfo] : *globalTemplates) {
+                        for (const auto& param : tplInfo.templateParams) {
+                            if (param.name == arg.typeArg) {
+                                isTemplateParam = true;
+                                break;
+                            }
+                        }
+                        if (isTemplateParam) break;
+                    }
+                }
+            }
+
+            if (isTemplateParam) {
+                // This is a self-reference with unbound template params - skip recording
+                return;
+            }
+        }
+    }
+
     // ✅ Phase 7: Improved error message for argument count mismatch
     // Validate argument count using copied templateParams
     if (templateInfo->templateParams.size() != args.size()) {

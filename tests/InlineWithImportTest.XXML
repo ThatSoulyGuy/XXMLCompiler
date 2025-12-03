@@ -1,0 +1,37 @@
+// Test: inline class with Collections import
+#import Language::Core;
+#import Collections;
+#import System;
+
+[ Namespace <Test>
+	[ Class <SimpleList> <T Constrains None> Final Extends None
+		[ Private <>
+			Property <dataPtr> Types NativeType<"ptr">;
+			Property <count> Types NativeType<"int64">;
+		]
+		[ Public <>
+			Constructor = default;
+
+			Method <init> Returns None Parameters () Do
+			{
+				// Empty for testing
+			}
+		]
+	]
+]
+
+[ Entrypoint
+{
+	Run System::Console::printLine(String::Constructor("Step 1: Starting"));
+
+	Run System::Console::printLine(String::Constructor("Step 2: Creating Test::SimpleList"));
+	Instantiate Test::SimpleList<Integer>^ As <list> = Test::SimpleList@Integer::Constructor();
+
+	Run System::Console::printLine(String::Constructor("Step 3: About to init"));
+	Run list.init();
+	Run System::Console::printLine(String::Constructor("Step 3b: Init done"));
+
+	Run System::Console::printLine(String::Constructor("=== Done ==="));
+	Exit(0);
+}
+]

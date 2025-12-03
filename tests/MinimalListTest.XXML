@@ -1,7 +1,7 @@
 // Minimal test - embed the List class directly
 
-[ Namespace <Collections>
-	[ Class <List> <T Constrains None> Final Extends None
+[ Namespace <TestCollections>
+	[ Class <TestList> <T Constrains None> Final Extends None
 		[ Private <>
 			Property <count> Types NativeType<"int64">;
 		]
@@ -24,8 +24,8 @@
 ]
 
 [ Entrypoint {
-	// Test List@Integer
-	Instantiate Collections::List<Integer>^ As <intList> = Collections::List@Integer::Constructor();
+	// Test TestList@Integer
+	Instantiate TestCollections::TestList<Integer>^ As <intList> = TestCollections::TestList@Integer::Constructor();
 
 	Run intList.clear();
 

@@ -1,0 +1,30 @@
+// Simple test for Stream API using direct type names
+#import Language::Core;
+#import Language::Collections::List;
+#import Language::Collections::Stream;
+
+[ Entrypoint
+{
+    Run Console::printLine(String::Constructor("=== Simple Stream Test ==="));
+
+    // Create a list
+    Instantiate List<Integer>^ As <numbers> = List@Integer::Constructor();
+    Run numbers.add(Integer::Constructor(1));
+    Run numbers.add(Integer::Constructor(2));
+    Run numbers.add(Integer::Constructor(3));
+    Run numbers.add(Integer::Constructor(4));
+    Run numbers.add(Integer::Constructor(5));
+
+    Run Console::print(String::Constructor("List size: "));
+    Run Console::printLine(numbers.size().toString());
+
+    // Create stream and get count
+    Instantiate Stream<Integer>^ As <stream1> = numbers.stream();
+    Instantiate Integer^ As <count> = stream1.count();
+    Run Console::print(String::Constructor("Stream count: "));
+    Run Console::printLine(count.toString());
+
+    Run Console::printLine(String::Constructor("=== Test Complete ==="));
+    Exit(0);
+}
+]

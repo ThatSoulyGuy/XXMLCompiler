@@ -77,7 +77,8 @@ private:
                 functionName = ctx_.mangleFunctionName(className, memberAccess->member);
             } else {
                 // Static method or constructor: ClassName::method()
-                std::string className = ident->name;
+                // Substitute template parameters if we're inside a template context
+                std::string className = ctx_.substituteTemplateParams(ident->name);
 
                 if (memberAccess->member == "Constructor") {
                     // Constructor call

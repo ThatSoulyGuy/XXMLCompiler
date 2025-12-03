@@ -1,8 +1,14 @@
-// Basic test without IO
+// Basic test without Collections
+#import Language::Core;
+#import System;
 
 [ Entrypoint
-    {
-        Run Console::printLine(String::Constructor("Hello, World!"));
-        Exit(0);
-    }
+{
+	Run System::Console::printLine(String::Constructor("=== Basic Test ==="));
+	Instantiate Integer^ As <x> = Integer::Constructor(42);
+	Run System::Console::print(String::Constructor("Value: "));
+	Run System::Console::printLine(x.toString());
+	Run System::Console::printLine(String::Constructor("=== Done ==="));
+	Exit(0);
+}
 ]

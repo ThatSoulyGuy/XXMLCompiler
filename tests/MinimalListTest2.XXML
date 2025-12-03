@@ -1,0 +1,22 @@
+// Minimal test for List only
+#import Language::Core;
+#import Collections;
+#import System;
+
+[ Entrypoint
+{
+	Run System::Console::printLine(String::Constructor("=== Minimal List Test ==="));
+
+	// Create list
+	Instantiate List<Integer>^ As <numbers> = List@Integer::Constructor();
+	Run numbers.init();
+	Run numbers.add(Integer::Constructor(10));
+
+	Instantiate Integer^ As <sz> = numbers.size();
+	Run System::Console::print(String::Constructor("Size: "));
+	Run System::Console::printLine(sz.toString());
+
+	Run System::Console::printLine(String::Constructor("=== Done ==="));
+	Exit(0);
+}
+]

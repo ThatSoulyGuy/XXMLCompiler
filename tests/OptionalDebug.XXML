@@ -1,0 +1,16 @@
+// Test Optional from Collections
+#import Language::Core;
+#import Collections;
+#import System;
+
+[ Entrypoint
+{
+    Run System::Console::printLine(String::Constructor("Step 1: Starting"));
+
+    Run System::Console::printLine(String::Constructor("Step 2: Creating Optional"));
+    Instantiate Collections::Optional<Integer>^ As <opt> = Collections::Optional@Integer::Constructor();
+
+    Run System::Console::printLine(String::Constructor("Step 3: Optional created"));
+    Exit(0);
+}
+]

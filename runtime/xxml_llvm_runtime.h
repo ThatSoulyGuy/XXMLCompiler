@@ -28,6 +28,8 @@ void* xxml_ptr_read(void** ptr);
 void xxml_ptr_write(void** ptr, void* value);
 uint8_t xxml_read_byte(void* ptr);
 void xxml_write_byte(void* ptr, uint8_t value);
+int64_t xxml_int64_read(void* ptr);
+void xxml_int64_write(void* ptr, int64_t value);
 
 // ============================================
 // Integer Operations

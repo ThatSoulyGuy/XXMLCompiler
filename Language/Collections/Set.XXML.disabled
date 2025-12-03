@@ -54,10 +54,11 @@
 
 			// Add an element to the set
 			// Returns true if added (not already present), false if already exists
-			Method <add> Returns Bool^ Parameters (Parameter <value> Types T^) Do
+			Method <add> Returns Bool^ Parameters (Parameter <value> Types T&) Do
 			{
 				// Check if already exists
-				If (this.contains(value).getValue()) -> {
+				Instantiate Bool^ As <alreadyExists> = this.contains(value);
+				If (alreadyExists) -> {
 					Return Bool::Constructor(false);
 				}
 
@@ -115,7 +116,7 @@
 			}
 
 			// Check if element exists in the set
-			Method <contains> Returns Bool^ Parameters (Parameter <value> Types T^) Do
+			Method <contains> Returns Bool^ Parameters (Parameter <value> Types T&) Do
 			{
 				// Get hash and bucket index
 				Instantiate NativeType<"int64">^ As <hashVal> = value.hash();
@@ -144,7 +145,8 @@
 					Instantiate T^ As <elem> = Syscall::ptr_read(elemOffset);
 
 					// Use equals method for comparison
-					If (elem.equals(value).getValue()) -> {
+					Instantiate Bool^ As <isEqual> = elem.equals(value);
+					If (isEqual) -> {
 						Return Bool::Constructor(true);
 					}
 
@@ -156,7 +158,7 @@
 
 			// Remove an element from the set
 			// Returns true if removed, false if not found
-			Method <remove> Returns Bool^ Parameters (Parameter <value> Types T^) Do
+			Method <remove> Returns Bool^ Parameters (Parameter <value> Types T&) Do
 			{
 				// Get hash and bucket index
 				Instantiate NativeType<"int64">^ As <hashVal> = value.hash();
@@ -184,7 +186,8 @@
 					Instantiate NativeType<"ptr">^ As <elemOffset> = bucketData + (i * 8);
 					Instantiate T^ As <elem> = Syscall::ptr_read(elemOffset);
 
-					If (elem.equals(value).getValue()) -> {
+					Instantiate Bool^ As <isEqual> = elem.equals(value);
+					If (isEqual) -> {
 						// Found - shift remaining elements
 						Instantiate NativeType<"int64">^ As <j> = i;
 						Instantiate NativeType<"int64">^ As <one> = 1;

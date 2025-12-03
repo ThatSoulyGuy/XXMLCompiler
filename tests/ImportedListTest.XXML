@@ -1,0 +1,30 @@
+// Test: use Collections::List after import
+#import Language::Core;
+#import Collections;
+#import System;
+
+[ Entrypoint
+{
+	Run System::Console::printLine(String::Constructor("Step 1: Starting"));
+
+	Run System::Console::printLine(String::Constructor("Step 2: Creating Collections::List"));
+	Instantiate Collections::List<Integer>^ As <list> = Collections::List@Integer::Constructor();
+
+	Run System::Console::printLine(String::Constructor("Step 3: About to init"));
+	Run list.init();
+	Run System::Console::printLine(String::Constructor("Step 3b: Init done"));
+
+	Run System::Console::printLine(String::Constructor("Step 4: Adding elements"));
+	Run list.add(Integer::Constructor(42));
+	Run list.add(Integer::Constructor(100));
+	Run System::Console::printLine(String::Constructor("Step 4b: Elements added"));
+
+	Run System::Console::printLine(String::Constructor("Step 5: Getting size"));
+	Instantiate Integer^ As <sz> = list.size();
+	Run System::Console::print(String::Constructor("Size: "));
+	Run System::Console::printLine(sz.toString());
+
+	Run System::Console::printLine(String::Constructor("=== Done ==="));
+	Exit(0);
+}
+]

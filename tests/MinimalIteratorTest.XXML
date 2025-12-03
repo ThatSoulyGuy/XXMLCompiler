@@ -1,0 +1,34 @@
+// Minimal test for Iterator
+#import Language::Core;
+#import Collections;
+#import System;
+
+[ Entrypoint
+{
+	Run System::Console::printLine(String::Constructor("=== Minimal Iterator Test ==="));
+
+	// Create and populate a list
+	Instantiate List<Integer>^ As <numbers> = List@Integer::Constructor();
+	Run numbers.init();
+	Run numbers.add(Integer::Constructor(10));
+	Run numbers.add(Integer::Constructor(20));
+	Run numbers.add(Integer::Constructor(30));
+
+	// Test Iterator
+	Run System::Console::printLine(String::Constructor("Getting iterator..."));
+	Instantiate Iterator<Integer>^ As <iter> = numbers.iterator();
+
+	Run System::Console::printLine(String::Constructor("Checking hasNext..."));
+	Instantiate Bool^ As <hasMore> = iter.hasNext();
+
+	If (hasMore) -> {
+		Run System::Console::printLine(String::Constructor("Has more elements!"));
+		Instantiate Integer^ As <num> = iter.next();
+		Run System::Console::print(String::Constructor("First element: "));
+		Run System::Console::printLine(num.toString());
+	}
+
+	Run System::Console::printLine(String::Constructor("=== Test Complete ==="));
+	Exit(0);
+}
+]

@@ -1,0 +1,42 @@
+// Inline Collections namespace test
+#import Language::Core;
+#import System;
+
+[ Namespace <Collections>
+	[ Class <MyList> <T Constrains None> Final Extends None
+		[ Private <>
+			Property <dataPtr> Types NativeType<"ptr">;
+			Property <count> Types NativeType<"int64">;
+		]
+		[ Public <>
+			Constructor = default;
+
+			Method <init> Returns None Parameters () Do
+			{
+				// Empty for testing
+			}
+
+			Method <size> Returns Integer^ Parameters () Do
+			{
+				Instantiate NativeType<"int64">^ As <currentCount> = count;
+				Return Integer::Constructor(currentCount);
+			}
+		]
+	]
+]
+
+[ Entrypoint
+{
+	Run System::Console::printLine(String::Constructor("Step 1: Starting"));
+
+	Run System::Console::printLine(String::Constructor("Step 2: Creating list"));
+	Instantiate Collections::MyList<Integer>^ As <list> = Collections::MyList@Integer::Constructor();
+
+	Run System::Console::printLine(String::Constructor("Step 3: About to init"));
+	Run list.init();
+	Run System::Console::printLine(String::Constructor("Step 3b: Init done"));
+
+	Run System::Console::printLine(String::Constructor("=== Done ==="));
+	Exit(0);
+}
+]

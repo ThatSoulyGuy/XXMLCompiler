@@ -1,0 +1,18 @@
+// List only test - no Stream
+#import Language::Core;
+#import Collections;
+#import System;
+
+[ Entrypoint
+{
+    Run System::Console::printLine(String::Constructor("=== List Only Test ==="));
+    Instantiate Collections::List<Integer>^ As <numbers> = Collections::List@Integer::Constructor();
+    Run numbers.add(Integer::Constructor(1));
+    Run numbers.add(Integer::Constructor(2));
+    Run numbers.add(Integer::Constructor(3));
+    Run System::Console::print(String::Constructor("List size: "));
+    Run System::Console::printLine(numbers.size().toString());
+    Run System::Console::printLine(String::Constructor("=== Test Complete ==="));
+    Exit(0);
+}
+]

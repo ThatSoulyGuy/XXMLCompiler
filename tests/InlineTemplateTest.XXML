@@ -1,0 +1,59 @@
+// Inline Template Test - no imports except core
+#import Language::Core;
+#import System;
+
+[ Namespace <Test>
+	[ Class <SimpleList> <T Constrains None> Final Extends None
+		[ Private <>
+			Property <dataPtr> Types NativeType<"ptr">;
+			Property <count> Types NativeType<"int64">;
+		]
+		[ Public <>
+			Constructor = default;
+
+			Method <init> Returns None Parameters () Do
+			{
+				// Do nothing for testing
+			}
+
+			Method <add> Returns None Parameters (Parameter <value> Types T^) Do
+			{
+				// Just increment count - skip ptr_write for testing
+				Instantiate NativeType<"int64">^ As <currentCount> = count;
+				Instantiate NativeType<"int64">^ As <newCount> = currentCount + 1;
+				Run Syscall::memcpy(&count, &newCount, 8);
+			}
+
+			Method <size> Returns Integer^ Parameters () Do
+			{
+				Instantiate NativeType<"int64">^ As <currentCount> = count;
+				Return Integer::Constructor(currentCount);
+			}
+		]
+	]
+]
+
+[ Entrypoint
+{
+	Run System::Console::printLine(String::Constructor("Step 1: Starting"));
+
+	Run System::Console::printLine(String::Constructor("Step 2: Creating list"));
+	Instantiate Test::SimpleList<Integer>^ As <list> = Test::SimpleList@Integer::Constructor();
+
+	Run System::Console::printLine(String::Constructor("Step 3: About to init"));
+	Run list.init();
+	Run System::Console::printLine(String::Constructor("Step 3b: Init done"));
+
+	Run System::Console::printLine(String::Constructor("Step 4: About to add"));
+	Run list.add(Integer::Constructor(42));
+	Run System::Console::printLine(String::Constructor("Step 4b: Add done"));
+
+	Run System::Console::printLine(String::Constructor("Step 5: Getting size"));
+	Instantiate Integer^ As <sz> = list.size();
+	Run System::Console::print(String::Constructor("Size: "));
+	Run System::Console::printLine(sz.toString());
+
+	Run System::Console::printLine(String::Constructor("=== Done ==="));
+	Exit(0);
+}
+]

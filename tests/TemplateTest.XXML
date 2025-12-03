@@ -1,7 +1,7 @@
 // Test template functionality with a generic List class
 
-[ Namespace <Collections>
-	[ Class <List> <T Constrains None> Final Extends None
+[ Namespace <TestCollections>
+	[ Class <TestList> <T Constrains None> Final Extends None
 		[ Private <>
 			Property <dataPtr> Types NativeType<"ptr">;
 			Property <capacity> Types NativeType<"int64">;
@@ -59,7 +59,7 @@
 	Run System::PrintLine(String::Constructor("=== Template Test ==="));
 
 	// Test with Integer
-	Instantiate Collections::List<Integer>^ As <intList> = Collections::List<Integer>::Constructor();
+	Instantiate TestCollections::TestList<Integer>^ As <intList> = TestCollections::TestList<Integer>::Constructor();
 	Run intList.init();
 	Run intList.add(Integer::Constructor(42));
 	Run intList.add(Integer::Constructor(100));
@@ -71,7 +71,7 @@
 	Run intList.dispose();
 
 	// Test with String
-	Instantiate Collections::List<String>^ As <strList> = Collections::List<String>::Constructor();
+	Instantiate TestCollections::TestList<String>^ As <strList> = TestCollections::TestList<String>::Constructor();
 	Run strList.init();
 	Run strList.add(String::Constructor("Hello"));
 	Run strList.add(String::Constructor("World"));

@@ -1,0 +1,30 @@
+// Minimal Stream test - just count
+#import Language::Core;
+#import Collections;
+#import System;
+
+[ Entrypoint
+{
+    Run System::Console::printLine(String::Constructor("=== Minimal Stream Test ==="));
+
+    // Create a list
+    Instantiate Collections::List<Integer>^ As <numbers> = Collections::List@Integer::Constructor();
+    Run numbers.add(Integer::Constructor(1));
+    Run numbers.add(Integer::Constructor(2));
+    Run numbers.add(Integer::Constructor(3));
+
+    Run System::Console::print(String::Constructor("List size: "));
+    Run System::Console::printLine(numbers.size().toString());
+
+    // Create stream
+    Instantiate Collections::Stream<Integer>^ As <stream1> = numbers.stream();
+
+    // Get count
+    Instantiate Integer^ As <streamCount> = stream1.count();
+    Run System::Console::print(String::Constructor("Stream count: "));
+    Run System::Console::printLine(streamCount.toString());
+
+    Run System::Console::printLine(String::Constructor("=== Test Complete ==="));
+    Exit(0);
+}
+]

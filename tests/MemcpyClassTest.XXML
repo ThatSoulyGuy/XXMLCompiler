@@ -1,0 +1,43 @@
+// Test memcpy with class properties
+#import Language::Core;
+#import System;
+
+[ Namespace <Test>
+	[ Class <Counter> Final Extends None
+		[ Private <>
+			Property <value> Types NativeType<"int64">^;
+		]
+		[ Public <>
+			Constructor = default;
+
+			// Constructor method - take owned value and assign directly
+			Method <Constructor> Returns Counter^ Parameters (
+				Parameter <initial> Types NativeType<"int64">^
+			) ->
+			{
+				Set value = initial;
+				Return this;
+			}
+
+			Method <getValue> Returns Integer^ Parameters () Do
+			{
+				Return Integer::Constructor(value);
+			}
+		]
+	]
+]
+
+[ Entrypoint
+{
+	Run System::Console::printLine(String::Constructor("Step 1: Creating Counter"));
+	Instantiate NativeType<"int64">^ As <zero> = 0;
+	Instantiate Test::Counter^ As <c> = Test::Counter::Constructor(zero);
+	Run System::Console::printLine(String::Constructor("Step 2: Counter created"));
+
+	Instantiate Integer^ As <v> = c.getValue();
+	Run System::Console::print(String::Constructor("Value: "));
+	Run System::Console::printLine(v.toString());
+
+	Exit(0);
+}
+]

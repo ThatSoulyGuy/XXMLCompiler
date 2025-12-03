@@ -336,16 +336,209 @@ bool CodegenContext::isClassGenerated(const std::string& name) const {
     return generatedClasses_.find(name) != generatedClasses_.end();
 }
 
+// === RAII Destructor Management ===
+
+void CodegenContext::registerForDestruction(const std::string& varName,
+                                             const std::string& typeName,
+                                             LLVMIR::AllocaInst* alloca) {
+    if (destructorScopes_.empty()) {
+        destructorScopes_.push_back({});
+    }
+    // Only register if the type needs destruction
+    if (needsDestruction(typeName)) {
+        destructorScopes_.back().push_back({varName, typeName, alloca});
+    }
+}
+
+bool CodegenContext::needsDestruction(const std::string& typeName) const {
+    // Strip ownership markers
+    std::string baseType = typeName;
+    if (!baseType.empty() && (baseType.back() == '^' || baseType.back() == '%' || baseType.back() == '&')) {
+        baseType = baseType.substr(0, baseType.length() - 1);
+    }
+
+    // Primitive types don't need destruction
+    if (baseType == "Integer" || baseType == "Int" || baseType == "Int64" ||
+        baseType == "Int32" || baseType == "Int16" || baseType == "Int8" ||
+        baseType == "Bool" || baseType == "Boolean" ||
+        baseType == "Float" || baseType == "Double" ||
+        baseType == "Void" || baseType == "None" || baseType == "void" ||
+        baseType == "Byte" || baseType == "ptr") {
+        return false;
+    }
+
+    // NativeType doesn't need destruction
+    if (baseType.find("NativeType") == 0) {
+        return false;
+    }
+
+    // Check if the type is a class with a Destructor defined
+    auto* classInfo = getClass(baseType);
+    if (classInfo) {
+        // Check if destructor is defined for this class
+        std::string dtorName = mangleFunctionName(baseType, "Destructor");
+        return isFunctionDefined(dtorName);
+    }
+
+    // For generic template types, check if we have a destructor
+    // Handle types like Collections::List<Integer>
+    size_t ltPos = baseType.find('<');
+    if (ltPos != std::string::npos) {
+        std::string dtorName = mangleFunctionName(baseType, "Destructor");
+        return isFunctionDefined(dtorName);
+    }
+
+    return false;
+}
+
+void CodegenContext::emitScopeDestructors() {
+    if (destructorScopes_.empty()) return;
+
+    auto& scope = destructorScopes_.back();
+    // LIFO order - destroy in reverse order of construction
+    for (auto it = scope.rbegin(); it != scope.rend(); ++it) {
+        // Get the variable's pointer value
+        if (it->alloca) {
+            // Load the object pointer
+            auto objPtr = builder_->createLoadPtr(
+                LLVMIR::PtrValue(it->alloca),
+                it->varName + ".dtor_load"
+            );
+
+            // Get destructor function name
+            std::string typeName = it->typeName;
+            if (!typeName.empty() && (typeName.back() == '^' || typeName.back() == '%' || typeName.back() == '&')) {
+                typeName = typeName.substr(0, typeName.length() - 1);
+            }
+            std::string dtorName = mangleFunctionName(typeName, "Destructor");
+
+            // Get or declare the destructor
+            auto* dtorFunc = module_->getFunction(dtorName);
+            if (!dtorFunc) {
+                // Declare destructor if not found
+                std::vector<LLVMIR::Type*> paramTypes = { builder_->getPtrTy() };
+                auto* funcType = module_->getContext().getFunctionTy(
+                    module_->getContext().getVoidTy(), paramTypes, false);
+                dtorFunc = module_->createFunction(funcType, dtorName,
+                    LLVMIR::Function::Linkage::External);
+            }
+
+            if (dtorFunc) {
+                // Call destructor
+                std::vector<LLVMIR::AnyValue> args = { LLVMIR::AnyValue(objPtr) };
+                builder_->createCall(dtorFunc, args);
+            }
+        }
+    }
+}
+
+void CodegenContext::emitAllDestructors() {
+    // Emit all scopes in reverse order (for return statements)
+    for (auto scopeIt = destructorScopes_.rbegin(); scopeIt != destructorScopes_.rend(); ++scopeIt) {
+        for (auto it = scopeIt->rbegin(); it != scopeIt->rend(); ++it) {
+            if (it->alloca) {
+                auto objPtr = builder_->createLoadPtr(
+                    LLVMIR::PtrValue(it->alloca),
+                    it->varName + ".dtor_load"
+                );
+
+                std::string typeName = it->typeName;
+                if (!typeName.empty() && (typeName.back() == '^' || typeName.back() == '%' || typeName.back() == '&')) {
+                    typeName = typeName.substr(0, typeName.length() - 1);
+                }
+                std::string dtorName = mangleFunctionName(typeName, "Destructor");
+
+                auto* dtorFunc = module_->getFunction(dtorName);
+                if (!dtorFunc) {
+                    std::vector<LLVMIR::Type*> paramTypes = { builder_->getPtrTy() };
+                    auto* funcType = module_->getContext().getFunctionTy(
+                        module_->getContext().getVoidTy(), paramTypes, false);
+                    dtorFunc = module_->createFunction(funcType, dtorName,
+                        LLVMIR::Function::Linkage::External);
+                }
+
+                if (dtorFunc) {
+                    std::vector<LLVMIR::AnyValue> args = { LLVMIR::AnyValue(objPtr) };
+                    builder_->createCall(dtorFunc, args);
+                }
+            }
+        }
+    }
+}
+
 // === Scope Management ===
 
 void CodegenContext::pushScope() {
     variableScopes_.emplace_back();
+    destructorScopes_.push_back({});
 }
 
 void CodegenContext::popScope() {
+    // Emit destructors for this scope before popping
+    emitScopeDestructors();
+
     if (variableScopes_.size() > 1) {
         variableScopes_.pop_back();
     }
+    if (!destructorScopes_.empty()) {
+        destructorScopes_.pop_back();
+    }
+}
+
+// === Template Parameter Substitution ===
+
+void CodegenContext::setTemplateSubstitutions(const std::unordered_map<std::string, std::string>& subs) {
+    templateSubstitutions_ = subs;
+}
+
+void CodegenContext::clearTemplateSubstitutions() {
+    templateSubstitutions_.clear();
+}
+
+std::string CodegenContext::substituteTemplateParams(const std::string& typeName) const {
+    // Direct match (e.g., "T" -> "Integer")
+    auto it = templateSubstitutions_.find(typeName);
+    if (it != templateSubstitutions_.end()) {
+        return it->second;
+    }
+
+    // Handle Class@T pattern -> Class@Integer
+    size_t atPos = typeName.find('@');
+    if (atPos != std::string::npos) {
+        std::string base = typeName.substr(0, atPos);
+        std::string param = typeName.substr(atPos + 1);
+        auto paramIt = templateSubstitutions_.find(param);
+        if (paramIt != templateSubstitutions_.end()) {
+            return base + "@" + paramIt->second;
+        }
+    }
+
+    // Handle Class<T> pattern -> Class<Integer>
+    size_t ltPos = typeName.find('<');
+    if (ltPos != std::string::npos) {
+        size_t gtPos = typeName.rfind('>');
+        if (gtPos != std::string::npos && gtPos > ltPos) {
+            std::string base = typeName.substr(0, ltPos);
+            std::string param = typeName.substr(ltPos + 1, gtPos - ltPos - 1);
+            auto paramIt = templateSubstitutions_.find(param);
+            if (paramIt != templateSubstitutions_.end()) {
+                return base + "<" + paramIt->second + ">";
+            }
+        }
+    }
+
+    // Handle namespace::Class@T pattern
+    size_t colonPos = typeName.rfind("::");
+    if (colonPos != std::string::npos) {
+        std::string ns = typeName.substr(0, colonPos + 2);
+        std::string className = typeName.substr(colonPos + 2);
+        std::string substituted = substituteTemplateParams(className);
+        if (substituted != className) {
+            return ns + substituted;
+        }
+    }
+
+    return typeName;
 }
 
 } // namespace Codegen

@@ -1,4 +1,5 @@
 #include "Backends/Codegen/DeclCodegen/DeclCodegen.h"
+#include "Semantic/SemanticAnalyzer.h"
 
 namespace XXML {
 namespace Backends {
@@ -31,6 +32,10 @@ public:
 
         // Set current class context
         ctx_.setCurrentClassName(className);
+
+        // Try to extract template substitutions for template instantiations
+        // Check if this is a template instantiation by looking for type arguments in the name
+        extractAndSetTemplateSubstitutions(decl);
 
         // Collect properties and create ClassInfo
         ClassInfo classInfo;
@@ -86,10 +91,83 @@ public:
             }
         }
 
-        // Clear class context
+        // Clear template substitutions and class context
+        ctx_.clearTemplateSubstitutions();
         ctx_.setCurrentClassName("");
     }
 
+private:
+    // Extract template type arguments from the class declaration and set substitutions
+    void extractAndSetTemplateSubstitutions(Parser::ClassDecl* decl) {
+        if (!decl) return;
+
+        // Get template info from semantic analyzer if available
+        auto* analyzer = ctx_.semanticAnalyzer();
+        if (!analyzer) return;
+
+        // Try to find the original template class info
+        // Class names like "List<Integer>" or "Stream<Integer>" indicate instantiations
+        std::string baseName = decl->name;
+        size_t ltPos = baseName.find('<');
+        size_t atPos = baseName.find('@');
+
+        if (ltPos != std::string::npos) {
+            // Extract base template name and type argument
+            std::string templateName = baseName.substr(0, ltPos);
+            size_t gtPos = baseName.rfind('>');
+            if (gtPos != std::string::npos && gtPos > ltPos) {
+                std::string typeArg = baseName.substr(ltPos + 1, gtPos - ltPos - 1);
+
+                // Look up the template to get parameter names
+                const auto& templateClasses = analyzer->getTemplateClasses();
+                auto it = templateClasses.find(templateName);
+                if (it == templateClasses.end()) {
+                    // Try with namespace prefix
+                    std::string nsPrefix = std::string(ctx_.currentNamespace());
+                    if (!nsPrefix.empty()) {
+                        it = templateClasses.find(nsPrefix + "::" + templateName);
+                    }
+                }
+
+                if (it != templateClasses.end()) {
+                    const auto& templateInfo = it->second;
+                    std::unordered_map<std::string, std::string> subs;
+
+                    // Handle single template parameter (most common case)
+                    if (!templateInfo.templateParams.empty()) {
+                        subs[templateInfo.templateParams[0].name] = typeArg;
+                    }
+
+                    ctx_.setTemplateSubstitutions(subs);
+                }
+            }
+        } else if (atPos != std::string::npos) {
+            // Handle Class@Type naming convention (used in mangled names)
+            std::string templateName = baseName.substr(0, atPos);
+            std::string typeArg = baseName.substr(atPos + 1);
+
+            // Look up the template
+            const auto& templateClasses = analyzer->getTemplateClasses();
+            auto it = templateClasses.find(templateName);
+            if (it == templateClasses.end()) {
+                std::string nsPrefix = std::string(ctx_.currentNamespace());
+                if (!nsPrefix.empty()) {
+                    it = templateClasses.find(nsPrefix + "::" + templateName);
+                }
+            }
+
+            if (it != templateClasses.end()) {
+                const auto& templateInfo = it->second;
+                std::unordered_map<std::string, std::string> subs;
+                if (!templateInfo.templateParams.empty()) {
+                    subs[templateInfo.templateParams[0].name] = typeArg;
+                }
+                ctx_.setTemplateSubstitutions(subs);
+            }
+        }
+    }
+
+public:
     void visitNativeStruct(Parser::NativeStructureDecl* decl) override {
         if (!decl) return;
 

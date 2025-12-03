@@ -1,0 +1,96 @@
+// Simple HashMap test to isolate crash issue
+#import Language::Core;
+#import Collections;
+#import System;
+
+// Simple key class with hash and equals methods
+[ Class <IntKey> Final Extends None
+	[ Private <>
+		Property <val> Types Integer^;
+	]
+	[ Public <>
+		Constructor = default;
+
+		Method <init> Returns IntKey^ Parameters (Parameter <v> Types Integer^) Do
+		{
+			Set val = v;
+			Return this;
+		}
+
+		Method <hash> Returns NativeType<"int64">^ Parameters () Do
+		{
+			Return val.toInt64();
+		}
+
+		Method <equals> Returns Bool^ Parameters (Parameter <other> Types IntKey^) Do
+		{
+			Instantiate NativeType<"int64">^ As <myVal> = val.toInt64();
+			Instantiate NativeType<"int64">^ As <otherVal> = other.getValue().toInt64();
+			Return Bool::Constructor(myVal == otherVal);
+		}
+
+		Method <getValue> Returns Integer^ Parameters () Do
+		{
+			Return val;
+		}
+	]
+]
+
+[ Entrypoint
+{
+	Run System::Console::printLine(String::Constructor("=== Simple HashMap Test ==="));
+
+	// Create and initialize hashmap
+	Instantiate HashMap<IntKey, Integer>^ As <map> = HashMap@IntKey, Integer::Constructor();
+	Run map.init();
+
+	// Add one key
+	Run System::Console::printLine(String::Constructor("Adding key 1..."));
+	Instantiate IntKey^ As <key1> = IntKey::Constructor();
+	Run key1.init(Integer::Constructor(1));
+	Run map.put(key1, Integer::Constructor(100));
+
+	Run System::Console::printLine(String::Constructor("Size: "));
+	Instantiate Integer^ As <sz> = map.size();
+	Run System::Console::printLine(sz.toString());
+
+	// Test containsKey for existing key
+	Run System::Console::printLine(String::Constructor("Testing containsKey for key 1..."));
+	Instantiate IntKey^ As <checkKey1> = IntKey::Constructor();
+	Run checkKey1.init(Integer::Constructor(1));
+	Instantiate Bool^ As <has1> = map.containsKey(checkKey1);
+	If (has1) -> {
+		Run System::Console::printLine(String::Constructor("  contains key 1: true"));
+	}
+	If (has1 == false) -> {
+		Run System::Console::printLine(String::Constructor("  contains key 1: false"));
+	}
+
+	// Test containsKey for non-existent key in SAME bucket (17 % 16 = 1)
+	Run System::Console::printLine(String::Constructor("Testing containsKey for key 17 (same bucket as 1)..."));
+	Instantiate IntKey^ As <checkKey17> = IntKey::Constructor();
+	Run checkKey17.init(Integer::Constructor(17));
+	Instantiate Bool^ As <has17> = map.containsKey(checkKey17);
+	If (has17) -> {
+		Run System::Console::printLine(String::Constructor("  contains key 17: true"));
+	}
+	If (has17 == false) -> {
+		Run System::Console::printLine(String::Constructor("  contains key 17: false"));
+	}
+
+	// Test containsKey for non-existent key in EMPTY bucket (5 % 16 = 5)
+	Run System::Console::printLine(String::Constructor("Testing containsKey for key 5 (empty bucket)..."));
+	Instantiate IntKey^ As <checkKey5> = IntKey::Constructor();
+	Run checkKey5.init(Integer::Constructor(5));
+	Instantiate Bool^ As <has5> = map.containsKey(checkKey5);
+	If (has5) -> {
+		Run System::Console::printLine(String::Constructor("  contains key 5: true"));
+	}
+	If (has5 == false) -> {
+		Run System::Console::printLine(String::Constructor("  contains key 5: false"));
+	}
+
+	Run System::Console::printLine(String::Constructor("=== Test Complete ==="));
+	Exit(0);
+}
+]

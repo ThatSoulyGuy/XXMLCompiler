@@ -378,6 +378,43 @@ void LLVMBackend::generateTemplateInstantiations() {
             continue; // AST node not available (cross-module access without astNode)
         }
 
+        // Skip if any type argument is itself a template parameter (not a concrete type)
+        // This prevents generating code for self-referential types like HashMap<K, V>
+        // where K and V are unbound template parameters
+        bool hasTemplateParamArg = false;
+        for (const auto& arg : inst.arguments) {
+            if (arg.kind == Parser::TemplateArgument::Kind::Type) {
+                // Check if this type argument matches any template parameter name
+                for (const auto& [tplName, tplInfo] : templateClasses) {
+                    for (const auto& param : tplInfo.templateParams) {
+                        if (param.name == arg.typeArg) {
+                            hasTemplateParamArg = true;
+                            std::cerr << "[DEBUG] Skipping template instantiation " << inst.templateName
+                                      << " because arg '" << arg.typeArg << "' matches template param '"
+                                      << param.name << "'\n";
+                            break;
+                        }
+                    }
+                    if (hasTemplateParamArg) break;
+                }
+                if (hasTemplateParamArg) break;
+            }
+        }
+        if (hasTemplateParamArg) {
+            continue; // Skip instantiation with unbound template parameters
+        }
+
+        std::cerr << "[DEBUG] Generating template instantiation: " << inst.templateName << "<";
+        for (size_t i = 0; i < inst.arguments.size(); ++i) {
+            if (i > 0) std::cerr << ", ";
+            if (inst.arguments[i].kind == Parser::TemplateArgument::Kind::Type) {
+                std::cerr << inst.arguments[i].typeArg;
+            } else {
+                std::cerr << "[value]";
+            }
+        }
+        std::cerr << ">\n";
+
         // Generate mangled class name for LLVM
         // Replace < > and , with underscores: SomeClass<Integer> -> SomeClass_Integer
         std::string mangledName = inst.templateName;
@@ -1246,6 +1283,8 @@ std::string LLVMBackend::generatePreamble() {
     preamble << "declare void @xxml_ptr_write(ptr, ptr)\n";
     preamble << "declare i8 @xxml_read_byte(ptr)\n";
     preamble << "declare void @xxml_write_byte(ptr, i8)\n";
+    preamble << "declare i64 @xxml_int64_read(ptr)\n";
+    preamble << "declare void @xxml_int64_write(ptr, i64)\n";
     preamble << "\n";
 
     // Integer Operations
@@ -1963,6 +2002,10 @@ std::string LLVMBackend::generateBinaryOp(const std::string& op,
     if (op == "/") {
         return isFloat ? format("fdiv {} {}, {}", type, lhs, rhs)
                        : format("sdiv {} {}, {}", type, lhs, rhs);
+    }
+    if (op == "%") {
+        return isFloat ? format("frem {} {}, {}", type, lhs, rhs)
+                       : format("srem {} {}, {}", type, lhs, rhs);
     }
 
     // Comparison operations
@@ -3137,13 +3180,14 @@ void LLVMBackend::visit(Parser::EntrypointDecl& node) {
 }
 
 void LLVMBackend::visit(Parser::InstantiateStmt& node) {
-    // Check if type is a NativeType (primitives are always compile-time)
+    // Check if type is a NativeType (primitives)
     bool isNativeType = (node.type->typeName.find("NativeType<") == 0 ||
                          node.type->typeName.find("NativeType_") == 0);
 
     // Handle compile-time variables: evaluate at compile-time and store as constants
-    // NativeType primitives are always treated as compile-time
-    if ((node.isCompiletime || isNativeType) && node.initializer && semanticAnalyzer_) {
+    // IMPORTANT: Only treat as compile-time if EXPLICITLY marked as Compiletime
+    // NativeType variables are NOT automatically compile-time because they may be modified via Set
+    if (node.isCompiletime && node.initializer && semanticAnalyzer_) {
         Semantic::CompiletimeInterpreter interpreter(*semanticAnalyzer_);
         // Propagate known compile-time values to the interpreter
         // This allows method calls on compile-time values to be evaluated
@@ -6135,7 +6179,9 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
             functionName == "xxml_TLS_destroy" ||
             functionName == "xxml_TLS_set" ||
             // File I/O void-returning functions
-            functionName == "xxml_File_close";
+            functionName == "xxml_File_close" ||
+            // Memory int64 write function
+            functionName == "xxml_int64_write";
 
         if (matchesVoidPattern) {
             llvmReturnType = "void";
@@ -6165,7 +6211,9 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
             functionName == "xxml_File_tell" ||
             functionName == "xxml_File_size" ||
             functionName == "xxml_File_flush" ||
-            functionName == "xxml_File_sizeByPath") {
+            functionName == "xxml_File_sizeByPath" ||
+            // Memory int64 read function
+            functionName == "xxml_int64_read") {
             // Only the C runtime functions return primitive types
             // User-defined XXML methods return wrapped objects
             llvmReturnType = "i64";
@@ -6285,7 +6333,8 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
             expectedType = "i64";
         }
         else if ((functionName == "xxml_Atomic_add" || functionName == "xxml_Atomic_sub" ||
-                  functionName == "xxml_Atomic_store" || functionName == "xxml_Atomic_exchange") && i == 1) {
+                  functionName == "xxml_Atomic_store" || functionName == "xxml_Atomic_exchange" ||
+                  functionName == "xxml_int64_write") && i == 1) {
             // Second parameter is i64 (first is ptr handle)
             expectedType = "i64";
         }

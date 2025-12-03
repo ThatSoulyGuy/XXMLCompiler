@@ -1,0 +1,122 @@
+// Comprehensive test for List<T> functionality
+#import Language::Core;
+#import Collections;
+#import System;
+
+[ Entrypoint
+{
+	Run System::Console::printLine(String::Constructor("=== Comprehensive List Test ==="));
+
+	// Create and initialize list
+	Instantiate List<Integer>^ As <numbers> = List@Integer::Constructor();
+	Run numbers.init();
+
+	// Test isEmpty on empty list
+	Instantiate Bool^ As <empty1> = numbers.isEmpty();
+	Run System::Console::print(String::Constructor("Empty list isEmpty: "));
+	If (empty1) -> {
+		Run System::Console::printLine(String::Constructor("true"));
+	}
+	If (empty1 == false) -> {
+		Run System::Console::printLine(String::Constructor("false"));
+	}
+
+	// Add elements
+	Run System::Console::printLine(String::Constructor("Adding 10, 20, 30, 40, 50..."));
+	Run numbers.add(Integer::Constructor(10));
+	Run numbers.add(Integer::Constructor(20));
+	Run numbers.add(Integer::Constructor(30));
+	Run numbers.add(Integer::Constructor(40));
+	Run numbers.add(Integer::Constructor(50));
+
+	// Test size
+	Instantiate Integer^ As <sz> = numbers.size();
+	Run System::Console::print(String::Constructor("Size after adding 5 elements: "));
+	Run System::Console::printLine(sz.toString());
+
+	// Test isEmpty on non-empty list
+	Instantiate Bool^ As <empty2> = numbers.isEmpty();
+	Run System::Console::print(String::Constructor("Non-empty list isEmpty: "));
+	If (empty2) -> {
+		Run System::Console::printLine(String::Constructor("true"));
+	}
+	If (empty2 == false) -> {
+		Run System::Console::printLine(String::Constructor("false"));
+	}
+
+	// Test get
+	Run System::Console::printLine(String::Constructor("Getting elements:"));
+	Instantiate Integer^ As <e0> = numbers.get(Integer::Constructor(0));
+	Instantiate Integer^ As <e1> = numbers.get(Integer::Constructor(1));
+	Instantiate Integer^ As <e2> = numbers.get(Integer::Constructor(2));
+	Instantiate Integer^ As <e3> = numbers.get(Integer::Constructor(3));
+	Instantiate Integer^ As <e4> = numbers.get(Integer::Constructor(4));
+
+	Run System::Console::print(String::Constructor("  [0]: "));
+	Run System::Console::printLine(e0.toString());
+	Run System::Console::print(String::Constructor("  [1]: "));
+	Run System::Console::printLine(e1.toString());
+	Run System::Console::print(String::Constructor("  [2]: "));
+	Run System::Console::printLine(e2.toString());
+	Run System::Console::print(String::Constructor("  [3]: "));
+	Run System::Console::printLine(e3.toString());
+	Run System::Console::print(String::Constructor("  [4]: "));
+	Run System::Console::printLine(e4.toString());
+
+	// Test set
+	Run System::Console::printLine(String::Constructor("Setting [2] = 300..."));
+	Run numbers.set(Integer::Constructor(2), Integer::Constructor(300));
+	Instantiate Integer^ As <e2b> = numbers.get(Integer::Constructor(2));
+	Run System::Console::print(String::Constructor("  [2] is now: "));
+	Run System::Console::printLine(e2b.toString());
+
+	// Test clear
+	Run System::Console::printLine(String::Constructor("Clearing list..."));
+	Run numbers.clear();
+	Instantiate Integer^ As <szAfterClear> = numbers.size();
+	Run System::Console::print(String::Constructor("Size after clear: "));
+	Run System::Console::printLine(szAfterClear.toString());
+
+	// Re-add elements to test remove
+	Run System::Console::printLine(String::Constructor("Re-adding 1, 2, 3, 4, 5..."));
+	Run numbers.add(Integer::Constructor(1));
+	Run numbers.add(Integer::Constructor(2));
+	Run numbers.add(Integer::Constructor(3));
+	Run numbers.add(Integer::Constructor(4));
+	Run numbers.add(Integer::Constructor(5));
+
+	Instantiate Integer^ As <sz3> = numbers.size();
+	Run System::Console::print(String::Constructor("Size: "));
+	Run System::Console::printLine(sz3.toString());
+
+	// Test remove
+	Run System::Console::printLine(String::Constructor("Removing element at index 2..."));
+	Run numbers.remove(Integer::Constructor(2));
+
+	Instantiate Integer^ As <sz4> = numbers.size();
+	Run System::Console::print(String::Constructor("Size after remove: "));
+	Run System::Console::printLine(sz4.toString());
+
+	Run System::Console::printLine(String::Constructor("Elements after remove:"));
+	Instantiate Integer^ As <r0> = numbers.get(Integer::Constructor(0));
+	Instantiate Integer^ As <r1> = numbers.get(Integer::Constructor(1));
+	Instantiate Integer^ As <r2> = numbers.get(Integer::Constructor(2));
+	Instantiate Integer^ As <r3> = numbers.get(Integer::Constructor(3));
+
+	Run System::Console::print(String::Constructor("  [0]: "));
+	Run System::Console::printLine(r0.toString());
+	Run System::Console::print(String::Constructor("  [1]: "));
+	Run System::Console::printLine(r1.toString());
+	Run System::Console::print(String::Constructor("  [2]: "));
+	Run System::Console::printLine(r2.toString());
+	Run System::Console::print(String::Constructor("  [3]: "));
+	Run System::Console::printLine(r3.toString());
+
+	// Test dispose
+	Run System::Console::printLine(String::Constructor("Disposing list..."));
+	Run numbers.dispose();
+
+	Run System::Console::printLine(String::Constructor("=== All List Tests Passed ==="));
+	Exit(0);
+}
+]

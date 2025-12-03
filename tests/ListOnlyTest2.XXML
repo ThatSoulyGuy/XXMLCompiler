@@ -1,0 +1,29 @@
+// Test List without Iterator
+#import Language::Core;
+#import Collections;
+#import System;
+
+[ Entrypoint
+{
+	Run System::Console::printLine(String::Constructor("=== List Only Test ==="));
+
+	// Create and populate a list
+	Instantiate List<Integer>^ As <numbers> = List@Integer::Constructor();
+	Run numbers.init();
+	Run numbers.add(Integer::Constructor(10));
+	Run numbers.add(Integer::Constructor(20));
+
+	// Get size
+	Instantiate Integer^ As <sz> = numbers.size();
+	Run System::Console::print(String::Constructor("Size: "));
+	Run System::Console::printLine(sz.toString());
+
+	// Get element
+	Instantiate Integer^ As <first> = numbers.get(Integer::Constructor(0));
+	Run System::Console::print(String::Constructor("First: "));
+	Run System::Console::printLine(first.toString());
+
+	Run System::Console::printLine(String::Constructor("=== Test Complete ==="));
+	Exit(0);
+}
+]

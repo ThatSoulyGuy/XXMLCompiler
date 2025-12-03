@@ -12,10 +12,16 @@ public:
     void visitReturn(Parser::ReturnStmt* stmt) override {
         if (!stmt) return;
 
+        LLVMIR::AnyValue retValue;
         if (stmt->value) {
-            // Evaluate return expression
-            auto retValue = exprCodegen_.generate(stmt->value.get());
+            // Evaluate return expression BEFORE emitting destructors
+            retValue = exprCodegen_.generate(stmt->value.get());
+        }
 
+        // Emit all destructors before returning (RAII cleanup)
+        ctx_.emitAllDestructors();
+
+        if (stmt->value) {
             // Create typed return
             if (retValue.isInt()) {
                 ctx_.builder().createRet(retValue.asInt());

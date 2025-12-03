@@ -1,0 +1,66 @@
+// Test: Stream API - Full test
+#import Language::Core;
+#import Collections;
+#import System;
+
+[ Entrypoint
+{
+	Run System::Console::printLine(String::Constructor("=== Stream API Test ==="));
+
+	// Create and populate a list
+	Run System::Console::printLine(String::Constructor("Creating list with 5 elements..."));
+	Instantiate Collections::List<Integer>^ As <numbers> = Collections::List@Integer::Constructor();
+	Run numbers.init();
+	Run numbers.add(Integer::Constructor(10));
+	Run numbers.add(Integer::Constructor(20));
+	Run numbers.add(Integer::Constructor(30));
+	Run numbers.add(Integer::Constructor(40));
+	Run numbers.add(Integer::Constructor(50));
+
+	// Verify list size
+	Instantiate Integer^ As <listSize> = numbers.size();
+	Run System::Console::print(String::Constructor("List size: "));
+	Run System::Console::printLine(listSize.toString());
+
+	// Create stream from list using helper methods
+	Run System::Console::printLine(String::Constructor("Creating stream from list..."));
+	Instantiate Collections::Stream<Integer>^ As <stream> = Collections::Stream@Integer::Constructor();
+	Instantiate NativeType<"ptr">^ As <listPtr> = numbers.getDataPtr();
+	Instantiate NativeType<"int64">^ As <listCount> = numbers.getCount();
+	Run stream.initFrom(listPtr, listCount);
+
+	// Get stream count
+	Run System::Console::printLine(String::Constructor("Getting stream count..."));
+	Instantiate Integer^ As <streamCount> = stream.count();
+	Run System::Console::print(String::Constructor("Stream count: "));
+	Run System::Console::printLine(streamCount.toString());
+
+	// Get elements from stream directly
+	Run System::Console::printLine(String::Constructor("Getting elements from stream:"));
+	Instantiate NativeType<"int64">^ As <idx0> = 0;
+	Instantiate NativeType<"int64">^ As <idx1> = 1;
+	Instantiate NativeType<"int64">^ As <idx2> = 2;
+	Instantiate NativeType<"int64">^ As <idx3> = 3;
+	Instantiate NativeType<"int64">^ As <idx4> = 4;
+
+	Instantiate Integer^ As <elem0> = stream.get(idx0);
+	Instantiate Integer^ As <elem1> = stream.get(idx1);
+	Instantiate Integer^ As <elem2> = stream.get(idx2);
+	Instantiate Integer^ As <elem3> = stream.get(idx3);
+	Instantiate Integer^ As <elem4> = stream.get(idx4);
+
+	Run System::Console::print(String::Constructor("  [0] = "));
+	Run System::Console::printLine(elem0.toString());
+	Run System::Console::print(String::Constructor("  [1] = "));
+	Run System::Console::printLine(elem1.toString());
+	Run System::Console::print(String::Constructor("  [2] = "));
+	Run System::Console::printLine(elem2.toString());
+	Run System::Console::print(String::Constructor("  [3] = "));
+	Run System::Console::printLine(elem3.toString());
+	Run System::Console::print(String::Constructor("  [4] = "));
+	Run System::Console::printLine(elem4.toString());
+
+	Run System::Console::printLine(String::Constructor("=== Stream Test Passed! ==="));
+	Exit(0);
+}
+]

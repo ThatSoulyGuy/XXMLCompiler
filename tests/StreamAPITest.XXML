@@ -1,0 +1,344 @@
+// Test file for Stream API
+// Tests: Stream, Optional, Collectors with filter, map, reduce, etc.
+
+#import Language::Collections::List;
+#import Language::Collections::Stream;
+#import Language::Collections::Optional;
+#import System;
+
+[ Entrypoint
+{
+    Run System::Console::printLine(String::Constructor("=== Stream API Test Suite ==="));
+    Run System::Console::printLine(String::Constructor(""));
+
+    // ============================================================
+    // Test 1: Basic Stream Creation and toList
+    // ============================================================
+    Run System::Console::printLine(String::Constructor("Test 1: Basic Stream Creation"));
+
+    Instantiate Collections::List<Integer>^ As <numbers> = Collections::List@Integer::Constructor();
+    Run numbers.add(Integer::Constructor(1));
+    Run numbers.add(Integer::Constructor(2));
+    Run numbers.add(Integer::Constructor(3));
+    Run numbers.add(Integer::Constructor(4));
+    Run numbers.add(Integer::Constructor(5));
+
+    Instantiate Collections::Stream<Integer>^ As <stream1> = numbers.stream();
+    Instantiate Collections::List<Integer>^ As <result1> = stream1.toList();
+    Run System::Console::print(String::Constructor("Original list size: "));
+    Run System::Console::printLine(result1.size().toString());
+
+    // ============================================================
+    // Test 2: Filter
+    // ============================================================
+    Run System::Console::printLine(String::Constructor(""));
+    Run System::Console::printLine(String::Constructor("Test 2: Filter (keep even numbers)"));
+
+    Instantiate __function^ As <isEven> = [ Lambda [] Returns Bool^ Parameters (Parameter <n> Types Integer^)
+    {
+        Instantiate Integer^ As <two> = Integer::Constructor(2);
+        Instantiate Integer^ As <remainder> = n.modulo(two);
+        Return remainder.equals(Integer::Constructor(0));
+    } ];
+
+    Instantiate Collections::Stream<Integer>^ As <stream2> = numbers.stream();
+    Instantiate Collections::List<Integer>^ As <evens> = stream2.filter(isEven).toList();
+
+    Run System::Console::print(String::Constructor("Even numbers: "));
+    Instantiate Integer^ As <zero> = Integer::Constructor(0);
+    Instantiate Integer^ As <i> = zero;
+    While (i.lessThan(evens.size()).toInteger().toInt64() != 0) -> {
+        Run System::Console::print(evens.get(i).toString());
+        Run System::Console::print(String::Constructor(" "));
+        Set i = i.add(Integer::Constructor(1));
+    }
+    Run System::Console::printLine(String::Constructor(""));
+
+    // ============================================================
+    // Test 3: Map
+    // ============================================================
+    Run System::Console::printLine(String::Constructor(""));
+    Run System::Console::printLine(String::Constructor("Test 3: Map (double each number)"));
+
+    Instantiate __function^ As <doubleIt> = [ Lambda [] Returns Integer^ Parameters (Parameter <n> Types Integer^)
+    {
+        Return n.multiply(Integer::Constructor(2));
+    } ];
+
+    Instantiate Collections::Stream<Integer>^ As <stream3> = numbers.stream();
+    Instantiate Collections::List<Integer>^ As <doubled> = stream3.map<Integer>(doubleIt).toList();
+
+    Run System::Console::print(String::Constructor("Doubled numbers: "));
+    Set i = zero;
+    While (i.lessThan(doubled.size()).toInteger().toInt64() != 0) -> {
+        Run System::Console::print(doubled.get(i).toString());
+        Run System::Console::print(String::Constructor(" "));
+        Set i = i.add(Integer::Constructor(1));
+    }
+    Run System::Console::printLine(String::Constructor(""));
+
+    // ============================================================
+    // Test 4: Filter + Map chaining
+    // ============================================================
+    Run System::Console::printLine(String::Constructor(""));
+    Run System::Console::printLine(String::Constructor("Test 4: Filter + Map (even numbers doubled)"));
+
+    Instantiate Collections::Stream<Integer>^ As <stream4> = numbers.stream();
+    Instantiate Collections::List<Integer>^ As <evenDoubled> = stream4.filter(isEven).map<Integer>(doubleIt).toList();
+
+    Run System::Console::print(String::Constructor("Even numbers doubled: "));
+    Set i = zero;
+    While (i.lessThan(evenDoubled.size()).toInteger().toInt64() != 0) -> {
+        Run System::Console::print(evenDoubled.get(i).toString());
+        Run System::Console::print(String::Constructor(" "));
+        Set i = i.add(Integer::Constructor(1));
+    }
+    Run System::Console::printLine(String::Constructor(""));
+
+    // ============================================================
+    // Test 5: Reduce (sum)
+    // ============================================================
+    Run System::Console::printLine(String::Constructor(""));
+    Run System::Console::printLine(String::Constructor("Test 5: Reduce (sum all numbers)"));
+
+    Instantiate __function^ As <addInts> = [ Lambda [] Returns Integer^ Parameters (
+        Parameter <acc> Types Integer^,
+        Parameter <n> Types Integer^
+    )
+    {
+        Return acc.add(n);
+    } ];
+
+    Instantiate Collections::Stream<Integer>^ As <stream5> = numbers.stream();
+    Instantiate Integer^ As <sum> = stream5.reduce<Integer>(Integer::Constructor(0), addInts);
+    Run System::Console::print(String::Constructor("Sum of 1-5: "));
+    Run System::Console::printLine(sum.toString());
+
+    // ============================================================
+    // Test 6: Count
+    // ============================================================
+    Run System::Console::printLine(String::Constructor(""));
+    Run System::Console::printLine(String::Constructor("Test 6: Count"));
+
+    Instantiate Collections::Stream<Integer>^ As <stream6> = numbers.stream();
+    Instantiate Integer^ As <count> = stream6.filter(isEven).count();
+    Run System::Console::print(String::Constructor("Count of even numbers: "));
+    Run System::Console::printLine(count.toString());
+
+    // ============================================================
+    // Test 7: ForEach
+    // ============================================================
+    Run System::Console::printLine(String::Constructor(""));
+    Run System::Console::printLine(String::Constructor("Test 7: ForEach (print each number)"));
+
+    Instantiate __function^ As <printNum> = [ Lambda [] Returns None Parameters (Parameter <n> Types Integer^)
+    {
+        Run System::Console::print(n.toString());
+        Run System::Console::print(String::Constructor(" "));
+    } ];
+
+    Instantiate Collections::Stream<Integer>^ As <stream7> = numbers.stream();
+    Run stream7.forEach(printNum);
+    Run System::Console::printLine(String::Constructor(""));
+
+    // ============================================================
+    // Test 8: Limit and Skip
+    // ============================================================
+    Run System::Console::printLine(String::Constructor(""));
+    Run System::Console::printLine(String::Constructor("Test 8: Limit and Skip"));
+
+    Instantiate Collections::Stream<Integer>^ As <stream8a> = numbers.stream();
+    Instantiate Collections::List<Integer>^ As <limited> = stream8a.limit(Integer::Constructor(3)).toList();
+    Run System::Console::print(String::Constructor("First 3 elements: "));
+    Set i = zero;
+    While (i.lessThan(limited.size()).toInteger().toInt64() != 0) -> {
+        Run System::Console::print(limited.get(i).toString());
+        Run System::Console::print(String::Constructor(" "));
+        Set i = i.add(Integer::Constructor(1));
+    }
+    Run System::Console::printLine(String::Constructor(""));
+
+    Instantiate Collections::Stream<Integer>^ As <stream8b> = numbers.stream();
+    Instantiate Collections::List<Integer>^ As <skipped> = stream8b.skip(Integer::Constructor(2)).toList();
+    Run System::Console::print(String::Constructor("Skip first 2: "));
+    Set i = zero;
+    While (i.lessThan(skipped.size()).toInteger().toInt64() != 0) -> {
+        Run System::Console::print(skipped.get(i).toString());
+        Run System::Console::print(String::Constructor(" "));
+        Set i = i.add(Integer::Constructor(1));
+    }
+    Run System::Console::printLine(String::Constructor(""));
+
+    // ============================================================
+    // Test 9: anyMatch, allMatch, noneMatch
+    // ============================================================
+    Run System::Console::printLine(String::Constructor(""));
+    Run System::Console::printLine(String::Constructor("Test 9: Match predicates"));
+
+    Instantiate __function^ As <isGreaterThan3> = [ Lambda [] Returns Bool^ Parameters (Parameter <n> Types Integer^)
+    {
+        Return n.greaterThan(Integer::Constructor(3));
+    } ];
+
+    Instantiate Collections::Stream<Integer>^ As <stream9a> = numbers.stream();
+    Instantiate Bool^ As <anyGT3> = stream9a.anyMatch(isGreaterThan3);
+    Run System::Console::print(String::Constructor("Any > 3: "));
+    Run System::Console::printLine(anyGT3.toInteger().toString());
+
+    Instantiate Collections::Stream<Integer>^ As <stream9b> = numbers.stream();
+    Instantiate Bool^ As <allGT3> = stream9b.allMatch(isGreaterThan3);
+    Run System::Console::print(String::Constructor("All > 3: "));
+    Run System::Console::printLine(allGT3.toInteger().toString());
+
+    Instantiate __function^ As <isNegative> = [ Lambda [] Returns Bool^ Parameters (Parameter <n> Types Integer^)
+    {
+        Return n.lessThan(Integer::Constructor(0));
+    } ];
+
+    Instantiate Collections::Stream<Integer>^ As <stream9c> = numbers.stream();
+    Instantiate Bool^ As <noneNeg> = stream9c.noneMatch(isNegative);
+    Run System::Console::print(String::Constructor("None < 0: "));
+    Run System::Console::printLine(noneNeg.toInteger().toString());
+
+    // ============================================================
+    // Test 10: Optional
+    // ============================================================
+    Run System::Console::printLine(String::Constructor(""));
+    Run System::Console::printLine(String::Constructor("Test 10: Optional"));
+
+    Instantiate Collections::Optional<Integer>^ As <opt1> = Collections::Optional@Integer::of(Integer::Constructor(42));
+    Run System::Console::print(String::Constructor("Optional.of(42).isPresent(): "));
+    Run System::Console::printLine(opt1.isPresent().toInteger().toString());
+    Run System::Console::print(String::Constructor("Optional.of(42).get(): "));
+    Run System::Console::printLine(opt1.get().toString());
+
+    Instantiate Collections::Optional<Integer>^ As <opt2> = Collections::Optional@Integer::empty();
+    Run System::Console::print(String::Constructor("Optional.empty().isEmpty(): "));
+    Run System::Console::printLine(opt2.isEmpty().toInteger().toString());
+    Run System::Console::print(String::Constructor("Optional.empty().orElse(99): "));
+    Run System::Console::printLine(opt2.orElse(Integer::Constructor(99)).toString());
+
+    // ============================================================
+    // Test 11: findFirst
+    // ============================================================
+    Run System::Console::printLine(String::Constructor(""));
+    Run System::Console::printLine(String::Constructor("Test 11: findFirst"));
+
+    Instantiate Collections::Stream<Integer>^ As <stream11> = numbers.stream();
+    Instantiate Collections::Optional<Integer>^ As <firstEven> = stream11.filter(isEven).findFirst();
+    Run System::Console::print(String::Constructor("First even number: "));
+    If (firstEven.isPresent().toInteger().toInt64() != 0) -> {
+        Run System::Console::printLine(firstEven.get().toString());
+    } Else -> {
+        Run System::Console::printLine(String::Constructor("(none)"));
+    }
+
+    // ============================================================
+    // Test 12: Min and Max
+    // ============================================================
+    Run System::Console::printLine(String::Constructor(""));
+    Run System::Console::printLine(String::Constructor("Test 12: Min and Max"));
+
+    Instantiate Collections::Stream<Integer>^ As <stream12a> = numbers.stream();
+    Instantiate Collections::Optional<Integer>^ As <minVal> = stream12a.min();
+    Run System::Console::print(String::Constructor("Min: "));
+    If (minVal.isPresent().toInteger().toInt64() != 0) -> {
+        Run System::Console::printLine(minVal.get().toString());
+    }
+
+    Instantiate Collections::Stream<Integer>^ As <stream12b> = numbers.stream();
+    Instantiate Collections::Optional<Integer>^ As <maxVal> = stream12b.max();
+    Run System::Console::print(String::Constructor("Max: "));
+    If (maxVal.isPresent().toInteger().toInt64() != 0) -> {
+        Run System::Console::printLine(maxVal.get().toString());
+    }
+
+    // ============================================================
+    // Test 13: Range and RangeClosed
+    // ============================================================
+    Run System::Console::printLine(String::Constructor(""));
+    Run System::Console::printLine(String::Constructor("Test 13: Range and RangeClosed"));
+
+    Instantiate Collections::Stream<Integer>^ As <rangeStream> = Collections::Stream@Integer::range(Integer::Constructor(1), Integer::Constructor(5));
+    Instantiate Collections::List<Integer>^ As <rangeList> = rangeStream.toList();
+    Run System::Console::print(String::Constructor("Range(1, 5): "));
+    Set i = zero;
+    While (i.lessThan(rangeList.size()).toInteger().toInt64() != 0) -> {
+        Run System::Console::print(rangeList.get(i).toString());
+        Run System::Console::print(String::Constructor(" "));
+        Set i = i.add(Integer::Constructor(1));
+    }
+    Run System::Console::printLine(String::Constructor(""));
+
+    Instantiate Collections::Stream<Integer>^ As <rangeClosedStream> = Collections::Stream@Integer::rangeClosed(Integer::Constructor(1), Integer::Constructor(5));
+    Instantiate Collections::List<Integer>^ As <rangeClosedList> = rangeClosedStream.toList();
+    Run System::Console::print(String::Constructor("RangeClosed(1, 5): "));
+    Set i = zero;
+    While (i.lessThan(rangeClosedList.size()).toInteger().toInt64() != 0) -> {
+        Run System::Console::print(rangeClosedList.get(i).toString());
+        Run System::Console::print(String::Constructor(" "));
+        Set i = i.add(Integer::Constructor(1));
+    }
+    Run System::Console::printLine(String::Constructor(""));
+
+    // ============================================================
+    // Test 14: Joining strings
+    // ============================================================
+    Run System::Console::printLine(String::Constructor(""));
+    Run System::Console::printLine(String::Constructor("Test 14: String joining"));
+
+    Instantiate Collections::List<String>^ As <words> = Collections::List@String::Constructor();
+    Run words.add(String::Constructor("Hello"));
+    Run words.add(String::Constructor("World"));
+    Run words.add(String::Constructor("Stream"));
+
+    Instantiate Collections::Stream<String>^ As <wordStream> = words.stream();
+    Instantiate String^ As <joined> = wordStream.joining(String::Constructor(", "));
+    Run System::Console::print(String::Constructor("Joined: "));
+    Run System::Console::printLine(joined);
+
+    // ============================================================
+    // Test 15: Sum (for Integer streams)
+    // ============================================================
+    Run System::Console::printLine(String::Constructor(""));
+    Run System::Console::printLine(String::Constructor("Test 15: Sum"));
+
+    Instantiate Collections::Stream<Integer>^ As <stream15> = numbers.stream();
+    Instantiate Integer^ As <totalSum> = stream15.sum();
+    Run System::Console::print(String::Constructor("Sum: "));
+    Run System::Console::printLine(totalSum.toString());
+
+    // ============================================================
+    // Test 16: Distinct
+    // ============================================================
+    Run System::Console::printLine(String::Constructor(""));
+    Run System::Console::printLine(String::Constructor("Test 16: Distinct"));
+
+    Instantiate Collections::List<Integer>^ As <dupes> = Collections::List@Integer::Constructor();
+    Run dupes.add(Integer::Constructor(1));
+    Run dupes.add(Integer::Constructor(2));
+    Run dupes.add(Integer::Constructor(2));
+    Run dupes.add(Integer::Constructor(3));
+    Run dupes.add(Integer::Constructor(3));
+    Run dupes.add(Integer::Constructor(3));
+
+    Instantiate Collections::Stream<Integer>^ As <stream16> = dupes.stream();
+    Instantiate Collections::List<Integer>^ As <distinctList> = stream16.distinct().toList();
+    Run System::Console::print(String::Constructor("Distinct elements: "));
+    Set i = zero;
+    While (i.lessThan(distinctList.size()).toInteger().toInt64() != 0) -> {
+        Run System::Console::print(distinctList.get(i).toString());
+        Run System::Console::print(String::Constructor(" "));
+        Set i = i.add(Integer::Constructor(1));
+    }
+    Run System::Console::printLine(String::Constructor(""));
+
+    // ============================================================
+    // All tests complete
+    // ============================================================
+    Run System::Console::printLine(String::Constructor(""));
+    Run System::Console::printLine(String::Constructor("=== All Stream API Tests Complete ==="));
+
+    Exit(0);
+}
+]

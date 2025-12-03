@@ -1,0 +1,30 @@
+// Simple test for Stream API
+#import Language::Core;
+#import Collections;
+#import System;
+
+[ Entrypoint
+{
+    Run System::Console::printLine(String::Constructor("=== Simple Stream Test ==="));
+
+    // Create a list
+    Instantiate Collections::List<Integer>^ As <numbers> = Collections::List@Integer::Constructor();
+    Run numbers.add(Integer::Constructor(1));
+    Run numbers.add(Integer::Constructor(2));
+    Run numbers.add(Integer::Constructor(3));
+    Run numbers.add(Integer::Constructor(4));
+    Run numbers.add(Integer::Constructor(5));
+
+    Run System::Console::print(String::Constructor("List size: "));
+    Run System::Console::printLine(numbers.size().toString());
+
+    // Create stream and get count
+    Instantiate Collections::Stream<Integer>^ As <stream1> = numbers.stream();
+    Instantiate Integer^ As <count> = stream1.count();
+    Run System::Console::print(String::Constructor("Stream count: "));
+    Run System::Console::printLine(count.toString());
+
+    Run System::Console::printLine(String::Constructor("=== Test Complete ==="));
+    Exit(0);
+}
+]

@@ -1,0 +1,32 @@
+// Debug test - step by step list operations
+#import Language::Core;
+#import Collections;
+#import System;
+
+[ Entrypoint
+{
+    Run System::Console::printLine(String::Constructor("Step 1: Starting"));
+
+    Run System::Console::printLine(String::Constructor("Step 2: Creating list"));
+    Instantiate Collections::List<Integer>^ As <numbers> = Collections::List@Integer::Constructor();
+    Run numbers.init();
+
+    Run System::Console::printLine(String::Constructor("Step 3: List created"));
+
+    Run System::Console::printLine(String::Constructor("Step 4: Adding element 1"));
+    Run numbers.add(Integer::Constructor(1));
+
+    Run System::Console::printLine(String::Constructor("Step 5: Adding element 2"));
+    Run numbers.add(Integer::Constructor(2));
+
+    Run System::Console::printLine(String::Constructor("Step 6: Getting size"));
+    Instantiate Integer^ As <sz> = numbers.size();
+
+    Run System::Console::printLine(String::Constructor("Step 7: Printing size"));
+    Run System::Console::print(String::Constructor("Size: "));
+    Run System::Console::printLine(sz.toString());
+
+    Run System::Console::printLine(String::Constructor("=== Done ==="));
+    Exit(0);
+}
+]

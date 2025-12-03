@@ -1,0 +1,170 @@
+// Test for HashMap<K, V> functionality
+#import Language::Core;
+#import Collections;
+#import System;
+
+// Simple key class with hash and equals methods
+[ Class <IntKey> Final Extends None
+	[ Private <>
+		Property <val> Types Integer^;
+	]
+	[ Public <>
+		Constructor = default;
+
+		Method <init> Returns IntKey^ Parameters (Parameter <v> Types Integer^) Do
+		{
+			Set val = v;
+			Return this;
+		}
+
+		Method <hash> Returns NativeType<"int64">^ Parameters () Do
+		{
+			Return val.toInt64();
+		}
+
+		Method <equals> Returns Bool^ Parameters (Parameter <other> Types IntKey^) Do
+		{
+			Instantiate NativeType<"int64">^ As <myVal> = val.toInt64();
+			Instantiate NativeType<"int64">^ As <otherVal> = other.getValue().toInt64();
+			Return Bool::Constructor(myVal == otherVal);
+		}
+
+		Method <getValue> Returns Integer^ Parameters () Do
+		{
+			Return val;
+		}
+	]
+]
+
+[ Entrypoint
+{
+	Run System::Console::printLine(String::Constructor("=== HashMap Test ==="));
+
+	// Create and initialize hashmap
+	Instantiate HashMap<IntKey, Integer>^ As <map> = HashMap@IntKey, Integer::Constructor();
+	Run map.init();
+
+	// Test isEmpty on empty map
+	Instantiate Bool^ As <empty1> = map.isEmpty();
+	Run System::Console::print(String::Constructor("Empty map isEmpty: "));
+	If (empty1) -> {
+		Run System::Console::printLine(String::Constructor("true"));
+	}
+	If (empty1 == false) -> {
+		Run System::Console::printLine(String::Constructor("false"));
+	}
+
+	// Add some key-value pairs
+	Run System::Console::printLine(String::Constructor("Adding key-value pairs..."));
+
+	Instantiate IntKey^ As <key1> = IntKey::Constructor();
+	Run key1.init(Integer::Constructor(1));
+	Instantiate IntKey^ As <key2> = IntKey::Constructor();
+	Run key2.init(Integer::Constructor(2));
+	Instantiate IntKey^ As <key3> = IntKey::Constructor();
+	Run key3.init(Integer::Constructor(3));
+
+	Run map.put(key1, Integer::Constructor(100));
+	Run map.put(key2, Integer::Constructor(200));
+	Run map.put(key3, Integer::Constructor(300));
+
+	// Test size
+	Instantiate Integer^ As <sz> = map.size();
+	Run System::Console::print(String::Constructor("Size after adding 3 pairs: "));
+	Run System::Console::printLine(sz.toString());
+
+	// Test get
+	Run System::Console::printLine(String::Constructor("Getting values:"));
+
+	Instantiate IntKey^ As <lookupKey1> = IntKey::Constructor();
+	Run lookupKey1.init(Integer::Constructor(1));
+	Instantiate Integer^ As <v1> = map.get(lookupKey1);
+	Run System::Console::print(String::Constructor("  key 1: "));
+	Run System::Console::printLine(v1.toString());
+
+	Instantiate IntKey^ As <lookupKey2> = IntKey::Constructor();
+	Run lookupKey2.init(Integer::Constructor(2));
+	Instantiate Integer^ As <v2> = map.get(lookupKey2);
+	Run System::Console::print(String::Constructor("  key 2: "));
+	Run System::Console::printLine(v2.toString());
+
+	Instantiate IntKey^ As <lookupKey3> = IntKey::Constructor();
+	Run lookupKey3.init(Integer::Constructor(3));
+	Instantiate Integer^ As <v3> = map.get(lookupKey3);
+	Run System::Console::print(String::Constructor("  key 3: "));
+	Run System::Console::printLine(v3.toString());
+
+	// Test containsKey
+	Run System::Console::printLine(String::Constructor("Testing containsKey:"));
+
+	Instantiate IntKey^ As <checkKey1> = IntKey::Constructor();
+	Run checkKey1.init(Integer::Constructor(1));
+	Instantiate Bool^ As <has1> = map.containsKey(checkKey1);
+	Run System::Console::print(String::Constructor("  contains key 1: "));
+	If (has1) -> {
+		Run System::Console::printLine(String::Constructor("true"));
+	}
+	If (has1 == false) -> {
+		Run System::Console::printLine(String::Constructor("false"));
+	}
+
+	Instantiate IntKey^ As <checkKey99> = IntKey::Constructor();
+	Run checkKey99.init(Integer::Constructor(99));
+	Instantiate Bool^ As <has99> = map.containsKey(checkKey99);
+	Run System::Console::print(String::Constructor("  contains key 99: "));
+	If (has99) -> {
+		Run System::Console::printLine(String::Constructor("true"));
+	}
+	If (has99 == false) -> {
+		Run System::Console::printLine(String::Constructor("false"));
+	}
+
+	// Test update existing key
+	Run System::Console::printLine(String::Constructor("Updating key 2 to 999..."));
+	Instantiate IntKey^ As <updateKey> = IntKey::Constructor();
+	Run updateKey.init(Integer::Constructor(2));
+	Run map.put(updateKey, Integer::Constructor(999));
+
+	Instantiate IntKey^ As <getUpdatedKey> = IntKey::Constructor();
+	Run getUpdatedKey.init(Integer::Constructor(2));
+	Instantiate Integer^ As <updatedVal> = map.get(getUpdatedKey);
+	Run System::Console::print(String::Constructor("  key 2 after update: "));
+	Run System::Console::printLine(updatedVal.toString());
+
+	// Size should still be 3
+	Instantiate Integer^ As <sz2> = map.size();
+	Run System::Console::print(String::Constructor("Size after update: "));
+	Run System::Console::printLine(sz2.toString());
+
+	// Test remove
+	Run System::Console::printLine(String::Constructor("Removing key 2..."));
+	Instantiate IntKey^ As <removeKey> = IntKey::Constructor();
+	Run removeKey.init(Integer::Constructor(2));
+	Instantiate Bool^ As <removed> = map.remove(removeKey);
+	Run System::Console::print(String::Constructor("  remove returned: "));
+	If (removed) -> {
+		Run System::Console::printLine(String::Constructor("true"));
+	}
+	If (removed == false) -> {
+		Run System::Console::printLine(String::Constructor("false"));
+	}
+
+	Instantiate Integer^ As <sz3> = map.size();
+	Run System::Console::print(String::Constructor("Size after remove: "));
+	Run System::Console::printLine(sz3.toString());
+
+	// Test clear
+	Run System::Console::printLine(String::Constructor("Clearing map..."));
+	Run map.clear();
+	Instantiate Integer^ As <sz4> = map.size();
+	Run System::Console::print(String::Constructor("Size after clear: "));
+	Run System::Console::printLine(sz4.toString());
+
+	// Clean up
+	Run System::Console::printLine(String::Constructor("Disposing map..."));
+	Run map.dispose();
+
+	Run System::Console::printLine(String::Constructor("=== HashMap Test Complete ==="));
+	Exit(0);
+}
+]

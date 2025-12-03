@@ -1,0 +1,19 @@
+// Test NativeType and memcpy
+#import Language::Core;
+#import System;
+
+[ Entrypoint
+{
+	Run System::Console::printLine(String::Constructor("Step 1: Creating Integer"));
+	Instantiate Integer^ As <x> = Integer::Constructor(42);
+	Run System::Console::printLine(String::Constructor("Step 2: Integer created"));
+
+	Instantiate NativeType<"int64">^ As <val> = x.toInt64();
+	Run System::Console::printLine(String::Constructor("Step 3: Got int64 value"));
+
+	Instantiate NativeType<"int64">^ As <zero> = 0;
+	Run System::Console::printLine(String::Constructor("Step 4: Created zero"));
+
+	Exit(0);
+}
+]
