@@ -5,6 +5,7 @@
 #include "../Common/Error.h"
 #include "../Core/TypeContext.h"
 #include "../AnnotationProcessor/AnnotationProcessor.h"
+#include "PassResults.h"
 
 namespace XXML {
 
@@ -13,41 +14,24 @@ namespace Core { class CompilationContext; }
 
 namespace Semantic {
 
+// Forward declarations for pass classes
+class TypeCanonicalizer;
+class TemplateExpander;
+class OwnershipAnalyzer;
+class LayoutComputer;
+class ABILowering;
+class SemanticVerifier;
+
 class SemanticAnalyzer : public Parser::ASTVisitor {
 public:
-    // ✅ SAFE: Template class info stores COPIES of template parameters, not raw pointers
-    // Made public for cross-module template registration
-    struct TemplateClassInfo {
-        std::string qualifiedName;
-        std::vector<Parser::TemplateParameter> templateParams;  // COPIED from AST
-        std::string baseClassName;  // COPIED from AST
-        Parser::ClassDecl* astNode = nullptr;  // Optional: only valid for same-module access
-    };
-
-    // Information about a call expression in a template body (extracted at registration)
-    struct TemplateBodyCallInfo {
-        std::string className;      // Class being called (may be template param like "T")
-        std::string methodName;     // Method being called (e.g., "Constructor")
-        std::vector<std::string> argumentTypes;  // Types of arguments (e.g., ["Integer"])
-    };
-
-    // ✅ SAFE: Template method info stores COPIES of template parameters
-    struct TemplateMethodInfo {
-        std::string className;
-        std::string methodName;
-        std::string returnTypeName;  // COPIED from AST for safe access
-        std::vector<Parser::TemplateParameter> templateParams;  // COPIED from AST
-        std::vector<TemplateBodyCallInfo> callsInBody;  // Extracted calls for validation
-        Parser::MethodDecl* astNode = nullptr;  // Optional: only valid for same-module access
-    };
-
-    // ✅ Template lambda info stores COPIES of template parameters
-    struct TemplateLambdaInfo {
-        std::string variableName;  // Variable name holding the lambda
-        std::vector<Parser::TemplateParameter> templateParams;  // COPIED from AST
-        Parser::LambdaExpr* astNode = nullptr;  // Optional: only valid for same-module access
-        std::unordered_map<std::string, std::string> capturedVarTypes;  // varName -> type (e.g., "Integer^")
-    };
+    // Use types from PassResults.h (defined there to avoid circular dependencies)
+    // These are re-exported here for backwards compatibility with existing code
+    using TemplateClassInfo = Semantic::TemplateClassInfo;
+    using TemplateBodyCallInfo = Semantic::TemplateBodyCallInfo;
+    using TemplateMethodInfo = Semantic::TemplateMethodInfo;
+    using TemplateLambdaInfo = Semantic::TemplateLambdaInfo;
+    using CallbackParamInfo = Semantic::CallbackParamInfo;
+    using CallbackTypeInfo = Semantic::CallbackTypeInfo;
 
     // Annotation parameter info - made public for cross-module sharing
     struct AnnotationParamInfo {
@@ -90,6 +74,9 @@ private:
     std::string currentAnnotationName_;  // The annotation being processed (for getAnnotationArg() return type)
     std::set<std::string> templateTypeParameters;  // Template parameters in current scope
 
+    // Multi-stage pipeline results
+    CompilationPassResults passResults_;
+
     // Type checking helpers
     bool isCompatibleType(const std::string& expected, const std::string& actual);
     bool isCompatibleOwnership(Parser::OwnershipType expected, Parser::OwnershipType actual);
@@ -114,6 +101,9 @@ private:
     void validateOnAnnotateSignature(Parser::MethodDecl& method);  // Validate processor onAnnotate method
     bool isCompilerIntrinsicType(const std::string& typeName) const;  // Check for ReflectionContext, CompilationContext
     void setProcessorTargetType(const std::string& typeName) { processorTargetType_ = typeName; }  // Set target type for getTargetValue()
+
+    // Template argument parsing utility - handles nested templates like List<Box<Integer>>
+    static std::vector<std::string> parseTemplateArguments(const std::string& argsStr);
 
     // Temporary storage for expression type information
     std::unordered_map<Parser::Expression*, std::string> expressionTypes;
@@ -203,30 +193,16 @@ private:
     std::set<LambdaTemplateInstantiation> lambdaTemplateInstantiations_;
 
     // Class member registry for validation
-    struct MethodInfo {
-        std::string returnType;
-        Parser::OwnershipType returnOwnership;
-        std::vector<std::pair<std::string, Parser::OwnershipType>> parameters; // (type, ownership) pairs
-        bool isConstructor;
-        bool isCompiletime = false;  // Whether this method can be evaluated at compile-time
-    };
-
-    struct ClassInfo {
-        std::string qualifiedName;  // Full name including namespace
-        std::unordered_map<std::string, MethodInfo> methods;
-        std::unordered_map<std::string, std::pair<std::string, Parser::OwnershipType>> properties; // name -> (type, ownership)
-        std::string baseClassName;  // ✅ SAFE: COPIED from AST, not pointer
-        std::vector<Parser::TemplateParameter> templateParams;  // ✅ SAFE: COPIED from AST
-        bool isTemplate = false;  // Whether this is a template class
-        bool isCompiletime = false;  // Whether this is a compile-time class (all methods must be compiletime)
-        Parser::ClassDecl* astNode = nullptr;  // Optional: only valid for same-module access
-    };
+    // (MethodInfo and ClassInfo are defined in PassResults.h)
+    using MethodInfo = Semantic::MethodInfo;
+    using ClassInfo = Semantic::ClassInfo;
 
     // ✅ REMOVED STATIC STATE - now instance-based in context
     std::unordered_map<std::string, ClassInfo> classRegistry_;  // Qualified class name -> ClassInfo
     std::set<std::string> validNamespaces_;  // Track all valid namespaces
     std::set<std::string> importedNamespaces_;  // Track imported namespaces for unqualified name lookup
     std::vector<Parser::ClassDecl*> localClasses_;  // User-defined classes in the current file (for processor access)
+    std::vector<Parser::MethodDecl*> nativeMethods_;  // Native methods for ABI lowering
 
     // Move tracking for ownership safety
     std::set<std::string> movedVariables_;  // Variables that have been moved from (owned capture or owned param)
@@ -301,21 +277,15 @@ private:
     std::unordered_map<std::string, EnumInfo> enumRegistry_;  // Qualified enum name -> EnumInfo
 
     // Callback type registry for FFI callbacks
-    struct CallbackParamInfo {
-        std::string name;
-        std::string typeName;
-        Parser::OwnershipType ownership;
-    };
-    struct CallbackTypeInfo {
-        std::string name;
-        std::string qualifiedName;
-        Parser::CallingConvention convention;
+    // (CallbackParamInfo and CallbackTypeInfo defined in PassResults.h)
+    std::unordered_map<std::string, CallbackTypeInfo> callbackTypeRegistry_;  // Qualified callback type name -> info
+
+    // Intrinsic method registry for Console, Mem, Syscall methods that bypass normal validation
+    struct IntrinsicMethodInfo {
         std::string returnType;
         Parser::OwnershipType returnOwnership;
-        std::vector<CallbackParamInfo> parameters;
-        Parser::CallbackTypeDecl* astNode;
     };
-    std::unordered_map<std::string, CallbackTypeInfo> callbackTypeRegistry_;  // Qualified callback type name -> info
+    std::unordered_map<std::string, IntrinsicMethodInfo> intrinsicMethods_;
 
     // Annotation validation helpers
     void validateAnnotationUsage(Parser::AnnotationUsage& usage,
@@ -356,6 +326,10 @@ private:
     ClassInfo* findClass(const std::string& className);
     bool validateQualifiedIdentifier(const std::string& qualifiedName, const Common::SourceLocation& loc);
 
+    // Resolve member access chain to determine if it resolves to a class or namespace
+    // Returns the qualified name and sets isClassReference if it's a class
+    std::string resolveMemberAccessChain(Parser::Expression* expr, bool& isClassReference);
+
     // Template-aware qualified name parsing
     std::string extractClassName(const std::string& qualifiedName);
     std::string extractMethodName(const std::string& qualifiedName);
@@ -393,6 +367,20 @@ public:
     const Core::TypeContext& getTypeContext() const {
         return typeContext_;
     }
+
+    // Accessors for semantic verification
+    const std::unordered_map<Parser::Expression*, std::string>& getExpressionTypes() const {
+        return expressionTypes;
+    }
+    const std::unordered_map<std::string, ClassInfo>& getClassRegistry() const {
+        return classRegistry_;
+    }
+    bool hasUnknownTypes() const {
+        for (const auto& [expr, type] : expressionTypes) {
+            if (type == "Unknown") return true;
+        }
+        return false;
+    }
     const std::unordered_map<std::string, TemplateMethodInfo>& getTemplateMethods() const {
         return templateMethods;
     }
@@ -406,6 +394,38 @@ public:
     // Register template classes and instantiations from other modules
     void registerTemplateClass(const std::string& name, const TemplateClassInfo& info) {
         templateClasses[name] = info;
+    }
+
+    // Merge class registry from another module (for cross-module type resolution)
+    void mergeClassRegistry(const std::unordered_map<std::string, ClassInfo>& other) {
+        for (const auto& [name, info] : other) {
+            // Don't overwrite existing entries (prefer local definitions)
+            if (classRegistry_.find(name) == classRegistry_.end()) {
+                // Clear astNode for cross-module safety
+                ClassInfo safeCopy = info;
+                safeCopy.astNode = nullptr;
+                classRegistry_[name] = safeCopy;
+            }
+        }
+    }
+
+    // Merge expression types from another analyzer (for cross-module type resolution)
+    void mergeExpressionTypes(const std::unordered_map<Parser::Expression*, std::string>& other) {
+        for (const auto& [expr, type] : other) {
+            if (expressionTypes.find(expr) == expressionTypes.end()) {
+                expressionTypes[expr] = type;
+            }
+        }
+    }
+
+    // Merge enum registry from another module (for cross-module enum resolution)
+    void mergeEnumRegistry(const std::unordered_map<std::string, EnumInfo>& other) {
+        for (const auto& [name, info] : other) {
+            // Don't overwrite existing entries (prefer local definitions)
+            if (enumRegistry_.find(name) == enumRegistry_.end()) {
+                enumRegistry_[name] = info;
+            }
+        }
     }
 
     // Helper to create TemplateClassInfo from a ClassDecl (for same-module registration)
@@ -481,6 +501,35 @@ public:
     SemanticAnalyzer(Common::ErrorReporter& reporter);
 
     void analyze(Parser::Program& program);
+
+    //==========================================================================
+    // MULTI-STAGE ANALYSIS PIPELINE
+    //==========================================================================
+
+    /**
+     * Run the complete multi-stage analysis pipeline.
+     * This is the preferred entry point for new code.
+     *
+     * Stages:
+     * 1. Type Resolution - Canonicalize types, resolve forward references
+     * 2. Template Expansion - Instantiate all templates with concrete types
+     * 3. Semantic Validation - Method resolution, type checking
+     * 4. Ownership Analysis - Move tracking, lifetime validation
+     * 5. Layout Computation - Finalize class layouts
+     * 6. ABI Lowering - FFI signature resolution
+     * 7. Verification - Final invariant checks
+     */
+    CompilationPassResults runPipeline(Parser::Program& program);
+
+    /**
+     * Get the results from the last pipeline run.
+     */
+    const CompilationPassResults& getPassResults() const { return passResults_; }
+
+    /**
+     * Check if the last pipeline run succeeded.
+     */
+    bool pipelineSucceeded() const { return passResults_.allSuccessful(); }
 
     // Control validation (for two-phase analysis)
     void setValidationEnabled(bool enabled) { enableValidation = enabled; }

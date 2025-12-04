@@ -1,7 +1,9 @@
 #include "Backends/Codegen/CodegenContext.h"
 #include "Backends/TypeNormalizer.h"
 #include "Core/TypeRegistry.h"
+#include "Semantic/SemanticError.h"
 #include <algorithm>
+#include <iostream>
 
 namespace XXML {
 namespace Backends {
@@ -136,8 +138,56 @@ LLVMIR::Type* CodegenContext::mapType(std::string_view xxmlType) {
         return ctx.getVoidTy();
     }
 
-    // All objects/classes are pointers
-    return ctx.getPtrTy();
+    // Check if it's a known class type (returns pointer)
+    if (hasClass(type)) {
+        return ctx.getPtrTy();
+    }
+
+    // Check for template instantiation pattern (e.g., Box<Integer>)
+    if (type.find('<') != std::string::npos) {
+        return ctx.getPtrTy();  // Template instances are objects (pointers)
+    }
+
+    // Check for String type (builtin class)
+    if (type == "String") {
+        return ctx.getPtrTy();
+    }
+
+    // Check for NativeType patterns
+    if (type.find("NativeType<") != std::string::npos) {
+        // Extract the native type and map it
+        size_t start = type.find('<') + 1;
+        size_t end = type.rfind('>');
+        if (start < end) {
+            std::string nativeType = type.substr(start, end - start);
+            // Remove quotes if present
+            if (nativeType.size() >= 2 && nativeType.front() == '"' && nativeType.back() == '"') {
+                nativeType = nativeType.substr(1, nativeType.size() - 2);
+            }
+            if (nativeType == "int64") return ctx.getInt64Ty();
+            if (nativeType == "int32") return ctx.getInt32Ty();
+            if (nativeType == "int16") return ctx.getInt16Ty();
+            if (nativeType == "int8") return ctx.getInt8Ty();
+            if (nativeType == "bool") return ctx.getInt1Ty();
+            if (nativeType == "float") return ctx.getFloatTy();
+            if (nativeType == "double") return ctx.getDoubleTy();
+            if (nativeType == "ptr" || nativeType == "cstr" || nativeType == "string_ptr") {
+                return ctx.getPtrTy();
+            }
+        }
+        return ctx.getPtrTy();  // Default NativeType to pointer
+    }
+
+    // STRICT MODE: Unknown types are now a hard failure
+    // This indicates semantic analysis did not resolve this type
+    if (type != "Unknown" && !type.empty()) {
+        // Throw invariant violation - unknown types should never reach codegen
+        throw Semantic::UnresolvedTypeError(std::string(type));
+    }
+
+    // Empty type or "Unknown" - still a violation but with different message
+    throw Semantic::UnresolvedTypeError(
+        type.empty() ? "<empty>" : std::string(type));
 }
 
 std::string CodegenContext::getLLVMTypeString(std::string_view xxmlType) const {

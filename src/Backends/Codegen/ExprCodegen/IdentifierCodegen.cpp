@@ -1,4 +1,5 @@
 #include "Backends/Codegen/ExprCodegen/ExprCodegen.h"
+#include "Semantic/SemanticError.h"
 
 namespace XXML {
 namespace Backends {
@@ -11,7 +12,8 @@ public:
 
     LLVMIR::AnyValue visitIdentifier(Parser::IdentifierExpr* expr) override {
         if (!expr) {
-            return LLVMIR::AnyValue(ctx_.builder().getNullPtr());
+            throw Semantic::CodegenInvariantViolation("NULL_IDENTIFIER",
+                "IdentifierExpr is null");
         }
 
         const std::string& name = expr->name;
@@ -55,31 +57,37 @@ public:
             }
         }
 
-        // Unknown identifier - return null
-        ctx_.lastExprValue = LLVMIR::AnyValue(ctx_.builder().getNullPtr());
-        return ctx_.lastExprValue;
+        // Unknown identifier - this is a semantic error that should have been caught
+        throw Semantic::UnresolvedIdentifierError(name);
     }
 
     LLVMIR::AnyValue visitThis(Parser::ThisExpr*) override {
         // Get 'this' pointer from current function's first argument
         auto* func = ctx_.currentFunction();
-        if (func && func->getNumParams() > 0) {
-            auto* thisArg = func->getArg(0);
-            if (thisArg) {
-                auto ptrValue = LLVMIR::PtrValue(thisArg);
-                ctx_.lastExprValue = LLVMIR::AnyValue(ptrValue);
-                return ctx_.lastExprValue;
-            }
+        if (!func) {
+            throw Semantic::CodegenInvariantViolation("THIS_NO_FUNCTION",
+                "'this' used outside of a function");
+        }
+        if (func->getNumParams() == 0) {
+            throw Semantic::CodegenInvariantViolation("THIS_NO_PARAMS",
+                "'this' used in function with no parameters (not a method?)");
         }
 
-        // Fallback to null
-        ctx_.lastExprValue = LLVMIR::AnyValue(ctx_.builder().getNullPtr());
+        auto* thisArg = func->getArg(0);
+        if (!thisArg) {
+            throw Semantic::CodegenInvariantViolation("THIS_NULL_ARG",
+                "'this' argument is null");
+        }
+
+        auto ptrValue = LLVMIR::PtrValue(thisArg);
+        ctx_.lastExprValue = LLVMIR::AnyValue(ptrValue);
         return ctx_.lastExprValue;
     }
 
     LLVMIR::AnyValue visitReference(Parser::ReferenceExpr* expr) override {
         if (!expr || !expr->expr) {
-            return LLVMIR::AnyValue(ctx_.builder().getNullPtr());
+            throw Semantic::CodegenInvariantViolation("NULL_REFERENCE",
+                "ReferenceExpr is null or has null inner expression");
         }
 
         // If it's an identifier, get its address (alloca)
@@ -101,18 +109,25 @@ private:
     LLVMIR::AnyValue loadPropertyFromThis(const PropertyInfo& prop) {
         auto* func = ctx_.currentFunction();
         if (!func || func->getNumParams() == 0) {
-            return LLVMIR::AnyValue(ctx_.builder().getNullPtr());
+            throw Semantic::CodegenInvariantViolation("PROPERTY_NO_FUNCTION",
+                "Cannot load property '" + prop.name + "' - no current function or method");
         }
 
         auto* thisArg = func->getArg(0);
         if (!thisArg) {
-            return LLVMIR::AnyValue(ctx_.builder().getNullPtr());
+            throw Semantic::CodegenInvariantViolation("PROPERTY_NO_THIS",
+                "Cannot load property '" + prop.name + "' - 'this' argument is null");
         }
 
         // Get class struct type
-        auto* classInfo = ctx_.getClass(std::string(ctx_.currentClassName()));
-        if (!classInfo || !classInfo->structType) {
-            return LLVMIR::AnyValue(ctx_.builder().getNullPtr());
+        std::string className = std::string(ctx_.currentClassName());
+        auto* classInfo = ctx_.getClass(className);
+        if (!classInfo) {
+            throw Semantic::MissingClassError(className, "loading property '" + prop.name + "'");
+        }
+        if (!classInfo->structType) {
+            throw Semantic::CodegenInvariantViolation("PROPERTY_NO_STRUCT",
+                "Class '" + className + "' has no struct type for property '" + prop.name + "'");
         }
 
         // GEP to property

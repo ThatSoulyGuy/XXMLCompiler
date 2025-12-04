@@ -32,7 +32,20 @@
       "Bash(\"D:\\VisualStudio\\Projects\\XXMLCompiler\\methodtemplatetest.exe\")",
       "Bash(\"D:\\VisualStudio\\Projects\\XXMLCompiler\\lambdatest.exe\")",
       "Bash(\"D:\\VisualStudio\\Projects\\XXMLCompiler\\compiletimetest.exe\")",
-      "Bash(\"D:\\VisualStudio\\Projects\\XXMLCompiler\\listonlytest.exe\")"
+      "Bash(\"D:\\VisualStudio\\Projects\\XXMLCompiler\\listonlytest.exe\")",
+      "Bash(powershell:*)",
+      "Bash(cmake --build:*)",
+      "Bash(\"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" \"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\tests\\TinyListTest.XXML\" -o \"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\tinylisttest.exe\")",
+      "Bash(\"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\tinylisttest.exe\")",
+      "Bash(\"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" \"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\tests\\ComprehensiveListTest.XXML\" -o \"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\listtest.exe\")",
+      "Bash(\"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\listtest.exe\")",
+      "Bash(\"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" \"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\tests\\SimpleHashMapTest.XXML\" -o \"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\simplehashmaptest.exe\")",
+      "Bash(\"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\simplehashmaptest.exe\")",
+      "Bash(Copy-Item -Force \"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\Language\\Collections\\Set.XXML\" \"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\Language\\Collections\\Set.XXML\")",
+      "Bash(dir:*)",
+      "Bash(findstr:*)",
+      "Bash(find:*)",
+      "Bash(\"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" \"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\Hello.XXML\" -o \"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\hello.exe\")"
     ],
     "deny": [],
     "ask": []

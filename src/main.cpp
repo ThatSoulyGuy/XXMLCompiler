@@ -8,6 +8,7 @@
 #include "Lexer/Lexer.h"
 #include "Parser/Parser.h"
 #include "Semantic/SemanticAnalyzer.h"
+#include "Semantic/SemanticVerifier.h"
 #include "Core/CompilationContext.h"
 #include "Core/TypeRegistry.h"
 #include "Core/BackendRegistry.h"
@@ -438,6 +439,28 @@ int main(int argc, char* argv[]) {
             }
         }
 
+        // Build unified class registry from all Phase 1 analyzers BEFORE Phase 2
+        // This ensures cross-module type resolution works during validation
+        // Use the first analyzer's registry type for the unified map
+        auto allClasses = analyzerMap.begin()->second->getClassRegistry();
+        for (const auto& [moduleName, analyzer] : analyzerMap) {
+            for (const auto& [name, info] : analyzer->getClassRegistry()) {
+                if (allClasses.find(name) == allClasses.end()) {
+                    allClasses[name] = info;
+                }
+            }
+        }
+
+        // Build unified enum registry from all Phase 1 analyzers
+        auto allEnums = analyzerMap.begin()->second->getEnumRegistry();
+        for (const auto& [moduleName, analyzer] : analyzerMap) {
+            for (const auto& [name, info] : analyzer->getEnumRegistry()) {
+                if (allEnums.find(name) == allEnums.end()) {
+                    allEnums[name] = info;
+                }
+            }
+        }
+
         // Phase 2: Validation
         std::cout << "Phase 2: Semantic analysis...\n";
         for (const auto& moduleName : compilationOrder) {
@@ -456,6 +479,9 @@ int main(int argc, char* argv[]) {
                 for (const auto& [name, annotInfo] : allAnnotations) {
                     validator->registerAnnotation(name, annotInfo);
                 }
+                // Merge class and enum registries from all modules for cross-module type resolution
+                validator->mergeClassRegistry(allClasses);
+                validator->mergeEnumRegistry(allEnums);
                 validator->analyze(*it->second->ast);
                 if (errorReporter.hasErrors()) {
                     errorReporter.printErrors();
@@ -471,7 +497,6 @@ int main(int argc, char* argv[]) {
         // Process main module - set file context for user code warnings
         errorReporter.setCurrentFile(mainModule->filePath, mainModule->isSTLFile);
         mainAnalyzer = std::make_unique<XXML::Semantic::SemanticAnalyzer>(compilationContext, errorReporter);
-        mainAnalyzer->setValidationEnabled(true);
         mainAnalyzer->setModuleName("__main__");
         for (const auto& [name, templateInfo] : allTemplateClasses) {
             mainAnalyzer->registerTemplateClass(name, templateInfo);
@@ -480,8 +505,17 @@ int main(int argc, char* argv[]) {
         for (const auto& [name, annotInfo] : allAnnotations) {
             mainAnalyzer->registerAnnotation(name, annotInfo);
         }
-        mainAnalyzer->analyze(*mainModule->ast);
-        if (errorReporter.hasErrors()) {
+        // Merge class registries, expression types, and enum registries from imported modules BEFORE runPipeline()
+        // so that type resolution can find types from other modules
+        for (const auto& [moduleName, analyzer] : analyzerMap) {
+            mainAnalyzer->mergeClassRegistry(analyzer->getClassRegistry());
+            mainAnalyzer->mergeExpressionTypes(analyzer->getExpressionTypes());
+            mainAnalyzer->mergeEnumRegistry(analyzer->getEnumRegistry());
+        }
+        // Run the full multi-stage pipeline (TypeCanonicalizer -> SemanticAnalysis ->
+        // TemplateExpander -> OwnershipAnalyzer -> LayoutComputer -> ABILowering)
+        auto passResults = mainAnalyzer->runPipeline(*mainModule->ast);
+        if (errorReporter.hasErrors() || !passResults.allSuccessful()) {
             errorReporter.printErrors();
             return 1;
         }
@@ -554,7 +588,7 @@ int main(int argc, char* argv[]) {
             errorReporter.printErrors();  // printErrors prints both errors and warnings
         }
 
-        // Merge template info
+        // Merge template info and class registry from all imported modules
         for (const auto& [moduleName, analyzer] : analyzerMap) {
             for (const auto& [name, templateInfo] : analyzer->getTemplateClasses()) {
                 mainAnalyzer->registerTemplateClass(name, templateInfo);
@@ -562,6 +596,27 @@ int main(int argc, char* argv[]) {
             for (const auto& inst : analyzer->getTemplateInstantiations()) {
                 mainAnalyzer->mergeTemplateInstantiation(inst);
             }
+            // Merge class registry for cross-module type resolution
+            mainAnalyzer->mergeClassRegistry(analyzer->getClassRegistry());
+        }
+
+        // Verify semantic analysis is complete before code generation
+        std::cout << "Verifying semantic completeness...\n";
+        auto verifyResult = XXML::Semantic::SemanticVerifier::verify(*mainAnalyzer, *mainModule->ast);
+        if (!verifyResult.success) {
+            std::cerr << "Semantic verification failed:\n";
+            for (const auto& err : verifyResult.errors) {
+                std::cerr << "  " << err << "\n";
+            }
+            // Print warnings too
+            for (const auto& warn : verifyResult.warnings) {
+                std::cerr << "  Warning: " << warn << "\n";
+            }
+            return 1;
+        }
+        // Print any warnings even if successful
+        for (const auto& warn : verifyResult.warnings) {
+            std::cout << "  Warning: " << warn << "\n";
         }
 
         // Generate LLVM IR

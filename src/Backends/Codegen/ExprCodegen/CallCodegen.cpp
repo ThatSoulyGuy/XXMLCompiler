@@ -1,4 +1,5 @@
 #include "Backends/Codegen/ExprCodegen/ExprCodegen.h"
+#include "Semantic/SemanticError.h"
 
 namespace XXML {
 namespace Backends {
@@ -11,7 +12,8 @@ public:
 
     LLVMIR::AnyValue visitCall(Parser::CallExpr* expr) override {
         if (!expr || !expr->callee) {
-            return LLVMIR::AnyValue(ctx_.builder().getNullPtr());
+            throw Semantic::CodegenInvariantViolation("NULL_CALL",
+                "CallExpr is null or has null callee");
         }
 
         std::string functionName;
@@ -28,7 +30,8 @@ public:
         }
 
         if (functionName.empty()) {
-            return LLVMIR::AnyValue(ctx_.builder().getNullPtr());
+            throw Semantic::CodegenInvariantViolation("EMPTY_FUNCTION_NAME",
+                "CallExpr has no resolvable function name");
         }
 
         // Build arguments

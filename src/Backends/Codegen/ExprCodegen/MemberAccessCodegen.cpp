@@ -1,4 +1,6 @@
 #include "Backends/Codegen/ExprCodegen/ExprCodegen.h"
+#include "Semantic/SemanticError.h"
+#include <iostream>
 
 namespace XXML {
 namespace Backends {
@@ -11,7 +13,8 @@ public:
 
     LLVMIR::AnyValue visitMemberAccess(Parser::MemberAccessExpr* expr) override {
         if (!expr || !expr->object) {
-            return LLVMIR::AnyValue(ctx_.builder().getNullPtr());
+            throw Semantic::CodegenInvariantViolation("NULL_AST",
+                "MemberAccessExpr is null or has null object");
         }
 
         // Handle 'this.property'
@@ -33,24 +36,34 @@ public:
             return ctx_.lastExprValue;
         }
 
-        return LLVMIR::AnyValue(ctx_.builder().getNullPtr());
+        throw Semantic::CodegenInvariantViolation("MEMBER_ACCESS",
+            "Cannot access member on non-pointer value");
     }
 
 private:
     LLVMIR::AnyValue loadThisProperty(const std::string& propName) {
         auto* func = ctx_.currentFunction();
         if (!func || func->getNumParams() == 0) {
-            return LLVMIR::AnyValue(ctx_.builder().getNullPtr());
+            throw Semantic::CodegenInvariantViolation("THIS_ACCESS",
+                "Cannot access 'this." + propName +
+                "' - no current function or function has no parameters");
         }
 
         auto* thisArg = func->getArg(0);
         if (!thisArg) {
-            return LLVMIR::AnyValue(ctx_.builder().getNullPtr());
+            throw Semantic::CodegenInvariantViolation("THIS_ACCESS",
+                "Cannot access 'this." + propName + "' - 'this' argument is null");
         }
 
-        auto* classInfo = ctx_.getClass(std::string(ctx_.currentClassName()));
-        if (!classInfo || !classInfo->structType) {
-            return LLVMIR::AnyValue(ctx_.builder().getNullPtr());
+        std::string currentClass = std::string(ctx_.currentClassName());
+        auto* classInfo = ctx_.getClass(currentClass);
+        if (!classInfo) {
+            throw Semantic::MissingClassError(currentClass,
+                "accessing 'this." + propName + "'");
+        }
+        if (!classInfo->structType) {
+            throw Semantic::CodegenInvariantViolation("MISSING_STRUCT_TYPE",
+                "Class '" + currentClass + "' has no struct type for property access");
         }
 
         // Find property
@@ -71,13 +84,13 @@ private:
             }
         }
 
-        return LLVMIR::AnyValue(ctx_.builder().getNullPtr());
+        throw Semantic::MissingPropertyError(currentClass, propName);
     }
 
     LLVMIR::AnyValue loadObjectProperty(const std::string& varName, const std::string& propName) {
         auto* varInfo = ctx_.getVariable(varName);
         if (!varInfo) {
-            return LLVMIR::AnyValue(ctx_.builder().getNullPtr());
+            throw Semantic::UnresolvedIdentifierError(varName);
         }
 
         // Strip ownership modifiers
@@ -87,9 +100,21 @@ private:
             cleanType = cleanType.substr(0, cleanType.length() - 1);
         }
 
-        auto* classInfo = ctx_.getClass(cleanType);
-        if (!classInfo || !classInfo->structType) {
-            return LLVMIR::AnyValue(ctx_.builder().getNullPtr());
+        // Handle template instantiation types (e.g., "Box<Integer>" -> "Box")
+        std::string lookupType = cleanType;
+        size_t angleBracket = cleanType.find('<');
+        if (angleBracket != std::string::npos) {
+            lookupType = cleanType.substr(0, angleBracket);
+        }
+
+        auto* classInfo = ctx_.getClass(lookupType);
+        if (!classInfo) {
+            throw Semantic::MissingClassError(cleanType,
+                "accessing '" + varName + "." + propName + "'");
+        }
+        if (!classInfo->structType) {
+            throw Semantic::CodegenInvariantViolation("MISSING_STRUCT_TYPE",
+                "Class '" + cleanType + "' has no struct type for property access");
         }
 
         // Get object pointer
@@ -100,7 +125,9 @@ private:
         } else if (varInfo->value.isPtr()) {
             objPtr = varInfo->value.asPtr();
         } else {
-            return LLVMIR::AnyValue(ctx_.builder().getNullPtr());
+            throw Semantic::CodegenInvariantViolation("NON_POINTER_ACCESS",
+                "Cannot access '" + varName + "." + propName +
+                "' - variable '" + varName + "' is not a pointer");
         }
 
         // Find and load property
@@ -120,7 +147,7 @@ private:
             }
         }
 
-        return LLVMIR::AnyValue(ctx_.builder().getNullPtr());
+        throw Semantic::MissingPropertyError(cleanType, propName);
     }
 };
 

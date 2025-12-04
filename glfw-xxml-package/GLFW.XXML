@@ -1529,7 +1529,7 @@ Method <_glfwSetDropCallback> Returns NativeType<"ptr">^ Parameters (
     Constructor = default;
 
     // Create a window with specified dimensions and title
-    Method <create> Returns Window^ Parameters (
+    Constructor Parameters (
         Parameter <width> Types Integer^,
         Parameter <height> Types Integer^,
         Parameter <title> Types String^
@@ -1544,7 +1544,6 @@ Method <_glfwSetDropCallback> Returns NativeType<"ptr">^ Parameters (
         Set <_title> = title;
         Set <_isOpen> = Bool::Constructor(true);
         Run _glfwMakeContextCurrent(_handle);
-        Return this;
     }
 
     // Internal helper to initialize from a handle

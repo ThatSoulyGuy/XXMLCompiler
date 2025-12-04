@@ -1,4 +1,11 @@
 #include "../../include/Semantic/SemanticAnalyzer.h"
+#include "../../include/Semantic/TypeCanonicalizer.h"
+#include "../../include/Semantic/TemplateExpander.h"
+#include "../../include/Semantic/OwnershipAnalyzer.h"
+#include "../../include/Semantic/LayoutComputer.h"
+#include "../../include/Semantic/ABILowering.h"
+#include "../../include/Semantic/SemanticVerifier.h"
+#include "../../include/Semantic/SemanticError.h"
 #include "../../include/Core/CompilationContext.h"
 #include "../../include/Core/TypeRegistry.h"
 #include "../../include/Core/FormatCompat.h"
@@ -45,6 +52,52 @@ SemanticAnalyzer::SemanticAnalyzer(Core::CompilationContext& context, Common::Er
     nativeFuncAnnotation.retainAtRuntime = false;
     nativeFuncAnnotation.astNode = nullptr;  // Built-in, no AST node
     annotationRegistry_["NativeFunction"] = nativeFuncAnnotation;
+
+    // Initialize intrinsic method return types for Console, Mem, Syscall
+    // These methods bypass normal validation but still need type information
+
+    // Console methods (System::Console and Console namespaces)
+    intrinsicMethods_["System::Console::print"] = {"None", Parser::OwnershipType::None};
+    intrinsicMethods_["System::Console::printLine"] = {"None", Parser::OwnershipType::None};
+    intrinsicMethods_["System::Console::printInteger"] = {"None", Parser::OwnershipType::None};
+    intrinsicMethods_["System::Console::printIntegerLine"] = {"None", Parser::OwnershipType::None};
+    intrinsicMethods_["System::Console::readLine"] = {"String", Parser::OwnershipType::Owned};
+    intrinsicMethods_["System::Console::readInt"] = {"Integer", Parser::OwnershipType::Owned};
+    intrinsicMethods_["System::Console::getTime"] = {"Integer", Parser::OwnershipType::Owned};
+    intrinsicMethods_["System::Console::getTimeMillis"] = {"Integer", Parser::OwnershipType::Owned};
+    intrinsicMethods_["System::Console::exit"] = {"None", Parser::OwnershipType::None};
+    intrinsicMethods_["Console::print"] = {"None", Parser::OwnershipType::None};
+    intrinsicMethods_["Console::printLine"] = {"None", Parser::OwnershipType::None};
+    intrinsicMethods_["Console::printInteger"] = {"None", Parser::OwnershipType::None};
+    intrinsicMethods_["Console::printIntegerLine"] = {"None", Parser::OwnershipType::None};
+    intrinsicMethods_["Console::readLine"] = {"String", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Console::readInt"] = {"Integer", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Console::getTime"] = {"Integer", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Console::getTimeMillis"] = {"Integer", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Console::exit"] = {"None", Parser::OwnershipType::None};
+
+    // Mem methods
+    intrinsicMethods_["Mem::alloc"] = {"NativeType<\"ptr\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Mem::free"] = {"None", Parser::OwnershipType::None};
+    intrinsicMethods_["Mem::move"] = {"None", Parser::OwnershipType::None};
+    intrinsicMethods_["Mem::copy"] = {"None", Parser::OwnershipType::None};
+    intrinsicMethods_["Language::Core::Mem::alloc"] = {"NativeType<\"ptr\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Language::Core::Mem::free"] = {"None", Parser::OwnershipType::None};
+
+    // Syscall
+    intrinsicMethods_["Syscall::call"] = {"Integer", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Language::Core::Syscall::call"] = {"Integer", Parser::OwnershipType::Owned};
+
+    // String constructors and methods
+    intrinsicMethods_["String::Constructor"] = {"String", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Language::Core::String::Constructor"] = {"String", Parser::OwnershipType::Owned};
+    intrinsicMethods_["String::length"] = {"Integer", Parser::OwnershipType::Owned};
+    intrinsicMethods_["String::concat"] = {"String", Parser::OwnershipType::Owned};
+    intrinsicMethods_["String::substring"] = {"String", Parser::OwnershipType::Owned};
+
+    // Integer constructors
+    intrinsicMethods_["Integer::Constructor"] = {"Integer", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Language::Core::Integer::Constructor"] = {"Integer", Parser::OwnershipType::Owned};
 }
 
 // Legacy constructor (deprecated but kept for compatibility)
@@ -64,6 +117,127 @@ SemanticAnalyzer::SemanticAnalyzer(Common::ErrorReporter& reporter)
 
 void SemanticAnalyzer::analyze(Parser::Program& program) {
     program.accept(*this);
+}
+
+//==============================================================================
+// MULTI-STAGE ANALYSIS PIPELINE
+//==============================================================================
+
+CompilationPassResults SemanticAnalyzer::runPipeline(Parser::Program& program) {
+    passResults_ = CompilationPassResults{};
+
+    //==========================================================================
+    // STAGE 1: TYPE RESOLUTION (TypeCanonicalizer)
+    //==========================================================================
+    TypeCanonicalizer typeCanonicalizer(errorReporter, validNamespaces_);
+    passResults_.typeResolution = typeCanonicalizer.run(program);
+
+    // Copy resolved types and namespaces for subsequent passes
+    for (const auto& ns : passResults_.typeResolution.validNamespaces) {
+        validNamespaces_.insert(ns);
+    }
+
+    // Continue even if there are unresolved types - they may be cross-module refs
+
+    //==========================================================================
+    // STAGE 2 & 3: SEMANTIC ANALYSIS (Two-Pass)
+    //==========================================================================
+    // First pass: collect declarations (validation disabled)
+    nativeMethods_.clear();  // Clear native methods list for fresh collection
+    setValidationEnabled(false);
+    analyze(program);
+
+    // Second pass: full validation (validation enabled)
+    setValidationEnabled(true);
+    resetMovedVariables();
+    analyze(program);
+
+    // Populate semantic validation result
+    for (const auto& [expr, type] : expressionTypes) {
+        ResolvedExprType resolved;
+        resolved.typeName = type;
+        resolved.ownership = getExpressionOwnership(const_cast<Parser::Expression*>(expr));
+        passResults_.semanticValidation.expressionTypes[const_cast<Parser::Expression*>(expr)] = resolved;
+    }
+    passResults_.semanticValidation.success = !errorReporter.hasErrors();
+
+    // If semantic analysis failed, return early
+    if (errorReporter.hasErrors()) {
+        return passResults_;
+    }
+
+    //==========================================================================
+    // STAGE 4: TEMPLATE EXPANSION (TemplateExpander)
+    //==========================================================================
+    // Convert internal instantiation requests to pass format
+    std::set<TemplateExpander::InstantiationRequest> classInstRequests;
+    for (const auto& inst : templateInstantiations) {
+        TemplateExpander::InstantiationRequest req;
+        req.templateName = inst.templateName;
+        req.arguments = inst.arguments;
+        classInstRequests.insert(req);
+    }
+
+    std::set<TemplateExpander::MethodInstantiationRequest> methodInstRequests;
+    for (const auto& inst : methodTemplateInstantiations) {
+        TemplateExpander::MethodInstantiationRequest req;
+        req.className = inst.className;
+        req.instantiatedClassName = inst.instantiatedClassName;
+        req.methodName = inst.methodName;
+        req.arguments = inst.arguments;
+        methodInstRequests.insert(req);
+    }
+
+    std::set<TemplateExpander::LambdaInstantiationRequest> lambdaInstRequests;
+    for (const auto& inst : lambdaTemplateInstantiations_) {
+        TemplateExpander::LambdaInstantiationRequest req;
+        req.variableName = inst.variableName;
+        req.arguments = inst.arguments;
+        lambdaInstRequests.insert(req);
+    }
+
+    TemplateExpander templateExpander(errorReporter, passResults_.typeResolution);
+    passResults_.templateExpansion = templateExpander.run(
+        classInstRequests,
+        methodInstRequests,
+        lambdaInstRequests,
+        templateClasses,
+        templateMethods,
+        templateLambdas_
+    );
+
+    //==========================================================================
+    // STAGE 5: OWNERSHIP ANALYSIS (OwnershipAnalyzer)
+    //==========================================================================
+    OwnershipAnalyzer ownershipAnalyzer(errorReporter);
+    passResults_.ownershipAnalysis = ownershipAnalyzer.run(program, passResults_.semanticValidation);
+
+    //==========================================================================
+    // STAGE 6: LAYOUT COMPUTATION (LayoutComputer)
+    //==========================================================================
+    LayoutComputer layoutComputer(errorReporter, passResults_.typeResolution, passResults_.semanticValidation);
+    passResults_.layoutComputation = layoutComputer.run(classRegistry_);
+
+    //==========================================================================
+    // STAGE 7: ABI LOWERING (ABILowering)
+    //==========================================================================
+    // Determine target platform
+    ABILowering::TargetPlatform platform = ABILowering::TargetPlatform::Windows_x64;
+#ifdef __linux__
+    platform = ABILowering::TargetPlatform::Linux_x64;
+#elif defined(__APPLE__)
+    #if defined(__arm64__) || defined(__aarch64__)
+    platform = ABILowering::TargetPlatform::macOS_ARM64;
+    #else
+    platform = ABILowering::TargetPlatform::macOS_x64;
+    #endif
+#endif
+
+    ABILowering abiLowering(errorReporter, passResults_.typeResolution,
+                            passResults_.layoutComputation, platform);
+    passResults_.abiLowering = abiLowering.run(nativeMethods_, callbackTypeRegistry_);
+
+    return passResults_;
 }
 
 // Type checking helpers
@@ -175,6 +349,50 @@ bool SemanticAnalyzer::isCompatibleOwnership(Parser::OwnershipType expected, Par
     }
 
     return false;
+}
+
+// Parse template arguments with depth-aware splitting
+// Handles nested templates like List<Box<Integer>>, Map<String, List<Integer>>
+std::vector<std::string> SemanticAnalyzer::parseTemplateArguments(const std::string& argsStr) {
+    std::vector<std::string> args;
+    size_t start = 0;
+    int depth = 0;
+
+    for (size_t i = 0; i < argsStr.size(); ++i) {
+        char c = argsStr[i];
+        if (c == '<' || c == '(') {
+            depth++;
+        } else if (c == '>' || c == ')') {
+            depth--;
+        } else if (c == ',' && depth == 0) {
+            // Found a comma at depth 0 - this is a template argument separator
+            std::string arg = argsStr.substr(start, i - start);
+            // Trim whitespace
+            size_t first = arg.find_first_not_of(" \t");
+            size_t last = arg.find_last_not_of(" \t");
+            if (first != std::string::npos && last != std::string::npos) {
+                args.push_back(arg.substr(first, last - first + 1));
+            } else if (!arg.empty()) {
+                args.push_back(arg);
+            }
+            start = i + 1;
+        }
+    }
+
+    // Add the last argument
+    if (start < argsStr.size()) {
+        std::string arg = argsStr.substr(start);
+        // Trim whitespace
+        size_t first = arg.find_first_not_of(" \t");
+        size_t last = arg.find_last_not_of(" \t");
+        if (first != std::string::npos && last != std::string::npos) {
+            args.push_back(arg.substr(first, last - first + 1));
+        } else if (!arg.empty()) {
+            args.push_back(arg);
+        }
+    }
+
+    return args;
 }
 
 std::string SemanticAnalyzer::getExpressionType(Parser::Expression* expr) {
@@ -722,11 +940,15 @@ void SemanticAnalyzer::visit(Parser::NativeStructureDecl& node) {
     // (This allows it to be used in method parameters/returns)
     std::string fullName = currentNamespace.empty() ? node.name : currentNamespace + "::" + node.name;
     if (classRegistry_.find(fullName) != classRegistry_.end()) {
-        errorReporter.reportError(
-            Common::ErrorCode::DuplicateDeclaration,
-            "Type '" + fullName + "' is already defined",
-            node.location
-        );
+        // During validation phase, types may already exist from merged registries - skip silently
+        // Only report error during Phase 1 (registration phase) when validation is disabled
+        if (!enableValidation) {
+            errorReporter.reportError(
+                Common::ErrorCode::DuplicateDeclaration,
+                "Type '" + fullName + "' is already defined",
+                node.location
+            );
+        }
     } else {
         ClassInfo info;
         info.qualifiedName = fullName;
@@ -743,11 +965,14 @@ void SemanticAnalyzer::visit(Parser::CallbackTypeDecl& node) {
 
     // Check for duplicate
     if (callbackTypeRegistry_.find(fullName) != callbackTypeRegistry_.end()) {
-        errorReporter.reportError(
-            Common::ErrorCode::DuplicateDeclaration,
-            "CallbackType '" + fullName + "' is already defined",
-            node.location
-        );
+        // During validation phase, types may already exist from merged registries - skip silently
+        if (!enableValidation) {
+            errorReporter.reportError(
+                Common::ErrorCode::DuplicateDeclaration,
+                "CallbackType '" + fullName + "' is already defined",
+                node.location
+            );
+        }
         return;
     }
 
@@ -789,11 +1014,15 @@ void SemanticAnalyzer::visit(Parser::EnumerationDecl& node) {
 
     // Check for duplicate
     if (enumRegistry_.find(fullName) != enumRegistry_.end()) {
-        errorReporter.reportError(
-            Common::ErrorCode::DuplicateDeclaration,
-            "Enumeration '" + fullName + "' is already defined",
-            node.location
-        );
+        // During validation phase, enums may already exist from merged registries - skip silently
+        // Only report error during Phase 1 (registration phase) when validation is disabled
+        if (!enableValidation) {
+            errorReporter.reportError(
+                Common::ErrorCode::DuplicateDeclaration,
+                "Enumeration '" + fullName + "' is already defined",
+                node.location
+            );
+        }
         return;
     }
 
@@ -997,6 +1226,11 @@ void SemanticAnalyzer::visit(Parser::MethodDecl& node) {
             }
             break;  // Only process one @NativeFunction annotation
         }
+    }
+
+    // Track native methods for ABI lowering pass
+    if (node.isNative) {
+        nativeMethods_.push_back(&node);
     }
 
     // Visit return type to record template instantiations
@@ -1567,8 +1801,77 @@ void SemanticAnalyzer::visit(Parser::ThisExpr& node) {
 void SemanticAnalyzer::visit(Parser::IdentifierExpr& node) {
     // Check if this is a qualified name (contains ::)
     if (node.name.find("::") != std::string::npos) {
-        // This is a qualified name like System::Print or String::Constructor
-        // For now, assume it's valid (imports would handle this)
+        // Try to resolve qualified names like System::Console or String::Constructor
+        // Extract the class name (everything before the last ::)
+        std::string qualifiedName = node.name;
+
+        // Check if this is an exact class match
+        ClassInfo* classInfo = findClass(qualifiedName);
+        if (classInfo) {
+            // This is a class type reference (e.g., "System::Console")
+            expressionTypes[&node] = qualifiedName;
+            expressionOwnerships[&node] = Parser::OwnershipType::Owned;
+            return;
+        }
+
+        // Check if this is a static method reference (Class::Method)
+        size_t lastColonPos = qualifiedName.rfind("::");
+        if (lastColonPos != std::string::npos && lastColonPos > 0) {
+            std::string className = qualifiedName.substr(0, lastColonPos);
+            std::string memberName = qualifiedName.substr(lastColonPos + 2);
+
+            classInfo = findClass(className);
+            if (classInfo) {
+                // Check if it's a method
+                auto methodIt = classInfo->methods.find(memberName);
+                if (methodIt != classInfo->methods.end()) {
+                    // Static method reference - use the method's return type
+                    expressionTypes[&node] = methodIt->second.returnType;
+                    expressionOwnerships[&node] = methodIt->second.returnOwnership;
+                    return;
+                }
+                // Check if it's a property
+                auto propIt = classInfo->properties.find(memberName);
+                if (propIt != classInfo->properties.end()) {
+                    expressionTypes[&node] = propIt->second.first;
+                    expressionOwnerships[&node] = propIt->second.second;
+                    return;
+                }
+                // Class exists but member not found - still set class type for static context
+                expressionTypes[&node] = className;
+                expressionOwnerships[&node] = Parser::OwnershipType::Owned;
+                return;
+            }
+
+            // Check if this is an enum value (EnumName::Value)
+            // Try direct lookup first
+            auto enumIt = enumRegistry_.find(className);
+            std::string resolvedEnumName = className;
+
+            // If not found, try with current namespace prefix
+            if (enumIt == enumRegistry_.end() && !currentNamespace.empty()) {
+                std::string qualifiedEnumName = currentNamespace + "::" + className;
+                enumIt = enumRegistry_.find(qualifiedEnumName);
+                if (enumIt != enumRegistry_.end()) {
+                    resolvedEnumName = qualifiedEnumName;
+                }
+            }
+
+            if (enumIt != enumRegistry_.end()) {
+                // Verify the value exists in this enum
+                const auto& enumInfo = enumIt->second;
+                for (const auto& val : enumInfo.values) {
+                    if (val.name == memberName) {
+                        // Found enum value - type is the enum type, not the qualified value name
+                        expressionTypes[&node] = resolvedEnumName;
+                        expressionOwnerships[&node] = Parser::OwnershipType::Owned;
+                        return;
+                    }
+                }
+            }
+        }
+
+        // Fallback: assume it's a valid qualified reference (namespace, intrinsic, etc.)
         expressionTypes[&node] = "Unknown";
         expressionOwnerships[&node] = Parser::OwnershipType::Owned;
         return;
@@ -1602,78 +1905,98 @@ void SemanticAnalyzer::visit(Parser::IdentifierExpr& node) {
             isValidEnum = enumRegistry_.find(qualifiedName) != enumRegistry_.end();
         }
 
-        if (validNamespaces_.find(node.name) != validNamespaces_.end() || isValidClass || isValidEnum) {
-            // It's a valid namespace, class, or enumeration name, assume it's part of a qualified expression
-            expressionTypes[&node] = "Unknown";
+        if (isValidClass) {
+            // It's a valid class name - set type to the class itself
+            // Try to find the fully qualified name
+            std::string resolvedClass = node.name;
+            if (classRegistry_.find(node.name) == classRegistry_.end() && !currentNamespace.empty()) {
+                std::string qualifiedName = currentNamespace + "::" + node.name;
+                if (classRegistry_.find(qualifiedName) != classRegistry_.end()) {
+                    resolvedClass = qualifiedName;
+                }
+            }
+            expressionTypes[&node] = resolvedClass;
             expressionOwnerships[&node] = Parser::OwnershipType::Owned;
             return;
         }
 
-        // Check if it's a known intrinsic (Syscall, System, Console, Mem, Language, IO, Test, __typename, etc.)
+        if (isValidEnum) {
+            // Enumeration name - set to the enum type
+            std::string resolvedEnum = node.name;
+            if (enumRegistry_.find(node.name) == enumRegistry_.end() && !currentNamespace.empty()) {
+                std::string qualifiedName = currentNamespace + "::" + node.name;
+                if (enumRegistry_.find(qualifiedName) != enumRegistry_.end()) {
+                    resolvedEnum = qualifiedName;
+                }
+            }
+            expressionTypes[&node] = resolvedEnum;
+            expressionOwnerships[&node] = Parser::OwnershipType::Owned;
+            return;
+        }
+
+        if (validNamespaces_.find(node.name) != validNamespaces_.end()) {
+            // It's a namespace name - type is the namespace itself (for qualified access)
+            expressionTypes[&node] = node.name;
+            expressionOwnerships[&node] = Parser::OwnershipType::Owned;
+            return;
+        }
+
+        // Check if it's a known intrinsic namespace (Syscall, System, Console, Mem, Language, IO, Test, etc.)
         if (node.name == "Syscall" ||
             node.name == "System" || node.name == "Console" || node.name == "Mem" ||
             node.name == "Language" || node.name == "IO" || node.name == "Test" ||
             node.name == "__typename") {
+            // These are namespace/module names - type is the namespace
+            expressionTypes[&node] = node.name;
+            expressionOwnerships[&node] = Parser::OwnershipType::Owned;
+            return;
+        }
+
+        // Don't error on qualified names or template instantiations
+        if (node.name.find("::") != std::string::npos) {
+            // Already handled above for qualified names, but just in case
             expressionTypes[&node] = "Unknown";
             expressionOwnerships[&node] = Parser::OwnershipType::Owned;
             return;
         }
 
-        // Don't error on qualified names, constructor calls, or template instantiations
-        if (node.name.find("Constructor") != std::string::npos ||
-            node.name.find("::") != std::string::npos) {
-            expressionTypes[&node] = "Unknown";
-            expressionOwnerships[&node] = Parser::OwnershipType::Owned;
-            return;
-        }
-
-        // Check for lambda template instantiation like identity<Integer>
+        // Check for template instantiation like List<Integer> or identity<Integer>
         if (node.name.find("<") != std::string::npos) {
             size_t angleStart = node.name.find('<');
             std::string baseName = node.name.substr(0, angleStart);
+            size_t angleEnd = node.name.rfind('>');
 
-            // Check if the base name is a registered template lambda
-            if (templateLambdas_.find(baseName) != templateLambdas_.end()) {
-                // Extract template arguments from the name
-                size_t angleEnd = node.name.rfind('>');
-                if (angleEnd != std::string::npos && angleEnd > angleStart) {
-                    std::string argsStr = node.name.substr(angleStart + 1, angleEnd - angleStart - 1);
-
-                    // Parse template arguments (simplified - handles single type arg)
-                    std::vector<Parser::TemplateArgument> args;
-                    std::string currentArg;
-                    for (char c : argsStr) {
-                        if (c == ',') {
-                            if (!currentArg.empty()) {
-                                // Trim whitespace
-                                size_t start = currentArg.find_first_not_of(" \t");
-                                size_t end = currentArg.find_last_not_of(" \t");
-                                if (start != std::string::npos && end != std::string::npos) {
-                                    std::string trimmed = currentArg.substr(start, end - start + 1);
-                                    args.emplace_back(trimmed, node.location);
-                                }
-                                currentArg.clear();
-                            }
-                        } else {
-                            currentArg += c;
-                        }
-                    }
-                    // Add the last argument
-                    if (!currentArg.empty()) {
-                        size_t start = currentArg.find_first_not_of(" \t");
-                        size_t end = currentArg.find_last_not_of(" \t");
-                        if (start != std::string::npos && end != std::string::npos) {
-                            std::string trimmed = currentArg.substr(start, end - start + 1);
-                            args.emplace_back(trimmed, node.location);
-                        }
-                    }
-
-                    // Record the lambda template instantiation
-                    recordLambdaTemplateInstantiation(baseName, args);
+            // Parse template arguments
+            std::vector<Parser::TemplateArgument> args;
+            if (angleEnd != std::string::npos && angleEnd > angleStart) {
+                std::string argsStr = node.name.substr(angleStart + 1, angleEnd - angleStart - 1);
+                std::vector<std::string> argStrings = parseTemplateArguments(argsStr);
+                for (const auto& argStr : argStrings) {
+                    args.emplace_back(argStr, node.location);
                 }
             }
 
-            expressionTypes[&node] = "Unknown";
+            // Check if the base name is a template class
+            if (isTemplateClass(baseName)) {
+                // Record the class template instantiation
+                recordTemplateInstantiation(baseName, args);
+                // Set type to the full instantiated type name
+                expressionTypes[&node] = node.name;
+                expressionOwnerships[&node] = Parser::OwnershipType::Owned;
+                return;
+            }
+
+            // Check if the base name is a registered template lambda
+            if (templateLambdas_.find(baseName) != templateLambdas_.end()) {
+                // Record the lambda template instantiation
+                recordLambdaTemplateInstantiation(baseName, args);
+                expressionTypes[&node] = node.name;
+                expressionOwnerships[&node] = Parser::OwnershipType::Owned;
+                return;
+            }
+
+            // Unknown template type - set the name as the type for further resolution
+            expressionTypes[&node] = node.name;
             expressionOwnerships[&node] = Parser::OwnershipType::Owned;
             return;
         }
@@ -1713,10 +2036,188 @@ void SemanticAnalyzer::visit(Parser::MemberAccessExpr& node) {
 
     std::string objectType = getExpressionType(node.object.get());
 
-    // For now, assume member access is valid
-    // Full implementation would look up the member in the class definition
-    expressionTypes[&node] = "Unknown"; // Should be looked up
-    expressionOwnerships[&node] = Parser::OwnershipType::Owned;
+    // If member starts with "::", this is a static method call syntax (e.g., Integer::Constructor)
+    // Build the qualified name for proper type resolution
+    if (!node.member.empty() && node.member[0] == ':') {
+        // Strip the leading :: from member
+        std::string actualMember = node.member;
+        if (actualMember.length() >= 2 && actualMember[0] == ':' && actualMember[1] == ':') {
+            actualMember = actualMember.substr(2);
+        }
+
+        // Build qualified path: objectType::member
+        std::string qualifiedPath = objectType + "::" + actualMember;
+
+        // Check if this is a class reference
+        ClassInfo* classInfo = findClass(qualifiedPath);
+        if (classInfo) {
+            registerExpressionType(&node, qualifiedPath, Parser::OwnershipType::Owned);
+            return;
+        }
+
+        // Check if this is a namespace reference
+        if (validNamespaces_.find(qualifiedPath) != validNamespaces_.end()) {
+            registerExpressionType(&node, qualifiedPath, Parser::OwnershipType::Owned);
+            return;
+        }
+
+        // Check if objectType is a class and member is a method
+        classInfo = findClass(objectType);
+        if (classInfo) {
+            auto methodIt = classInfo->methods.find(actualMember);
+            if (methodIt != classInfo->methods.end()) {
+                registerExpressionType(&node, methodIt->second.returnType, methodIt->second.returnOwnership);
+                return;
+            }
+        }
+
+        // Check if objectType is an enum and member is an enum value
+        // Try direct lookup first
+        auto enumIt = enumRegistry_.find(objectType);
+        std::string resolvedEnumType = objectType;
+
+        // If not found, try with current namespace prefix
+        if (enumIt == enumRegistry_.end() && !currentNamespace.empty()) {
+            std::string qualifiedEnumName = currentNamespace + "::" + objectType;
+            enumIt = enumRegistry_.find(qualifiedEnumName);
+            if (enumIt != enumRegistry_.end()) {
+                resolvedEnumType = qualifiedEnumName;
+            }
+        }
+
+        if (enumIt != enumRegistry_.end()) {
+            // Verify the value exists in this enum
+            const auto& enumInfo = enumIt->second;
+            for (const auto& val : enumInfo.values) {
+                if (val.name == actualMember) {
+                    // Found enum value - type is the enum type, not the qualified value name
+                    registerExpressionType(&node, resolvedEnumType, Parser::OwnershipType::Owned);
+                    return;
+                }
+            }
+        }
+
+        // For intrinsic static calls, set the qualified path as the type
+        // CallExpr will handle determining the actual return type
+        registerExpressionType(&node, qualifiedPath, Parser::OwnershipType::Owned);
+        return;
+    }
+
+    // Strip ownership modifiers from object type (^, %, &)
+    std::string baseType = objectType;
+    if (!baseType.empty() && (baseType.back() == '^' ||
+                               baseType.back() == '%' ||
+                               baseType.back() == '&')) {
+        baseType = baseType.substr(0, baseType.length() - 1);
+    }
+
+    // Handle template instantiation types (e.g., "Box<Integer>" -> "Box")
+    // For template classes, we need to look up the base template class
+    std::string lookupType = baseType;
+    size_t angleBracket = baseType.find('<');
+    if (angleBracket != std::string::npos) {
+        lookupType = baseType.substr(0, angleBracket);
+    }
+
+    // Extract the actual member name (strip leading "." for instance access)
+    std::string actualMember = node.member;
+    if (!actualMember.empty() && actualMember[0] == '.') {
+        actualMember = actualMember.substr(1);
+    }
+
+    // Look up the class in the registry
+    ClassInfo* classInfo = findClass(lookupType);
+    if (classInfo) {
+        // Find the property
+        auto propIt = classInfo->properties.find(actualMember);
+        if (propIt != classInfo->properties.end()) {
+            const auto& [propType, propOwnership] = propIt->second;
+            registerExpressionType(&node, propType, propOwnership);
+            return;
+        }
+
+        // Check if it's a method (for method reference expressions)
+        auto methodIt = classInfo->methods.find(actualMember);
+        if (methodIt != classInfo->methods.end()) {
+            // This is a method reference, type is the return type (for callable)
+            registerExpressionType(&node, methodIt->second.returnType, methodIt->second.returnOwnership);
+            return;
+        }
+    }
+
+    // If object type is a namespace, try to look up namespace::member as a class
+    if (validNamespaces_.find(baseType) != validNamespaces_.end() ||
+        baseType == "System" || baseType == "Language" || baseType == "IO" ||
+        baseType == "Test" || baseType == "Syscall" || baseType == "Mem") {
+        // Try qualified class lookup
+        std::string qualifiedClass = baseType + "::" + actualMember;
+        classInfo = findClass(qualifiedClass);
+        if (classInfo) {
+            // The member is a class within this namespace
+            registerExpressionType(&node, qualifiedClass, Parser::OwnershipType::Owned);
+            return;
+        }
+        // It might be a nested namespace, set type to the qualified name for further access
+        std::string qualifiedNs = baseType + "::" + actualMember;
+        if (validNamespaces_.find(qualifiedNs) != validNamespaces_.end()) {
+            registerExpressionType(&node, qualifiedNs, Parser::OwnershipType::Owned);
+            return;
+        }
+        // Try as a class in nested namespace pattern (e.g., Language::Collections)
+        registerExpressionType(&node, qualifiedNs, Parser::OwnershipType::Owned);
+        return;
+    }
+
+    // If object type is Unknown, try to resolve the entire member access chain
+    if (objectType == "Unknown") {
+        // Try to resolve the full chain to see if it's a class or namespace reference
+        bool isClassRef = false;
+        std::string resolvedName = resolveMemberAccessChain(&node, isClassRef);
+        if (!resolvedName.empty()) {
+            if (isClassRef) {
+                registerExpressionType(&node, resolvedName, Parser::OwnershipType::Owned);
+                return;
+            }
+            // Check if resolved name with member is a class
+            std::string qualifiedWithMember = resolvedName;
+            ClassInfo* resolved = findClass(qualifiedWithMember);
+            if (resolved) {
+                registerExpressionType(&node, qualifiedWithMember, Parser::OwnershipType::Owned);
+                return;
+            }
+            // It's a namespace or partial resolution
+            registerExpressionType(&node, resolvedName, Parser::OwnershipType::Owned);
+            return;
+        }
+        // Can't resolve - propagate Unknown
+        registerExpressionType(&node, "Unknown", Parser::OwnershipType::Owned);
+        return;
+    }
+
+    // If object type is a template parameter, defer validation to instantiation
+    if (templateTypeParameters.find(baseType) != templateTypeParameters.end() ||
+        templateTypeParameters.find(lookupType) != templateTypeParameters.end()) {
+        registerExpressionType(&node, "Unknown", Parser::OwnershipType::Owned);
+        return;
+    }
+
+    // If class not found or property not found, report error during validation
+    if (enableValidation && !objectType.empty()) {
+        if (!classInfo) {
+            errorReporter.reportError(
+                Common::ErrorCode::UndeclaredIdentifier,
+                "Cannot access member '" + actualMember + "' on unknown type '" + objectType + "'",
+                node.location
+            );
+        } else {
+            errorReporter.reportError(
+                Common::ErrorCode::UndeclaredIdentifier,
+                "Member '" + actualMember + "' not found on type '" + objectType + "'",
+                node.location
+            );
+        }
+    }
+    registerExpressionType(&node, "Unknown", Parser::OwnershipType::Owned);
 }
 
 void SemanticAnalyzer::visit(Parser::CallExpr& node) {
@@ -1760,34 +2261,17 @@ void SemanticAnalyzer::visit(Parser::CallExpr& node) {
                 bool isTemplate = isTemplateClass(templateName);
                 DEBUG_OUT("DEBUG: isTemplateClass('" << templateName << "') = " << isTemplate << std::endl);
                 if (isTemplate) {
-                    // Parse template arguments from the string
+                    // Parse template arguments from the string using depth-aware parsing
                     size_t endBracket = className.rfind('>');
                     if (endBracket != std::string::npos) {
                         std::string argsStr = className.substr(angleBracketPos + 1, endBracket - angleBracketPos - 1);
 
-                        // Simple parsing: split by comma
+                        // Use depth-aware parsing to handle nested templates like List<Box<Integer>>
+                        std::vector<std::string> argStrings = parseTemplateArguments(argsStr);
                         std::vector<Parser::TemplateArgument> args;
-                        size_t start = 0;
-                        size_t comma;
-                        while ((comma = argsStr.find(',', start)) != std::string::npos) {
-                            std::string arg = argsStr.substr(start, comma - start);
-                            // Trim whitespace
-                            size_t first = arg.find_first_not_of(" \t");
-                            size_t last = arg.find_last_not_of(" \t");
-                            if (first != std::string::npos && last != std::string::npos) {
-                                arg = arg.substr(first, last - first + 1);
-                            }
-                            args.emplace_back(arg, node.location);
-                            start = comma + 1;
+                        for (const auto& argStr : argStrings) {
+                            args.emplace_back(argStr, node.location);
                         }
-                        // Add last argument
-                        std::string arg = argsStr.substr(start);
-                        size_t first = arg.find_first_not_of(" \t");
-                        size_t last = arg.find_last_not_of(" \t");
-                        if (first != std::string::npos && last != std::string::npos) {
-                            arg = arg.substr(first, last - first + 1);
-                        }
-                        args.emplace_back(arg, node.location);
 
                         // Record the template instantiation
                         recordTemplateInstantiation(templateName, args);
@@ -1925,8 +2409,18 @@ void SemanticAnalyzer::visit(Parser::CallExpr& node) {
                     // Template instantiation constructor - register the full type name
                     registerExpressionType(&node, className, Parser::OwnershipType::Owned);
                 } else {
-                    // Builtin type - assume valid
-                    registerExpressionType(&node, "Unknown", Parser::OwnershipType::Owned);
+                    // Check intrinsic method registry for return type
+                    std::string intrinsicKey = className + "::" + methodName;
+                    auto it = intrinsicMethods_.find(intrinsicKey);
+                    if (it != intrinsicMethods_.end()) {
+                        registerExpressionType(&node, it->second.returnType, it->second.returnOwnership);
+                    } else if (isConstructorCall) {
+                        // Constructor call returns the class type
+                        registerExpressionType(&node, className, Parser::OwnershipType::Owned);
+                    } else {
+                        // Unknown intrinsic or builtin - no type info available
+                        registerExpressionType(&node, "Unknown", Parser::OwnershipType::Owned);
+                    }
                 }
             }
             return;
@@ -2456,14 +2950,24 @@ void SemanticAnalyzer::visit(Parser::CallExpr& node) {
                     return;
                 }
 
-                // Builtin type - assume valid
-                registerExpressionType(&node, "Unknown", Parser::OwnershipType::Owned);
+                // Check intrinsic method registry for return type
+                std::string intrinsicKey = baseType + "::" + methodName;
+                auto it = intrinsicMethods_.find(intrinsicKey);
+                if (it != intrinsicMethods_.end()) {
+                    registerExpressionType(&node, it->second.returnType, it->second.returnOwnership);
+                } else if (methodName == "Constructor" || methodName == "constructor") {
+                    // Constructor call returns the class type
+                    registerExpressionType(&node, baseType, Parser::OwnershipType::Owned);
+                } else {
+                    // Builtin type - assume valid
+                    registerExpressionType(&node, "Unknown", Parser::OwnershipType::Owned);
+                }
             }
             return;
         }
     }
 
-    // Default fallback
+    // Default fallback - check intrinsic methods if we can extract class and method name
     registerExpressionType(&node, "Unknown", Parser::OwnershipType::Owned);
 }
 
@@ -2950,6 +3454,54 @@ SemanticAnalyzer::MethodInfo* SemanticAnalyzer::findMethod(const std::string& cl
     }
 
     return nullptr;
+}
+
+std::string SemanticAnalyzer::resolveMemberAccessChain(Parser::Expression* expr, bool& isClassReference) {
+    isClassReference = false;
+
+    if (auto* ident = dynamic_cast<Parser::IdentifierExpr*>(expr)) {
+        // Check if identifier is a class
+        if (findClass(ident->name)) {
+            isClassReference = true;
+            return ident->name;
+        }
+        // Check if identifier is a namespace
+        if (validNamespaces_.find(ident->name) != validNamespaces_.end()) {
+            return ident->name;
+        }
+        // Check intrinsic namespaces
+        if (ident->name == "System" || ident->name == "Language" || ident->name == "IO" ||
+            ident->name == "Test" || ident->name == "Syscall" || ident->name == "Mem" ||
+            ident->name == "Console") {
+            return ident->name;
+        }
+        return ident->name;
+    }
+
+    if (auto* memberExpr = dynamic_cast<Parser::MemberAccessExpr*>(expr)) {
+        bool objectIsClass = false;
+        std::string objectName = resolveMemberAccessChain(memberExpr->object.get(), objectIsClass);
+        if (objectName.empty()) return "";
+
+        std::string qualified = objectName + "::" + memberExpr->member;
+
+        // Check if qualified name is a class
+        if (findClass(qualified)) {
+            isClassReference = true;
+            return qualified;
+        }
+
+        // Check if qualified name is a namespace
+        if (validNamespaces_.find(qualified) != validNamespaces_.end()) {
+            return qualified;
+        }
+
+        // If object was a namespace, this might be a class within it
+        // Return the qualified name for further resolution
+        return qualified;
+    }
+
+    return "";
 }
 
 bool SemanticAnalyzer::validateQualifiedIdentifier(const std::string& qualifiedName, const Common::SourceLocation& loc) {
