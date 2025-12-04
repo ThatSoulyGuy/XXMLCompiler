@@ -3037,6 +3037,74 @@ void SemanticAnalyzer::visit(Parser::TypeRef& node) {
     }
 }
 
+std::string SemanticAnalyzer::resolveTypeArgToQualified(const std::string& typeArg) {
+    // Handle nested templates recursively (e.g., List<List<Integer>>)
+    size_t ltPos = typeArg.find('<');
+    if (ltPos != std::string::npos) {
+        std::string baseName = typeArg.substr(0, ltPos);
+        std::string inner = typeArg.substr(ltPos + 1);
+        // Remove trailing '>'
+        if (!inner.empty() && inner.back() == '>') {
+            inner.pop_back();
+        }
+
+        // Resolve base name
+        std::string qualifiedBase = resolveTypeArgToQualified(baseName);
+
+        // Parse and resolve inner arguments
+        std::vector<std::string> innerArgs = parseTemplateArguments(inner);
+        std::string resolvedInner;
+        for (size_t i = 0; i < innerArgs.size(); ++i) {
+            if (i > 0) resolvedInner += ", ";
+            resolvedInner += resolveTypeArgToQualified(innerArgs[i]);
+        }
+
+        return qualifiedBase + "<" + resolvedInner + ">";
+    }
+
+    // If already qualified (contains ::), return as-is
+    if (typeArg.find("::") != std::string::npos) {
+        return typeArg;
+    }
+
+    // Primitive types should NOT be qualified - their constructors use simple names
+    // (Bool_Constructor, Integer_Constructor, etc.) not qualified names
+    // IMPORTANT: Check this BEFORE class lookup, because primitives are registered as classes
+    static const std::unordered_set<std::string> primitives = {
+        "Integer", "String", "Bool", "Float", "Double", "None", "Void",
+        "Int", "Int8", "Int16", "Int32", "Int64", "Byte"
+    };
+    if (primitives.count(typeArg) > 0) {
+        return typeArg;  // Return primitive types as-is
+    }
+
+    // Try class lookup to get qualified name
+    ClassInfo* info = findClass(typeArg);
+    if (info && !info->qualifiedName.empty()) {
+        return info->qualifiedName;
+    }
+
+    // Check template classes (may be a template class without instantiation)
+    auto templateIt = templateClasses.find(typeArg);
+    if (templateIt != templateClasses.end() && !templateIt->second.qualifiedName.empty()) {
+        return templateIt->second.qualifiedName;
+    }
+
+    // Check global template registry
+    if (context_) {
+        auto* globalTemplates = context_->getCustomData<std::unordered_map<std::string, TemplateClassInfo>>("globalTemplateClasses");
+        if (globalTemplates) {
+            auto globalIt = globalTemplates->find(typeArg);
+            if (globalIt != globalTemplates->end() && !globalIt->second.qualifiedName.empty()) {
+                return globalIt->second.qualifiedName;
+            }
+        }
+    }
+
+    // Return as-is - could be a template parameter like "T" that shouldn't be qualified
+    return typeArg;
+}
+
 void SemanticAnalyzer::recordTemplateInstantiation(const std::string& templateName, const std::vector<Parser::TemplateArgument>& args) {
     // Check if this template class exists (check local first, then global)
     // ✅ SAFE: Use TemplateClassInfo pointer instead of raw ClassDecl pointer
@@ -3124,10 +3192,19 @@ void SemanticAnalyzer::recordTemplateInstantiation(const std::string& templateNa
         return;
     }
 
-    // Create instantiation record
+    // Create instantiation record with QUALIFIED names
     TemplateInstantiation inst;
-    inst.templateName = templateName;
-    inst.arguments = args;
+    // Qualify the template name itself
+    inst.templateName = templateInfo->qualifiedName.empty() ? templateName : templateInfo->qualifiedName;
+
+    // Qualify all type arguments before storing
+    for (const auto& arg : args) {
+        Parser::TemplateArgument qualifiedArg = arg;
+        if (arg.kind == Parser::TemplateArgument::Kind::Type) {
+            qualifiedArg.typeArg = resolveTypeArgToQualified(arg.typeArg);
+        }
+        inst.arguments.push_back(qualifiedArg);
+    }
 
     // Evaluate constant expressions for non-type parameters
     // ✅ SAFE: Access copied templateParams from TemplateClassInfo
@@ -3806,12 +3883,20 @@ void SemanticAnalyzer::recordMethodTemplateInstantiation(const std::string& clas
         return;
     }
 
-    // Create instantiation record
+    // Create instantiation record with QUALIFIED type arguments
     MethodTemplateInstantiation inst;
     inst.className = className;
     inst.instantiatedClassName = instantiatedClassName;
     inst.methodName = methodName;
-    inst.arguments = args;
+
+    // Qualify all type arguments before storing
+    for (const auto& arg : args) {
+        Parser::TemplateArgument qualifiedArg = arg;
+        if (arg.kind == Parser::TemplateArgument::Kind::Type) {
+            qualifiedArg.typeArg = resolveTypeArgToQualified(arg.typeArg);
+        }
+        inst.arguments.push_back(qualifiedArg);
+    }
 
     // Evaluate constant expressions for non-type parameters
     // ✅ SAFE: Access copied templateParams from TemplateMethodInfo
@@ -3911,10 +3996,18 @@ void SemanticAnalyzer::recordLambdaTemplateInstantiation(const std::string& vari
         return;
     }
 
-    // Create instantiation record
+    // Create instantiation record with QUALIFIED type arguments
     LambdaTemplateInstantiation inst;
     inst.variableName = variableName;
-    inst.arguments = args;
+
+    // Qualify all type arguments before storing
+    for (const auto& arg : args) {
+        Parser::TemplateArgument qualifiedArg = arg;
+        if (arg.kind == Parser::TemplateArgument::Kind::Type) {
+            qualifiedArg.typeArg = resolveTypeArgToQualified(arg.typeArg);
+        }
+        inst.arguments.push_back(qualifiedArg);
+    }
 
     // Validate and evaluate template arguments
     for (size_t i = 0; i < args.size(); ++i) {

@@ -2,7 +2,7 @@
 // Hash-based implementation for O(1) average operations
 // Requires T to implement hash() method
 
-[ Namespace <Collections>
+[ Namespace <Language::Collections>
 	[ Class <Set> <T Constrains None> Final Extends None
 
 		[ Private <>

@@ -45,7 +45,8 @@
       "Bash(dir:*)",
       "Bash(findstr:*)",
       "Bash(find:*)",
-      "Bash(\"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" \"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\Hello.XXML\" -o \"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\hello.exe\")"
+      "Bash(\"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" \"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\Hello.XXML\" -o \"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\hello.exe\")",
+      "Bash(\"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" \"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\tests\\TinyListTest.XXML\" --emit-llvm -o \"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\tinylisttest.ll\")"
     ],
     "deny": [],
     "ask": []

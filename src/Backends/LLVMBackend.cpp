@@ -5424,8 +5424,16 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
                 // Strip ownership suffix using TypeNormalizer
                 std::string className = TypeNormalizer::stripOwnershipMarker(propTypeName);
 
+                // Resolve to fully qualified name using semantic analyzer
+                if (semanticAnalyzer_) {
+                    className = semanticAnalyzer_->resolveTypeArgToQualified(className);
+                }
+
                 // Register the type so semantic lookup can find it
                 registerTypes_[instanceRegister] = className + "^";
+
+                // Mangle for LLVM (convert :: to _)
+                className = TypeNormalizer::mangleForLLVM(className);
 
                 // Generate qualified method name (sanitize for template arguments)
                 functionName = className + "_" + sanitizeMethodNameForLLVM(memberAccess->member);
@@ -5448,8 +5456,15 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
                     }
                 }
 
-                // Strip ownership modifiers and mangle using TypeNormalizer
+                // Strip ownership modifiers using TypeNormalizer
                 className = TypeNormalizer::stripOwnershipMarker(className);
+
+                // Resolve to fully qualified name using semantic analyzer
+                if (semanticAnalyzer_) {
+                    className = semanticAnalyzer_->resolveTypeArgToQualified(className);
+                }
+
+                // Mangle for LLVM
                 className = TypeNormalizer::mangleForLLVM(className);
 
                 // Generate qualified method name
@@ -5480,8 +5495,14 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
 
                     // Strip ownership modifiers (^, %, &) before mangling for function name
                     // Note: Reference parameters (&) receive object pointers directly
-                    // Strip ownership modifiers and mangle using TypeNormalizer
                     className = TypeNormalizer::stripOwnershipMarker(className);
+
+                    // Resolve to fully qualified name using semantic analyzer
+                    if (semanticAnalyzer_) {
+                        className = semanticAnalyzer_->resolveTypeArgToQualified(className);
+                    }
+
+                    // Mangle for LLVM
                     className = TypeNormalizer::mangleForLLVM(className);
 
                     // Special handling for compiler intrinsic types (ReflectionContext, CompilationContext)
@@ -5510,6 +5531,11 @@ void LLVMBackend::visit(Parser::CallExpr& node) {
                     emitLine("; template parameter instantiation (not supported): " + baseClassName + "::" + memberAccess->member);
                     valueMap_["__last_expr"] = "null";
                     return;
+                }
+
+                // Resolve to fully qualified name using semantic analyzer
+                if (semanticAnalyzer_) {
+                    className = semanticAnalyzer_->resolveTypeArgToQualified(className);
                 }
 
                 // Mangle class name using TypeNormalizer

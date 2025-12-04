@@ -1,6 +1,6 @@
 // Simple HashMap test to isolate crash issue
 #import Language::Core;
-#import Collections;
+#import Language::Collections;
 #import System;
 
 // Simple key class with hash and equals methods

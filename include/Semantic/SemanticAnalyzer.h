@@ -447,6 +447,10 @@ public:
         return getExpressionType(expr);
     }
 
+    // Resolve a type argument to its fully qualified namespace path
+    // E.g., "Integer" -> "Language::Core::Integer", "List" -> "Language::Collections::List"
+    std::string resolveTypeArgToQualified(const std::string& typeArg);
+
     // Get annotation processor for processing after semantic analysis
     AnnotationProcessor::AnnotationProcessor& getAnnotationProcessor() {
         return annotationProcessor_;

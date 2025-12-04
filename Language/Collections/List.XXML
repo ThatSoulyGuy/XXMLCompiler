@@ -1,7 +1,7 @@
 // Generic List<T> - Dynamic resizable list for any type
 // Replaces IntegerList, StringList, etc.
 
-[ Namespace <Collections>
+[ Namespace <Language::Collections>
 	[ Class <List> <T Constrains None> Final Extends None
 
 		[ Private <>

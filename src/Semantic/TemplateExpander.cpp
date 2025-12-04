@@ -132,13 +132,21 @@ const InstantiatedLambda* TemplateExpander::getInstantiatedLambda(const std::str
 std::string TemplateExpander::mangleClassName(const std::string& baseName,
                                                const std::vector<Parser::TemplateArgument>& args) {
     std::ostringstream oss;
-    oss << baseName;
+
+    // Convert qualified base name (e.g., "Language::Collections::List" -> "Language_Collections_List")
+    std::string mangledBase = baseName;
+    size_t pos = 0;
+    while ((pos = mangledBase.find("::")) != std::string::npos) {
+        mangledBase.replace(pos, 2, "_");
+    }
+    oss << mangledBase;
+
     for (const auto& arg : args) {
         oss << "_";
         if (arg.kind == Parser::TemplateArgument::Kind::Type) {
-            // Replace :: with _ for nested types
+            // Type args are now qualified - convert :: to _
             std::string typeArg = arg.typeArg;
-            size_t pos = 0;
+            pos = 0;
             while ((pos = typeArg.find("::")) != std::string::npos) {
                 typeArg.replace(pos, 2, "_");
             }
@@ -154,12 +162,21 @@ std::string TemplateExpander::mangleMethodName(const std::string& className,
                                                 const std::string& methodName,
                                                 const std::vector<Parser::TemplateArgument>& args) {
     std::ostringstream oss;
-    oss << className << "_" << methodName << "_LT_";
+
+    // className may be qualified or already mangled - ensure :: is converted
+    std::string mangledClass = className;
+    size_t pos = 0;
+    while ((pos = mangledClass.find("::")) != std::string::npos) {
+        mangledClass.replace(pos, 2, "_");
+    }
+
+    oss << mangledClass << "_" << methodName << "_LT_";
     for (size_t i = 0; i < args.size(); ++i) {
         if (i > 0) oss << "_C_";
         if (args[i].kind == Parser::TemplateArgument::Kind::Type) {
+            // Type args are now qualified - convert :: to _
             std::string typeArg = args[i].typeArg;
-            size_t pos = 0;
+            pos = 0;
             while ((pos = typeArg.find("::")) != std::string::npos) {
                 typeArg.replace(pos, 2, "_");
             }

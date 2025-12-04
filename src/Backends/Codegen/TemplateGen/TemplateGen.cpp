@@ -10,13 +10,19 @@ TemplateGen::TemplateGen(CodegenContext& ctx)
 std::string TemplateGen::mangleTemplateName(const std::string& templateName,
                                              const std::vector<Parser::TemplateArgument>& args,
                                              const std::vector<int64_t>& evaluatedValues) {
+    // Template name is now qualified - convert :: to _
     std::string mangledName = templateName;
-    size_t valueIndex = 0;
+    size_t pos = 0;
+    while ((pos = mangledName.find("::")) != std::string::npos) {
+        mangledName.replace(pos, 2, "_");
+    }
 
+    size_t valueIndex = 0;
     for (const auto& arg : args) {
         if (arg.kind == Parser::TemplateArgument::Kind::Type) {
+            // Type args are now qualified - convert :: to _
             std::string cleanType = arg.typeArg;
-            size_t pos = 0;
+            pos = 0;
             while ((pos = cleanType.find("::")) != std::string::npos) {
                 cleanType.replace(pos, 2, "_");
             }

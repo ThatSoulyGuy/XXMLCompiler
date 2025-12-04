@@ -2,6 +2,7 @@
 #include "Backends/TypeNormalizer.h"
 #include "Core/TypeRegistry.h"
 #include "Semantic/SemanticError.h"
+#include "Semantic/SemanticAnalyzer.h"
 #include <algorithm>
 #include <iostream>
 
@@ -426,7 +427,8 @@ bool CodegenContext::needsDestruction(const std::string& typeName) const {
     auto* classInfo = getClass(baseType);
     if (classInfo) {
         // Check if destructor is defined for this class
-        std::string dtorName = mangleFunctionName(baseType, "Destructor");
+        std::string qualifiedType = resolveToQualifiedName(baseType);
+        std::string dtorName = mangleFunctionName(qualifiedType, "Destructor");
         return isFunctionDefined(dtorName);
     }
 
@@ -434,7 +436,8 @@ bool CodegenContext::needsDestruction(const std::string& typeName) const {
     // Handle types like Collections::List<Integer>
     size_t ltPos = baseType.find('<');
     if (ltPos != std::string::npos) {
-        std::string dtorName = mangleFunctionName(baseType, "Destructor");
+        std::string qualifiedType = resolveToQualifiedName(baseType);
+        std::string dtorName = mangleFunctionName(qualifiedType, "Destructor");
         return isFunctionDefined(dtorName);
     }
 
@@ -460,6 +463,8 @@ void CodegenContext::emitScopeDestructors() {
             if (!typeName.empty() && (typeName.back() == '^' || typeName.back() == '%' || typeName.back() == '&')) {
                 typeName = typeName.substr(0, typeName.length() - 1);
             }
+            // Resolve to fully qualified name
+            typeName = resolveToQualifiedName(typeName);
             std::string dtorName = mangleFunctionName(typeName, "Destructor");
 
             // Get or declare the destructor
@@ -496,6 +501,8 @@ void CodegenContext::emitAllDestructors() {
                 if (!typeName.empty() && (typeName.back() == '^' || typeName.back() == '%' || typeName.back() == '&')) {
                     typeName = typeName.substr(0, typeName.length() - 1);
                 }
+                // Resolve to fully qualified name
+                typeName = resolveToQualifiedName(typeName);
                 std::string dtorName = mangleFunctionName(typeName, "Destructor");
 
                 auto* dtorFunc = module_->getFunction(dtorName);
@@ -588,6 +595,16 @@ std::string CodegenContext::substituteTemplateParams(const std::string& typeName
         }
     }
 
+    return typeName;
+}
+
+std::string CodegenContext::resolveToQualifiedName(const std::string& typeName) const {
+    // Delegate to SemanticAnalyzer if available
+    if (semanticAnalyzer_) {
+        return semanticAnalyzer_->resolveTypeArgToQualified(typeName);
+    }
+
+    // Fallback: return as-is
     return typeName;
 }
 

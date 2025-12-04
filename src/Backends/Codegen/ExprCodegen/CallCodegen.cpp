@@ -76,12 +76,16 @@ private:
                     className.back() == '%' || className.back() == '&')) {
                     className = className.substr(0, className.length() - 1);
                 }
+                // Resolve to fully qualified name
+                className = ctx_.resolveToQualifiedName(className);
 
                 functionName = ctx_.mangleFunctionName(className, memberAccess->member);
             } else {
                 // Static method or constructor: ClassName::method()
                 // Substitute template parameters if we're inside a template context
                 std::string className = ctx_.substituteTemplateParams(ident->name);
+                // Resolve to fully qualified name (e.g., "List<Integer>" -> "Language::Collections::List<Language::Core::Integer>")
+                className = ctx_.resolveToQualifiedName(className);
 
                 if (memberAccess->member == "Constructor") {
                     // Constructor call
@@ -101,6 +105,8 @@ private:
                 instancePtr = LLVMIR::PtrValue(func->getArg(0));
             }
             std::string className = std::string(ctx_.currentClassName());
+            // Resolve to fully qualified name
+            className = ctx_.resolveToQualifiedName(className);
             functionName = ctx_.mangleFunctionName(className, memberAccess->member);
         }
 

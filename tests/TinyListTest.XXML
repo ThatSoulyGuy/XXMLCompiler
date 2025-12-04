@@ -1,6 +1,6 @@
 // Absolutely minimal list test
 #import Language::Core;
-#import Collections;
+#import Language::Collections;
 #import System;
 
 [ Entrypoint

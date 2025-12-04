@@ -209,6 +209,11 @@ public:
     void clearTemplateSubstitutions();
     std::string substituteTemplateParams(const std::string& typeName) const;
 
+    // === Type Name Resolution ===
+    // Resolves a simple or template type name to its fully qualified form
+    // E.g., "List<Integer>" -> "Language::Collections::List<Language::Core::Integer>"
+    std::string resolveToQualifiedName(const std::string& typeName) const;
+
     // === Compilation Context ===
     Core::CompilationContext* compilationContext() const { return compCtx_; }
 

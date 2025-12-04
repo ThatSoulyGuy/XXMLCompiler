@@ -2,7 +2,7 @@
 // Hash table with separate chaining for collision resolution
 // Requires K to implement hash() and equals() methods
 
-[ Namespace <Collections>
+[ Namespace <Language::Collections>
 	[ Class <HashMap> <K Constrains None, V Constrains None> Final Extends None
 		[ Private <>
 			// Array of bucket pointers (each bucket stores arrays of key-value pairs)

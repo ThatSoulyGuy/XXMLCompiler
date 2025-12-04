@@ -35,18 +35,26 @@ bool NameMangler::isMangledMethod(const std::string& name) {
 }
 
 std::string NameMangler::sanitize(const std::string& name) {
-    std::string result;
-    result.reserve(name.length());
+    std::string result = name;
 
-    for (char c : name) {
+    // First replace :: with single _ (for namespace separators)
+    size_t pos = 0;
+    while ((pos = result.find("::")) != std::string::npos) {
+        result.replace(pos, 2, "_");
+    }
+
+    // Then sanitize remaining characters
+    std::string sanitized;
+    sanitized.reserve(result.length());
+    for (char c : result) {
         if (std::isalnum(c) || c == '_' || c == '.') {
-            result += c;
+            sanitized += c;
         } else if (c == ':') {
-            result += '_';
+            sanitized += '_';  // Handle any remaining single colons
         }
     }
 
-    return result;
+    return sanitized;
 }
 
 } // namespace Backends
