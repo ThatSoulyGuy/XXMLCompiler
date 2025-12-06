@@ -3,6 +3,9 @@
 #include "Backends/LLVMIR/TypedValue.h"
 #include "Backends/LLVMIR/TypedInstructions.h"
 #include "Backends/LLVMIR/TypedModule.h"
+#include "Backends/LLVMIR/IRVerifier.h"
+#include "Backends/LLVMIR/ValueTracker.h"
+#include "Backends/LLVMIR/StateSnapshot.h"
 #include <memory>
 #include <vector>
 #include <string>
@@ -803,6 +806,86 @@ public:
         );
     }
 
+    // ========================================================================
+    // Verification Integration
+    // ========================================================================
+
+    /// Set the verifier for per-instruction validation
+    void setVerifier(IRVerifier* verifier) { verifier_ = verifier; }
+
+    /// Set the value tracker for SSA verification
+    void setValueTracker(ValueTracker* tracker) { valueTracker_ = tracker; }
+
+    /// Get the current verifier
+    IRVerifier* getVerifier() const { return verifier_; }
+
+    /// Get the current value tracker
+    ValueTracker* getValueTracker() const { return valueTracker_; }
+
+    /// Enable/disable verification (verifier must be set)
+    void setVerificationEnabled(bool enabled) { verificationEnabled_ = enabled; }
+    bool isVerificationEnabled() const { return verificationEnabled_ && verifier_; }
+
+    // ========================================================================
+    // Checkpoint/Rollback (State Snapshot)
+    // ========================================================================
+
+    /// Create a named checkpoint for potential rollback
+    void checkpoint(const std::string& name) {
+        if (checkpointManager_) {
+            checkpointManager_->createCheckpoint(name);
+        }
+    }
+
+    /// Create an anonymous checkpoint
+    size_t checkpoint() {
+        if (checkpointManager_) {
+            return checkpointManager_->createCheckpoint();
+        }
+        return 0;
+    }
+
+    /// Get diff from a named checkpoint to current state
+    SnapshotDiff getDiffFromCheckpoint(const std::string& name) const {
+        if (checkpointManager_) {
+            return checkpointManager_->getDiffFromCheckpoint(name);
+        }
+        return SnapshotDiff();
+    }
+
+    /// Get diff from anonymous checkpoint to current state
+    SnapshotDiff getDiffFromCheckpoint(size_t id) const {
+        if (checkpointManager_) {
+            return checkpointManager_->getDiffFromCheckpoint(id);
+        }
+        return SnapshotDiff();
+    }
+
+    /// Check if a named checkpoint exists
+    bool hasCheckpoint(const std::string& name) const {
+        return checkpointManager_ && checkpointManager_->hasCheckpoint(name);
+    }
+
+    /// Remove a named checkpoint
+    void removeCheckpoint(const std::string& name) {
+        if (checkpointManager_) {
+            checkpointManager_->removeCheckpoint(name);
+        }
+    }
+
+    /// Clear all checkpoints
+    void clearCheckpoints() {
+        if (checkpointManager_) {
+            checkpointManager_->clearCheckpoints();
+        }
+    }
+
+    /// Set the checkpoint manager
+    void setCheckpointManager(CheckpointManager* manager) { checkpointManager_ = manager; }
+
+    /// Get the checkpoint manager
+    CheckpointManager* getCheckpointManager() const { return checkpointManager_; }
+
 private:
     // Helper to create and insert an instruction
     template<typename InstType, typename... Args>
@@ -816,6 +899,16 @@ private:
             } else {
                 insertBlock_->appendInstruction(inst.release());
             }
+
+            // Value tracking: register definition for value-producing instructions
+            if (valueTracker_ && ptr->getType() && !ptr->getType()->isVoid()) {
+                valueTracker_->registerDefinition(ptr, insertBlock_, ptr);
+            }
+
+            // Per-instruction verification
+            if (verificationEnabled_ && verifier_) {
+                verifier_->verifyInstruction(ptr);
+            }
         } else {
             // Orphaned instruction - caller must manage
             inst.release();
@@ -827,6 +920,12 @@ private:
     Module& module_;
     BasicBlock* insertBlock_;
     Instruction* insertPoint_;
+
+    // Verification infrastructure
+    IRVerifier* verifier_ = nullptr;
+    ValueTracker* valueTracker_ = nullptr;
+    CheckpointManager* checkpointManager_ = nullptr;
+    bool verificationEnabled_ = true;
 
     // Instruction storage for orphaned instructions
     std::vector<std::unique_ptr<Instruction>> orphanedInstructions_;

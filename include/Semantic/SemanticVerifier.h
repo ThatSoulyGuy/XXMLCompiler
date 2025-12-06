@@ -134,6 +134,24 @@ public:
         SemanticAnalyzer& analyzer,
         Parser::Program& program);
 
+    /**
+     * Asserts ALL invariants required before IR generation.
+     * Uses pass results for comprehensive verification.
+     * Throws std::runtime_error if ANY invariant fails.
+     *
+     * This is the SINGLE GATE that ensures:
+     * - Type resolution is complete (no Unknown/Deferred types)
+     * - Template instantiation is complete (no unexpanded generics)
+     * - Class layouts are computed
+     * - FFI signatures have valid marshaling
+     * - Control flow is valid (all paths return)
+     * - Ownership rules are satisfied
+     */
+    static void assertPreCodegenInvariants(
+        const CompilationPassResults& passResults,
+        Parser::Program& program,
+        SemanticAnalyzer& analyzer);
+
     //==========================================================================
     // TYPE RESOLUTION INVARIANTS
     //==========================================================================

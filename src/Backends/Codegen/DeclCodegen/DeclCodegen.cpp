@@ -595,6 +595,27 @@ void DeclCodegen::visitAnnotationDecl(Parser::AnnotationDecl* decl) {
     if (decl->retainAtRuntime) {
         ctx_.markAnnotationRetained(decl->name);
     }
+
+    // Only generate processor methods when in processor mode (compiling processor DLL)
+    // In normal compilation, the processor runs as a separate DLL loaded at runtime
+    if (decl->processor && ctx_.isProcessorMode()) {
+        // Set up synthetic class context for the processor
+        // The processor class is named {AnnotationName}_Processor
+        std::string processorClassName = decl->name + "_Processor";
+        ctx_.setCurrentClassName(processorClassName);
+
+        // Process each method in the processor block
+        for (const auto& section : decl->processor->sections) {
+            for (const auto& sectionDecl : section->declarations) {
+                if (auto* methodDecl = dynamic_cast<Parser::MethodDecl*>(sectionDecl.get())) {
+                    visitMethod(methodDecl);
+                }
+            }
+        }
+
+        // Clear class context
+        ctx_.setCurrentClassName("");
+    }
 }
 
 // === Annotation Collection Helpers ===

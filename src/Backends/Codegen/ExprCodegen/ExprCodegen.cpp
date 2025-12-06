@@ -778,10 +778,37 @@ LLVMIR::AnyValue ExprCodegen::handleMemberCall(Parser::CallExpr* expr,
                     // These typically return the value, need instance type
                     // Default to Integer for now - better heuristic needed
                     returnType = "Integer";
+                } else {
+                    // Look up the method's return type from the semantic analyzer
+                    // First determine the class of the object
+                    std::string innerClassName;
+                    if (auto* objIdent = dynamic_cast<Parser::IdentifierExpr*>(innerMemberAccess->object.get())) {
+                        // Get the type of the variable from context
+                        const auto* varInfo = ctx_.getVariable(objIdent->name);
+                        if (varInfo) {
+                            innerClassName = varInfo->xxmlType;
+                            // Strip ownership markers
+                            if (!innerClassName.empty() && (innerClassName.back() == '^' ||
+                                innerClassName.back() == '&' || innerClassName.back() == '%')) {
+                                innerClassName.pop_back();
+                            }
+                        }
+                    }
+
+                    if (!innerClassName.empty()) {
+                        // Use direct lookup to avoid lossy mangling/demangling for template types
+                        returnType = ctx_.lookupMethodReturnTypeDirect(innerClassName, innerMethodName);
+                        // Strip ownership markers from return type
+                        if (!returnType.empty() && (returnType.back() == '^' ||
+                            returnType.back() == '&' || returnType.back() == '%')) {
+                            returnType.pop_back();
+                        }
+                    }
                 }
             }
 
-            // Default fallback
+            // Default fallback - only if we couldn't determine the type
+            // This should rarely happen with proper type tracking
             if (returnType.empty()) {
                 returnType = "Object";
             }

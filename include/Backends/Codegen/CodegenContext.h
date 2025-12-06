@@ -190,6 +190,10 @@ public:
     // Returns the XXML return type, or empty string if not found
     std::string lookupMethodReturnType(const std::string& mangledName) const;
 
+    // Look up return type directly with unmangled class and method names
+    // This avoids the lossy mangling/demangling process for template types
+    std::string lookupMethodReturnTypeDirect(const std::string& className, const std::string& methodName) const;
+
     // === Name Mangling ===
     std::string mangleFunctionName(std::string_view className, std::string_view method) const;
     std::string mangleTypeName(std::string_view typeName) const;
@@ -258,6 +262,11 @@ public:
     // === Compilation Context ===
     Core::CompilationContext* compilationContext() const { return compCtx_; }
 
+    // === Processor Mode ===
+    // When true, we're compiling a processor DLL and should generate processor method bodies
+    void setProcessorMode(bool enabled) { processorMode_ = enabled; }
+    bool isProcessorMode() const { return processorMode_; }
+
     // === RAII Destructor Management ===
     void registerForDestruction(const std::string& varName, const std::string& typeName, LLVMIR::AllocaInst* alloca);
     void emitScopeDestructors();    // Emit destructors for current scope (LIFO order)
@@ -301,6 +310,32 @@ public:
         std::vector<std::string> unresolvedLocations;
     };
     TypeVerificationStats getTypeVerificationStats() const;
+
+    // === IR Verification Infrastructure ===
+    // Enable comprehensive IR verification (on by default in debug builds)
+    void enableVerification(bool enable);
+    bool isVerificationEnabled() const { return verificationEnabled_; }
+
+    // Access verifier (nullptr if verification disabled)
+    LLVMIR::IRVerifier* irVerifier() const { return irVerifier_.get(); }
+
+    // Access value tracker (nullptr if verification disabled)
+    LLVMIR::ValueTracker* valueTracker() const { return valueTracker_.get(); }
+
+    // Access checkpoint manager (nullptr if verification disabled)
+    LLVMIR::CheckpointManager* checkpointManager() const { return checkpointManager_.get(); }
+
+    // Call after completing codegen for a function
+    // Runs function-level verification and reports errors
+    void finalizeFunction(LLVMIR::Function* func);
+
+    // Call before emission
+    // Runs module-level verification and reports errors
+    void finalizeModule();
+
+    // Create a checkpoint for potential comparison/rollback
+    void createCheckpoint(const std::string& name);
+    LLVMIR::SnapshotDiff getCheckpointDiff(const std::string& name) const;
 
 private:
     // IR infrastructure
@@ -375,6 +410,15 @@ private:
 
     // Type verification tracking (type -> locations where used)
     std::unordered_map<std::string, std::vector<std::string>> typeUsageTracking_;
+
+    // Processor mode flag
+    bool processorMode_ = false;
+
+    // IR Verification infrastructure
+    std::unique_ptr<LLVMIR::IRVerifier> irVerifier_;
+    std::unique_ptr<LLVMIR::ValueTracker> valueTracker_;
+    std::unique_ptr<LLVMIR::CheckpointManager> checkpointManager_;
+    bool verificationEnabled_ = true;  // On by default
 };
 
 } // namespace Codegen

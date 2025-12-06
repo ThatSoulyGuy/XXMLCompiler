@@ -1,6 +1,7 @@
 #include "../../include/Semantic/SemanticVerifier.h"
 #include "../../include/Semantic/SemanticAnalyzer.h"  // For UNKNOWN_TYPE, DEFERRED_TYPE
 #include "../../include/Semantic/SemanticError.h"
+#include "../../include/Semantic/ControlFlowAnalyzer.h"
 #include <iostream>
 #include <sstream>
 #include <functional>
@@ -103,6 +104,81 @@ void SemanticVerifier::assertAllInvariantsOrThrow(
             ss << "  - " << error << "\n";
         }
         throw CodegenInvariantViolation("VERIFICATION_FAILED", ss.str());
+    }
+}
+
+void SemanticVerifier::assertPreCodegenInvariants(
+    const CompilationPassResults& passResults,
+    Parser::Program& program,
+    SemanticAnalyzer& analyzer) {
+
+    VerificationResult result;
+
+    // =========================================================================
+    // 1. TYPE RESOLUTION MUST BE FINAL
+    // =========================================================================
+    verifyNoUnknownTypes(analyzer, result, Mode::Strict);
+    verifyNoForwardReferences(passResults.typeResolution, result);
+    verifyNoCircularTypes(passResults.typeResolution, result);
+
+    // =========================================================================
+    // 2. TEMPLATE INSTANTIATION MUST BE COMPLETE
+    // =========================================================================
+    verifyAllClassesResolved(analyzer, result);
+    verifyAllTemplatesResolved(analyzer, result);
+    verifyConstraintsSatisfied(passResults.templateExpansion, result);
+    verifyNoUnexpandedGenerics(analyzer, result);
+
+    // =========================================================================
+    // 3. CLASS LAYOUT MUST BE FULLY DETERMINED
+    // =========================================================================
+    verifyAllLayoutsComputed(passResults.layoutComputation, analyzer, result);
+    verifyReflectionMatches(passResults.layoutComputation, result);
+    verifyAlignmentValid(passResults.layoutComputation, result);
+    verifyFieldOffsets(passResults.layoutComputation, result);
+
+    // =========================================================================
+    // 4. OWNERSHIP AND LIFETIME MUST BE VALIDATED
+    // =========================================================================
+    verifyNoUseAfterMove(passResults.ownershipAnalysis, result);
+    verifyNoDoubleMove(passResults.ownershipAnalysis, result);
+    verifyReferencesValid(passResults.ownershipAnalysis, result);
+    verifyCapturesValid(passResults.ownershipAnalysis, result);
+    verifyOwnershipAnnotations(analyzer, program, result);
+
+    // =========================================================================
+    // 5. FFI CALLS MUST HAVE EXACT SIGNATURES
+    // =========================================================================
+    verifyFFISignaturesComplete(passResults.abiLowering, result);
+    verifyCallingConventionsValid(passResults.abiLowering, result);
+    verifyMarshalingStrategies(passResults.abiLowering, result);
+
+    // =========================================================================
+    // 6. CONTROL FLOW MUST BE COMPLETE
+    // =========================================================================
+    verifyAllMethodsReturn(program, analyzer, result);
+    verifyBreakContinueValid(program, result);
+
+    // =========================================================================
+    // FATAL: If any invariant failed, abort compilation
+    // =========================================================================
+    if (!result.success) {
+        std::cerr << "\n=== PRE-CODEGEN INVARIANT VIOLATIONS ===\n";
+        std::cerr << result.getDetailedSummary();
+        std::cerr << "\nErrors:\n";
+        for (const auto& err : result.errors) {
+            std::cerr << "  " << err << "\n";
+        }
+        if (!result.warnings.empty()) {
+            std::cerr << "\nWarnings:\n";
+            for (const auto& warn : result.warnings) {
+                std::cerr << "  " << warn << "\n";
+            }
+        }
+        std::cerr << "=========================================\n";
+
+        throw std::runtime_error("Pre-codegen invariants not satisfied: " +
+                                 std::to_string(result.errors.size()) + " errors");
     }
 }
 
@@ -344,6 +420,80 @@ bool SemanticVerifier::verifyConstraintsSatisfied(
     return allSatisfied;
 }
 
+// Helper function to check if a type string contains unresolved template parameters
+static bool hasUnresolvedTemplateArg(const std::string& type) {
+    // Check for "Deferred" which indicates incomplete substitution
+    if (type == "Deferred" || type.find("Deferred") == 0) {
+        return true;
+    }
+
+    // Check for single uppercase letter (template param like T, U, V, K, etc.)
+    if (type.length() == 1 && std::isupper(type[0])) {
+        return true;
+    }
+
+    // Check for template syntax with nested args
+    auto anglePos = type.find('<');
+    if (anglePos == std::string::npos) {
+        // No template args, check if the whole thing is a template param
+        // Common patterns: T, T^, T&, T%
+        std::string baseName = type;
+        // Strip ownership markers
+        if (!baseName.empty() && (baseName.back() == '^' || baseName.back() == '&' || baseName.back() == '%')) {
+            baseName = baseName.substr(0, baseName.length() - 1);
+        }
+        if (baseName.length() == 1 && std::isupper(baseName[0])) {
+            return true;
+        }
+        return false;
+    }
+
+    // Has template args - extract and recursively check each one
+    auto closePos = type.rfind('>');
+    if (closePos == std::string::npos || closePos <= anglePos) {
+        return false;
+    }
+
+    std::string argsStr = type.substr(anglePos + 1, closePos - anglePos - 1);
+
+    // Split by comma, handling nested templates
+    int depth = 0;
+    std::string currentArg;
+    for (char c : argsStr) {
+        if (c == '<') depth++;
+        else if (c == '>') depth--;
+        else if (c == ',' && depth == 0) {
+            // End of argument
+            // Trim whitespace
+            size_t start = currentArg.find_first_not_of(" \t");
+            size_t end = currentArg.find_last_not_of(" \t");
+            if (start != std::string::npos) {
+                std::string arg = currentArg.substr(start, end - start + 1);
+                if (hasUnresolvedTemplateArg(arg)) {
+                    return true;
+                }
+            }
+            currentArg.clear();
+            continue;
+        }
+        currentArg += c;
+    }
+
+    // Check last argument
+    if (!currentArg.empty()) {
+        size_t start = currentArg.find_first_not_of(" \t");
+        size_t end = currentArg.find_last_not_of(" \t");
+        if (start != std::string::npos) {
+            std::string arg = currentArg.substr(start, end - start + 1);
+            if (hasUnresolvedTemplateArg(arg)) {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
 bool SemanticVerifier::verifyNoUnexpandedGenerics(
     SemanticAnalyzer& analyzer,
     VerificationResult& result) {
@@ -360,15 +510,34 @@ bool SemanticVerifier::verifyNoUnexpandedGenerics(
         // Check properties for unsubstituted type parameters
         for (const auto& [propName, propInfo] : classInfo.properties) {
             const std::string& propType = propInfo.first;
-            // Look for single-letter type parameters like T, U, V
-            if (propType.length() == 1 && std::isupper(propType[0])) {
-                result.addError("TEMPLATE", "Unsubstituted type parameter '" + propType +
-                               "' in property '" + propName + "' of class '" + className + "'");
+            if (hasUnresolvedTemplateArg(propType)) {
+                result.addError("TEMPLATE", "Unsubstituted type parameter in property '" +
+                               propName + "' of class '" + className +
+                               "' (type: " + propType + ")");
+            }
+        }
+
+        // Check method signatures for unresolved types
+        for (const auto& [methodName, methodInfo] : classInfo.methods) {
+            // Check return type
+            if (hasUnresolvedTemplateArg(methodInfo.returnType)) {
+                result.addError("TEMPLATE", "Unsubstituted type parameter in return type of method '" +
+                               className + "::" + methodName +
+                               "' (type: " + methodInfo.returnType + ")");
+            }
+
+            // Check parameter types
+            for (const auto& [paramType, ownership] : methodInfo.parameters) {
+                if (hasUnresolvedTemplateArg(paramType)) {
+                    result.addError("TEMPLATE", "Unsubstituted type parameter in parameter of method '" +
+                                   className + "::" + methodName +
+                                   "' (type: " + paramType + ")");
+                }
             }
         }
     }
 
-    return result.success;
+    return result.templateErrors == 0;
 }
 
 //==============================================================================
@@ -616,46 +785,154 @@ bool SemanticVerifier::verifyMarshalingStrategies(
                 param.marshal == MarshalStrategy::None) {
                 // Check if it's a native type (no marshaling needed)
                 if (param.xxmlType.find("NativeType<") != 0) {
-                    result.addWarning("Parameter '" + param.paramName +
+                    // FFI parameter requires explicit marshaling strategy
+                    result.addError("ABI", "FFI parameter '" + param.paramName +
                                     "' in method '" + name +
-                                    "' may need marshaling (XXML: " + param.xxmlType +
-                                    ", LLVM: " + param.llvmType + ")");
+                                    "' requires marshaling but none defined (XXML: " + param.xxmlType +
+                                    " -> LLVM: " + param.llvmType + ")");
                 }
+            }
+        }
+
+        // Check return type marshaling
+        if (!sig.returnInfo.isVoid &&
+            sig.returnInfo.xxmlType != sig.returnInfo.llvmType &&
+            sig.returnInfo.marshal == MarshalStrategy::None) {
+            if (sig.returnInfo.xxmlType.find("NativeType<") != 0) {
+                result.addError("ABI", "FFI return type in method '" + name +
+                               "' requires marshaling but none defined (XXML: " + sig.returnInfo.xxmlType +
+                               " -> LLVM: " + sig.returnInfo.llvmType + ")");
             }
         }
     }
 
-    return true;
+    return result.abiErrors == 0;
 }
 
 //==============================================================================
 // CONTROL FLOW INVARIANTS
 //==============================================================================
 
-// Simplified control flow verification using manual AST traversal
-// Full implementation would use a proper control flow graph
+// Control flow verification using CFG analysis
+// Implemented in ControlFlowAnalyzer.h/cpp
 
 bool SemanticVerifier::verifyAllMethodsReturn(
-    Parser::Program& /* program */,
+    Parser::Program& program,
     SemanticAnalyzer& /* analyzer */,
-    VerificationResult& /* result */) {
+    VerificationResult& result) {
 
-    // TODO: Implement proper control flow analysis
-    // For now, assume control flow is valid if semantic analysis passed
-    // This would need manual traversal of method bodies to check:
-    // 1. All code paths return a value for non-void methods
-    // 2. break/continue only inside loops
-    // 3. No unreachable code after return/break/continue
+    // Traverse all declarations looking for classes/methods
+    for (const auto& decl : program.declarations) {
+        // Handle class declarations
+        if (auto* classDecl = dynamic_cast<Parser::ClassDecl*>(decl.get())) {
+            const std::string& className = classDecl->name;
 
-    return true;
+            // Iterate over all sections (public, private, protected)
+            for (const auto& section : classDecl->sections) {
+                for (const auto& memberDecl : section->declarations) {
+                    // Handle method declarations
+                    if (auto* method = dynamic_cast<Parser::MethodDecl*>(memberDecl.get())) {
+                        // Skip void/None methods - they don't need to return
+                        std::string returnType = method->returnType ? method->returnType->typeName : "None";
+                        if (returnType == "None" || returnType == "Void" || returnType.empty()) {
+                            continue;
+                        }
+
+                        // Use ControlFlowVerifier to check this method
+                        auto cfResult = XXML::Semantic::ControlFlowVerifier::verifyMethodReturns(
+                            className, method->name, returnType, method->body);
+
+                        // Merge errors
+                        for (size_t i = 0; i < cfResult.errors.size(); ++i) {
+                            result.addError("CONTROL_FLOW", cfResult.errors[i]);
+                        }
+                        // Merge warnings
+                        for (size_t i = 0; i < cfResult.warnings.size(); ++i) {
+                            result.addWarning(cfResult.warnings[i]);
+                        }
+                    }
+                }
+            }
+        }
+        // Handle namespace declarations (they can contain classes)
+        else if (auto* nsDecl = dynamic_cast<Parser::NamespaceDecl*>(decl.get())) {
+            for (const auto& nsContent : nsDecl->declarations) {
+                if (auto* innerClassDecl = dynamic_cast<Parser::ClassDecl*>(nsContent.get())) {
+                    std::string className = nsDecl->name + "::" + innerClassDecl->name;
+
+                    for (const auto& section : innerClassDecl->sections) {
+                        for (const auto& memberDecl : section->declarations) {
+                            if (auto* method = dynamic_cast<Parser::MethodDecl*>(memberDecl.get())) {
+                                std::string returnType = method->returnType ? method->returnType->typeName : "None";
+                                if (returnType == "None" || returnType == "Void" || returnType.empty()) {
+                                    continue;
+                                }
+
+                                auto cfResult = XXML::Semantic::ControlFlowVerifier::verifyMethodReturns(
+                                    className, method->name, returnType, method->body);
+
+                                for (size_t i = 0; i < cfResult.errors.size(); ++i) {
+                                    result.addError("CONTROL_FLOW", cfResult.errors[i]);
+                                }
+                                for (size_t i = 0; i < cfResult.warnings.size(); ++i) {
+                                    result.addWarning(cfResult.warnings[i]);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    return result.controlFlowErrors == 0;
 }
 
 bool SemanticVerifier::verifyBreakContinueValid(
     Parser::Program& program,
     VerificationResult& result) {
 
-    // This is handled by ControlFlowVerifier in verifyAllMethodsReturn
-    return result.success;
+    // Traverse all declarations looking for classes/methods
+    for (const auto& decl : program.declarations) {
+        if (auto* classDecl = dynamic_cast<Parser::ClassDecl*>(decl.get())) {
+            const std::string& className = classDecl->name;
+
+            for (const auto& section : classDecl->sections) {
+                for (const auto& memberDecl : section->declarations) {
+                    if (auto* method = dynamic_cast<Parser::MethodDecl*>(memberDecl.get())) {
+                        auto cfResult = XXML::Semantic::ControlFlowVerifier::verifyBreakContinue(
+                            className, method->name, method->body);
+
+                        for (size_t i = 0; i < cfResult.errors.size(); ++i) {
+                            result.addError("CONTROL_FLOW", cfResult.errors[i]);
+                        }
+                    }
+                }
+            }
+        }
+        else if (auto* nsDecl = dynamic_cast<Parser::NamespaceDecl*>(decl.get())) {
+            for (const auto& nsContent : nsDecl->declarations) {
+                if (auto* innerClassDecl = dynamic_cast<Parser::ClassDecl*>(nsContent.get())) {
+                    std::string className = nsDecl->name + "::" + innerClassDecl->name;
+
+                    for (const auto& section : innerClassDecl->sections) {
+                        for (const auto& memberDecl : section->declarations) {
+                            if (auto* method = dynamic_cast<Parser::MethodDecl*>(memberDecl.get())) {
+                                auto cfResult = XXML::Semantic::ControlFlowVerifier::verifyBreakContinue(
+                                    className, method->name, method->body);
+
+                                for (size_t i = 0; i < cfResult.errors.size(); ++i) {
+                                    result.addError("CONTROL_FLOW", cfResult.errors[i]);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    return result.controlFlowErrors == 0;
 }
 
 } // namespace Semantic

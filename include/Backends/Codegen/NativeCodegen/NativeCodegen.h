@@ -1,10 +1,12 @@
 #pragma once
 
 #include "Backends/Codegen/CodegenContext.h"
+#include "Backends/LLVMIR/FFIBuilder.h"
+#include "Backends/LLVMIR/GlobalBuilder.h"
 #include "Parser/AST.h"
 #include <string>
-#include <sstream>
 #include <vector>
+#include <memory>
 
 namespace XXML {
 
@@ -14,14 +16,13 @@ namespace Backends {
 namespace Codegen {
 
 /**
- * @brief Handles FFI native method thunk generation
+ * @brief Handles FFI native method thunk generation using type-safe builders
  *
  * This class generates LLVM IR thunks for native methods that call
- * external DLL functions. It handles:
- * - DLL loading via xxml_FFI_loadLibrary
- * - Symbol lookup via xxml_FFI_getSymbol
- * - Parameter and return type marshalling
- * - Calling convention handling
+ * external DLL functions. It uses the typed IR system (FFIBuilder)
+ * instead of raw string emission.
+ *
+ * Thunks are added directly to the Module and emitted via LLVMEmitter.
  */
 class NativeCodegen {
 public:
@@ -34,7 +35,7 @@ public:
 
     /**
      * Generate a native FFI thunk for a method with @NativeFunction annotation.
-     * The thunk loads the DLL, gets the symbol, and calls the native function.
+     * The thunk is added to the Module and will be emitted via LLVMEmitter.
      *
      * @param node The method declaration with native function info
      * @param className Current class name (empty for top-level functions)
@@ -46,38 +47,35 @@ public:
 
     /**
      * Get the generated LLVM IR text for all thunks.
+     * @deprecated Thunks are now part of the Module, use LLVMEmitter instead.
+     * Returns empty string for backwards compatibility.
      */
-    std::string getIR() const { return output_.str(); }
+    std::string getIR() const { return ""; }
 
     /**
      * Get string literals that need to be emitted as globals.
-     * Returns pairs of (label, content).
+     * @deprecated String literals are now added to the Module directly.
+     * Returns empty vector for backwards compatibility.
      */
     const std::vector<std::pair<std::string, std::string>>& stringLiterals() const {
-        return stringLiterals_;
+        return emptyStringLiterals_;
     }
 
     /**
-     * Clear generated IR and reset state.
+     * Clear generated state (no-op, state is in Module).
      */
-    void reset();
+    void reset() {}
 
 private:
     CodegenContext& ctx_;
     Core::CompilationContext* compCtx_;
 
-    // Text-based IR output
-    std::stringstream output_;
-    int registerCounter_ = 0;
-    int labelCounter_ = 0;
+    // Type-safe builders
+    std::unique_ptr<LLVMIR::GlobalBuilder> globalBuilder_;
+    std::unique_ptr<LLVMIR::FFIBuilder> ffiBuilder_;
 
-    // String literals for FFI paths and symbols
-    std::vector<std::pair<std::string, std::string>> stringLiterals_;
-
-    // Helper methods
-    void emitLine(const std::string& line);
-    std::string allocateRegister();
-    std::string allocateLabel(const std::string& prefix);
+    // Empty vector for backwards compatibility
+    std::vector<std::pair<std::string, std::string>> emptyStringLiterals_;
 
     /**
      * Get qualified function name (Class_Method format)
@@ -85,24 +83,24 @@ private:
     std::string getQualifiedName(const std::string& className, const std::string& methodName) const;
 
     /**
-     * Map XXML type to LLVM type string
+     * Map XXML type to LLVM Type*
      */
-    std::string getLLVMType(const std::string& xxmlType) const;
+    LLVMIR::Type* getLLVMType(const std::string& xxmlType) const;
 
     /**
-     * Map NativeType<...> to LLVM type
+     * Map NativeType<...> to LLVM type string, then to Type*
      */
-    static std::string mapNativeTypeToLLVM(const std::string& nativeType);
+    std::string mapNativeTypeToLLVMString(const std::string& nativeType) const;
 
     /**
-     * Get LLVM calling convention string
+     * Parse an LLVM type string to Type*
      */
-    static std::string getLLVMCallingConvention(Parser::CallingConvention conv);
+    LLVMIR::Type* parseTypeString(const std::string& typeStr, LLVMIR::TypeContext& typeCtx) const;
 
     /**
-     * Generate default return value for a type
+     * Convert Parser::CallingConvention to LLVMIR::FFICallingConv
      */
-    static std::string getDefaultReturnValue(const std::string& llvmType);
+    static LLVMIR::FFICallingConv mapCallingConvention(Parser::CallingConvention conv);
 };
 
 } // namespace Codegen

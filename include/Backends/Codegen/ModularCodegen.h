@@ -12,6 +12,7 @@
 #include "Backends/Codegen/LambdaTemplateCodegen/LambdaTemplateCodegen.h"
 #include "Parser/AST.h"
 #include <memory>
+#include <set>
 
 namespace XXML {
 namespace Backends {
@@ -132,11 +133,33 @@ public:
     /// Reset lambda template codegen state
     void resetLambdaCodegen();
 
+    // === Function Declarations ===
+
+    /// Generate forward declarations for runtime module functions
+    /// Uses GlobalBuilder to create function declarations in the Module
+    void generateFunctionDeclarations(Parser::Program& program);
+
+    /// Track a function as declared (to avoid duplicates)
+    void markFunctionDeclared(const std::string& funcName);
+
+    /// Check if a function has already been declared
+    bool isFunctionDeclared(const std::string& funcName) const;
+
+    // === Processor Mode ===
+
+    /// Generate annotation processor entry points
+    /// Creates __xxml_processor_annotation_name() and __xxml_processor_process()
+    void generateProcessorEntryPoints(Parser::Program& program,
+                                      const std::string& annotationName);
+
 private:
     CodegenContext ctx_;
     std::unique_ptr<ExprCodegen> exprCodegen_;
     std::unique_ptr<StmtCodegen> stmtCodegen_;
     std::unique_ptr<DeclCodegen> declCodegen_;
+
+    // Track declared functions to avoid duplicates
+    std::set<std::string> declaredFunctions_;
     std::unique_ptr<ReflectionCodegen> reflectionCodegen_;
     std::unique_ptr<AnnotationCodegen> annotationCodegen_;
     std::unique_ptr<TemplateCodegen> templateCodegen_;

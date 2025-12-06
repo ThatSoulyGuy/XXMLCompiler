@@ -116,8 +116,7 @@ private:
     // === Modular Codegen (type-safe IR system) ===
     std::unique_ptr<Codegen::ModularCodegen> modularCodegen_;
 
-    // === Legacy members (still needed for template instantiation) ===
-    std::stringstream output_;  // Accumulates template instantiation IR
+    // === Legacy members (still needed for some utilities) ===
     std::unordered_map<std::string, std::string> valueMap_;  // XXML var -> LLVM register
     std::unordered_map<std::string, std::string> registerTypes_;  // LLVM register -> type name
     int registerCounter_ = 0;
@@ -158,9 +157,6 @@ private:
     // Processor compilation mode (for compiling annotation processors to DLLs)
     bool processorMode_ = false;
     std::string processorAnnotationName_;
-
-    // Track declared functions to avoid duplicates
-    std::set<std::string> declaredFunctions_;
 
     // Track generated (defined) functions to avoid duplicate definitions
     std::set<std::string> generatedFunctions_;
@@ -249,10 +245,9 @@ private:
     std::unordered_map<std::string, CallbackThunkInfo> callbackThunks_;  // callback type name -> thunk info
     int callbackThunkCounter_ = 0;  // Unique ID for callback thunks
 
-    // Legacy helper methods (still needed for template instantiation)
+    // Legacy helper methods (still needed for some utilities)
     std::string allocateRegister();
     std::string allocateLabel(std::string_view prefix);
-    void emitLine(const std::string& line);
 
     /// Get target triple for current platform
     std::string getTargetTriple() const;
@@ -262,9 +257,6 @@ private:
 
     /// Generate qualified function name (Class_Method format)
     std::string getQualifiedName(const std::string& className, const std::string& methodName) const;
-
-    /// Generate a native FFI method thunk that loads/calls a DLL function
-    void generateNativeMethodThunk(Parser::MethodDecl& node);
 
     /// Qualify a type name with the current namespace if needed
     /// (e.g., "Cursor^" -> "GLFW::Cursor^" when inside GLFW namespace)
@@ -289,9 +281,6 @@ private:
     /// Extract type name from an expression (for static method calls like Class::Constructor)
     std::string extractTypeName(const Parser::Expression* expr) const;
 
-    /// Forward declare all user-defined functions before code generation
-    void generateFunctionDeclarations(Parser::Program& program);
-
     /// Generate LLVM instruction for binary operation using OperatorRegistry
     std::string generateBinaryOp(const std::string& op,
                                 const std::string& lhs,
@@ -304,9 +293,6 @@ private:
     /// Get or create a global string constant, returning its label
     /// Deduplicates identical strings to minimize code size
     std::string getOrCreateGlobalString(const std::string& content);
-
-    /// Processor entry point generation (for --processor mode)
-    void generateProcessorEntryPoints(Parser::Program& program);
 };
 
 } // namespace Backends

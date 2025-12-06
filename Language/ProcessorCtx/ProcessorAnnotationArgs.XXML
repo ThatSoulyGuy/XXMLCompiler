@@ -2,9 +2,9 @@
 // Provides access to all arguments passed to an annotation usage
 
 #import Language::Core;
-#import Language::Processor::ProcessorAnnotationArg;
+#import Language::ProcessorCtx::ProcessorAnnotationArg;
 
-[ Namespace <Language::Processor>
+[ Namespace <Language::ProcessorCtx>
     [ Class <ProcessorAnnotationArgs> Final Extends None
         [ Private <>
             Property <argsPtr> Types NativeType<"ptr">^;

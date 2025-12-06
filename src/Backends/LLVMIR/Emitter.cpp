@@ -12,6 +12,12 @@ namespace LLVMIR {
 // ============================================================================
 
 std::string LLVMEmitter::emit() {
+    // Run pre-emission verification if enabled
+    // This will abort with detailed diagnostics if any errors are found
+    if (verificationEnabled_ && verifier_) {
+        verifier_->verifyModule();
+    }
+
     out_.str("");
     out_.clear();
 
@@ -635,6 +641,7 @@ std::string LLVMEmitter::formatLinkage(GlobalVariable::Linkage linkage) {
         case GlobalVariable::Linkage::Private: return "private ";
         case GlobalVariable::Linkage::Common: return "common ";
         case GlobalVariable::Linkage::Weak: return "weak ";
+        case GlobalVariable::Linkage::DLLExport: return "dllexport ";
     }
     return "";
 }

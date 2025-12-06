@@ -4,6 +4,7 @@
 #include "Semantic/SemanticError.h"
 #include "Semantic/SemanticAnalyzer.h"
 #include <algorithm>
+#include <cassert>
 #include <cctype>
 #include <iostream>
 
@@ -19,6 +20,9 @@ CodegenContext::CodegenContext(Core::CompilationContext* compCtx)
 
     // Initialize with one scope
     variableScopes_.emplace_back();
+
+    // Initialize verification infrastructure (on by default)
+    enableVerification(true);
 }
 
 CodegenContext::~CodegenContext() = default;
@@ -340,6 +344,61 @@ std::string CodegenContext::lookupMethodReturnType(const std::string& mangledNam
     methodInfo = semanticAnalyzer_->findMethod(qualifiedClassName, methodName);
     if (methodInfo) {
         return methodInfo->returnType;
+    }
+
+    return "";
+}
+
+std::string CodegenContext::lookupMethodReturnTypeDirect(const std::string& className, const std::string& methodName) const {
+    if (!semanticAnalyzer_) {
+        return "";
+    }
+
+    // Try exact match first
+    auto* methodInfo = semanticAnalyzer_->findMethod(className, methodName);
+    if (methodInfo) {
+        return methodInfo->returnType;
+    }
+
+    // For template classes like MyClass<Integer>, also try the base template class
+    // to get generic method definitions that return template parameters
+    size_t templateStart = className.find('<');
+    if (templateStart != std::string::npos) {
+        std::string baseClass = className.substr(0, templateStart);
+        methodInfo = semanticAnalyzer_->findMethod(baseClass, methodName);
+        if (methodInfo) {
+            // The return type might be a template parameter like "T"
+            // We need to substitute it with the actual type argument
+            std::string returnType = methodInfo->returnType;
+
+            // Extract template argument from className (e.g., "Integer" from "MyClass<Integer>")
+            size_t templateEnd = className.rfind('>');
+            if (templateEnd != std::string::npos && templateEnd > templateStart) {
+                std::string templateArg = className.substr(templateStart + 1, templateEnd - templateStart - 1);
+
+                // Get the template parameter names from the base class via public getClassRegistry()
+                const auto& classRegistry = semanticAnalyzer_->getClassRegistry();
+                auto classIt = classRegistry.find(baseClass);
+                if (classIt != classRegistry.end() && !classIt->second.templateParams.empty()) {
+                    // Simple case: single template parameter T
+                    const std::string& templateParam = classIt->second.templateParams[0].name;
+                    if (returnType == templateParam || returnType == templateParam + "^" ||
+                        returnType == templateParam + "&" || returnType == templateParam + "%") {
+                        // Substitute T with the actual type argument
+                        char ownershipMarker = '\0';
+                        if (!returnType.empty() && (returnType.back() == '^' ||
+                            returnType.back() == '&' || returnType.back() == '%')) {
+                            ownershipMarker = returnType.back();
+                        }
+                        returnType = templateArg;
+                        if (ownershipMarker != '\0') {
+                            returnType += ownershipMarker;
+                        }
+                    }
+                }
+            }
+            return returnType;
+        }
     }
 
     return "";
@@ -719,20 +778,23 @@ bool CodegenContext::isAnnotationRetained(const std::string& annotationName) con
 // === Deferred Type Verification ===
 
 bool CodegenContext::verifyTypeResolved(const std::string& typeName, const std::string& context) {
-    // Check for Deferred type marker
-    if (typeName == "Deferred" || typeName.find("Deferred") == 0) {
-        std::cerr << "[ERROR] Unresolved Deferred type at " << context
-                  << ". Template parameter was not instantiated.\n";
-        return false;
+    // In debug builds, assert that types are resolved.
+    // This should NEVER fire if semantic verification passed - it indicates
+    // a bug in the semantic verification phase.
+    #ifndef NDEBUG
+    if (typeName == "Deferred" || typeName.find("Deferred") == 0 ||
+        typeName == "Unknown" || typeName.find("Unknown") == 0) {
+        // This is a compiler bug - semantic verification should have caught this
+        std::cerr << "[INTERNAL ERROR] Unresolved type '" << typeName
+                  << "' reached codegen at " << context << "\n";
+        std::cerr << "This indicates a bug in semantic verification.\n";
+        assert(false && "Unresolved type reached codegen - semantic verification bug");
     }
-
-    // Check for Unknown type marker
-    if (typeName == "Unknown" || typeName.find("Unknown") == 0) {
-        std::cerr << "[ERROR] Unknown type at " << context
-                  << ". Type resolution failed.\n";
-        return false;
-    }
-
+    #else
+    // In release builds, just return true since verification already passed
+    (void)typeName;
+    (void)context;
+    #endif
     return true;
 }
 
@@ -842,6 +904,76 @@ CodegenContext::TypeVerificationStats CodegenContext::getTypeVerificationStats()
     }
 
     return stats;
+}
+
+// === IR Verification Infrastructure ===
+
+void CodegenContext::enableVerification(bool enable) {
+    verificationEnabled_ = enable;
+
+    if (enable && !irVerifier_) {
+        // Create verification infrastructure
+        irVerifier_ = std::make_unique<LLVMIR::IRVerifier>(*module_);
+        valueTracker_ = std::make_unique<LLVMIR::ValueTracker>();
+        checkpointManager_ = std::make_unique<LLVMIR::CheckpointManager>(*module_);
+
+        // Connect builder to verification infrastructure
+        builder_->setVerifier(irVerifier_.get());
+        builder_->setValueTracker(valueTracker_.get());
+        builder_->setCheckpointManager(checkpointManager_.get());
+    } else if (!enable) {
+        // Disconnect from builder
+        builder_->setVerifier(nullptr);
+        builder_->setValueTracker(nullptr);
+        builder_->setCheckpointManager(nullptr);
+
+        // Destroy verification infrastructure
+        irVerifier_.reset();
+        valueTracker_.reset();
+        checkpointManager_.reset();
+    }
+}
+
+void CodegenContext::finalizeFunction(LLVMIR::Function* func) {
+    if (!verificationEnabled_ || !irVerifier_ || !func) {
+        return;
+    }
+
+    // Update value tracker with this function's context
+    if (valueTracker_) {
+        valueTracker_->setFunction(func);
+
+        // Build dominance info for this function
+        auto idom = irVerifier_->computeDominators(func);
+        valueTracker_->setDominanceInfo(idom);
+    }
+
+    // Run function-level verification
+    // This will abort with detailed diagnostics if any errors are found
+    irVerifier_->verifyFunction(func);
+}
+
+void CodegenContext::finalizeModule() {
+    if (!verificationEnabled_ || !irVerifier_) {
+        return;
+    }
+
+    // Run module-level verification
+    // This will abort with detailed diagnostics if any errors are found
+    irVerifier_->verifyModule();
+}
+
+void CodegenContext::createCheckpoint(const std::string& name) {
+    if (checkpointManager_) {
+        checkpointManager_->createCheckpoint(name);
+    }
+}
+
+LLVMIR::SnapshotDiff CodegenContext::getCheckpointDiff(const std::string& name) const {
+    if (checkpointManager_) {
+        return checkpointManager_->getDiffFromCheckpoint(name);
+    }
+    return LLVMIR::SnapshotDiff();
 }
 
 } // namespace Codegen

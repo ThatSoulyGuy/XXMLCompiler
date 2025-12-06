@@ -556,3 +556,225 @@ double Processor_getAnnotationDoubleArg(ProcessorReflectionContext* ctx, const c
     }
     return defaultValue;
 }
+
+/* ==========================================================================
+ * xxml_ Prefixed Wrapper Functions
+ *
+ * These wrapper functions provide the xxml_ prefixed names that the LLVM IR
+ * expects (due to Syscall name mangling). They simply forward to the
+ * implementation functions above.
+ * ========================================================================== */
+
+/* Reflection Context Wrappers */
+void* xxml_Processor_getTargetKind(ProcessorReflectionContext* ctx) {
+    return Processor_getTargetKind(ctx);
+}
+
+void* xxml_Processor_getTargetName(ProcessorReflectionContext* ctx) {
+    return Processor_getTargetName(ctx);
+}
+
+void* xxml_Processor_getTypeName(ProcessorReflectionContext* ctx) {
+    return Processor_getTypeName(ctx);
+}
+
+void* xxml_Processor_getClassName(ProcessorReflectionContext* ctx) {
+    return Processor_getClassName(ctx);
+}
+
+void* xxml_Processor_getNamespaceName(ProcessorReflectionContext* ctx) {
+    return Processor_getNamespaceName(ctx);
+}
+
+void* xxml_Processor_getSourceFile(ProcessorReflectionContext* ctx) {
+    return Processor_getSourceFile(ctx);
+}
+
+int xxml_Processor_getLineNumber(ProcessorReflectionContext* ctx) {
+    return Processor_getLineNumber(ctx);
+}
+
+int xxml_Processor_getColumnNumber(ProcessorReflectionContext* ctx) {
+    return Processor_getColumnNumber(ctx);
+}
+
+/* Compilation Context Wrappers */
+void xxml_Processor_message(ProcessorCompilationContext* ctx, void* msg) {
+    Processor_message(ctx, msg);
+}
+
+void xxml_Processor_warning(ProcessorCompilationContext* ctx, void* msg) {
+    Processor_warning(ctx, msg);
+}
+
+void xxml_Processor_warningAt(ProcessorCompilationContext* ctx, void* msg,
+                               void* file, int64_t line, int64_t col) {
+    Processor_warningAt(ctx, msg, file, line, col);
+}
+
+void xxml_Processor_error(ProcessorCompilationContext* ctx, void* msg) {
+    Processor_error(ctx, msg);
+}
+
+void xxml_Processor_errorAt(ProcessorCompilationContext* ctx, void* msg,
+                             void* file, int64_t line, int64_t col) {
+    Processor_errorAt(ctx, msg, file, line, col);
+}
+
+/* Annotation Argument Wrappers */
+ProcessorAnnotationArg* xxml_Processor_getArg(ProcessorAnnotationArgs* args, const char* name) {
+    return Processor_getArg(args, name);
+}
+
+ProcessorAnnotationArg* xxml_Processor_getArgAt(ProcessorAnnotationArgs* args, int index) {
+    return Processor_getArgAt(args, index);
+}
+
+int xxml_Processor_getArgCount(ProcessorAnnotationArgs* args) {
+    return Processor_getArgCount(args);
+}
+
+const char* xxml_Processor_argGetName(ProcessorAnnotationArg* arg) {
+    return Processor_argGetName(arg);
+}
+
+int64_t xxml_Processor_argAsInt(ProcessorAnnotationArg* arg) {
+    return Processor_argAsInt(arg);
+}
+
+const char* xxml_Processor_argAsString(ProcessorAnnotationArg* arg) {
+    return Processor_argAsString(arg);
+}
+
+int xxml_Processor_argAsBool(ProcessorAnnotationArg* arg) {
+    return Processor_argAsBool(arg);
+}
+
+double xxml_Processor_argAsDouble(ProcessorAnnotationArg* arg) {
+    return Processor_argAsDouble(arg);
+}
+
+/* Class Inspection Wrappers */
+int xxml_Processor_getPropertyCount(ProcessorReflectionContext* ctx) {
+    return Processor_getPropertyCount(ctx);
+}
+
+const char* xxml_Processor_getPropertyNameAt(ProcessorReflectionContext* ctx, int index) {
+    return Processor_getPropertyNameAt(ctx, index);
+}
+
+const char* xxml_Processor_getPropertyTypeAt(ProcessorReflectionContext* ctx, int index) {
+    return Processor_getPropertyTypeAt(ctx, index);
+}
+
+const char* xxml_Processor_getPropertyOwnershipAt(ProcessorReflectionContext* ctx, int index) {
+    return Processor_getPropertyOwnershipAt(ctx, index);
+}
+
+int xxml_Processor_getMethodCount(ProcessorReflectionContext* ctx) {
+    return Processor_getMethodCount(ctx);
+}
+
+const char* xxml_Processor_getMethodNameAt(ProcessorReflectionContext* ctx, int index) {
+    return Processor_getMethodNameAt(ctx, index);
+}
+
+const char* xxml_Processor_getMethodReturnTypeAt(ProcessorReflectionContext* ctx, int index) {
+    return Processor_getMethodReturnTypeAt(ctx, index);
+}
+
+int xxml_Processor_hasMethod(ProcessorReflectionContext* ctx, const char* name) {
+    return Processor_hasMethod(ctx, name);
+}
+
+int xxml_Processor_hasProperty(ProcessorReflectionContext* ctx, const char* name) {
+    return Processor_hasProperty(ctx, name);
+}
+
+const char* xxml_Processor_getBaseClassName(ProcessorReflectionContext* ctx) {
+    return Processor_getBaseClassName(ctx);
+}
+
+int xxml_Processor_isClassFinal(ProcessorReflectionContext* ctx) {
+    return Processor_isClassFinal(ctx);
+}
+
+/* Method Inspection Wrappers */
+int xxml_Processor_getParameterCount(ProcessorReflectionContext* ctx) {
+    return Processor_getParameterCount(ctx);
+}
+
+const char* xxml_Processor_getParameterNameAt(ProcessorReflectionContext* ctx, int index) {
+    return Processor_getParameterNameAt(ctx, index);
+}
+
+const char* xxml_Processor_getParameterTypeAt(ProcessorReflectionContext* ctx, int index) {
+    return Processor_getParameterTypeAt(ctx, index);
+}
+
+const char* xxml_Processor_getReturnTypeName(ProcessorReflectionContext* ctx) {
+    return Processor_getReturnTypeName(ctx);
+}
+
+int xxml_Processor_isMethodStatic(ProcessorReflectionContext* ctx) {
+    return Processor_isMethodStatic(ctx);
+}
+
+/* Property Inspection Wrappers */
+int xxml_Processor_hasDefaultValue(ProcessorReflectionContext* ctx) {
+    return Processor_hasDefaultValue(ctx);
+}
+
+const char* xxml_Processor_getOwnership(ProcessorReflectionContext* ctx) {
+    return Processor_getOwnership(ctx);
+}
+
+/* Target Value Wrappers */
+void* xxml_Processor_getTargetValue(ProcessorReflectionContext* ctx) {
+    return Processor_getTargetValue(ctx);
+}
+
+int xxml_Processor_hasTargetValue(ProcessorReflectionContext* ctx) {
+    return Processor_hasTargetValue(ctx);
+}
+
+int xxml_Processor_getTargetValueType(ProcessorReflectionContext* ctx) {
+    return Processor_getTargetValueType(ctx);
+}
+
+/* Annotation Argument Access (through ReflectionContext) Wrappers */
+int xxml_Processor_getAnnotationArgCount(ProcessorReflectionContext* ctx) {
+    return Processor_getAnnotationArgCount(ctx);
+}
+
+void* xxml_Processor_getAnnotationArg(ProcessorReflectionContext* ctx, void* nameStr) {
+    return Processor_getAnnotationArg(ctx, nameStr);
+}
+
+const char* xxml_Processor_getAnnotationArgNameAt(ProcessorReflectionContext* ctx, int index) {
+    return Processor_getAnnotationArgNameAt(ctx, index);
+}
+
+int xxml_Processor_getAnnotationArgTypeAt(ProcessorReflectionContext* ctx, int index) {
+    return Processor_getAnnotationArgTypeAt(ctx, index);
+}
+
+int xxml_Processor_hasAnnotationArg(ProcessorReflectionContext* ctx, const char* name) {
+    return Processor_hasAnnotationArg(ctx, name);
+}
+
+int64_t xxml_Processor_getAnnotationIntArg(ProcessorReflectionContext* ctx, const char* name, int64_t defaultValue) {
+    return Processor_getAnnotationIntArg(ctx, name, defaultValue);
+}
+
+const char* xxml_Processor_getAnnotationStringArg(ProcessorReflectionContext* ctx, const char* name, const char* defaultValue) {
+    return Processor_getAnnotationStringArg(ctx, name, defaultValue);
+}
+
+int xxml_Processor_getAnnotationBoolArg(ProcessorReflectionContext* ctx, const char* name, int defaultValue) {
+    return Processor_getAnnotationBoolArg(ctx, name, defaultValue);
+}
+
+double xxml_Processor_getAnnotationDoubleArg(ProcessorReflectionContext* ctx, const char* name, double defaultValue) {
+    return Processor_getAnnotationDoubleArg(ctx, name, defaultValue);
+}

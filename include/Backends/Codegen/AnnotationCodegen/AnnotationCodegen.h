@@ -1,9 +1,9 @@
 #pragma once
 
 #include "Backends/Codegen/CodegenContext.h"
+#include "Backends/LLVMIR/GlobalBuilder.h"
 #include <string>
-#include <sstream>
-#include <unordered_map>
+#include <memory>
 #include <vector>
 
 namespace XXML {
@@ -11,30 +11,39 @@ namespace Backends {
 namespace Codegen {
 
 /**
- * @brief Generates LLVM IR for annotation metadata
+ * @brief Generates LLVM IR for annotation metadata using type-safe builders
  *
  * Produces metadata for retained annotations that can be
  * queried at runtime through the XXML reflection API.
+ *
+ * This class uses GlobalBuilder to generate all annotation metadata
+ * in a type-safe manner, instead of raw string emission.
  */
 class AnnotationCodegen {
 public:
     explicit AnnotationCodegen(CodegenContext& ctx);
+    ~AnnotationCodegen() = default;
 
-    /// Generate all annotation metadata from collected annotations
+    // Non-copyable
+    AnnotationCodegen(const AnnotationCodegen&) = delete;
+    AnnotationCodegen& operator=(const AnnotationCodegen&) = delete;
+
+    /// Generate all annotation metadata from collected annotations.
+    /// Metadata is added directly to the Module and will be emitted via LLVMEmitter.
     void generate();
 
-    /// Get generated IR as string
-    std::string getIR() const;
+    /**
+     * Get generated IR as string.
+     * @deprecated Metadata is now part of the Module, use LLVMEmitter instead.
+     * Returns empty string for backwards compatibility.
+     */
+    std::string getIR() const { return ""; }
 
 private:
     CodegenContext& ctx_;
 
-    // Generated IR output
-    std::stringstream output_;
-
-    // Helper methods
-    void emitLine(const std::string& line);
-    std::string escapeString(const std::string& str) const;
+    // Type-safe builder
+    std::unique_ptr<LLVMIR::GlobalBuilder> globalBuilder_;
 
     // Grouping structure for annotations by target
     struct TargetAnnotations {
@@ -45,7 +54,13 @@ private:
     };
 
     std::vector<TargetAnnotations> groupAnnotationsByTarget();
-    void emitAnnotationGroup(int groupId, const TargetAnnotations& group);
+    void generateAnnotationGroup(int groupId, const TargetAnnotations& group);
+
+    // Struct types for annotation metadata
+    LLVMIR::StructType* annotationArgType_ = nullptr;
+    LLVMIR::StructType* annotationInfoType_ = nullptr;
+
+    void initializeAnnotationTypes();
 };
 
 } // namespace Codegen

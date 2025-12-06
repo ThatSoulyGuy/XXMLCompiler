@@ -301,7 +301,8 @@ public:
         Internal,
         Private,
         Common,
-        Weak
+        Weak,
+        DLLExport   // For Windows DLL exported functions
     };
 
     GlobalVariable(Type* valueType, PointerType* ptrType, std::string_view name,

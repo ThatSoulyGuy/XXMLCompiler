@@ -51,12 +51,14 @@ std::string ProcessorCompiler::generateProcessorSource(const ProcessorInfo& info
 
     // Include Language::Core for basic types (always needed)
     out << "#import Language::Core;\n";
+    // Include Language::ProcessorCtx for ProcessorReflectionContext and ProcessorCompilationContext
+    out << "#import Language::ProcessorCtx;\n";
 
     // Include all imports from the original source file
     // This allows processors to access user-defined classes and other modules
     for (const auto& import : info.imports) {
-        // Skip Language::Core since we already included it
-        if (import != "Language::Core") {
+        // Skip Language::Core and Language::ProcessorCtx since we already included them
+        if (import != "Language::Core" && import != "Language::ProcessorCtx") {
             out << "#import " << import << ";\n";
         }
     }

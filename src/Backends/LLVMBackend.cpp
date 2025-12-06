@@ -70,37 +70,41 @@ void LLVMBackend::initialize(Core::CompilationContext& context) {
 
 std::string LLVMBackend::generate(Parser::Program& program) {
     // === Initialize code generation state ===
-    output_.str("");
-    output_.clear();
     registerCounter_ = 0;
     labelCounter_ = 0;
     stringLiterals_.clear();
-    declaredFunctions_.clear();  // Reset declared functions tracking
     generatedFunctions_.clear();  // Reset generated functions tracking
     generatedClasses_.clear();   // Reset generated classes tracking
     lambdaCounter_ = 0;  // Reset lambda counter
     lambdaInfos_.clear();  // Clear lambda tracking
     nativeMethods_.clear();  // Clear native FFI method tracking
 
-    // Generate preamble (legacy - will be replaced)
+    // Generate preamble
     std::string preamble = generatePreamble();
 
+    // Set processor mode on the codegen context
+    if (modularCodegen_) {
+        modularCodegen_->context().setProcessorMode(processorMode_);
+    }
+
     // Track preamble-declared functions to prevent duplicates when processing modules
-    // Annotation Info bindings
-    declaredFunctions_.insert("Language_Reflection_AnnotationInfo_Constructor");
-    declaredFunctions_.insert("Language_Reflection_AnnotationInfo_getName");
-    declaredFunctions_.insert("Language_Reflection_AnnotationInfo_getArgumentCount");
-    declaredFunctions_.insert("Language_Reflection_AnnotationInfo_getArgument");
-    declaredFunctions_.insert("Language_Reflection_AnnotationInfo_getArgumentByName");
-    declaredFunctions_.insert("Language_Reflection_AnnotationInfo_hasArgument");
-    // Annotation Arg bindings
-    declaredFunctions_.insert("Language_Reflection_AnnotationArg_Constructor");
-    declaredFunctions_.insert("Language_Reflection_AnnotationArg_getName");
-    declaredFunctions_.insert("Language_Reflection_AnnotationArg_getType");
-    declaredFunctions_.insert("Language_Reflection_AnnotationArg_asInteger");
-    declaredFunctions_.insert("Language_Reflection_AnnotationArg_asString");
-    declaredFunctions_.insert("Language_Reflection_AnnotationArg_asBool");
-    declaredFunctions_.insert("Language_Reflection_AnnotationArg_asDouble");
+    if (modularCodegen_) {
+        // Annotation Info bindings
+        modularCodegen_->markFunctionDeclared("Language_Reflection_AnnotationInfo_Constructor");
+        modularCodegen_->markFunctionDeclared("Language_Reflection_AnnotationInfo_getName");
+        modularCodegen_->markFunctionDeclared("Language_Reflection_AnnotationInfo_getArgumentCount");
+        modularCodegen_->markFunctionDeclared("Language_Reflection_AnnotationInfo_getArgument");
+        modularCodegen_->markFunctionDeclared("Language_Reflection_AnnotationInfo_getArgumentByName");
+        modularCodegen_->markFunctionDeclared("Language_Reflection_AnnotationInfo_hasArgument");
+        // Annotation Arg bindings
+        modularCodegen_->markFunctionDeclared("Language_Reflection_AnnotationArg_Constructor");
+        modularCodegen_->markFunctionDeclared("Language_Reflection_AnnotationArg_getName");
+        modularCodegen_->markFunctionDeclared("Language_Reflection_AnnotationArg_getType");
+        modularCodegen_->markFunctionDeclared("Language_Reflection_AnnotationArg_asInteger");
+        modularCodegen_->markFunctionDeclared("Language_Reflection_AnnotationArg_asString");
+        modularCodegen_->markFunctionDeclared("Language_Reflection_AnnotationArg_asBool");
+        modularCodegen_->markFunctionDeclared("Language_Reflection_AnnotationArg_asDouble");
+    }
 
     // Forward declare all user-defined functions before code generation
     // Must come BEFORE template instantiations to avoid declare-after-define errors
@@ -108,7 +112,7 @@ std::string LLVMBackend::generate(Parser::Program& program) {
     // NOTE: Only generate declarations for runtime modules - non-runtime modules will
     // have their code generated, and LLVM rejects declare followed by define for same function.
     for (auto* importedModule : importedModules_) {
-        if (importedModule) {
+        if (importedModule && modularCodegen_) {
             // Check if this is a runtime module (only generate declarations for those)
             // A module is "runtime" if its OWN namespace is Language::*, System::*, etc.
             // NOT based on what it imports - e.g., GLFW imports Language::Core but is NOT runtime
@@ -127,7 +131,7 @@ std::string LLVMBackend::generate(Parser::Program& program) {
             }
             // Only generate declarations for runtime modules (their code is in the runtime library)
             if (isRuntimeModule) {
-                generateFunctionDeclarations(*importedModule);
+                modularCodegen_->generateFunctionDeclarations(*importedModule);
             }
         }
     }
@@ -178,10 +182,16 @@ std::string LLVMBackend::generate(Parser::Program& program) {
                     }
                     // Skip standard library modules that are provided by runtime
                     // Use prefix matching since namespace name could be "Language::Core" etc.
+                    // Exception: In processor mode, we need to generate Language::ProcessorCtx
                     if (ns->name.find("Language") == 0 || ns->name.find("System") == 0 ||
                         ns->name.find("Syscall") == 0 || ns->name.find("Mem") == 0 ||
                         ns->name == "Collections") {
-                        isRuntimeModule = true;
+                        // In processor mode, we need to compile ProcessorCtx module classes
+                        if (processorMode_ && ns->name.find("Language::ProcessorCtx") == 0) {
+                            isRuntimeModule = false;
+                        } else {
+                            isRuntimeModule = true;
+                        }
                         break;
                     }
                 }
@@ -214,23 +224,17 @@ std::string LLVMBackend::generate(Parser::Program& program) {
     }
 
     // Generate processor entry points if in processor mode
-    if (processorMode_) {
-        generateProcessorEntryPoints(program);
+    if (processorMode_ && modularCodegen_) {
+        modularCodegen_->generateProcessorEntryPoints(program, processorAnnotationName_);
     }
 
-    // Build final output
+    // Build final output - all IR now comes from the Module
     std::stringstream finalOutput;
     finalOutput << preamble;
 
     if (modularCodegen_) {
-        // Include legacy output FIRST (function declarations from emitLine)
-        // These must come before function definitions to satisfy LLVM's use-before-define requirement
-        std::string legacyCode = output_.str();
-        if (!legacyCode.empty()) {
-            finalOutput << legacyCode;
-        }
-
         // Get structs, globals, and functions from LLVMIR module
+        // Function declarations are now in the Module (generated by GlobalBuilder)
         std::string functionsIR = modularCodegen_->getFunctionsIR();
         finalOutput << functionsIR;
 
@@ -250,139 +254,8 @@ std::string LLVMBackend::generate(Parser::Program& program) {
 // NOTE: All template generation (class, method, lambda) is now handled by
 // ModularCodegen::generateTemplates() and ModularCodegen::generateLambdaTemplates()
 
-void LLVMBackend::generateFunctionDeclarations(Parser::Program& program) {
-    // Forward declare all user-defined functions to avoid "undefined value" errors
-    // when the main function calls methods before their definitions are emitted
-
-    // Only emit header once (check if any declarations have been made)
-    if (declaredFunctions_.empty()) {
-        emitLine("; ============================================");
-        emitLine("; User-defined function declarations");
-        emitLine("; ============================================");
-    }
-
-    // Primitive types that should use simple names (no namespace prefix)
-    // These match the primitives list in SemanticAnalyzer::resolveTypeArgToQualified
-    static const std::unordered_set<std::string> primitives = {
-        "Integer", "String", "Bool", "Float", "Double", "None", "Void",
-        "Int", "Int8", "Int16", "Int32", "Int64", "Byte"
-    };
-
-    // Helper lambda to process a class and emit declarations for its methods
-    std::function<void(Parser::ClassDecl*, const std::string&)> processClass =
-        [&](Parser::ClassDecl* classDecl, const std::string& namespacePrefix) {
-        if (!classDecl) return;
-
-        // Skip template declarations (only process instantiations)
-        if (!classDecl->templateParams.empty() && classDecl->name.find('<') == std::string::npos) {
-            return;
-        }
-
-        // Skip primitive types entirely - their declarations are in the preamble
-        // The preamble uses a different calling convention (no 'this' pointer)
-        if (primitives.count(classDecl->name) > 0) {
-            return;
-        }
-
-        // Build the full class name with namespace
-        std::string fullClassName = namespacePrefix.empty() ?
-            classDecl->name : namespacePrefix + "_" + classDecl->name;
-
-        // Mangle template arguments in class name using TypeNormalizer
-        std::string mangledClassName = TypeNormalizer::mangleForLLVM(fullClassName);
-
-        // Process constructors and methods from sections
-        for (const auto& section : classDecl->sections) {
-            if (!section) continue;
-            for (const auto& decl : section->declarations) {
-                // Check for constructors
-                if (auto* ctor = dynamic_cast<Parser::ConstructorDecl*>(decl.get())) {
-                    if (ctor->isDefault) continue;
-
-                    // Build parameter list for declaration
-                    std::stringstream params;
-                    params << "ptr";  // 'this' pointer
-                    for (size_t i = 0; i < ctor->parameters.size(); ++i) {
-                        params << ", ";
-                        std::string paramType = getLLVMType(ctor->parameters[i]->type->typeName);
-                        // void is not valid as a parameter type - use ptr instead
-                        if (paramType == "void") paramType = "ptr";
-                        params << paramType;
-                    }
-
-                    // Mangle constructor name with parameter count
-                    std::string funcName = mangledClassName + "_Constructor_" +
-                        std::to_string(ctor->parameters.size());
-
-                    // Skip if already declared
-                    if (declaredFunctions_.find(funcName) == declaredFunctions_.end()) {
-                        declaredFunctions_.insert(funcName);
-                        emitLine("declare ptr @" + funcName + "(" + params.str() + ")");
-                    }
-                }
-                // Check for methods
-                else if (auto* method = dynamic_cast<Parser::MethodDecl*>(decl.get())) {
-                    // Skip native FFI methods - they're defined with internal linkage
-                    if (method->isNative) {
-                        continue;
-                    }
-
-                    // Build parameter list for declaration
-                    std::stringstream params;
-                    params << "ptr";  // 'this' pointer
-                    for (size_t i = 0; i < method->parameters.size(); ++i) {
-                        params << ", ";
-                        std::string paramType = getLLVMType(method->parameters[i]->type->typeName);
-                        // void is not valid as a parameter type - use ptr instead
-                        if (paramType == "void") paramType = "ptr";
-                        params << paramType;
-                    }
-
-                    std::string funcName = mangledClassName + "_" + method->name;
-                    std::string returnType = getLLVMType(method->returnType->typeName);
-
-                    // Skip if already declared
-                    if (declaredFunctions_.find(funcName) == declaredFunctions_.end()) {
-                        declaredFunctions_.insert(funcName);
-                        emitLine("declare " + returnType + " @" + funcName + "(" + params.str() + ")");
-                    }
-                }
-            }
-        }
-    };
-
-    // Helper lambda to process namespace declarations recursively
-    std::function<void(Parser::NamespaceDecl*, const std::string&)> processNamespace =
-        [&](Parser::NamespaceDecl* ns, const std::string& prefix) {
-        if (!ns) return;
-
-        std::string newPrefix = prefix.empty() ? ns->name : prefix + "_" + ns->name;
-
-        for (const auto& decl : ns->declarations) {
-            if (auto* classDecl = dynamic_cast<Parser::ClassDecl*>(decl.get())) {
-                processClass(classDecl, newPrefix);
-            } else if (auto* nestedNs = dynamic_cast<Parser::NamespaceDecl*>(decl.get())) {
-                processNamespace(nestedNs, newPrefix);
-            }
-        }
-    };
-
-    // Process all declarations in the program
-    for (const auto& decl : program.declarations) {
-        if (auto* classDecl = dynamic_cast<Parser::ClassDecl*>(decl.get())) {
-            processClass(classDecl, "");
-        } else if (auto* ns = dynamic_cast<Parser::NamespaceDecl*>(decl.get())) {
-            processNamespace(ns, "");
-        }
-    }
-
-    // NOTE: Template instantiation functions are NOT declared here because
-    // they will be defined by generateTemplateInstantiations().
-    // Only functions that are called but NOT defined in this module need declarations.
-    // Standard library functions like Type_forName are handled by processing imports.
-
-    emitLine("");
-}
+// NOTE: generateFunctionDeclarations() has been moved to ModularCodegen
+// It now uses GlobalBuilder to create typed function declarations in the Module
 
 // NOTE: generateImportedModuleCode() and collectReflectionMetadataFromModule()
 // have been removed - they are now handled by ModularCodegen::generateImportedModule()
@@ -443,9 +316,8 @@ std::string LLVMBackend::allocateLabel(std::string_view prefix) {
     return format("{}_{}", prefix, labelCounter_++);
 }
 
-void LLVMBackend::emitLine(const std::string& line) {
-    output_ << getIndent() << line << "\n";
-}
+// NOTE: emitLine() has been removed - all IR generation now goes through the
+// type-safe Module system (GlobalBuilder, IRBuilder, etc.)
 
 // Qualify a type name with the current namespace if needed
 // This handles types like "Cursor^" -> "GLFW::Cursor^" when inside GLFW namespace
@@ -776,7 +648,8 @@ bool LLVMBackend::checkAndMarkMoved(const std::string& varName) {
     }
 
     if (it->second.isMovedFrom) {
-        emitLine("; ERROR: Use after move of variable: " + varName);
+        // Use after move - this is an error condition
+        // Note: Error reporting now happens at semantic analysis phase
         return false;
     }
 
@@ -804,101 +677,8 @@ void LLVMBackend::emitDestructor(const std::string& varName) {
 }
 
 
-// ============================================
-// Annotation Code Generation
-// Processor entry point generation (for --processor mode)
-void LLVMBackend::generateProcessorEntryPoints(Parser::Program& program) {
-    emitLine("");
-    emitLine("; ============================================");
-    emitLine("; Annotation Processor Entry Points");
-    emitLine("; ============================================");
-    emitLine("");
-
-    // Find the annotation declaration with a processor block
-    Parser::AnnotationDecl* processorAnnotation = nullptr;
-    for (const auto& decl : program.declarations) {
-        if (auto* ns = dynamic_cast<Parser::NamespaceDecl*>(decl.get())) {
-            for (const auto& nsDecl : ns->declarations) {
-                if (auto* annotDecl = dynamic_cast<Parser::AnnotationDecl*>(nsDecl.get())) {
-                    if (annotDecl->processor) {
-                        processorAnnotation = annotDecl;
-                        break;
-                    }
-                }
-            }
-        } else if (auto* annotDecl = dynamic_cast<Parser::AnnotationDecl*>(decl.get())) {
-            if (annotDecl->processor) {
-                processorAnnotation = annotDecl;
-                break;
-            }
-        }
-    }
-
-    if (!processorAnnotation) {
-        emitLine("; No processor block found in annotation");
-        return;
-    }
-
-    std::string annotationName = processorAnnotationName_.empty() ?
-        processorAnnotation->name : processorAnnotationName_;
-
-    // Generate annotation name string constant
-    emitLine(format("@__processor_annotation_name = private unnamed_addr constant [{} x i8] c\"{}\\00\"",
-                   annotationName.length() + 1, annotationName));
-    emitLine("");
-
-    // Generate __xxml_processor_annotation_name function (returns annotation name)
-    emitLine("; Returns the annotation name this processor handles");
-    emitLine("define dllexport ptr @__xxml_processor_annotation_name() {");
-    emitLine(format("  ret ptr @__processor_annotation_name"));
-    emitLine("}");
-    emitLine("");
-
-    // Generate __xxml_processor_process entry point
-    // This wrapper function calls the processor's onAnnotate method
-    emitLine("; Processor entry point - called by compiler for each annotation usage");
-    emitLine("define dllexport void @__xxml_processor_process(ptr %reflection, ptr %compilation, ptr %args) {");
-
-    // Find the onAnnotate method in the processor block
-    bool hasOnAnnotate = false;
-    Parser::MethodDecl* onAnnotateMethod = nullptr;
-    std::string processorClassName = annotationName + "_Processor";
-
-    if (processorAnnotation->processor) {
-        for (const auto& section : processorAnnotation->processor->sections) {
-            for (const auto& decl : section->declarations) {
-                if (auto* methodDecl = dynamic_cast<Parser::MethodDecl*>(decl.get())) {
-                    if (methodDecl->name == "onAnnotate") {
-                        hasOnAnnotate = true;
-                        onAnnotateMethod = methodDecl;
-                        break;
-                    }
-                }
-            }
-            if (hasOnAnnotate) break;
-        }
-    }
-
-    if (hasOnAnnotate && onAnnotateMethod) {
-        // Generate call to the onAnnotate method
-        // The generated method has signature: onAnnotate(this, ctx, comp) where:
-        // - this: implicit self pointer for the Processor class (can be null for processors)
-        // - ctx: ReflectionContext (the %reflection parameter)
-        // - comp: CompilationContext (the %compilation parameter)
-        std::string methodName = getQualifiedName(processorClassName, "onAnnotate");
-
-        // Call the generated onAnnotate method
-        // Pass null for %this since processors don't need a real instance
-        emitLine(format("  call void @{}(ptr null, ptr %reflection, ptr %compilation)", methodName));
-    } else {
-        emitLine("  ; No onAnnotate method found in processor");
-    }
-
-    emitLine("  ret void");
-
-    emitLine("}");
-    emitLine("");
-}
+// NOTE: generateProcessorEntryPoints() has been moved to ModularCodegen
+// It now uses GlobalBuilder and typed IR to generate processor entry points
 
 // Object file generation using external LLVM tools
 bool LLVMBackend::generateObjectFile(const std::string& irCode,
@@ -1046,259 +826,7 @@ size_t LLVMBackend::calculateClassSize(const std::string& className) const {
     return (totalSize > 0) ? totalSize : 1;
 }
 
-void LLVMBackend::generateNativeMethodThunk(Parser::MethodDecl& node) {
-    // Generate a thunk function that loads a DLL and calls the native function
-    // The @NativeFunction annotation provides: path, name, convention
-
-    std::string dllPath = node.nativePath;
-    std::string symbolName = node.nativeSymbol;
-    Parser::CallingConvention convention = node.callingConvention;
-
-    // Determine function name
-    std::string funcName;
-    if (!currentClassName_.empty()) {
-        funcName = getQualifiedName(currentClassName_, node.name);
-    } else {
-        funcName = node.name;
-    }
-
-    // Build return type FIRST (needed for nativeMethods_ registration)
-    std::string returnLLVMType = "void";
-    std::string nativeReturnType = "void";
-    if (node.returnType) {
-        std::string typeName = node.returnType->typeName;
-        // Check for NativeType
-        if (typeName.find("NativeType<") == 0) {
-            // Try quoted form first: NativeType<"int32">
-            size_t start = typeName.find("\"");
-            size_t end = typeName.rfind("\"");
-            if (start != std::string::npos && end != std::string::npos && end > start) {
-                nativeReturnType = typeName.substr(start + 1, end - start - 1);
-                returnLLVMType = mapNativeTypeToLLVM(nativeReturnType);
-            } else {
-                // Unquoted form: NativeType<int32>
-                size_t angleStart = typeName.find('<');
-                size_t angleEnd = typeName.find('>');
-                if (angleStart != std::string::npos && angleEnd != std::string::npos && angleEnd > angleStart) {
-                    nativeReturnType = typeName.substr(angleStart + 1, angleEnd - angleStart - 1);
-                    returnLLVMType = mapNativeTypeToLLVM(nativeReturnType);
-                }
-            }
-        } else {
-            returnLLVMType = getLLVMType(typeName);
-        }
-    }
-
-    // Build parameter info for nativeMethods_ registration
-    bool isInstanceMethod = !currentClassName_.empty();
-    std::vector<std::pair<std::string, std::string>> params;  // name, llvm type
-
-    if (isInstanceMethod) {
-        params.push_back({"this", "ptr"});
-    }
-
-    for (const auto& param : node.parameters) {
-        std::string paramType = "ptr";
-        if (param->type) {
-            std::string typeName = param->type->typeName;
-            if (typeName.find("NativeType<") == 0) {
-                // Try quoted form first: NativeType<"int32">
-                size_t start = typeName.find("\"");
-                size_t end = typeName.rfind("\"");
-                if (start != std::string::npos && end != std::string::npos && end > start) {
-                    std::string nativeType = typeName.substr(start + 1, end - start - 1);
-                    paramType = mapNativeTypeToLLVM(nativeType);
-                } else {
-                    // Unquoted form: NativeType<int32>
-                    size_t angleStart = typeName.find('<');
-                    size_t angleEnd = typeName.find('>');
-                    if (angleStart != std::string::npos && angleEnd != std::string::npos && angleEnd > angleStart) {
-                        std::string nativeType = typeName.substr(angleStart + 1, angleEnd - angleStart - 1);
-                        paramType = mapNativeTypeToLLVM(nativeType);
-                    }
-                }
-            } else {
-                paramType = getLLVMType(typeName);
-            }
-        }
-        params.push_back({param->name, paramType});
-    }
-
-    // ALWAYS register native method info (even if already generated) for call site use
-    NativeMethodInfo nativeInfo;
-    size_t paramIndex = 0;
-    for (size_t i = (isInstanceMethod ? 1 : 0); i < params.size(); ++i) {
-        nativeInfo.paramTypes.push_back(params[i].second);
-        nativeInfo.isStringPtr.push_back(params[i].second == "ptr");
-
-        // Track original XXML type and check if it's a callback type
-        std::string xxmlType = "";
-        bool isCallback = false;
-        if (paramIndex < node.parameters.size() && node.parameters[paramIndex]->type) {
-            xxmlType = node.parameters[paramIndex]->type->typeName;
-            // Strip ownership modifiers using TypeNormalizer
-            std::string baseType = TypeNormalizer::stripOwnershipMarker(xxmlType);
-            // Check if this type is a registered callback type
-            // Try both unqualified and namespace-qualified names
-            if (callbackThunks_.find(baseType) != callbackThunks_.end()) {
-                isCallback = true;
-            } else if (!currentNamespace_.empty()) {
-                std::string qualifiedType = currentNamespace_ + "::" + baseType;
-                if (callbackThunks_.find(qualifiedType) != callbackThunks_.end()) {
-                    isCallback = true;
-                    xxmlType = qualifiedType;  // Use qualified name for lookup
-                }
-            }
-        }
-        nativeInfo.xxmlParamTypes.push_back(xxmlType);
-        nativeInfo.isCallback.push_back(isCallback);
-        paramIndex++;
-    }
-    nativeInfo.returnType = returnLLVMType;
-    nativeInfo.xxmlReturnType = node.returnType ? node.returnType->typeName : "None";
-    nativeMethods_[funcName] = nativeInfo;
-
-    // Check if already generated (thunk code only)
-    if (generatedFunctions_.count(funcName) > 0) {
-        return;
-    }
-    generatedFunctions_.insert(funcName);
-
-    // Build parameter list for function signature
-    std::string paramList;
-    for (size_t i = 0; i < params.size(); ++i) {
-        if (i > 0) paramList += ", ";
-        paramList += params[i].second + " %" + std::to_string(i);
-    }
-
-    // Emit function header with internal linkage to avoid conflicts with system libs
-    emitLine("");
-    emitLine("; Native FFI thunk for " + symbolName + " from " + dllPath);
-    emitLine("define internal " + returnLLVMType + " @" + funcName + "(" + paramList + ") {");
-    emitLine("entry:");
-
-    // === Step 1: Create global strings for DLL path and symbol name ===
-    std::string dllPathLabel = "ffi.path." + std::to_string(stringLiterals_.size());
-    stringLiterals_.push_back({dllPathLabel, dllPath});
-
-    std::string symbolLabel = "ffi.sym." + std::to_string(stringLiterals_.size());
-    stringLiterals_.push_back({symbolLabel, symbolName});
-
-    // Load library
-    std::string dllHandleReg = allocateRegister();
-    emitLine("  " + dllHandleReg + " = call ptr @xxml_FFI_loadLibrary(ptr @." + dllPathLabel + ")");
-
-    // Check if handle is null
-    std::string isNullReg = allocateRegister();
-    emitLine("  " + isNullReg + " = icmp eq ptr " + dllHandleReg + ", null");
-
-    std::string errorLabel = allocateLabel("ffi.error");
-    std::string continueLabel = allocateLabel("ffi.continue");
-    emitLine("  br i1 " + isNullReg + ", label %" + errorLabel + ", label %" + continueLabel);
-
-    // Error block - DLL load failed
-    emitLine(errorLabel + ":");
-
-    if (returnLLVMType == "void") {
-        emitLine("  ret void");
-    } else if (returnLLVMType == "ptr") {
-        emitLine("  ret ptr null");
-    } else if (returnLLVMType == "i64" || returnLLVMType == "i32" || returnLLVMType == "i16" || returnLLVMType == "i8") {
-        emitLine("  ret " + returnLLVMType + " 0");
-    } else if (returnLLVMType == "float") {
-        emitLine("  ret float 0.0");
-    } else if (returnLLVMType == "double") {
-        emitLine("  ret double 0.0");
-    } else {
-        emitLine("  ret " + returnLLVMType + " zeroinitializer");
-    }
-
-    // Continue block - DLL loaded successfully
-    emitLine(continueLabel + ":");
-
-    // === Step 2: Get the symbol ===
-    std::string symbolPtrReg = allocateRegister();
-    emitLine("  " + symbolPtrReg + " = call ptr @xxml_FFI_getSymbol(ptr " + dllHandleReg + ", ptr @." + symbolLabel + ")");
-
-    // Check if symbol is null
-    std::string isSymNullReg = allocateRegister();
-    emitLine("  " + isSymNullReg + " = icmp eq ptr " + symbolPtrReg + ", null");
-
-    std::string symErrorLabel = allocateLabel("ffi.sym_error");
-    std::string callLabel = allocateLabel("ffi.call");
-    emitLine("  br i1 " + isSymNullReg + ", label %" + symErrorLabel + ", label %" + callLabel);
-
-    // Symbol error block
-    emitLine(symErrorLabel + ":");
-    emitLine("  call void @xxml_FFI_freeLibrary(ptr " + dllHandleReg + ")");
-    if (returnLLVMType == "void") {
-        emitLine("  ret void");
-    } else if (returnLLVMType == "ptr") {
-        emitLine("  ret ptr null");
-    } else if (returnLLVMType == "i64" || returnLLVMType == "i32" || returnLLVMType == "i16" || returnLLVMType == "i8") {
-        emitLine("  ret " + returnLLVMType + " 0");
-    } else if (returnLLVMType == "float") {
-        emitLine("  ret float 0.0");
-    } else if (returnLLVMType == "double") {
-        emitLine("  ret double 0.0");
-    } else {
-        emitLine("  ret " + returnLLVMType + " zeroinitializer");
-    }
-
-    // Call block - ready to call the native function
-    emitLine(callLabel + ":");
-
-    // === Step 3: Build function type and call ===
-    // Determine calling convention attribute
-    std::string ccAttr = "";
-    switch (convention) {
-        case Parser::CallingConvention::CDecl:
-            ccAttr = "ccc";
-            break;
-        case Parser::CallingConvention::StdCall:
-            ccAttr = "x86_stdcallcc";
-            break;
-        case Parser::CallingConvention::FastCall:
-            ccAttr = "x86_fastcallcc";
-            break;
-        case Parser::CallingConvention::Auto:
-        default:
-            ccAttr = "ccc";  // Default to C calling convention
-            break;
-    }
-
-    // Build argument list for the call (skip 'this' for instance methods)
-    std::string argList;
-    size_t startIdx = isInstanceMethod ? 1 : 0;
-    for (size_t i = startIdx; i < params.size(); ++i) {
-        if (i > startIdx) argList += ", ";
-        argList += params[i].second + " %" + std::to_string(i);
-    }
-
-    // Generate the indirect call
-    std::string resultReg;
-    if (returnLLVMType != "void") {
-        resultReg = allocateRegister();
-        emitLine("  " + resultReg + " = call " + ccAttr + " " + returnLLVMType + " " +
-                 symbolPtrReg + "(" + argList + ")");
-    } else {
-        emitLine("  call " + ccAttr + " void " + symbolPtrReg + "(" + argList + ")");
-    }
-
-    // NOTE: Do NOT free the library after each call!
-    // Libraries like GLFW need to stay loaded for the duration of the program.
-    // Resources created by the library (windows, contexts, etc.) are invalidated
-    // when the library is unloaded. Libraries will be freed when the process exits.
-
-    // Return
-    if (returnLLVMType == "void") {
-        emitLine("  ret void");
-    } else {
-        emitLine("  ret " + returnLLVMType + " " + resultReg);
-    }
-
-    emitLine("}");
-    emitLine("");
-}
+// NOTE: generateNativeMethodThunk() has been removed - native FFI thunks are now
+// generated by NativeCodegen (via ModularCodegen::generateNativeThunk())
 
 } // namespace XXML::Backends

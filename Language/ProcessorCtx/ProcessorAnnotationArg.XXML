@@ -3,7 +3,7 @@
 
 #import Language::Core;
 
-[ Namespace <Language::Processor>
+[ Namespace <Language::ProcessorCtx>
     [ Class <ProcessorAnnotationArg> Final Extends None
         [ Private <>
             Property <argPtr> Types NativeType<"ptr">^;

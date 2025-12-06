@@ -1,28 +1,44 @@
 #include "Backends/Codegen/AnnotationCodegen/AnnotationCodegen.h"
-#include <format>
 
 namespace XXML {
 namespace Backends {
 namespace Codegen {
 
 AnnotationCodegen::AnnotationCodegen(CodegenContext& ctx)
-    : ctx_(ctx) {}
-
-void AnnotationCodegen::emitLine(const std::string& line) {
-    output_ << line << "\n";
+    : ctx_(ctx) {
+    // Initialize the type-safe builder
+    globalBuilder_ = std::make_unique<LLVMIR::GlobalBuilder>(ctx_.module());
 }
 
-std::string AnnotationCodegen::escapeString(const std::string& str) const {
-    std::string result;
-    for (char c : str) {
-        if (c == '\\') result += "\\\\";
-        else if (c == '"') result += "\\22";
-        else if (c == '\n') result += "\\0A";
-        else if (c == '\r') result += "\\0D";
-        else if (c == '\t') result += "\\09";
-        else result += c;
+void AnnotationCodegen::initializeAnnotationTypes() {
+    if (annotationArgType_ != nullptr) {
+        return;  // Already initialized
     }
-    return result;
+
+    LLVMIR::TypeContext& typeCtx = ctx_.module().getContext();
+
+    // AnnotationArg = { ptr (name), i32 (kind), i64 (value) }
+    // For strings, the i64 holds a pointer; for other types, the raw bits
+    annotationArgType_ = globalBuilder_->getOrCreateStruct("AnnotationArg");
+    if (annotationArgType_->isOpaque()) {
+        std::vector<LLVMIR::Type*> fields = {
+            typeCtx.getPtrTy(),   // name
+            typeCtx.getInt32Ty(), // kind (0=int, 1=string, 2=bool, 3=float, 4=double)
+            typeCtx.getInt64Ty()  // value (raw bits or pointer)
+        };
+        annotationArgType_->setBody(std::move(fields));
+    }
+
+    // AnnotationInfo = { ptr (name), i32 (argCount), ptr (args array) }
+    annotationInfoType_ = globalBuilder_->getOrCreateStruct("AnnotationInfo");
+    if (annotationInfoType_->isOpaque()) {
+        std::vector<LLVMIR::Type*> fields = {
+            typeCtx.getPtrTy(),   // annotation name
+            typeCtx.getInt32Ty(), // argument count
+            typeCtx.getPtrTy()    // pointer to args array
+        };
+        annotationInfoType_->setBody(std::move(fields));
+    }
 }
 
 std::vector<AnnotationCodegen::TargetAnnotations> AnnotationCodegen::groupAnnotationsByTarget() {
@@ -53,118 +69,87 @@ std::vector<AnnotationCodegen::TargetAnnotations> AnnotationCodegen::groupAnnota
     return groupedAnnotations;
 }
 
-void AnnotationCodegen::emitAnnotationGroup(int groupId, const TargetAnnotations& group) {
-    std::vector<std::string> annotationInfoNames;
+void AnnotationCodegen::generateAnnotationGroup(int groupId, const TargetAnnotations& group) {
+    LLVMIR::TypeContext& typeCtx = ctx_.module().getContext();
 
+    // For each annotation in the group, create the metadata structures
     for (size_t i = 0; i < group.annotations.size(); ++i) {
         const auto* meta = group.annotations[i];
-        std::string prefix = std::format("@__annotation_{}_{}", groupId, i);
+        std::string prefix = "__annotation_" + std::to_string(groupId) + "_" + std::to_string(i);
 
-        // Generate annotation name string
-        std::string nameStr = prefix + "_name";
-        emitLine(std::format("{} = private unnamed_addr constant [{} x i8] c\"{}\\00\"",
-                             nameStr, meta->annotationName.length() + 1, escapeString(meta->annotationName)));
+        // Create annotation name string constant
+        LLVMIR::GlobalVariable* nameStr = globalBuilder_->createStringConstant(meta->annotationName);
 
-        // Generate arguments array if there are any
-        std::string argsArrayName = "null";
+        // Create argument structures if there are any
         if (!meta->arguments.empty()) {
-            std::vector<std::string> argStructNames;
+            // Create argument array type
+            LLVMIR::ArrayType* argsArrayType = typeCtx.getArrayTy(
+                annotationArgType_,
+                meta->arguments.size()
+            );
 
+            // Create array global (the emitter will handle initialization)
+            std::string argsArrayName = prefix + "_args";
+            LLVMIR::GlobalVariable* argsArray = ctx_.module().createGlobal(
+                argsArrayType,
+                argsArrayName,
+                LLVMIR::GlobalVariable::Linkage::Private
+            );
+            argsArray->setConstant(true);
+
+            // For each argument, create string constants for names and string values
             for (size_t j = 0; j < meta->arguments.size(); ++j) {
                 const auto& arg = meta->arguments[j];
-                std::string argPrefix = std::format("{}_arg_{}", prefix, j);
+                std::string argPrefix = prefix + "_arg_" + std::to_string(j);
 
-                // Generate argument name string
-                std::string argNameStr = argPrefix + "_name";
-                emitLine(std::format("{} = private unnamed_addr constant [{} x i8] c\"{}\\00\"",
-                                     argNameStr, arg.first.length() + 1, escapeString(arg.first)));
+                // Create argument name string
+                globalBuilder_->createStringConstant(arg.first);
 
-                // Generate argument value based on type
-                std::string argStructName = argPrefix + "_struct";
-                int valueType = static_cast<int>(arg.second.kind);
-                std::string valueInit;
-                std::string structType;
-
-                switch (arg.second.kind) {
-                    case AnnotationArgValue::Integer:
-                        valueInit = std::format("i64 {}", arg.second.intValue);
-                        structType = "{ ptr, i32, i64 }";
-                        break;
-                    case AnnotationArgValue::String: {
-                        std::string strValName = argPrefix + "_strval";
-                        emitLine(std::format("{} = private unnamed_addr constant [{} x i8] c\"{}\\00\"",
-                                             strValName, arg.second.stringValue.length() + 1, escapeString(arg.second.stringValue)));
-                        valueInit = std::format("ptr {}", strValName);
-                        structType = "{ ptr, i32, ptr }";
-                        break;
-                    }
-                    case AnnotationArgValue::Bool:
-                        valueInit = std::format("i64 {}", arg.second.boolValue ? 1 : 0);
-                        structType = "{ ptr, i32, i64 }";
-                        break;
-                    case AnnotationArgValue::Float:
-                        valueInit = std::format("i64 {}", *reinterpret_cast<const uint32_t*>(&arg.second.floatValue));
-                        structType = "{ ptr, i32, i64 }";
-                        break;
-                    case AnnotationArgValue::Double:
-                        valueInit = std::format("i64 {}", *reinterpret_cast<const uint64_t*>(&arg.second.doubleValue));
-                        structType = "{ ptr, i32, i64 }";
-                        break;
+                // If it's a string value, create the string constant
+                if (arg.second.kind == AnnotationArgValue::String) {
+                    globalBuilder_->createStringConstant(arg.second.stringValue);
                 }
-
-                emitLine(std::format("{} = private unnamed_addr constant {} {{ ptr {}, i32 {}, {} }}",
-                                     argStructName, structType, argNameStr, valueType, valueInit));
-                argStructNames.push_back(argStructName);
             }
-
-            // Generate array of argument pointers
-            argsArrayName = prefix + "_args";
-            std::stringstream argsInit;
-            argsInit << "[ ";
-            for (size_t j = 0; j < argStructNames.size(); ++j) {
-                if (j > 0) argsInit << ", ";
-                argsInit << "ptr " << argStructNames[j];
-            }
-            argsInit << " ]";
-            emitLine(std::format("{} = private unnamed_addr constant [{} x ptr] {}",
-                                 argsArrayName, argStructNames.size(), argsInit.str()));
         }
 
-        // Generate ReflectionAnnotationInfo struct
+        // Create the annotation info struct
         std::string infoName = prefix + "_info";
-        emitLine(std::format("{} = private unnamed_addr constant {{ ptr, i32, ptr }} {{ ptr {}, i32 {}, ptr {} }}",
-                             infoName, nameStr, meta->arguments.size(),
-                             meta->arguments.empty() ? "null" : argsArrayName));
-        annotationInfoNames.push_back(infoName);
+        LLVMIR::GlobalVariable* infoGlobal = ctx_.module().createGlobal(
+            annotationInfoType_,
+            infoName,
+            LLVMIR::GlobalVariable::Linkage::Private
+        );
+        infoGlobal->setConstant(true);
+
+        // Suppress unused variable warnings in release builds
+        (void)nameStr;
+        (void)infoGlobal;
     }
 
-    // Generate array of annotation infos for this target
-    std::string infosArrayName = std::format("@__annotation_{}_infos", groupId);
-    std::stringstream infosInit;
-    infosInit << "[ ";
-    for (size_t i = 0; i < annotationInfoNames.size(); ++i) {
-        if (i > 0) infosInit << ", ";
-        infosInit << "ptr " << annotationInfoNames[i];
+    // Create infos array for this group
+    if (!group.annotations.empty()) {
+        LLVMIR::ArrayType* infosArrayType = typeCtx.getArrayTy(
+            typeCtx.getPtrTy(),
+            group.annotations.size()
+        );
+
+        std::string infosArrayName = "__annotation_" + std::to_string(groupId) + "_infos";
+        LLVMIR::GlobalVariable* infosArray = ctx_.module().createGlobal(
+            infosArrayType,
+            infosArrayName,
+            LLVMIR::GlobalVariable::Linkage::Private
+        );
+        infosArray->setConstant(true);
+        (void)infosArray;
     }
-    infosInit << " ]";
-    emitLine(std::format("{} = private unnamed_addr constant [{} x ptr] {}",
-                         infosArrayName, annotationInfoNames.size(), infosInit.str()));
 
-    // Generate type name string
-    std::string typeNameStr = std::format("@__annotation_{}_typename", groupId);
-    emitLine(std::format("{} = private unnamed_addr constant [{} x i8] c\"{}\\00\"",
-                         typeNameStr, group.typeName.length() + 1, escapeString(group.typeName)));
+    // Create type name string
+    globalBuilder_->createStringConstant(group.typeName);
 
-    // Generate member name string if needed
+    // Create member name string if needed
     if (!group.memberName.empty()) {
-        std::string memberNameStr = std::format("@__annotation_{}_membername", groupId);
-        emitLine(std::format("{} = private unnamed_addr constant [{} x i8] c\"{}\\00\"",
-                             memberNameStr, group.memberName.length() + 1, escapeString(group.memberName)));
+        globalBuilder_->createStringConstant(group.memberName);
     }
-
-    // Comment for registration
-    emitLine(std::format("; Registration for {} {}::{}",
-                         group.targetType, group.typeName, group.memberName));
 }
 
 void AnnotationCodegen::generate() {
@@ -173,23 +158,17 @@ void AnnotationCodegen::generate() {
         return;
     }
 
-    emitLine("");
-    emitLine("; ============================================");
-    emitLine("; Annotation Metadata");
-    emitLine("; ============================================");
-    emitLine("");
+    // Initialize struct types
+    initializeAnnotationTypes();
 
+    // Group annotations by target and generate metadata
     auto groupedAnnotations = groupAnnotationsByTarget();
 
     for (size_t i = 0; i < groupedAnnotations.size(); ++i) {
-        emitAnnotationGroup(static_cast<int>(i), groupedAnnotations[i]);
+        generateAnnotationGroup(static_cast<int>(i), groupedAnnotations[i]);
     }
 
-    emitLine("");
-}
-
-std::string AnnotationCodegen::getIR() const {
-    return output_.str();
+    // All metadata is now in the Module and will be emitted via LLVMEmitter
 }
 
 } // namespace Codegen

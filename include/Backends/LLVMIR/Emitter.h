@@ -2,6 +2,7 @@
 
 #include "Backends/LLVMIR/TypedModule.h"
 #include "Backends/LLVMIR/TypedInstructions.h"
+#include "Backends/LLVMIR/IRVerifier.h"
 #include <string>
 #include <sstream>
 #include <map>
@@ -19,10 +20,25 @@ namespace LLVMIR {
 /// Because the input is a type-checked IR representation, the output is
 /// guaranteed to be well-formed LLVM IR (assuming the typed IR was correctly
 /// constructed via the type-safe builder).
+///
+/// When a verifier is set, the emitter will run module-level verification
+/// before emission. If verification fails, the emitter will abort with
+/// detailed diagnostics rather than producing potentially invalid IR.
 
 class LLVMEmitter {
 public:
     explicit LLVMEmitter(const Module& module) : module_(module) {}
+
+    /// Set the verifier for pre-emission verification
+    /// When set, emit() will call verifyModule() before producing output
+    void setVerifier(IRVerifier* verifier) { verifier_ = verifier; }
+
+    /// Get the current verifier
+    IRVerifier* getVerifier() const { return verifier_; }
+
+    /// Enable/disable pre-emission verification (verifier must be set)
+    void setVerificationEnabled(bool enabled) { verificationEnabled_ = enabled; }
+    bool isVerificationEnabled() const { return verificationEnabled_; }
 
     /// Emit the entire module to LLVM IR text
     std::string emit();
@@ -91,6 +107,10 @@ private:
     std::set<std::string> usedNames_;
     unsigned tempCounter_ = 0;
     unsigned blockCounter_ = 0;
+
+    // Verification infrastructure
+    IRVerifier* verifier_ = nullptr;
+    bool verificationEnabled_ = true;
 };
 
 } // namespace LLVMIR

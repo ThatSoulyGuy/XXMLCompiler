@@ -1,55 +1,60 @@
 #pragma once
 
 #include "Backends/Codegen/CodegenContext.h"
+#include "Backends/LLVMIR/MetadataBuilder.h"
+#include "Backends/LLVMIR/GlobalBuilder.h"
 #include <string>
-#include <sstream>
-#include <unordered_map>
+#include <memory>
 
 namespace XXML {
 namespace Backends {
 namespace Codegen {
 
 /**
- * @brief Generates LLVM IR for reflection metadata
+ * @brief Generates LLVM IR for reflection metadata using type-safe builders
  *
  * Produces type information, property descriptors, and method metadata
  * that can be queried at runtime through the XXML reflection API.
+ *
+ * This class uses MetadataBuilder to generate all reflection metadata
+ * in a type-safe manner, instead of raw string emission.
  */
 class ReflectionCodegen {
 public:
     explicit ReflectionCodegen(CodegenContext& ctx);
+    ~ReflectionCodegen() = default;
 
-    /// Generate all reflection metadata from collected class metadata
+    // Non-copyable
+    ReflectionCodegen(const ReflectionCodegen&) = delete;
+    ReflectionCodegen& operator=(const ReflectionCodegen&) = delete;
+
+    /// Generate all reflection metadata from collected class metadata.
+    /// Metadata is added directly to the Module and will be emitted via LLVMEmitter.
     void generate();
 
-    /// Get generated IR as string (appends to module's output)
-    std::string getIR() const;
+    /**
+     * Get generated IR as string.
+     * @deprecated Metadata is now part of the Module, use LLVMEmitter instead.
+     * Returns empty string for backwards compatibility.
+     */
+    std::string getIR() const { return ""; }
 
 private:
     CodegenContext& ctx_;
 
-    // String label tracking for deduplication
-    std::unordered_map<std::string, std::string> stringLabelMap_;
-    int stringCounter_ = 0;
+    // Type-safe builders
+    std::unique_ptr<LLVMIR::GlobalBuilder> globalBuilder_;
+    std::unique_ptr<LLVMIR::MetadataBuilder> metadataBuilder_;
 
-    // Generated IR output
-    std::stringstream output_;
+    /**
+     * Convert CodegenContext's ReflectionClassMetadata to MetadataBuilder's ReflectionClassInfo
+     */
+    LLVMIR::ReflectionClassInfo convertMetadata(const ReflectionClassMetadata& metadata) const;
 
-    // Helper methods
-    void emitLine(const std::string& line);
-    std::string escapeString(const std::string& str) const;
-    int32_t ownershipToInt(const std::string& ownership) const;
-    std::string emitStringLiteral(const std::string& content, const std::string& prefix);
-    std::string mangleName(const std::string& fullName) const;
-
-    // Generation phases
-    void emitReflectionStructTypes();
-    void emitStringLiterals(const ReflectionClassMetadata& metadata);
-    void emitPropertyArray(const std::string& mangledName, const ReflectionClassMetadata& metadata);
-    void emitMethodParameterArrays(const std::string& mangledName, const ReflectionClassMetadata& metadata);
-    void emitMethodArray(const std::string& mangledName, const ReflectionClassMetadata& metadata);
-    void emitTemplateParamArray(const std::string& mangledName, const ReflectionClassMetadata& metadata);
-    void emitTypeInfo(const std::string& mangledName, const ReflectionClassMetadata& metadata);
+    /**
+     * Convert ownership string to OwnershipKind enum
+     */
+    static LLVMIR::OwnershipKind parseOwnership(const std::string& ownership);
 };
 
 } // namespace Codegen

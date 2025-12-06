@@ -600,23 +600,17 @@ int main(int argc, char* argv[]) {
             mainAnalyzer->mergeClassRegistry(analyzer->getClassRegistry());
         }
 
-        // Verify semantic analysis is complete before code generation
-        std::cout << "Verifying semantic completeness...\n";
-        auto verifyResult = XXML::Semantic::SemanticVerifier::verify(*mainAnalyzer, *mainModule->ast);
-        if (!verifyResult.success) {
-            std::cerr << "Semantic verification failed:\n";
-            for (const auto& err : verifyResult.errors) {
-                std::cerr << "  " << err << "\n";
-            }
-            // Print warnings too
-            for (const auto& warn : verifyResult.warnings) {
-                std::cerr << "  Warning: " << warn << "\n";
-            }
+        // Run comprehensive pre-codegen verification
+        // This is the SINGLE GATE that ensures all invariants are satisfied
+        // before any LLVM IR generation begins
+        std::cout << "Verifying pre-codegen invariants...\n";
+        try {
+            XXML::Semantic::SemanticVerifier::assertPreCodegenInvariants(
+                passResults, *mainModule->ast, *mainAnalyzer);
+            std::cout << "  All pre-codegen invariants satisfied\n";
+        } catch (const std::runtime_error& e) {
+            std::cerr << "Compilation aborted: " << e.what() << "\n";
             return 1;
-        }
-        // Print any warnings even if successful
-        for (const auto& warn : verifyResult.warnings) {
-            std::cout << "  Warning: " << warn << "\n";
         }
 
         // Generate LLVM IR

@@ -123,6 +123,33 @@ SemanticAnalyzer::SemanticAnalyzer(Core::CompilationContext& context, Common::Er
     intrinsicMethods_["Syscall::reflection_type_getMethodCount"] = {"NativeType<\"int64\">", Parser::OwnershipType::Owned};
     intrinsicMethods_["Syscall::reflection_type_getMethod"] = {"NativeType<\"ptr\">", Parser::OwnershipType::Owned};
 
+    // Syscall - annotation processor argument access
+    intrinsicMethods_["Syscall::Processor_argGetName"] = {"NativeType<\"ptr\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::Processor_argAsInt"] = {"NativeType<\"int64\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::Processor_argAsString"] = {"NativeType<\"ptr\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::Processor_argAsBool"] = {"NativeType<\"int64\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::Processor_argAsDouble"] = {"NativeType<\"double\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::Processor_getArgCount"] = {"NativeType<\"int64\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::Processor_getArgAt"] = {"NativeType<\"ptr\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::Processor_getArg"] = {"NativeType<\"ptr\">", Parser::OwnershipType::Owned};
+
+    // Syscall - annotation processor reflection context
+    intrinsicMethods_["Syscall::Processor_getTargetKind"] = {"NativeType<\"ptr\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::Processor_getTargetName"] = {"NativeType<\"ptr\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::Processor_getTypeName"] = {"NativeType<\"ptr\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::Processor_getClassName"] = {"NativeType<\"ptr\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::Processor_getNamespaceName"] = {"NativeType<\"ptr\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::Processor_getSourceFile"] = {"NativeType<\"ptr\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::Processor_getLineNumber"] = {"NativeType<\"int64\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::Processor_getColumnNumber"] = {"NativeType<\"int64\">", Parser::OwnershipType::Owned};
+
+    // Syscall - annotation processor compilation context (diagnostics)
+    intrinsicMethods_["Syscall::Processor_message"] = {"None", Parser::OwnershipType::None};
+    intrinsicMethods_["Syscall::Processor_warning"] = {"None", Parser::OwnershipType::None};
+    intrinsicMethods_["Syscall::Processor_warningAt"] = {"None", Parser::OwnershipType::None};
+    intrinsicMethods_["Syscall::Processor_error"] = {"None", Parser::OwnershipType::None};
+    intrinsicMethods_["Syscall::Processor_errorAt"] = {"None", Parser::OwnershipType::None};
+
     // String constructors and methods
     intrinsicMethods_["String::Constructor"] = {"String", Parser::OwnershipType::Owned};
     intrinsicMethods_["Language::Core::String::Constructor"] = {"String", Parser::OwnershipType::Owned};
@@ -3183,6 +3210,17 @@ std::string SemanticAnalyzer::resolveTypeArgToQualified(const std::string& typeA
     };
     if (primitives.count(typeArg) > 0) {
         return typeArg;  // Return primitive types as-is
+    }
+
+    // Map processor intrinsic types to their actual implementations
+    // These are special types understood by the semantic analyzer in processor context
+    static const std::unordered_map<std::string, std::string> processorTypeAliases = {
+        {"ReflectionContext", "Language::ProcessorCtx::ProcessorReflectionContext"},
+        {"CompilationContext", "Language::ProcessorCtx::ProcessorCompilationContext"}
+    };
+    auto aliasIt = processorTypeAliases.find(typeArg);
+    if (aliasIt != processorTypeAliases.end()) {
+        return aliasIt->second;
     }
 
     // Try class lookup to get qualified name

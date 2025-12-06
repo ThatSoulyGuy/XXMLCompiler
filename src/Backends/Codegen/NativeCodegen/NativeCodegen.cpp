@@ -8,26 +8,9 @@ namespace XXML::Backends::Codegen {
 
 NativeCodegen::NativeCodegen(CodegenContext& ctx, Core::CompilationContext* compCtx)
     : ctx_(ctx), compCtx_(compCtx) {
-}
-
-void NativeCodegen::reset() {
-    output_.str("");
-    output_.clear();
-    registerCounter_ = 0;
-    labelCounter_ = 0;
-    stringLiterals_.clear();
-}
-
-void NativeCodegen::emitLine(const std::string& line) {
-    output_ << line << "\n";
-}
-
-std::string NativeCodegen::allocateRegister() {
-    return "%r" + std::to_string(registerCounter_++);
-}
-
-std::string NativeCodegen::allocateLabel(const std::string& prefix) {
-    return prefix + "_" + std::to_string(labelCounter_++);
+    // Initialize the type-safe builders
+    globalBuilder_ = std::make_unique<LLVMIR::GlobalBuilder>(ctx_.module());
+    ffiBuilder_ = std::make_unique<LLVMIR::FFIBuilder>(ctx_.module(), ctx_.builder(), *globalBuilder_);
 }
 
 std::string NativeCodegen::getQualifiedName(const std::string& className, const std::string& methodName) const {
@@ -35,7 +18,7 @@ std::string NativeCodegen::getQualifiedName(const std::string& className, const 
     return mangledClassName + "_" + methodName;
 }
 
-std::string NativeCodegen::mapNativeTypeToLLVM(const std::string& nativeType) {
+std::string NativeCodegen::mapNativeTypeToLLVMString(const std::string& nativeType) const {
     // Use TypeRegistry for centralized native type lookup
     static Core::TypeRegistry registry;
     static bool initialized = false;
@@ -46,44 +29,16 @@ std::string NativeCodegen::mapNativeTypeToLLVM(const std::string& nativeType) {
     return registry.getNativeTypeLLVM(nativeType);
 }
 
-std::string NativeCodegen::getLLVMCallingConvention(Parser::CallingConvention conv) {
-    switch (conv) {
-        case Parser::CallingConvention::CDecl:
-            return "ccc";
-        case Parser::CallingConvention::StdCall:
-            return "x86_stdcallcc";
-        case Parser::CallingConvention::FastCall:
-            return "x86_fastcallcc";
-        case Parser::CallingConvention::Auto:
-        default:
-            return "ccc";  // Default to C calling convention
-    }
-}
+LLVMIR::Type* NativeCodegen::getLLVMType(const std::string& xxmlType) const {
+    LLVMIR::TypeContext& typeCtx = ctx_.module().getContext();
 
-std::string NativeCodegen::getDefaultReturnValue(const std::string& llvmType) {
-    if (llvmType == "void") {
-        return "";
-    } else if (llvmType == "ptr") {
-        return "null";
-    } else if (llvmType == "i64" || llvmType == "i32" || llvmType == "i16" || llvmType == "i8") {
-        return "0";
-    } else if (llvmType == "float") {
-        return "0.0";
-    } else if (llvmType == "double") {
-        return "0.0";
-    } else {
-        return "zeroinitializer";
-    }
-}
-
-std::string NativeCodegen::getLLVMType(const std::string& xxmlType) const {
     // Handle NativeType markers
     if (xxmlType.find("NativeType") == 0) {
         // Mangled form: NativeType_type
         if (xxmlType.find("NativeType_") == 0) {
             std::string suffix = xxmlType.substr(11);
             suffix = TypeNormalizer::stripOwnershipMarker(suffix);
-            return suffix;
+            return parseTypeString(suffix, typeCtx);
         }
 
         // Unmangled form: NativeType<type> or NativeType<"type">
@@ -98,57 +53,91 @@ std::string NativeCodegen::getLLVMType(const std::string& xxmlType) const {
                 }
 
                 // Map common type aliases to LLVM types
-                if (nativeType == "int64") return "i64";
-                if (nativeType == "int32") return "i32";
-                if (nativeType == "int16") return "i16";
-                if (nativeType == "int8") return "i8";
-                if (nativeType == "uint64") return "i64";
-                if (nativeType == "uint32") return "i32";
-                if (nativeType == "uint16") return "i16";
-                if (nativeType == "uint8") return "i8";
-                if (nativeType == "bool") return "i1";
-                if (nativeType == "cstr") return "ptr";
-                if (nativeType == "string_ptr") return "ptr";
-                return nativeType;
+                if (nativeType == "int64") return typeCtx.getInt64Ty();
+                if (nativeType == "int32") return typeCtx.getInt32Ty();
+                if (nativeType == "int16") return typeCtx.getInt16Ty();
+                if (nativeType == "int8") return typeCtx.getInt8Ty();
+                if (nativeType == "uint64") return typeCtx.getInt64Ty();
+                if (nativeType == "uint32") return typeCtx.getInt32Ty();
+                if (nativeType == "uint16") return typeCtx.getInt16Ty();
+                if (nativeType == "uint8") return typeCtx.getInt8Ty();
+                if (nativeType == "bool") return typeCtx.getInt1Ty();
+                if (nativeType == "cstr") return typeCtx.getPtrTy();
+                if (nativeType == "string_ptr") return typeCtx.getPtrTy();
+                return parseTypeString(nativeType, typeCtx);
             }
         }
     }
 
     // Raw LLVM native types
-    if (xxmlType == "float") return "float";
-    if (xxmlType == "double") return "double";
-    if (xxmlType == "i1") return "i1";
-    if (xxmlType == "i8") return "i8";
-    if (xxmlType == "i16") return "i16";
-    if (xxmlType == "i32") return "i32";
-    if (xxmlType == "i64") return "i64";
-    if (xxmlType == "ptr") return "ptr";
+    if (xxmlType == "float") return typeCtx.getFloatTy();
+    if (xxmlType == "double") return typeCtx.getDoubleTy();
+    if (xxmlType == "i1") return typeCtx.getInt1Ty();
+    if (xxmlType == "i8") return typeCtx.getInt8Ty();
+    if (xxmlType == "i16") return typeCtx.getInt16Ty();
+    if (xxmlType == "i32") return typeCtx.getInt32Ty();
+    if (xxmlType == "i64") return typeCtx.getInt64Ty();
+    if (xxmlType == "ptr") return typeCtx.getPtrTy();
 
     // None/void
-    if (xxmlType == "None" || xxmlType == "void") return "void";
+    if (xxmlType == "None" || xxmlType == "void") return typeCtx.getVoidTy();
 
     // Default to pointer for all other types
-    return "ptr";
+    return typeCtx.getPtrTy();
+}
+
+LLVMIR::Type* NativeCodegen::parseTypeString(const std::string& typeStr, LLVMIR::TypeContext& typeCtx) const {
+    // Parse LLVM type string to Type*
+    if (typeStr == "float") return typeCtx.getFloatTy();
+    if (typeStr == "double") return typeCtx.getDoubleTy();
+    if (typeStr == "i1") return typeCtx.getInt1Ty();
+    if (typeStr == "i8") return typeCtx.getInt8Ty();
+    if (typeStr == "i16") return typeCtx.getInt16Ty();
+    if (typeStr == "i32") return typeCtx.getInt32Ty();
+    if (typeStr == "i64") return typeCtx.getInt64Ty();
+    if (typeStr == "ptr") return typeCtx.getPtrTy();
+    if (typeStr == "void") return typeCtx.getVoidTy();
+
+    // Default to pointer
+    return typeCtx.getPtrTy();
+}
+
+LLVMIR::FFICallingConv NativeCodegen::mapCallingConvention(Parser::CallingConvention conv) {
+    switch (conv) {
+        case Parser::CallingConvention::CDecl:
+            return LLVMIR::FFICallingConv::CDecl;
+        case Parser::CallingConvention::StdCall:
+            return LLVMIR::FFICallingConv::StdCall;
+        case Parser::CallingConvention::FastCall:
+            return LLVMIR::FFICallingConv::FastCall;
+        case Parser::CallingConvention::Auto:
+        default:
+            return LLVMIR::FFICallingConv::CDecl;
+    }
 }
 
 void NativeCodegen::generateNativeThunk(Parser::MethodDecl& node,
                                         const std::string& className,
                                         const std::string& namespaceName) {
-    std::string dllPath = node.nativePath;
-    std::string symbolName = node.nativeSymbol;
-    Parser::CallingConvention convention = node.callingConvention;
+    // Build FFI thunk config
+    LLVMIR::FFIThunkConfig config;
+
+    // Set library path and symbol name
+    config.libraryPath = node.nativePath;
+    config.symbolName = node.nativeSymbol;
+    config.callingConv = mapCallingConvention(node.callingConvention);
 
     // Determine function name
-    std::string funcName;
     if (!className.empty()) {
-        funcName = getQualifiedName(className, node.name);
+        config.functionName = getQualifiedName(className, node.name);
     } else {
-        funcName = node.name;
+        config.functionName = node.name;
     }
 
     // Build return type
-    std::string returnLLVMType = "void";
-    std::string nativeReturnType = "void";
+    LLVMIR::TypeContext& typeCtx = ctx_.module().getContext();
+    config.returnType = typeCtx.getVoidTy();
+
     if (node.returnType) {
         std::string typeName = node.returnType->typeName;
         if (typeName.find("NativeType<") == 0) {
@@ -156,32 +145,41 @@ void NativeCodegen::generateNativeThunk(Parser::MethodDecl& node,
             size_t start = typeName.find("\"");
             size_t end = typeName.rfind("\"");
             if (start != std::string::npos && end != std::string::npos && end > start) {
-                nativeReturnType = typeName.substr(start + 1, end - start - 1);
-                returnLLVMType = mapNativeTypeToLLVM(nativeReturnType);
+                std::string nativeType = typeName.substr(start + 1, end - start - 1);
+                std::string llvmTypeStr = mapNativeTypeToLLVMString(nativeType);
+                config.returnType = parseTypeString(llvmTypeStr, typeCtx);
             } else {
                 // Unquoted form: NativeType<int32>
                 size_t angleStart = typeName.find('<');
                 size_t angleEnd = typeName.find('>');
                 if (angleStart != std::string::npos && angleEnd != std::string::npos && angleEnd > angleStart) {
-                    nativeReturnType = typeName.substr(angleStart + 1, angleEnd - angleStart - 1);
-                    returnLLVMType = mapNativeTypeToLLVM(nativeReturnType);
+                    std::string nativeType = typeName.substr(angleStart + 1, angleEnd - angleStart - 1);
+                    std::string llvmTypeStr = mapNativeTypeToLLVMString(nativeType);
+                    config.returnType = parseTypeString(llvmTypeStr, typeCtx);
                 }
             }
         } else {
-            returnLLVMType = getLLVMType(typeName);
+            config.returnType = getLLVMType(typeName);
         }
     }
 
     // Build parameter info
-    bool isInstanceMethod = !className.empty();
-    std::vector<std::pair<std::string, std::string>> params;  // name, llvm type
+    config.isInstanceMethod = !className.empty();
 
-    if (isInstanceMethod) {
-        params.push_back({"this", "ptr"});
+    if (config.isInstanceMethod) {
+        LLVMIR::FFIParameter thisParam;
+        thisParam.name = "this";
+        thisParam.type = typeCtx.getPtrTy();
+        thisParam.isCallback = false;
+        config.parameters.push_back(thisParam);
     }
 
     for (const auto& param : node.parameters) {
-        std::string paramType = "ptr";
+        LLVMIR::FFIParameter ffiParam;
+        ffiParam.name = param->name;
+        ffiParam.type = typeCtx.getPtrTy();  // Default
+        ffiParam.isCallback = false;
+
         if (param->type) {
             std::string typeName = param->type->typeName;
             if (typeName.find("NativeType<") == 0) {
@@ -190,120 +188,28 @@ void NativeCodegen::generateNativeThunk(Parser::MethodDecl& node,
                 size_t end = typeName.rfind("\"");
                 if (start != std::string::npos && end != std::string::npos && end > start) {
                     std::string nativeType = typeName.substr(start + 1, end - start - 1);
-                    paramType = mapNativeTypeToLLVM(nativeType);
+                    std::string llvmTypeStr = mapNativeTypeToLLVMString(nativeType);
+                    ffiParam.type = parseTypeString(llvmTypeStr, typeCtx);
                 } else {
                     // Unquoted form: NativeType<int32>
                     size_t angleStart = typeName.find('<');
                     size_t angleEnd = typeName.find('>');
                     if (angleStart != std::string::npos && angleEnd != std::string::npos && angleEnd > angleStart) {
                         std::string nativeType = typeName.substr(angleStart + 1, angleEnd - angleStart - 1);
-                        paramType = mapNativeTypeToLLVM(nativeType);
+                        std::string llvmTypeStr = mapNativeTypeToLLVMString(nativeType);
+                        ffiParam.type = parseTypeString(llvmTypeStr, typeCtx);
                     }
                 }
             } else {
-                paramType = getLLVMType(typeName);
+                ffiParam.type = getLLVMType(typeName);
             }
         }
-        params.push_back({param->name, paramType});
+        config.parameters.push_back(ffiParam);
     }
 
-    // Build parameter list for function signature
-    std::string paramList;
-    for (size_t i = 0; i < params.size(); ++i) {
-        if (i > 0) paramList += ", ";
-        paramList += params[i].second + " %" + std::to_string(i);
-    }
-
-    // Emit function header with internal linkage
-    emitLine("");
-    emitLine("; Native FFI thunk for " + symbolName + " from " + dllPath);
-    emitLine("define internal " + returnLLVMType + " @" + funcName + "(" + paramList + ") {");
-    emitLine("entry:");
-
-    // === Step 1: Create global strings for DLL path and symbol name ===
-    std::string dllPathLabel = "ffi.path." + std::to_string(stringLiterals_.size());
-    stringLiterals_.push_back({dllPathLabel, dllPath});
-
-    std::string symbolLabel = "ffi.sym." + std::to_string(stringLiterals_.size());
-    stringLiterals_.push_back({symbolLabel, symbolName});
-
-    // Load library
-    std::string dllHandleReg = allocateRegister();
-    emitLine("  " + dllHandleReg + " = call ptr @xxml_FFI_loadLibrary(ptr @." + dllPathLabel + ")");
-
-    // Check if handle is null
-    std::string isNullReg = allocateRegister();
-    emitLine("  " + isNullReg + " = icmp eq ptr " + dllHandleReg + ", null");
-
-    std::string errorLabel = allocateLabel("ffi.error");
-    std::string continueLabel = allocateLabel("ffi.continue");
-    emitLine("  br i1 " + isNullReg + ", label %" + errorLabel + ", label %" + continueLabel);
-
-    // Error block - DLL load failed
-    emitLine(errorLabel + ":");
-    if (returnLLVMType == "void") {
-        emitLine("  ret void");
-    } else {
-        emitLine("  ret " + returnLLVMType + " " + getDefaultReturnValue(returnLLVMType));
-    }
-
-    // Continue block - DLL loaded successfully
-    emitLine(continueLabel + ":");
-
-    // === Step 2: Get the symbol ===
-    std::string symbolPtrReg = allocateRegister();
-    emitLine("  " + symbolPtrReg + " = call ptr @xxml_FFI_getSymbol(ptr " + dllHandleReg + ", ptr @." + symbolLabel + ")");
-
-    // Check if symbol is null
-    std::string isSymNullReg = allocateRegister();
-    emitLine("  " + isSymNullReg + " = icmp eq ptr " + symbolPtrReg + ", null");
-
-    std::string symErrorLabel = allocateLabel("ffi.sym_error");
-    std::string callLabel = allocateLabel("ffi.call");
-    emitLine("  br i1 " + isSymNullReg + ", label %" + symErrorLabel + ", label %" + callLabel);
-
-    // Symbol error block
-    emitLine(symErrorLabel + ":");
-    emitLine("  call void @xxml_FFI_freeLibrary(ptr " + dllHandleReg + ")");
-    if (returnLLVMType == "void") {
-        emitLine("  ret void");
-    } else {
-        emitLine("  ret " + returnLLVMType + " " + getDefaultReturnValue(returnLLVMType));
-    }
-
-    // Call block - ready to call the native function
-    emitLine(callLabel + ":");
-
-    // === Step 3: Build function type and call ===
-    std::string ccAttr = getLLVMCallingConvention(convention);
-
-    // Build argument list for the call (skip 'this' for instance methods)
-    std::string argList;
-    size_t startIdx = isInstanceMethod ? 1 : 0;
-    for (size_t i = startIdx; i < params.size(); ++i) {
-        if (i > startIdx) argList += ", ";
-        argList += params[i].second + " %" + std::to_string(i);
-    }
-
-    // Generate the indirect call
-    std::string resultReg;
-    if (returnLLVMType != "void") {
-        resultReg = allocateRegister();
-        emitLine("  " + resultReg + " = call " + ccAttr + " " + returnLLVMType + " " +
-                 symbolPtrReg + "(" + argList + ")");
-    } else {
-        emitLine("  call " + ccAttr + " void " + symbolPtrReg + "(" + argList + ")");
-    }
-
-    // Return
-    if (returnLLVMType == "void") {
-        emitLine("  ret void");
-    } else {
-        emitLine("  ret " + returnLLVMType + " " + resultReg);
-    }
-
-    emitLine("}");
-    emitLine("");
+    // Generate the FFI thunk using the type-safe builder
+    // The thunk is added directly to the Module and will be emitted via LLVMEmitter
+    ffiBuilder_->createFFIThunk(config);
 }
 
 } // namespace XXML::Backends::Codegen
