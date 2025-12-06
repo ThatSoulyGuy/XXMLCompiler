@@ -14,6 +14,12 @@ namespace Core { class CompilationContext; }
 
 namespace Semantic {
 
+// Type constants for semantic analysis
+// "Deferred" = template-dependent type that will be resolved at instantiation
+// "Unknown" = truly unresolved type - always an error
+constexpr const char* DEFERRED_TYPE = "Deferred";
+constexpr const char* UNKNOWN_TYPE = "Unknown";
+
 // Forward declarations for pass classes
 class TypeCanonicalizer;
 class TemplateExpander;

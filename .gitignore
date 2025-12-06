@@ -83,6 +83,11 @@ XXMLCompiler/
 *.swo
 *~
 
+# Debug/Linker files
+*.ilk
+*.pdb
+nul
+
 # OS
 .DS_Store
 Thumbs.db

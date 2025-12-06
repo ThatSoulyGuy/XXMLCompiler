@@ -27,6 +27,9 @@ public:
     /// Emit the entire module to LLVM IR text
     std::string emit();
 
+    /// Emit only function definitions (for use when preamble handles header/structs)
+    std::string emitFunctionsOnly();
+
 private:
     // Emission helpers
     void emitModuleHeader();

@@ -1,0 +1,61 @@
+// Test complex template arguments: multiple types and value parameters
+#import Language::Core;
+
+[ Namespace <Test>
+    // Template with multiple type parameters and a value parameter
+    [ Class <Triple> <A Constrains None, B Constrains None, N Constrains None> Final Extends None
+        [ Private <>
+            Property <first> Types A^;
+            Property <second> Types B^;
+            Property <count> Types Integer^;
+        ]
+        [ Public <>
+            Constructor = default;
+
+            Method <init> Returns Test::Triple<A, B, N>^ Parameters (Parameter <a> Types A^, Parameter <b> Types B^) Do
+            {
+                Set first = a;
+                Set second = b;
+                Set count = Integer::Constructor(0);
+                Return this;
+            }
+
+            Method <getFirst> Returns A^ Parameters () Do
+            {
+                Return first;
+            }
+
+            Method <getSecond> Returns B^ Parameters () Do
+            {
+                Return second;
+            }
+        ]
+    ]
+]
+
+[ Entrypoint
+{
+    Run System::Console::printLine(String::Constructor("=== Complex Template Test ==="));
+
+    // Test 1: Two type parameters using @ syntax
+    Run System::Console::printLine(String::Constructor("Test 1: Triple with Integer, String"));
+    Instantiate Test::Triple<Integer, String, Integer>^ As <t1> = Test::Triple@Integer, String, Integer::Constructor();
+    Run t1.init(Integer::Constructor(42), String::Constructor("hello"));
+    Instantiate Integer^ As <v1> = t1.getFirst();
+    Instantiate String^ As <v2> = t1.getSecond();
+    Run System::Console::printLine(v1.toString());
+    Run System::Console::printLine(v2);
+
+    // Test 2: Using angle bracket syntax
+    Run System::Console::printLine(String::Constructor("Test 2: Using angle brackets"));
+    Instantiate Test::Triple<String, Integer, Integer>^ As <t2> = Test::Triple<String, Integer, Integer>::Constructor();
+    Run t2.init(String::Constructor("world"), Integer::Constructor(99));
+    Instantiate String^ As <v3> = t2.getFirst();
+    Instantiate Integer^ As <v4> = t2.getSecond();
+    Run System::Console::printLine(v3);
+    Run System::Console::printLine(v4.toString());
+
+    Run System::Console::printLine(String::Constructor("=== Complex Template Test Passed ==="));
+    Exit(0);
+}
+]

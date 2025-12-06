@@ -1,4 +1,5 @@
 #include "../../include/Semantic/SemanticVerifier.h"
+#include "../../include/Semantic/SemanticAnalyzer.h"  // For UNKNOWN_TYPE, DEFERRED_TYPE
 #include "../../include/Semantic/SemanticError.h"
 #include <iostream>
 #include <sstream>
@@ -116,9 +117,8 @@ bool SemanticVerifier::verifyNoUnknownTypes(
 
     const auto& expressionTypes = analyzer.getExpressionTypes();
     int unknownCount = 0;
-    int criticalUnknownCount = 0;
+    int deferredCount = 0;
     std::vector<std::string> unknownLocations;
-    std::vector<std::string> criticalLocations;
 
     // Helper to get expression kind name
     auto getExprKind = [](Parser::Expression* expr) -> std::string {
@@ -134,82 +134,46 @@ bool SemanticVerifier::verifyNoUnknownTypes(
         return "UnknownExprKind";
     };
 
-    // Determine if an Unknown type is critical based on its source location
-    // Unknown types in STL/template definitions are expected (template parameters)
-    // Unknown types in user code are critical errors
-    auto isSTLFile = [](const std::string& filename) -> bool {
-        // Check if file path contains Language directory (STL files)
-        // Handles both absolute paths (...\Language\...) and relative paths (Language/...)
-        return filename.find("/Language/") != std::string::npos ||
-               filename.find("\\Language\\") != std::string::npos ||
-               filename.find("/Language\\") != std::string::npos ||
-               filename.find("\\Language/") != std::string::npos ||
-               filename.find("Language/") == 0 ||  // Relative path starting with Language/
-               filename.find("Language\\") == 0;   // Relative path starting with Language
-    };
-
-    auto isCriticalUnknown = [&isSTLFile](Parser::Expression* expr) -> bool {
-        // Check if expression is from an STL/library file
-        if (expr && !expr->location.filename.empty()) {
-            if (isSTLFile(expr->location.filename)) {
-                // Unknown types in STL files are expected (template definitions)
-                return false;
-            }
-        }
-        // Unknown types in user code are critical - they should be fully resolved
-        return true;
-    };
-
     for (const auto& [expr, type] : expressionTypes) {
-        if (type == "Unknown") {
+        // "Deferred" types are template-dependent and allowed (resolved at instantiation)
+        if (type == DEFERRED_TYPE) {
+            deferredCount++;
+            continue;
+        }
+
+        // "Unknown" types are ALWAYS fatal errors - they indicate type resolution failure
+        if (type == UNKNOWN_TYPE) {
             unknownCount++;
 
-            bool critical = isCriticalUnknown(const_cast<Parser::Expression*>(expr));
-            if (critical) {
-                criticalUnknownCount++;
-                if (criticalLocations.size() < 10) {
-                    std::string info = getExprKind(const_cast<Parser::Expression*>(expr));
-                    if (expr->location.line > 0) {
-                        info += " at line " + std::to_string(expr->location.line);
-                    }
-                    criticalLocations.push_back(info + " has Unknown type (critical)");
+            if (unknownLocations.size() < 10) {
+                std::string info = getExprKind(const_cast<Parser::Expression*>(expr));
+                if (!expr->location.filename.empty()) {
+                    info += " in " + expr->location.filename;
                 }
-            } else {
-                if (unknownLocations.size() < 5) {
-                    std::string info = getExprKind(const_cast<Parser::Expression*>(expr));
-                    if (expr->location.line > 0) {
-                        info += " at line " + std::to_string(expr->location.line);
-                    }
-                    unknownLocations.push_back(info);
+                if (expr->location.line > 0) {
+                    info += " at line " + std::to_string(expr->location.line);
                 }
+                unknownLocations.push_back(info + " has Unknown type");
             }
         }
     }
 
-    // Critical unknown types are always errors
-    if (criticalUnknownCount > 0) {
-        for (const auto& loc : criticalLocations) {
+    // All Unknown types are now errors - no distinction between critical/non-critical
+    if (unknownCount > 0) {
+        for (const auto& loc : unknownLocations) {
             result.addError("TYPE", loc);
         }
-        if (criticalUnknownCount > 10) {
-            result.addError("TYPE", "... and " + std::to_string(criticalUnknownCount - 10) +
-                           " more critical Unknown types");
+        if (unknownCount > 10) {
+            result.addError("TYPE", "... and " + std::to_string(unknownCount - 10) +
+                           " more Unknown types");
         }
         return false;
     }
 
-    // Non-critical unknown types are warnings (even in Strict mode)
-    // This is because codegen can handle them - it uses AST structure and class registry
-    if (unknownCount > 0) {
-        std::string warningMsg = std::to_string(unknownCount) + " expressions have Unknown type";
-        if (!unknownLocations.empty()) {
-            warningMsg += " (e.g., " + unknownLocations[0];
-            if (unknownLocations.size() > 1) {
-                warningMsg += ", " + unknownLocations[1];
-            }
-            warningMsg += ")";
-        }
-        result.addWarning(warningMsg);
+    // Deferred types are informational only (template parameters awaiting instantiation)
+    if (deferredCount > 0 && mode == Mode::Strict) {
+        result.addWarning(std::to_string(deferredCount) +
+                         " expressions have Deferred type (template-dependent, will resolve at instantiation)");
     }
 
     return true;

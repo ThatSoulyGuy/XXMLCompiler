@@ -1,0 +1,42 @@
+// Test template with literal value parameter like Box<Type, 89>
+#import Language::Core;
+
+[ Namespace <Test>
+    // Template with a type and a compile-time integer value
+    [ Class <FixedArray> <T Constrains None, Size Constrains None> Final Extends None
+        [ Private <>
+            Property <data> Types T^;
+            Property <capacity> Types Integer^;
+        ]
+        [ Public <>
+            Constructor = default;
+
+            Method <init> Returns Test::FixedArray<T, Size>^ Parameters () Do
+            {
+                // Size would be used at compile-time in a real implementation
+                Set capacity = Integer::Constructor(0);
+                Return this;
+            }
+
+            Method <getCapacity> Returns Integer^ Parameters () Do
+            {
+                Return capacity;
+            }
+        ]
+    ]
+]
+
+[ Entrypoint
+{
+    Run System::Console::printLine(String::Constructor("=== Value Template Test ==="));
+
+    // Test with literal integer value in template
+    Run System::Console::printLine(String::Constructor("Test: FixedArray<Integer, 89>"));
+    Instantiate Test::FixedArray<Integer, 89>^ As <arr> = Test::FixedArray@Integer, 89::Constructor();
+    Run arr.init();
+    Run System::Console::printLine(String::Constructor("Created FixedArray with value template param"));
+
+    Run System::Console::printLine(String::Constructor("=== Value Template Test Passed ==="));
+    Exit(0);
+}
+]

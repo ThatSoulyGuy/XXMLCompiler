@@ -64,6 +64,11 @@ void xxml_int64_write(void* ptr, int64_t value) {
 }
 
 // ============================================
+// Forward declarations for cross-references
+// ============================================
+void* Bool_Constructor(bool value);
+
+// ============================================
 // Integer Operations
 // ============================================
 
@@ -200,6 +205,98 @@ bool Integer_gt(void* self, void* other) {
 bool Integer_ge(void* self, void* other) {
     if (!self || !other) return false;
     return ((Integer*)self)->value >= ((Integer*)other)->value;
+}
+
+// Long-name aliases for comparison operations (called from codegen)
+// These return Bool* objects instead of raw bool to match XXML semantics
+void* Integer_equals(void* self, void* other) {
+    return Bool_Constructor(Integer_eq(self, other));
+}
+
+void* Integer_notEquals(void* self, void* other) {
+    return Bool_Constructor(Integer_ne(self, other));
+}
+
+void* Integer_lessThan(void* self, void* other) {
+    return Bool_Constructor(Integer_lt(self, other));
+}
+
+void* Integer_greaterThan(void* self, void* other) {
+    return Bool_Constructor(Integer_gt(self, other));
+}
+
+void* Integer_lessOrEqual(void* self, void* other) {
+    return Bool_Constructor(Integer_le(self, other));
+}
+
+void* Integer_greaterOrEqual(void* self, void* other) {
+    return Bool_Constructor(Integer_ge(self, other));
+}
+
+// Logical/bitwise operations
+void* Integer_not(void* self) {
+    if (!self) return Bool_Constructor(true);
+    int64_t val = ((Integer*)self)->value;
+    return Bool_Constructor(val == 0);
+}
+
+void* Integer_bitwiseAnd(void* self, void* other) {
+    if (!self || !other) return Integer_Constructor(0);
+    int64_t result = ((Integer*)self)->value & ((Integer*)other)->value;
+    return Integer_Constructor(result);
+}
+
+void* Integer_bitwiseOr(void* self, void* other) {
+    if (!self || !other) return Integer_Constructor(0);
+    int64_t result = ((Integer*)self)->value | ((Integer*)other)->value;
+    return Integer_Constructor(result);
+}
+
+void* Integer_bitwiseXor(void* self, void* other) {
+    if (!self || !other) return Integer_Constructor(0);
+    int64_t result = ((Integer*)self)->value ^ ((Integer*)other)->value;
+    return Integer_Constructor(result);
+}
+
+void* Integer_bitwiseNot(void* self) {
+    if (!self) return Integer_Constructor(~0LL);
+    int64_t result = ~((Integer*)self)->value;
+    return Integer_Constructor(result);
+}
+
+void* Integer_shiftLeft(void* self, void* other) {
+    if (!self || !other) return Integer_Constructor(0);
+    int64_t result = ((Integer*)self)->value << ((Integer*)other)->value;
+    return Integer_Constructor(result);
+}
+
+void* Integer_shiftRight(void* self, void* other) {
+    if (!self || !other) return Integer_Constructor(0);
+    int64_t result = ((Integer*)self)->value >> ((Integer*)other)->value;
+    return Integer_Constructor(result);
+}
+
+// Long-name aliases for arithmetic operations
+void* Integer_subtract(void* self, void* other) {
+    return Integer_sub(self, other);
+}
+
+void* Integer_multiply(void* self, void* other) {
+    return Integer_mul(self, other);
+}
+
+void* Integer_divide(void* self, void* other) {
+    return Integer_div(self, other);
+}
+
+void* Integer_modulo(void* self, void* other) {
+    return Integer_mod(self, other);
+}
+
+void* Integer_abs(void* self) {
+    if (!self) return Integer_Constructor(0);
+    int64_t val = ((Integer*)self)->value;
+    return Integer_Constructor(val < 0 ? -val : val);
 }
 
 int64_t Integer_toInt64(void* self) {

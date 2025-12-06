@@ -1,6 +1,8 @@
 // Test that template method calls use mangled names correctly
+#import Language::Core;
+
 [ Namespace <Test>
-    [ Class <Calculator> <T> Final Extends None
+    [ Class <Calculator> <T Constrains None> Final Extends None
         [ Public <>
             Constructor = default;
 

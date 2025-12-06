@@ -1807,11 +1807,12 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
         }
 
         // Check for template arguments using @ syntax: List@Integer (alternative)
+        // Supports nested templates like Box@Box<Integer> or HashMap@String, List<Integer>
         if (match(Lexer::TokenType::At)) {
             name += "<";
             DEBUG_OUT("DEBUG Parser parsePrimary: found @, parsing template args" << std::endl);
 
-            // Parse template arguments
+            // Parse template arguments (supports nested templates)
             bool first = true;
             do {
                 if (!first) {
@@ -1819,10 +1820,67 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
                 }
                 first = false;
 
-                // Parse type or value argument
+                // Parse type or value argument - now supports nested templates
                 if (check(Lexer::TokenType::Identifier)) {
+                    // Parse simple identifier (NOT qualified - :: after template args is for methods)
                     std::string argName = advance().lexeme;
                     DEBUG_OUT("DEBUG Parser parsePrimary: template arg identifier = '" << argName << "'" << std::endl);
+
+                    // Check for nested template arguments using <...> syntax
+                    if (check(Lexer::TokenType::LeftAngle)) {
+                        advance(); // consume '<'
+                        argName += "<";
+                        int angleDepth = 1;
+
+                        // Parse nested template arguments, handling arbitrary nesting
+                        while (angleDepth > 0 && !isAtEnd()) {
+                            if (check(Lexer::TokenType::LeftAngle)) {
+                                angleDepth++;
+                                argName += "<";
+                                advance();
+                            } else if (check(Lexer::TokenType::RightAngle)) {
+                                angleDepth--;
+                                argName += ">";
+                                advance();
+                            } else if (check(Lexer::TokenType::Comma) && angleDepth == 1) {
+                                // Only treat as separator at top level of nested args
+                                argName += ", ";
+                                advance();
+                            } else if (check(Lexer::TokenType::Identifier)) {
+                                argName += advance().lexeme;
+                            } else if (check(Lexer::TokenType::DoubleColon)) {
+                                argName += "::";
+                                advance();
+                            } else if (check(Lexer::TokenType::Caret)) {
+                                argName += "^";
+                                advance();
+                            } else if (check(Lexer::TokenType::Ampersand)) {
+                                argName += "&";
+                                advance();
+                            } else if (check(Lexer::TokenType::Percent)) {
+                                argName += "%";
+                                advance();
+                            } else if (check(Lexer::TokenType::IntegerLiteral)) {
+                                argName += std::to_string(advance().intValue);
+                            } else {
+                                error("Unexpected token in nested template arguments");
+                                break;
+                            }
+                        }
+                    }
+
+                    // Check for ownership modifier on the type argument
+                    if (check(Lexer::TokenType::Caret)) {
+                        argName += "^";
+                        advance();
+                    } else if (check(Lexer::TokenType::Ampersand)) {
+                        argName += "&";
+                        advance();
+                    } else if (check(Lexer::TokenType::Percent)) {
+                        argName += "%";
+                        advance();
+                    }
+
                     name += argName;
                 } else if (check(Lexer::TokenType::IntegerLiteral)) {
                     name += std::to_string(advance().intValue);
@@ -1900,6 +1958,7 @@ std::unique_ptr<TypeRef> Parser::parseTypeRef() {
 
     // Parse template arguments if present (e.g., List<Integer>, Array<Integer, 10>)
     // Supports both @ and < as template argument delimiters
+    // Also supports nested templates like Box<Box<Integer>> or HashMap<String, List<Integer>>
     std::vector<TemplateArgument> templateArgs;
     if (check(Lexer::TokenType::LeftAngle) || check(Lexer::TokenType::At)) {
         bool usingAtSyntax = check(Lexer::TokenType::At);
@@ -1913,17 +1972,31 @@ std::unique_ptr<TypeRef> Parser::parseTypeRef() {
                 templateArgs.push_back(TemplateArgument::Wildcard(argLoc));
             } else {
                 // Try to determine if this is a type or value argument
-                // Simple heuristic: if it starts with an identifier and is followed by ',' or '>',
-                // it's likely a type. Otherwise, parse as expression.
+                // Heuristic: if it starts with an identifier, check what follows
+                // - If followed by ',', '>', '<', '@', '^', '&', '%' -> it's a type (possibly nested template)
+                // - Otherwise, parse as expression
                 bool isType = false;
-                if (check(Lexer::TokenType::Identifier)) {
-                    // Lookahead to determine if this is a simple type reference
+                if (check(Lexer::TokenType::Identifier) || check(Lexer::TokenType::NativeType)) {
+                    // Lookahead to determine if this is a type reference
                     size_t savedPos = current;
-                    parseQualifiedIdentifier(); // consume the identifier chain
 
-                    // Check what follows
-                    if (check(Lexer::TokenType::Comma) || check(Lexer::TokenType::RightAngle)) {
+                    // Parse potential type (qualified identifier with possible template args)
+                    if (check(Lexer::TokenType::NativeType)) {
+                        // NativeType is always a type
                         isType = true;
+                    } else {
+                        parseQualifiedIdentifier(); // consume the identifier chain
+
+                        // Check what follows - could indicate a type or nested template
+                        if (check(Lexer::TokenType::Comma) ||
+                            check(Lexer::TokenType::RightAngle) ||
+                            check(Lexer::TokenType::LeftAngle) ||  // Nested template: Box<Box<Integer>>
+                            check(Lexer::TokenType::At) ||          // Nested template: Box@Box<Integer>
+                            check(Lexer::TokenType::Caret) ||       // Ownership: Integer^
+                            check(Lexer::TokenType::Ampersand) ||   // Reference: Integer&
+                            check(Lexer::TokenType::Percent)) {     // Copy: Integer%
+                            isType = true;
+                        }
                     }
 
                     // Restore position
@@ -1931,13 +2004,26 @@ std::unique_ptr<TypeRef> Parser::parseTypeRef() {
                 }
 
                 if (isType) {
-                    // Parse as type argument
-                    std::string argType = parseQualifiedIdentifier();
-                    templateArgs.emplace_back(argType, argLoc);
-                } else {
-                    // Parse as value argument (constant expression)
+                    // Parse as nested type argument using recursive parseTypeRef
+                    // This properly handles nested templates like Box<Box<Integer>>
+                    auto nestedType = parseTypeRef();
+                    // Convert TypeRef to string representation for TemplateArgument
+                    std::string typeStr = nestedType->toString();
+                    templateArgs.emplace_back(typeStr, argLoc);
+                } else if (check(Lexer::TokenType::IntegerLiteral)) {
+                    // Handle integer literal directly to avoid > being parsed as comparison
+                    int64_t intVal = advance().intValue;
+                    auto valueExpr = std::make_unique<IntegerLiteralExpr>(intVal, argLoc);
+                    templateArgs.emplace_back(std::move(valueExpr), std::to_string(intVal), argLoc);
+                } else if (check(Lexer::TokenType::LeftParen)) {
+                    // For complex expressions, require parentheses: Box<(N+1)>
+                    advance(); // consume '('
                     auto valueExpr = parseExpression();
+                    consume(Lexer::TokenType::RightParen, "Expected ')' after template value expression");
                     templateArgs.emplace_back(std::move(valueExpr), argLoc);
+                } else {
+                    error("Expected type, integer literal, or parenthesized expression in template arguments");
+                    break;
                 }
             }
 

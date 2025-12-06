@@ -84,9 +84,44 @@ SemanticAnalyzer::SemanticAnalyzer(Core::CompilationContext& context, Common::Er
     intrinsicMethods_["Language::Core::Mem::alloc"] = {"NativeType<\"ptr\">", Parser::OwnershipType::Owned};
     intrinsicMethods_["Language::Core::Mem::free"] = {"None", Parser::OwnershipType::None};
 
-    // Syscall
+    // Syscall - memory operations
     intrinsicMethods_["Syscall::call"] = {"Integer", Parser::OwnershipType::Owned};
     intrinsicMethods_["Language::Core::Syscall::call"] = {"Integer", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::malloc"] = {"NativeType<\"ptr\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::free"] = {"None", Parser::OwnershipType::None};
+    intrinsicMethods_["Syscall::memcpy"] = {"None", Parser::OwnershipType::None};
+    intrinsicMethods_["Syscall::ptr_read"] = {"NativeType<\"ptr\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::ptr_write"] = {"None", Parser::OwnershipType::None};
+    intrinsicMethods_["Syscall::int64_read"] = {"NativeType<\"int64\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::int64_write"] = {"None", Parser::OwnershipType::None};
+
+    // Syscall - string operations
+    intrinsicMethods_["Syscall::string_create"] = {"NativeType<\"string_ptr\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::string_cstr"] = {"NativeType<\"cstr\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::string_length"] = {"NativeType<\"int64\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::string_concat"] = {"NativeType<\"string_ptr\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::string_copy"] = {"NativeType<\"string_ptr\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::string_equals"] = {"NativeType<\"int64\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::string_hash"] = {"NativeType<\"int64\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::string_charAt"] = {"NativeType<\"cstr\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::string_destroy"] = {"None", Parser::OwnershipType::None};
+
+    // Syscall - type conversion
+    intrinsicMethods_["Syscall::double_to_string"] = {"NativeType<\"cstr\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::float_to_string"] = {"NativeType<\"cstr\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::int_to_string"] = {"NativeType<\"cstr\">", Parser::OwnershipType::Owned};
+
+    // Syscall - reflection
+    intrinsicMethods_["Syscall::reflection_type_getName"] = {"NativeType<\"cstr\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::reflection_type_getFullName"] = {"NativeType<\"cstr\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::reflection_type_getNamespace"] = {"NativeType<\"cstr\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::reflection_type_isTemplate"] = {"NativeType<\"int64\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::reflection_type_getTemplateParamCount"] = {"NativeType<\"int64\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::reflection_type_getPropertyCount"] = {"NativeType<\"int64\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::reflection_type_getProperty"] = {"NativeType<\"ptr\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::reflection_type_getPropertyByName"] = {"NativeType<\"ptr\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::reflection_type_getMethodCount"] = {"NativeType<\"int64\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::reflection_type_getMethod"] = {"NativeType<\"ptr\">", Parser::OwnershipType::Owned};
 
     // String constructors and methods
     intrinsicMethods_["String::Constructor"] = {"String", Parser::OwnershipType::Owned};
@@ -400,7 +435,7 @@ std::string SemanticAnalyzer::getExpressionType(Parser::Expression* expr) {
     if (it != expressionTypes.end()) {
         return it->second;
     }
-    return "Unknown";
+    return UNKNOWN_TYPE;
 }
 
 Parser::OwnershipType SemanticAnalyzer::getExpressionOwnership(Parser::Expression* expr) {
@@ -996,7 +1031,7 @@ void SemanticAnalyzer::visit(Parser::CallbackTypeDecl& node) {
     for (const auto& param : node.parameters) {
         CallbackParamInfo paramInfo;
         paramInfo.name = param->name;
-        paramInfo.typeName = param->type ? param->type->typeName : "Unknown";
+        paramInfo.typeName = param->type ? param->type->typeName : UNKNOWN_TYPE;
         paramInfo.ownership = param->type ? param->type->ownership : Parser::OwnershipType::Copy;
         info.parameters.push_back(paramInfo);
     }
@@ -1529,7 +1564,14 @@ void SemanticAnalyzer::visit(Parser::InstantiateStmt& node) {
     // Type check initializer with full template type names
     std::string initType = getExpressionType(node.initializer.get());
 
-    if (initType != "Unknown" && !isCompatibleType(fullTypeName, initType)) {
+    // Skip type check if:
+    // 1. initType is Unknown or Deferred (template-dependent expression)
+    // 2. Target type is a template parameter (will be resolved at instantiation)
+    // 3. We're in a template definition (defer all type checks)
+    bool isTargetTemplateParam = (templateTypeParameters.find(fullTypeName) != templateTypeParameters.end());
+    if (initType != UNKNOWN_TYPE && initType != DEFERRED_TYPE &&
+        !isTargetTemplateParam && !inTemplateDefinition &&
+        !isCompatibleType(fullTypeName, initType)) {
         errorReporter.reportError(
             Common::ErrorCode::TypeMismatch,
             "Cannot assign value of type '" + initType + "' to variable of type '" + fullTypeName + "'. " +
@@ -1610,7 +1652,10 @@ void SemanticAnalyzer::visit(Parser::AssignmentStmt& node) {
     std::string targetType = getExpressionType(node.target.get());
     std::string valueType = getExpressionType(node.value.get());
 
-    if (targetType != "Unknown" && valueType != "Unknown" && !isCompatibleType(targetType, valueType)) {
+    // Skip type check if either type is Unknown or Deferred (template-dependent)
+    if (targetType != UNKNOWN_TYPE && targetType != DEFERRED_TYPE &&
+        valueType != UNKNOWN_TYPE && valueType != DEFERRED_TYPE &&
+        !isCompatibleType(targetType, valueType)) {
         // Warn about type mismatch but don't error
     }
 }
@@ -1700,9 +1745,9 @@ void SemanticAnalyzer::visit(Parser::IfStmt& node) {
     // Analyze condition
     node.condition->accept(*this);
 
-    // Check that condition is Bool
+    // Check that condition is Bool (skip if Unknown or Deferred - template-dependent)
     std::string condType = getExpressionType(node.condition.get());
-    if (condType != "Bool" && condType != "Unknown") {
+    if (condType != "Bool" && condType != UNKNOWN_TYPE && condType != DEFERRED_TYPE) {
         errorReporter.reportError(
             Common::ErrorCode::TypeMismatch,
             "If condition must be Bool, got " + condType,
@@ -1731,9 +1776,9 @@ void SemanticAnalyzer::visit(Parser::WhileStmt& node) {
     // Analyze condition
     node.condition->accept(*this);
 
-    // Check that condition is Bool
+    // Check that condition is Bool (skip if Unknown or Deferred - template-dependent)
     std::string condType = getExpressionType(node.condition.get());
-    if (condType != "Bool" && condType != "Unknown") {
+    if (condType != "Bool" && condType != UNKNOWN_TYPE && condType != DEFERRED_TYPE) {
         errorReporter.reportError(
             Common::ErrorCode::TypeMismatch,
             "While condition must be Bool, got " + condType,
@@ -1788,7 +1833,7 @@ void SemanticAnalyzer::visit(Parser::ThisExpr& node) {
             "'this' can only be used inside a class method",
             node.location
         );
-        expressionTypes[&node] = "Unknown";
+        expressionTypes[&node] = UNKNOWN_TYPE;
         expressionOwnerships[&node] = Parser::OwnershipType::Reference;
         return;
     }
@@ -1872,7 +1917,8 @@ void SemanticAnalyzer::visit(Parser::IdentifierExpr& node) {
         }
 
         // Fallback: assume it's a valid qualified reference (namespace, intrinsic, etc.)
-        expressionTypes[&node] = "Unknown";
+        // Use Deferred in template context, Unknown otherwise
+        expressionTypes[&node] = inTemplateDefinition ? DEFERRED_TYPE : UNKNOWN_TYPE;
         expressionOwnerships[&node] = Parser::OwnershipType::Owned;
         return;
     }
@@ -1955,7 +2001,7 @@ void SemanticAnalyzer::visit(Parser::IdentifierExpr& node) {
         // Don't error on qualified names or template instantiations
         if (node.name.find("::") != std::string::npos) {
             // Already handled above for qualified names, but just in case
-            expressionTypes[&node] = "Unknown";
+            expressionTypes[&node] = inTemplateDefinition ? DEFERRED_TYPE : UNKNOWN_TYPE;
             expressionOwnerships[&node] = Parser::OwnershipType::Owned;
             return;
         }
@@ -2009,7 +2055,8 @@ void SemanticAnalyzer::visit(Parser::IdentifierExpr& node) {
                 node.location
             );
         }
-        expressionTypes[&node] = "Unknown";
+        // Use Deferred in template context (might be resolved at instantiation)
+        expressionTypes[&node] = inTemplateDefinition ? DEFERRED_TYPE : UNKNOWN_TYPE;
         expressionOwnerships[&node] = Parser::OwnershipType::Owned;
         return;
     }
@@ -2168,8 +2215,8 @@ void SemanticAnalyzer::visit(Parser::MemberAccessExpr& node) {
         return;
     }
 
-    // If object type is Unknown, try to resolve the entire member access chain
-    if (objectType == "Unknown") {
+    // If object type is Unknown/Deferred, try to resolve the entire member access chain
+    if (objectType == UNKNOWN_TYPE || objectType == DEFERRED_TYPE) {
         // Try to resolve the full chain to see if it's a class or namespace reference
         bool isClassRef = false;
         std::string resolvedName = resolveMemberAccessChain(&node, isClassRef);
@@ -2189,20 +2236,45 @@ void SemanticAnalyzer::visit(Parser::MemberAccessExpr& node) {
             registerExpressionType(&node, resolvedName, Parser::OwnershipType::Owned);
             return;
         }
-        // Can't resolve - propagate Unknown
-        registerExpressionType(&node, "Unknown", Parser::OwnershipType::Owned);
+        // Can't resolve - use Deferred if in template definition, Unknown otherwise
+        if (inTemplateDefinition) {
+            registerExpressionType(&node, DEFERRED_TYPE, Parser::OwnershipType::Owned);
+        } else {
+            registerExpressionType(&node, UNKNOWN_TYPE, Parser::OwnershipType::Owned);
+        }
         return;
     }
 
     // If object type is a template parameter, defer validation to instantiation
     if (templateTypeParameters.find(baseType) != templateTypeParameters.end() ||
         templateTypeParameters.find(lookupType) != templateTypeParameters.end()) {
-        registerExpressionType(&node, "Unknown", Parser::OwnershipType::Owned);
+        registerExpressionType(&node, DEFERRED_TYPE, Parser::OwnershipType::Owned);
         return;
     }
 
-    // If class not found or property not found, report error during validation
-    if (enableValidation && !objectType.empty()) {
+    // If class not found or property not found, try to preserve useful type info
+    // instead of setting Unknown for valid-looking type references
+
+    // For qualified names that look like class references (e.g., "System::Console")
+    // keep the qualified path as the type - codegen can resolve these
+    if (objectType.find("::") != std::string::npos ||
+        (!objectType.empty() && std::isupper(objectType[0]))) {
+        // Build a qualified path for method access: objectType.member
+        std::string resultType = objectType;
+        // If this looks like a method call on a qualified type, register the type
+        // The actual return type will be determined by CallExpr
+        registerExpressionType(&node, resultType, Parser::OwnershipType::Owned);
+        return;
+    }
+
+    // For template instance types (e.g., "List<Integer>"), keep the type
+    if (baseType.find('<') != std::string::npos) {
+        registerExpressionType(&node, baseType, Parser::OwnershipType::Owned);
+        return;
+    }
+
+    // Only report errors and set Unknown for truly unresolvable types
+    if (enableValidation && !objectType.empty() && objectType != UNKNOWN_TYPE && objectType != DEFERRED_TYPE) {
         if (!classInfo) {
             errorReporter.reportError(
                 Common::ErrorCode::UndeclaredIdentifier,
@@ -2217,7 +2289,12 @@ void SemanticAnalyzer::visit(Parser::MemberAccessExpr& node) {
             );
         }
     }
-    registerExpressionType(&node, "Unknown", Parser::OwnershipType::Owned);
+    // Use Deferred for template contexts, Unknown for actual errors
+    if (inTemplateDefinition) {
+        registerExpressionType(&node, DEFERRED_TYPE, Parser::OwnershipType::Owned);
+    } else {
+        registerExpressionType(&node, UNKNOWN_TYPE, Parser::OwnershipType::Owned);
+    }
 }
 
 void SemanticAnalyzer::visit(Parser::CallExpr& node) {
@@ -2308,7 +2385,8 @@ void SemanticAnalyzer::visit(Parser::CallExpr& node) {
                         "Method '" + methodName + "' not found in class '" + className + "'",
                         node.location
                     );
-                    registerExpressionType(&node, "Unknown", Parser::OwnershipType::Owned);
+                    // Use Deferred in template context (method may exist on instantiated type)
+                    registerExpressionType(&node, inTemplateDefinition ? DEFERRED_TYPE : UNKNOWN_TYPE, Parser::OwnershipType::Owned);
                     return;
                 }
             }
@@ -2364,8 +2442,8 @@ void SemanticAnalyzer::visit(Parser::CallExpr& node) {
                                 baseExpectedType = baseExpectedType.substr(0, baseExpectedType.length() - 1);
                             }
 
-                            // Skip type checking if argument type is Unknown (template-dependent code)
-                            if (argType == "Unknown") {
+                            // Skip type checking if argument type is Deferred (template-dependent code)
+                            if (argType == DEFERRED_TYPE || argType == UNKNOWN_TYPE) {
                                 continue; // Can't validate template-dependent types until instantiation
                             }
 
@@ -2405,6 +2483,12 @@ void SemanticAnalyzer::visit(Parser::CallExpr& node) {
                 bool isTemplateInstantiation = (className.find('<') != std::string::npos);
                 bool isConstructorCall = (methodName == "Constructor" || methodName == "constructor");
 
+                // Check if this is an intrinsic namespace (Syscall, Mem, etc.)
+                bool isIntrinsicNamespace = (className == "Syscall" || className == "Mem" ||
+                                             className == "Console" || className == "System::Console" ||
+                                             className == "__function" ||
+                                             className.find("Language::") == 0);
+
                 if (isTemplateInstantiation && isConstructorCall) {
                     // Template instantiation constructor - register the full type name
                     registerExpressionType(&node, className, Parser::OwnershipType::Owned);
@@ -2417,9 +2501,16 @@ void SemanticAnalyzer::visit(Parser::CallExpr& node) {
                     } else if (isConstructorCall) {
                         // Constructor call returns the class type
                         registerExpressionType(&node, className, Parser::OwnershipType::Owned);
+                    } else if (inTemplateDefinition) {
+                        // In template context - defer all unresolved types
+                        registerExpressionType(&node, DEFERRED_TYPE, Parser::OwnershipType::Owned);
+                    } else if (isIntrinsicNamespace) {
+                        // Known intrinsic namespace method (runtime-provided) - use Void for side-effect calls
+                        // This is used for Run statements where the return value is discarded
+                        registerExpressionType(&node, "Void", Parser::OwnershipType::None);
                     } else {
-                        // Unknown intrinsic or builtin - no type info available
-                        registerExpressionType(&node, "Unknown", Parser::OwnershipType::Owned);
+                        // Unknown method - error
+                        registerExpressionType(&node, UNKNOWN_TYPE, Parser::OwnershipType::Owned);
                     }
                 }
             }
@@ -2518,7 +2609,7 @@ void SemanticAnalyzer::visit(Parser::CallExpr& node) {
                     }
                 }
                 // Fall through to generic handling if we couldn't determine the type
-                registerExpressionType(&node, "Unknown", Parser::OwnershipType::Owned);
+                registerExpressionType(&node, UNKNOWN_TYPE, Parser::OwnershipType::Owned);
                 return;
             }
 
@@ -2542,7 +2633,7 @@ void SemanticAnalyzer::visit(Parser::CallExpr& node) {
             }
         }
 
-        if (objectType != "Unknown") {
+        if (objectType != UNKNOWN_TYPE && objectType != DEFERRED_TYPE) {
             // Check if this is a template instantiation (e.g., "List<Integer>")
             std::string baseType = objectType;
             std::unordered_map<std::string, std::string> templateSubstitutions;
@@ -2690,7 +2781,8 @@ void SemanticAnalyzer::visit(Parser::CallExpr& node) {
                         "Method '" + methodName + "' not found in class '" + objectType + "'",
                         node.location
                     );
-                    registerExpressionType(&node, "Unknown", Parser::OwnershipType::Owned);
+                    // Use Deferred in template context (method may exist on instantiated type)
+                    registerExpressionType(&node, inTemplateDefinition ? DEFERRED_TYPE : UNKNOWN_TYPE, Parser::OwnershipType::Owned);
                     return;
                 }
             }
@@ -2801,8 +2893,8 @@ void SemanticAnalyzer::visit(Parser::CallExpr& node) {
                                 baseExpectedType = baseExpectedType.substr(0, baseExpectedType.length() - 1);
                             }
 
-                            // Skip type checking if argument type is Unknown (template-dependent code)
-                            if (argType == "Unknown") {
+                            // Skip type checking if argument type is Deferred (template-dependent code)
+                            if (argType == DEFERRED_TYPE || argType == UNKNOWN_TYPE) {
                                 continue; // Can't validate template-dependent types until instantiation
                             }
 
@@ -2953,22 +3045,35 @@ void SemanticAnalyzer::visit(Parser::CallExpr& node) {
                 // Check intrinsic method registry for return type
                 std::string intrinsicKey = baseType + "::" + methodName;
                 auto it = intrinsicMethods_.find(intrinsicKey);
+
+                // Check if this is an intrinsic namespace (Syscall, Mem, etc.)
+                bool isIntrinsicNamespace = (baseType == "Syscall" || baseType == "Mem" ||
+                                             baseType == "Console" || baseType == "System::Console" ||
+                                             baseType == "__function" ||
+                                             baseType.find("Language::") == 0);
+
                 if (it != intrinsicMethods_.end()) {
                     registerExpressionType(&node, it->second.returnType, it->second.returnOwnership);
                 } else if (methodName == "Constructor" || methodName == "constructor") {
                     // Constructor call returns the class type
                     registerExpressionType(&node, baseType, Parser::OwnershipType::Owned);
+                } else if (inTemplateDefinition) {
+                    // In template context - defer all unresolved types
+                    registerExpressionType(&node, DEFERRED_TYPE, Parser::OwnershipType::Owned);
+                } else if (isIntrinsicNamespace) {
+                    // Known intrinsic namespace method (runtime-provided) - use Void for side-effect calls
+                    registerExpressionType(&node, "Void", Parser::OwnershipType::None);
                 } else {
-                    // Builtin type - assume valid
-                    registerExpressionType(&node, "Unknown", Parser::OwnershipType::Owned);
+                    // Unknown method - error
+                    registerExpressionType(&node, UNKNOWN_TYPE, Parser::OwnershipType::Owned);
                 }
             }
             return;
         }
     }
 
-    // Default fallback - check intrinsic methods if we can extract class and method name
-    registerExpressionType(&node, "Unknown", Parser::OwnershipType::Owned);
+    // Default fallback - use Deferred in template context (resolved at instantiation)
+    registerExpressionType(&node, inTemplateDefinition ? DEFERRED_TYPE : UNKNOWN_TYPE, Parser::OwnershipType::Owned);
 }
 
 void SemanticAnalyzer::visit(Parser::BinaryExpr& node) {
@@ -2997,7 +3102,9 @@ void SemanticAnalyzer::visit(Parser::BinaryExpr& node) {
                                (isNumericType(leftType) && isNativeType(rightType));
 
         // For arithmetic operators, both sides should be compatible
-        if (!typesCompatible && leftType != "Unknown" && rightType != "Unknown") {
+        // Skip check for Unknown/Deferred types (template-dependent)
+        if (!typesCompatible && leftType != UNKNOWN_TYPE && leftType != DEFERRED_TYPE &&
+            rightType != UNKNOWN_TYPE && rightType != DEFERRED_TYPE) {
             errorReporter.reportWarning(
                 Common::ErrorCode::TypeMismatch,
                 "Type mismatch in binary operation: " + leftType + " " + node.op + " " + rightType,
@@ -3736,9 +3843,9 @@ static std::string getLiteralType(Parser::Expression* expr) {
     if (dynamic_cast<Parser::FloatLiteralExpr*>(expr)) return "Float";
     if (auto* identExpr = dynamic_cast<Parser::IdentifierExpr*>(expr)) {
         // Could be a variable, but we don't know the type without context
-        return "Unknown";
+        return UNKNOWN_TYPE;
     }
-    return "Unknown";
+    return UNKNOWN_TYPE;
 }
 
 // Extract call expressions from an expression tree
@@ -3763,7 +3870,7 @@ void SemanticAnalyzer::extractCallsFromExpression(Parser::Expression* expr,
                 // Extract argument types (use literal type detection since expressionTypes isn't populated yet)
                 for (auto& arg : callExpr->arguments) {
                     std::string argType = getLiteralType(arg.get());
-                    if (argType == "Unknown") {
+                    if (argType == UNKNOWN_TYPE || argType == DEFERRED_TYPE) {
                         // Try the normal method in case it was already visited
                         argType = getExpressionType(arg.get());
                     }

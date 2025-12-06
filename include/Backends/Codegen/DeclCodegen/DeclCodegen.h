@@ -47,6 +47,7 @@ public:
     // Other declarations
     virtual void visitNamespace(Parser::NamespaceDecl* decl);
     virtual void visitEntrypoint(Parser::EntrypointDecl* decl);
+    virtual void visitAnnotationDecl(Parser::AnnotationDecl* decl);
 
 protected:
     CodegenContext& ctx_;
@@ -55,6 +56,13 @@ protected:
 
     // Generate body statements for a function
     void generateFunctionBody(const std::vector<std::unique_ptr<Parser::Statement>>& body);
+
+private:
+    // Annotation collection helpers
+    void collectRetainedAnnotations(Parser::ClassDecl* decl);
+    void collectRetainedAnnotations(Parser::MethodDecl* decl, const std::string& className);
+    void collectRetainedAnnotations(Parser::PropertyDecl* decl, const std::string& className);
+    AnnotationArgValue evaluateAnnotationArg(Parser::Expression* expr);
 };
 
 } // namespace Codegen

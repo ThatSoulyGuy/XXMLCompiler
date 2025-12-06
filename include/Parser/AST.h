@@ -58,6 +58,7 @@ struct TemplateArgument {
     Kind kind;
     std::string typeArg;                      // For type arguments (e.g., "Integer")
     std::unique_ptr<Expression> valueArg;     // For value arguments (e.g., 5+3)
+    std::string valueStr;                     // String representation of value argument (e.g., "89")
     Common::SourceLocation location;
 
     // Constructor for type arguments
@@ -67,6 +68,10 @@ struct TemplateArgument {
     // Constructor for value arguments
     TemplateArgument(std::unique_ptr<Expression> value, const Common::SourceLocation& loc)
         : kind(Kind::Value), typeArg(""), valueArg(std::move(value)), location(loc) {}
+
+    // Constructor for value arguments with string representation
+    TemplateArgument(std::unique_ptr<Expression> value, const std::string& valStr, const Common::SourceLocation& loc)
+        : kind(Kind::Value), typeArg(""), valueArg(std::move(value)), valueStr(valStr), location(loc) {}
 
     // Constructor for wildcard (?)
     static TemplateArgument Wildcard(const Common::SourceLocation& loc) {
@@ -113,6 +118,42 @@ public:
     void accept(ASTVisitor& visitor) override;
     std::unique_ptr<ASTNode> clone() const override;
     std::unique_ptr<TypeRef> cloneType() const;
+
+    // Convert to string representation (for nested template support)
+    std::string toString() const {
+        std::string result = typeName;
+
+        // Add template arguments if any
+        if (!templateArgs.empty()) {
+            result += "<";
+            for (size_t i = 0; i < templateArgs.size(); ++i) {
+                if (i > 0) result += ", ";
+                if (templateArgs[i].kind == TemplateArgument::Kind::Type) {
+                    result += templateArgs[i].typeArg;
+                } else if (templateArgs[i].kind == TemplateArgument::Kind::Wildcard) {
+                    result += "?";
+                } else if (templateArgs[i].kind == TemplateArgument::Kind::Value) {
+                    // Value argument - use stored string representation
+                    if (!templateArgs[i].valueStr.empty()) {
+                        result += templateArgs[i].valueStr;
+                    } else {
+                        result += "/*expr*/";
+                    }
+                }
+            }
+            result += ">";
+        }
+
+        // Add ownership suffix
+        switch (ownership) {
+            case OwnershipType::Owned: result += "^"; break;
+            case OwnershipType::Reference: result += "&"; break;
+            case OwnershipType::Copy: result += "%"; break;
+            default: break;
+        }
+
+        return result;
+    }
 };
 
 // Function type reference - for function reference types like F(Integer^)(name)(Integer&, String&)

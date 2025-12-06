@@ -4,6 +4,7 @@
 #include "Semantic/SemanticError.h"
 #include "Semantic/SemanticAnalyzer.h"
 #include <algorithm>
+#include <cctype>
 #include <iostream>
 
 namespace XXML {
@@ -110,53 +111,12 @@ bool CodegenContext::hasClass(const std::string& name) const {
 LLVMIR::Type* CodegenContext::mapType(std::string_view xxmlType) {
     auto& ctx = module_->getContext();
 
-    // Strip ownership modifiers using TypeNormalizer
+    // Strip ownership modifiers first to get the base type
     std::string type = TypeNormalizer::stripOwnershipMarker(xxmlType);
 
-    // Primitive types
-    if (type == "Integer" || type == "Int" || type == "Int64") {
-        return ctx.getInt64Ty();
-    }
-    if (type == "Int32" || type == "int32") {
-        return ctx.getInt32Ty();
-    }
-    if (type == "Int16" || type == "int16") {
-        return ctx.getInt16Ty();
-    }
-    if (type == "Int8" || type == "int8" || type == "Byte") {
-        return ctx.getInt8Ty();
-    }
-    if (type == "Bool" || type == "Boolean") {
-        return ctx.getInt1Ty();
-    }
-    if (type == "Float") {
-        return ctx.getFloatTy();
-    }
-    if (type == "Double") {
-        return ctx.getDoubleTy();
-    }
-    if (type == "Void" || type == "None" || type == "void") {
-        return ctx.getVoidTy();
-    }
-
-    // Check if it's a known class type (returns pointer)
-    if (hasClass(type)) {
-        return ctx.getPtrTy();
-    }
-
-    // Check for template instantiation pattern (e.g., Box<Integer>)
-    if (type.find('<') != std::string::npos) {
-        return ctx.getPtrTy();  // Template instances are objects (pointers)
-    }
-
-    // Check for String type (builtin class)
-    if (type == "String") {
-        return ctx.getPtrTy();
-    }
-
-    // Check for NativeType patterns
+    // NativeType is ALWAYS a primitive value type, even with ownership markers
+    // e.g., NativeType<int64>^ should still be i64, not ptr
     if (type.find("NativeType<") != std::string::npos) {
-        // Extract the native type and map it
         size_t start = type.find('<') + 1;
         size_t end = type.rfind('>');
         if (start < end) {
@@ -176,7 +136,65 @@ LLVMIR::Type* CodegenContext::mapType(std::string_view xxmlType) {
                 return ctx.getPtrTy();
             }
         }
-        return ctx.getPtrTy();  // Default NativeType to pointer
+    }
+
+    // Boxed types are classes in XXML - they're always pointers
+    // Both Integer and Integer^ should return ptr (ownership marker stripped above)
+    if (type == "Integer" || type == "Int" || type == "Int64") {
+        return ctx.getPtrTy();  // Integer is a boxed class
+    }
+    if (type == "Bool" || type == "Boolean") {
+        return ctx.getPtrTy();  // Bool is a boxed class
+    }
+    if (type == "Float") {
+        return ctx.getPtrTy();  // Float is a boxed class
+    }
+    if (type == "Double") {
+        return ctx.getPtrTy();  // Double is a boxed class
+    }
+
+    // Lowercase primitive type names for ABI compatibility (used in FFI/native code)
+    if (type == "int32") {
+        return ctx.getInt32Ty();
+    }
+    if (type == "int16") {
+        return ctx.getInt16Ty();
+    }
+    if (type == "int8" || type == "Byte") {
+        return ctx.getInt8Ty();
+    }
+
+    // Void types
+    if (type == "Void" || type == "None" || type == "void") {
+        return ctx.getVoidTy();
+    }
+
+    // Check if it's a known class type (returns pointer)
+    if (hasClass(type)) {
+        return ctx.getPtrTy();
+    }
+
+    // Check for template instantiation pattern (e.g., Box<Integer>)
+    if (type.find('<') != std::string::npos) {
+        return ctx.getPtrTy();  // Template instances are objects (pointers)
+    }
+
+    // Check for String type (builtin class)
+    if (type == "String") {
+        return ctx.getPtrTy();
+    }
+
+    // Check for qualified class names (contain :: but might be unregistered template base)
+    // This handles cases like "Language::Collections::List" (template base without params)
+    if (type.find("::") != std::string::npos) {
+        return ctx.getPtrTy();  // Treat qualified names as object pointers
+    }
+
+    // If it's a simple identifier (no special chars) that starts with uppercase,
+    // assume it's a class name that will be registered later (e.g., in template instantiation)
+    // This handles cases like "IntKey" used as template parameter before class is registered
+    if (!type.empty() && std::isupper(type[0]) && type.find_first_of("<>[]") == std::string::npos) {
+        return ctx.getPtrTy();  // Treat as object pointer - will be validated at link time
     }
 
     // STRICT MODE: Unknown types are now a hard failure
@@ -223,40 +241,108 @@ std::string CodegenContext::getDefaultValue(std::string_view llvmType) const {
 // === Name Mangling ===
 
 std::string CodegenContext::mangleFunctionName(std::string_view className, std::string_view method) const {
-    std::string result(className);
-    result += "_";
-    result += method;
-
-    // Replace :: with _
-    size_t pos = 0;
-    while ((pos = result.find("::")) != std::string::npos) {
-        result.replace(pos, 2, "_");
+    // Special handling for Syscall namespace - translate to xxml_ prefixed runtime functions
+    if (className == "Syscall") {
+        return "xxml_" + std::string(method);
     }
 
-    // Replace template characters with valid LLVM identifiers
-    // < -> _LT_
-    while ((pos = result.find("<")) != std::string::npos) {
-        result.replace(pos, 1, "_LT_");
-    }
-    // > -> _GT_
-    while ((pos = result.find(">")) != std::string::npos) {
-        result.replace(pos, 1, "_GT_");
-    }
-    // , -> _C_
-    while ((pos = result.find(",")) != std::string::npos) {
-        result.replace(pos, 1, "_C_");
-    }
-    // Replace spaces
-    while ((pos = result.find(" ")) != std::string::npos) {
-        result.replace(pos, 1, "");
-    }
+    std::string combined(className);
+    combined += "_";
+    combined += method;
 
-    return result;
+    // Use TypeNormalizer for consistent mangling with legacy code
+    return TypeNormalizer::mangleForLLVM(combined);
 }
 
 std::string CodegenContext::mangleTypeName(std::string_view typeName) const {
     // Use TypeNormalizer for consistent name mangling
     return TypeNormalizer::mangleForLLVM(typeName);
+}
+
+// === Method Signature Lookup ===
+
+std::string CodegenContext::lookupMethodReturnType(const std::string& mangledName) const {
+    // Check preamble/runtime functions first
+    // These are declared in PreambleGen but not registered in the module
+    static const std::unordered_map<std::string, std::string> preambleFunctions = {
+        // Integer methods that return NativeType<int64>
+        {"Integer_getValue", "NativeType<int64>"},
+        {"Integer_toInt64", "NativeType<int64>"},
+        // Float methods
+        {"Float_getValue", "NativeType<float>"},
+        // Double methods
+        {"Double_getValue", "NativeType<double>"},
+        // Bool methods
+        {"Bool_getValue", "NativeType<bool>"},
+        // String methods that return primitives
+        {"String_length", "NativeType<int64>"},
+        {"String_equals", "NativeType<bool>"},
+        {"String_isEmpty", "NativeType<bool>"},
+        // Memory/Syscall methods
+        {"xxml_int64_read", "NativeType<int64>"},
+        {"xxml_read_byte", "NativeType<int8>"},
+        {"xxml_string_hash", "NativeType<int64>"},
+        {"xxml_ptr_is_null", "NativeType<int64>"},
+        // Reflection methods that return primitives
+        {"Reflection_getTypeCount", "NativeType<int32>"},
+        {"xxml_reflection_type_isTemplate", "NativeType<int64>"},
+        {"xxml_reflection_type_getTemplateParamCount", "NativeType<int64>"},
+        {"xxml_reflection_type_getPropertyCount", "NativeType<int64>"},
+        {"xxml_reflection_type_getMethodCount", "NativeType<int64>"},
+        {"xxml_reflection_type_getInstanceSize", "NativeType<int64>"},
+        {"xxml_reflection_property_getOwnership", "NativeType<int64>"},
+        {"xxml_reflection_property_getOffset", "NativeType<int64>"},
+        {"xxml_reflection_method_getReturnOwnership", "NativeType<int64>"},
+        {"xxml_reflection_method_getParameterCount", "NativeType<int64>"},
+        {"xxml_reflection_method_isStatic", "NativeType<int64>"},
+        {"xxml_reflection_method_isConstructor", "NativeType<int64>"},
+        {"xxml_reflection_parameter_getOwnership", "NativeType<int64>"},
+    };
+
+    auto preambleIt = preambleFunctions.find(mangledName);
+    if (preambleIt != preambleFunctions.end()) {
+        return preambleIt->second;
+    }
+
+    // Parse mangled name: "ClassName_methodName" or "Namespace_Class_methodName"
+    // Find the last underscore to split class from method
+    size_t lastUnderscore = mangledName.rfind('_');
+    if (lastUnderscore == std::string::npos || lastUnderscore == 0) {
+        return "";  // Invalid format
+    }
+
+    std::string methodName = mangledName.substr(lastUnderscore + 1);
+    std::string classPath = mangledName.substr(0, lastUnderscore);
+
+    // Convert underscores to :: for qualified names
+    std::string className = classPath;
+    // Replace _ with :: for namespace separators (simple heuristic)
+    // e.g., "Language_Collections_HashMap" -> "Language::Collections::HashMap"
+
+    // Look up in semantic analyzer
+    if (!semanticAnalyzer_) {
+        return "";
+    }
+
+    // Try exact match first
+    auto* methodInfo = semanticAnalyzer_->findMethod(className, methodName);
+    if (methodInfo) {
+        return methodInfo->returnType;
+    }
+
+    // Try with :: separators
+    std::string qualifiedClassName = className;
+    size_t pos = 0;
+    while ((pos = qualifiedClassName.find('_', pos)) != std::string::npos) {
+        qualifiedClassName.replace(pos, 1, "::");
+        pos += 2;
+    }
+    methodInfo = semanticAnalyzer_->findMethod(qualifiedClassName, methodName);
+    if (methodInfo) {
+        return methodInfo->returnType;
+    }
+
+    return "";
 }
 
 // === Loop Stack ===
@@ -402,11 +488,8 @@ void CodegenContext::registerForDestruction(const std::string& varName,
 }
 
 bool CodegenContext::needsDestruction(const std::string& typeName) const {
-    // Strip ownership markers
-    std::string baseType = typeName;
-    if (!baseType.empty() && (baseType.back() == '^' || baseType.back() == '%' || baseType.back() == '&')) {
-        baseType = baseType.substr(0, baseType.length() - 1);
-    }
+    // Strip ownership markers using TypeNormalizer
+    std::string baseType = TypeNormalizer::stripOwnershipMarker(typeName);
 
     // Primitive types don't need destruction
     if (baseType == "Integer" || baseType == "Int" || baseType == "Int64" ||
@@ -458,12 +541,8 @@ void CodegenContext::emitScopeDestructors() {
                 it->varName + ".dtor_load"
             );
 
-            // Get destructor function name
-            std::string typeName = it->typeName;
-            if (!typeName.empty() && (typeName.back() == '^' || typeName.back() == '%' || typeName.back() == '&')) {
-                typeName = typeName.substr(0, typeName.length() - 1);
-            }
-            // Resolve to fully qualified name
+            // Get destructor function name - strip ownership and resolve
+            std::string typeName = TypeNormalizer::stripOwnershipMarker(it->typeName);
             typeName = resolveToQualifiedName(typeName);
             std::string dtorName = mangleFunctionName(typeName, "Destructor");
 
@@ -497,11 +576,8 @@ void CodegenContext::emitAllDestructors() {
                     it->varName + ".dtor_load"
                 );
 
-                std::string typeName = it->typeName;
-                if (!typeName.empty() && (typeName.back() == '^' || typeName.back() == '%' || typeName.back() == '&')) {
-                    typeName = typeName.substr(0, typeName.length() - 1);
-                }
-                // Resolve to fully qualified name
+                // Strip ownership and resolve to fully qualified name
+                std::string typeName = TypeNormalizer::stripOwnershipMarker(it->typeName);
                 typeName = resolveToQualifiedName(typeName);
                 std::string dtorName = mangleFunctionName(typeName, "Destructor");
 
@@ -606,6 +682,166 @@ std::string CodegenContext::resolveToQualifiedName(const std::string& typeName) 
 
     // Fallback: return as-is
     return typeName;
+}
+
+// === Reflection Metadata ===
+
+void CodegenContext::addReflectionMetadata(const std::string& fullName, const ReflectionClassMetadata& metadata) {
+    // Don't overwrite if already exists
+    if (reflectionMetadata_.find(fullName) == reflectionMetadata_.end()) {
+        reflectionMetadata_[fullName] = metadata;
+    }
+}
+
+const ReflectionClassMetadata* CodegenContext::getReflectionMetadata(const std::string& fullName) const {
+    auto it = reflectionMetadata_.find(fullName);
+    return (it != reflectionMetadata_.end()) ? &it->second : nullptr;
+}
+
+bool CodegenContext::hasReflectionMetadata(const std::string& fullName) const {
+    return reflectionMetadata_.find(fullName) != reflectionMetadata_.end();
+}
+
+// === Annotation Metadata ===
+
+void CodegenContext::addAnnotationMetadata(const PendingAnnotationMetadata& metadata) {
+    annotationMetadata_.push_back(metadata);
+}
+
+void CodegenContext::markAnnotationRetained(const std::string& annotationName) {
+    retainedAnnotations_.insert(annotationName);
+}
+
+bool CodegenContext::isAnnotationRetained(const std::string& annotationName) const {
+    return retainedAnnotations_.find(annotationName) != retainedAnnotations_.end();
+}
+
+// === Deferred Type Verification ===
+
+bool CodegenContext::verifyTypeResolved(const std::string& typeName, const std::string& context) {
+    // Check for Deferred type marker
+    if (typeName == "Deferred" || typeName.find("Deferred") == 0) {
+        std::cerr << "[ERROR] Unresolved Deferred type at " << context
+                  << ". Template parameter was not instantiated.\n";
+        return false;
+    }
+
+    // Check for Unknown type marker
+    if (typeName == "Unknown" || typeName.find("Unknown") == 0) {
+        std::cerr << "[ERROR] Unknown type at " << context
+                  << ". Type resolution failed.\n";
+        return false;
+    }
+
+    return true;
+}
+
+void CodegenContext::trackTypeUsage(const std::string& typeName, const std::string& location) {
+    typeUsageTracking_[typeName].push_back(location);
+}
+
+bool CodegenContext::verifyAllTypesResolved() {
+    bool allResolved = true;
+    int deferredCount = 0;
+    int unknownCount = 0;
+
+    // Check all tracked types
+    for (const auto& [typeName, locations] : typeUsageTracking_) {
+        if (typeName == "Deferred" || typeName.find("Deferred") == 0) {
+            deferredCount++;
+            for (const auto& loc : locations) {
+                std::cerr << "[ERROR] Deferred type not instantiated at: " << loc << "\n";
+            }
+            allResolved = false;
+        }
+        if (typeName == "Unknown" || typeName.find("Unknown") == 0) {
+            unknownCount++;
+            for (const auto& loc : locations) {
+                std::cerr << "[ERROR] Unknown type at: " << loc << "\n";
+            }
+            allResolved = false;
+        }
+    }
+
+    // Check all registered variables
+    for (const auto& scope : variableScopes_) {
+        for (const auto& [varName, varInfo] : scope) {
+            if (varInfo.xxmlType == "Deferred" || varInfo.xxmlType.find("Deferred") == 0) {
+                std::cerr << "[ERROR] Variable '" << varName
+                          << "' has unresolved Deferred type\n";
+                deferredCount++;
+                allResolved = false;
+            }
+            if (varInfo.xxmlType == "Unknown" || varInfo.xxmlType.find("Unknown") == 0) {
+                std::cerr << "[ERROR] Variable '" << varName
+                          << "' has Unknown type\n";
+                unknownCount++;
+                allResolved = false;
+            }
+        }
+    }
+
+    // Check all registered classes
+    for (const auto& [className, classInfo] : classes_) {
+        for (const auto& prop : classInfo.properties) {
+            if (prop.xxmlType == "Deferred" || prop.xxmlType.find("Deferred") == 0) {
+                std::cerr << "[ERROR] Property '" << prop.name << "' in class '"
+                          << className << "' has unresolved Deferred type\n";
+                deferredCount++;
+                allResolved = false;
+            }
+            if (prop.xxmlType == "Unknown" || prop.xxmlType.find("Unknown") == 0) {
+                std::cerr << "[ERROR] Property '" << prop.name << "' in class '"
+                          << className << "' has Unknown type\n";
+                unknownCount++;
+                allResolved = false;
+            }
+        }
+    }
+
+    if (!allResolved) {
+        std::cerr << "[VERIFICATION FAILED] Found " << deferredCount
+                  << " Deferred and " << unknownCount << " Unknown types\n";
+    }
+
+    return allResolved;
+}
+
+CodegenContext::TypeVerificationStats CodegenContext::getTypeVerificationStats() const {
+    TypeVerificationStats stats;
+
+    for (const auto& [typeName, locations] : typeUsageTracking_) {
+        stats.totalTypes++;
+        if (typeName == "Deferred" || typeName.find("Deferred") == 0) {
+            stats.deferredTypes++;
+            for (const auto& loc : locations) {
+                stats.unresolvedLocations.push_back("Deferred at " + loc);
+            }
+        }
+        if (typeName == "Unknown" || typeName.find("Unknown") == 0) {
+            stats.unknownTypes++;
+            for (const auto& loc : locations) {
+                stats.unresolvedLocations.push_back("Unknown at " + loc);
+            }
+        }
+    }
+
+    // Also count from variables and classes
+    for (const auto& scope : variableScopes_) {
+        for (const auto& [varName, varInfo] : scope) {
+            stats.totalTypes++;
+            if (varInfo.xxmlType == "Deferred" || varInfo.xxmlType.find("Deferred") == 0) {
+                stats.deferredTypes++;
+                stats.unresolvedLocations.push_back("Deferred variable: " + varName);
+            }
+            if (varInfo.xxmlType == "Unknown" || varInfo.xxmlType.find("Unknown") == 0) {
+                stats.unknownTypes++;
+                stats.unresolvedLocations.push_back("Unknown variable: " + varName);
+            }
+        }
+    }
+
+    return stats;
 }
 
 } // namespace Codegen

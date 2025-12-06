@@ -31,6 +31,7 @@ struct PropertyInfo {
     std::string xxmlType;
     std::string llvmType;
     size_t index;
+    bool isObjectType = false;  // true if owned/reference/copy type (stored as ptr)
 };
 
 // Class metadata
@@ -91,6 +92,41 @@ struct ScopeDestructorInfo {
     LLVMIR::AllocaInst* alloca;
 };
 
+// Reflection metadata for classes (moved from LLVMBackend)
+struct ReflectionClassMetadata {
+    std::string name;
+    std::string namespaceName;
+    std::string fullName;
+    std::vector<std::pair<std::string, std::string>> properties;  // name, type
+    std::vector<std::string> propertyOwnerships;  // ownership chars (^, &, %)
+    std::vector<std::pair<std::string, std::string>> methods;  // name, return type
+    std::vector<std::string> methodReturnOwnerships;  // ownership for return types
+    std::vector<std::vector<std::tuple<std::string, std::string, std::string>>> methodParameters;  // name, type, ownership
+    bool isTemplate = false;
+    std::vector<std::string> templateParams;
+    size_t instanceSize = 0;
+    Parser::ClassDecl* astNode = nullptr;
+};
+
+// Annotation argument value (moved from LLVMBackend)
+struct AnnotationArgValue {
+    enum Kind { Integer, String, Bool, Float, Double } kind = Integer;
+    int64_t intValue = 0;
+    std::string stringValue;
+    bool boolValue = false;
+    float floatValue = 0.0f;
+    double doubleValue = 0.0;
+};
+
+// Pending annotation metadata for retained annotations (moved from LLVMBackend)
+struct PendingAnnotationMetadata {
+    std::string annotationName;
+    std::string targetType;      // "type", "method", or "property"
+    std::string typeName;        // Class name
+    std::string memberName;      // Method/property name (empty for type-level)
+    std::vector<std::pair<std::string, AnnotationArgValue>> arguments;
+};
+
 /**
  * @brief Shared context for all codegen modules
  *
@@ -148,6 +184,11 @@ public:
     LLVMIR::Type* mapType(std::string_view xxmlType);
     std::string getLLVMTypeString(std::string_view xxmlType) const;
     std::string getDefaultValue(std::string_view llvmType) const;
+
+    // === Method Signature Lookup ===
+    // Look up return type for a mangled function name (e.g., "IntKey_hash")
+    // Returns the XXML return type, or empty string if not found
+    std::string lookupMethodReturnType(const std::string& mangledName) const;
 
     // === Name Mangling ===
     std::string mangleFunctionName(std::string_view className, std::string_view method) const;
@@ -227,6 +268,40 @@ public:
     void pushScope();
     void popScope();
 
+    // === Reflection Metadata ===
+    void addReflectionMetadata(const std::string& fullName, const ReflectionClassMetadata& metadata);
+    const ReflectionClassMetadata* getReflectionMetadata(const std::string& fullName) const;
+    const std::unordered_map<std::string, ReflectionClassMetadata>& reflectionMetadata() const { return reflectionMetadata_; }
+    bool hasReflectionMetadata(const std::string& fullName) const;
+
+    // === Annotation Metadata ===
+    void addAnnotationMetadata(const PendingAnnotationMetadata& metadata);
+    const std::vector<PendingAnnotationMetadata>& annotationMetadata() const { return annotationMetadata_; }
+    void markAnnotationRetained(const std::string& annotationName);
+    bool isAnnotationRetained(const std::string& annotationName) const;
+    int allocateAnnotationId() { return annotationMetadataCounter_++; }
+
+    // === Deferred Type Verification ===
+    // Checks that a type has been properly resolved (not Deferred or Unknown)
+    // Returns true if type is valid, false and logs error if Deferred/Unknown
+    bool verifyTypeResolved(const std::string& typeName, const std::string& context);
+
+    // Verify all registered variables have resolved types
+    // Call this after template instantiation to ensure no Deferred types remain
+    bool verifyAllTypesResolved();
+
+    // Track types encountered during codegen for verification
+    void trackTypeUsage(const std::string& typeName, const std::string& location);
+
+    // Get verification statistics
+    struct TypeVerificationStats {
+        int totalTypes = 0;
+        int deferredTypes = 0;
+        int unknownTypes = 0;
+        std::vector<std::string> unresolvedLocations;
+    };
+    TypeVerificationStats getTypeVerificationStats() const;
+
 private:
     // IR infrastructure
     std::unique_ptr<LLVMIR::Module> module_;
@@ -289,6 +364,17 @@ private:
 
     // RAII destructor scopes (stack of scope destructor lists)
     std::vector<std::vector<ScopeDestructorInfo>> destructorScopes_;
+
+    // Reflection metadata for classes
+    std::unordered_map<std::string, ReflectionClassMetadata> reflectionMetadata_;
+
+    // Annotation metadata
+    std::vector<PendingAnnotationMetadata> annotationMetadata_;
+    std::set<std::string> retainedAnnotations_;
+    int annotationMetadataCounter_ = 0;
+
+    // Type verification tracking (type -> locations where used)
+    std::unordered_map<std::string, std::vector<std::string>> typeUsageTracking_;
 };
 
 } // namespace Codegen

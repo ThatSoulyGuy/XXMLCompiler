@@ -1,299 +1,567 @@
 #include "Backends/Codegen/Preamble/PreambleGen.h"
-#include <sstream>
 
 namespace XXML {
 namespace Backends {
 namespace Codegen {
 
-PreambleGen::PreambleGen(CodegenContext& ctx)
-    : ctx_(ctx) {}
+PreambleGen::PreambleGen(TargetPlatform platform)
+    : platform_(platform) {
+}
 
 std::string PreambleGen::getTargetTriple() const {
+    switch (platform_) {
+        case TargetPlatform::X86_64_Windows:
+            return "x86_64-pc-windows-msvc";
+        case TargetPlatform::X86_64_Linux:
+            return "x86_64-unknown-linux-gnu";
+        case TargetPlatform::X86_64_MacOS:
+            return "x86_64-apple-darwin";
+        case TargetPlatform::ARM64_Linux:
+            return "aarch64-unknown-linux-gnu";
+        case TargetPlatform::ARM64_MacOS:
+            return "arm64-apple-darwin";
+        case TargetPlatform::WebAssembly:
+            return "wasm32-unknown-unknown";
+        case TargetPlatform::Native:
+        default:
 #ifdef _WIN32
-    return "x86_64-pc-windows-msvc";
+    #if defined(__MINGW32__) || defined(__MINGW64__)
+            return "x86_64-w64-windows-gnu";
+    #else
+            return "x86_64-pc-windows-msvc";
+    #endif
 #elif defined(__APPLE__)
-    return "arm64-apple-darwin";
+    #if defined(__aarch64__) || defined(__arm64__)
+            return "arm64-apple-darwin";
+    #else
+            return "x86_64-apple-darwin";
+    #endif
+#elif defined(__linux__)
+    #if defined(__aarch64__) || defined(__arm64__)
+            return "aarch64-unknown-linux-gnu";
+    #else
+            return "x86_64-unknown-linux-gnu";
+    #endif
 #else
-    return "x86_64-unknown-linux-gnu";
+            return "x86_64-unknown-unknown";
 #endif
-}
-
-std::string PreambleGen::getDataLayout() const {
-#ifdef _WIN32
-    return "e-m:w-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128";
-#elif defined(__APPLE__)
-    return "e-m:o-i64:64-i128:128-n32:64-S128";
-#else
-    return "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128";
-#endif
-}
-
-void PreambleGen::declareFunc(const std::string& name, LLVMIR::Type* retTy,
-                               std::vector<LLVMIR::Type*> paramTys) {
-    auto* fn = ctx_.module().getFunction(name);
-    if (!fn) {
-        auto* funcType = ctx_.module().getContext().getFunctionTy(retTy, paramTys, false);
-        ctx_.module().createFunction(funcType, name, LLVMIR::Function::Linkage::External);
     }
 }
 
-void PreambleGen::generateBuiltinTypes() {
-    // Built-in types are created via module initialization
-    // This is a placeholder for future type-safe struct creation
+std::string PreambleGen::getDataLayout() const {
+    switch (platform_) {
+        case TargetPlatform::X86_64_Windows:
+        case TargetPlatform::X86_64_Linux:
+        case TargetPlatform::X86_64_MacOS:
+            return "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128";
+        case TargetPlatform::ARM64_Linux:
+        case TargetPlatform::ARM64_MacOS:
+            return "e-m:o-i64:64-i128:128-n32:64-S128";
+        case TargetPlatform::WebAssembly:
+            return "e-m:e-p:32:32-i64:64-n32:64-S128";
+        case TargetPlatform::Native:
+        default:
+            return "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128";
+    }
 }
 
-void PreambleGen::declareRuntimeFunctions() {
-    declareMemoryFunctions();
-    declareIntegerFunctions();
-    declareFloatFunctions();
-    declareDoubleFunctions();
-    declareStringFunctions();
-    declareBoolFunctions();
-    declareConsoleFunctions();
-    declareReflectionFunctions();
-    declareAnnotationFunctions();
-    declareFFIFunctions();
-    declareThreadingFunctions();
-    declareFileFunctions();
-    declareUtilityFunctions();
-}
-
-void PreambleGen::declareMemoryFunctions() {
-    auto& llvmCtx = ctx_.module().getContext();
-    auto* ptrTy = llvmCtx.getPtrTy();
-    auto* i32Ty = llvmCtx.getInt32Ty();
-    auto* i64Ty = llvmCtx.getInt64Ty();
-    auto* i8Ty = llvmCtx.getInt8Ty();
-    auto* voidTy = llvmCtx.getVoidTy();
-
-    declareFunc("xxml_malloc", ptrTy, {i64Ty});
-    declareFunc("xxml_free", voidTy, {ptrTy});
-    declareFunc("xxml_memcpy", ptrTy, {ptrTy, ptrTy, i64Ty});
-    declareFunc("xxml_memset", ptrTy, {ptrTy, i32Ty, i64Ty});
-    declareFunc("xxml_ptr_read", ptrTy, {ptrTy});
-    declareFunc("xxml_ptr_write", voidTy, {ptrTy, ptrTy});
-    declareFunc("xxml_read_byte", i8Ty, {ptrTy});
-    declareFunc("xxml_write_byte", voidTy, {ptrTy, i8Ty});
-}
-
-void PreambleGen::declareIntegerFunctions() {
-    auto& llvmCtx = ctx_.module().getContext();
-    auto* ptrTy = llvmCtx.getPtrTy();
-    auto* i1Ty = llvmCtx.getInt1Ty();
-    auto* i64Ty = llvmCtx.getInt64Ty();
-
-    declareFunc("Integer_Constructor", ptrTy, {i64Ty});
-    declareFunc("Integer_getValue", i64Ty, {ptrTy});
-    declareFunc("Integer_add", ptrTy, {ptrTy, ptrTy});
-    declareFunc("Integer_sub", ptrTy, {ptrTy, ptrTy});
-    declareFunc("Integer_mul", ptrTy, {ptrTy, ptrTy});
-    declareFunc("Integer_div", ptrTy, {ptrTy, ptrTy});
-    declareFunc("Integer_negate", ptrTy, {ptrTy});
-    declareFunc("Integer_mod", ptrTy, {ptrTy, ptrTy});
-    declareFunc("Integer_eq", i1Ty, {ptrTy, ptrTy});
-    declareFunc("Integer_ne", i1Ty, {ptrTy, ptrTy});
-    declareFunc("Integer_lt", i1Ty, {ptrTy, ptrTy});
-    declareFunc("Integer_le", i1Ty, {ptrTy, ptrTy});
-    declareFunc("Integer_gt", i1Ty, {ptrTy, ptrTy});
-    declareFunc("Integer_ge", i1Ty, {ptrTy, ptrTy});
-    declareFunc("Integer_toInt64", i64Ty, {ptrTy});
-    declareFunc("Integer_toString", ptrTy, {ptrTy});
-}
-
-void PreambleGen::declareFloatFunctions() {
-    auto& llvmCtx = ctx_.module().getContext();
-    auto* ptrTy = llvmCtx.getPtrTy();
-    auto* floatTy = llvmCtx.getFloatTy();
-
-    declareFunc("Float_Constructor", ptrTy, {floatTy});
-    declareFunc("Float_getValue", floatTy, {ptrTy});
-    declareFunc("Float_toString", ptrTy, {ptrTy});
-}
-
-void PreambleGen::declareDoubleFunctions() {
-    auto& llvmCtx = ctx_.module().getContext();
-    auto* ptrTy = llvmCtx.getPtrTy();
-    auto* doubleTy = llvmCtx.getDoubleTy();
-
-    declareFunc("Double_Constructor", ptrTy, {doubleTy});
-    declareFunc("Double_getValue", doubleTy, {ptrTy});
-    declareFunc("Double_toString", ptrTy, {ptrTy});
-}
-
-void PreambleGen::declareStringFunctions() {
-    auto& llvmCtx = ctx_.module().getContext();
-    auto* ptrTy = llvmCtx.getPtrTy();
-    auto* i1Ty = llvmCtx.getInt1Ty();
-    auto* i64Ty = llvmCtx.getInt64Ty();
-    auto* voidTy = llvmCtx.getVoidTy();
-
-    declareFunc("String_Constructor", ptrTy, {ptrTy});
-    declareFunc("String_FromCString", ptrTy, {ptrTy});
-    declareFunc("String_toCString", ptrTy, {ptrTy});
-    declareFunc("String_length", i64Ty, {ptrTy});
-    declareFunc("String_concat", ptrTy, {ptrTy, ptrTy});
-    declareFunc("String_append", ptrTy, {ptrTy, ptrTy});
-    declareFunc("String_equals", i1Ty, {ptrTy, ptrTy});
-    declareFunc("String_isEmpty", i1Ty, {ptrTy});
-    declareFunc("String_destroy", voidTy, {ptrTy});
-}
-
-void PreambleGen::declareBoolFunctions() {
-    auto& llvmCtx = ctx_.module().getContext();
-    auto* ptrTy = llvmCtx.getPtrTy();
-    auto* i1Ty = llvmCtx.getInt1Ty();
-
-    declareFunc("Bool_Constructor", ptrTy, {i1Ty});
-    declareFunc("Bool_getValue", i1Ty, {ptrTy});
-    declareFunc("Bool_and", ptrTy, {ptrTy, ptrTy});
-    declareFunc("Bool_or", ptrTy, {ptrTy, ptrTy});
-    declareFunc("Bool_not", ptrTy, {ptrTy});
-    declareFunc("None_Constructor", ptrTy, {});
-}
-
-void PreambleGen::declareConsoleFunctions() {
-    auto& llvmCtx = ctx_.module().getContext();
-    auto* ptrTy = llvmCtx.getPtrTy();
-    auto* i1Ty = llvmCtx.getInt1Ty();
-    auto* i64Ty = llvmCtx.getInt64Ty();
-    auto* voidTy = llvmCtx.getVoidTy();
-
-    declareFunc("Console_print", voidTy, {ptrTy});
-    declareFunc("Console_printLine", voidTy, {ptrTy});
-    declareFunc("Console_printInt", voidTy, {i64Ty});
-    declareFunc("Console_printBool", voidTy, {i1Ty});
-
-    // List operations
-    declareFunc("List_Constructor", ptrTy, {});
-    declareFunc("List_add", voidTy, {ptrTy, ptrTy});
-    declareFunc("List_get", ptrTy, {ptrTy, i64Ty});
-    declareFunc("List_size", i64Ty, {ptrTy});
-
-    // System
-    auto* i32Ty = llvmCtx.getInt32Ty();
-    declareFunc("xxml_exit", voidTy, {i32Ty});
-    declareFunc("exit", voidTy, {i32Ty});
-}
-
-void PreambleGen::declareReflectionFunctions() {
-    auto& llvmCtx = ctx_.module().getContext();
-    auto* ptrTy = llvmCtx.getPtrTy();
-    auto* i32Ty = llvmCtx.getInt32Ty();
-    auto* voidTy = llvmCtx.getVoidTy();
-
-    declareFunc("Reflection_registerType", voidTy, {ptrTy});
-    declareFunc("Reflection_getTypeInfo", ptrTy, {ptrTy});
-    declareFunc("Reflection_getTypeCount", i32Ty, {});
-    declareFunc("Reflection_getAllTypeNames", ptrTy, {});
-}
-
-void PreambleGen::declareAnnotationFunctions() {
-    auto& llvmCtx = ctx_.module().getContext();
-    auto* ptrTy = llvmCtx.getPtrTy();
-    auto* i32Ty = llvmCtx.getInt32Ty();
-    auto* voidTy = llvmCtx.getVoidTy();
-
-    declareFunc("Annotation_registerForType", voidTy, {ptrTy, i32Ty, ptrTy});
-    declareFunc("Annotation_getCountForType", i32Ty, {ptrTy});
-    declareFunc("Annotation_getForType", ptrTy, {ptrTy, i32Ty});
-}
-
-void PreambleGen::declareFFIFunctions() {
-    auto& llvmCtx = ctx_.module().getContext();
-    auto* ptrTy = llvmCtx.getPtrTy();
-    auto* i1Ty = llvmCtx.getInt1Ty();
-    auto* i64Ty = llvmCtx.getInt64Ty();
-    auto* floatTy = llvmCtx.getFloatTy();
-    auto* doubleTy = llvmCtx.getDoubleTy();
-    auto* voidTy = llvmCtx.getVoidTy();
-
-    declareFunc("xxml_FFI_loadLibrary", ptrTy, {ptrTy});
-    declareFunc("xxml_FFI_getSymbol", ptrTy, {ptrTy, ptrTy});
-    declareFunc("xxml_FFI_freeLibrary", voidTy, {ptrTy});
-    declareFunc("xxml_FFI_getError", ptrTy, {});
-    declareFunc("xxml_FFI_libraryExists", i1Ty, {ptrTy});
-
-    declareFunc("xxml_FFI_stringToCString", ptrTy, {ptrTy});
-    declareFunc("xxml_FFI_cstringToString", ptrTy, {ptrTy});
-    declareFunc("xxml_FFI_integerToInt64", i64Ty, {ptrTy});
-    declareFunc("xxml_FFI_int64ToInteger", ptrTy, {i64Ty});
-    declareFunc("xxml_FFI_floatToC", floatTy, {ptrTy});
-    declareFunc("xxml_FFI_cToFloat", ptrTy, {floatTy});
-    declareFunc("xxml_FFI_doubleToC", doubleTy, {ptrTy});
-    declareFunc("xxml_FFI_cToDouble", ptrTy, {doubleTy});
-    declareFunc("xxml_FFI_boolToC", i1Ty, {ptrTy});
-    declareFunc("xxml_FFI_cToBool", ptrTy, {i1Ty});
-}
-
-void PreambleGen::declareThreadingFunctions() {
-    auto& llvmCtx = ctx_.module().getContext();
-    auto* ptrTy = llvmCtx.getPtrTy();
-    auto* i1Ty = llvmCtx.getInt1Ty();
-    auto* i64Ty = llvmCtx.getInt64Ty();
-    auto* voidTy = llvmCtx.getVoidTy();
-
-    declareFunc("xxml_Thread_create", ptrTy, {ptrTy, ptrTy});
-    declareFunc("xxml_Thread_join", i64Ty, {ptrTy});
-    declareFunc("xxml_Thread_detach", i64Ty, {ptrTy});
-    declareFunc("xxml_Thread_isJoinable", i1Ty, {ptrTy});
-    declareFunc("xxml_Thread_sleep", voidTy, {i64Ty});
-    declareFunc("xxml_Thread_yield", voidTy, {});
-    declareFunc("xxml_Thread_currentId", i64Ty, {});
-
-    declareFunc("xxml_Mutex_create", ptrTy, {});
-    declareFunc("xxml_Mutex_destroy", voidTy, {ptrTy});
-    declareFunc("xxml_Mutex_lock", i64Ty, {ptrTy});
-    declareFunc("xxml_Mutex_unlock", i64Ty, {ptrTy});
-    declareFunc("xxml_Mutex_tryLock", i1Ty, {ptrTy});
-}
-
-void PreambleGen::declareFileFunctions() {
-    auto& llvmCtx = ctx_.module().getContext();
-    auto* ptrTy = llvmCtx.getPtrTy();
-    auto* i1Ty = llvmCtx.getInt1Ty();
-    auto* i64Ty = llvmCtx.getInt64Ty();
-    auto* voidTy = llvmCtx.getVoidTy();
-
-    declareFunc("xxml_File_open", ptrTy, {ptrTy, ptrTy});
-    declareFunc("xxml_File_close", voidTy, {ptrTy});
-    declareFunc("xxml_File_read", i64Ty, {ptrTy, ptrTy, i64Ty});
-    declareFunc("xxml_File_write", i64Ty, {ptrTy, ptrTy, i64Ty});
-    declareFunc("xxml_File_readLine", ptrTy, {ptrTy});
-    declareFunc("xxml_File_readAll", ptrTy, {ptrTy});
-    declareFunc("xxml_File_exists", i1Ty, {ptrTy});
-}
-
-void PreambleGen::declareUtilityFunctions() {
-    auto& llvmCtx = ctx_.module().getContext();
-    auto* ptrTy = llvmCtx.getPtrTy();
-    auto* i64Ty = llvmCtx.getInt64Ty();
-
-    declareFunc("xxml_string_create", ptrTy, {ptrTy});
-    declareFunc("xxml_string_concat", ptrTy, {ptrTy, ptrTy});
-    declareFunc("xxml_string_hash", i64Ty, {ptrTy});
-    declareFunc("xxml_ptr_is_null", i64Ty, {ptrTy});
-    declareFunc("xxml_ptr_null", ptrTy, {});
-}
-
-std::string PreambleGen::generate() {
+std::string PreambleGen::generate() const {
     std::stringstream preamble;
 
-    preamble << "; Generated by XXML Compiler v2.0 (LLVM IR Backend)\n";
-    preamble << "; Target: LLVM IR 17.0\n";
-    preamble << ";\n\n";
+    emitHeader(preamble);
+    emitTargetInfo(preamble);
+    emitBuiltinTypes(preamble);
 
-    preamble << "target triple = \"" << getTargetTriple() << "\"\n";
-    preamble << "target datalayout = \"" << getDataLayout() << "\"\n\n";
+    preamble << "; ============================================\n";
+    preamble << "; XXML LLVM Runtime Library\n";
+    preamble << "; ============================================\n\n";
 
-    preamble << "; Built-in type definitions\n";
-    preamble << "%Integer = type { i64 }\n";
-    preamble << "%String = type { ptr, i64 }\n";
-    preamble << "%Bool = type { i1 }\n";
-    preamble << "%Float = type { float }\n";
-    preamble << "%Double = type { double }\n";
-    preamble << "\n";
+    emitMemoryManagement(preamble);
+    emitIntegerOperations(preamble);
+    emitFloatOperations(preamble);
+    emitDoubleOperations(preamble);
+    emitStringOperations(preamble);
+    emitBoolOperations(preamble);
+    emitListOperations(preamble);
+    emitConsoleIO(preamble);
+    emitSystemFunctions(preamble);
+    emitReflectionRuntime(preamble);
+    emitAnnotationRuntime(preamble);
+    emitProcessorAPI(preamble);
+    emitDynamicValueMethods(preamble);
+    emitUtilityFunctions(preamble);
+    emitThreadingFunctions(preamble);
+    emitMutexFunctions(preamble);
+    emitConditionVariableFunctions(preamble);
+    emitAtomicFunctions(preamble);
+    emitTLSFunctions(preamble);
+    emitFileIOFunctions(preamble);
+    emitDirectoryFunctions(preamble);
+    emitPathFunctions(preamble);
+    emitFFIRuntime(preamble);
+    emitWindowsDLLFunctions(preamble);
+    emitAttributes(preamble);
 
     return preamble.str();
+}
+
+void PreambleGen::emitHeader(std::stringstream& out) const {
+    out << "; Generated by XXML Compiler v2.0 (LLVM IR Backend)\n";
+    out << "; Target: LLVM IR 17.0\n";
+    out << ";\n\n";
+}
+
+void PreambleGen::emitTargetInfo(std::stringstream& out) const {
+    out << "target triple = \"" << getTargetTriple() << "\"\n";
+    out << "target datalayout = \"" << getDataLayout() << "\"\n\n";
+}
+
+void PreambleGen::emitBuiltinTypes(std::stringstream& out) const {
+    out << "; Built-in type definitions\n";
+    out << "%Integer = type { i64 }\n";
+    out << "%String = type { ptr, i64 }\n";
+    out << "%Bool = type { i1 }\n";
+    out << "%Float = type { float }\n";
+    out << "%Double = type { double }\n";
+    out << "\n";
+}
+
+void PreambleGen::emitMemoryManagement(std::stringstream& out) const {
+    out << "; Memory Management\n";
+    out << "declare ptr @xxml_malloc(i64)\n";
+    out << "declare void @xxml_free(ptr)\n";
+    out << "declare ptr @xxml_memcpy(ptr, ptr, i64)\n";
+    out << "declare ptr @xxml_memset(ptr, i32, i64)\n";
+    out << "declare ptr @xxml_ptr_read(ptr)\n";
+    out << "declare void @xxml_ptr_write(ptr, ptr)\n";
+    out << "declare i8 @xxml_read_byte(ptr)\n";
+    out << "declare void @xxml_write_byte(ptr, i8)\n";
+    out << "declare i64 @xxml_int64_read(ptr)\n";
+    out << "declare void @xxml_int64_write(ptr, i64)\n";
+    out << "\n";
+}
+
+void PreambleGen::emitIntegerOperations(std::stringstream& out) const {
+    out << "; Integer Operations\n";
+    // Constructor takes i64 value, returns ptr (no 'this' pointer - static factory)
+    out << "declare ptr @Integer_Constructor(i64)\n";
+    out << "declare i64 @Integer_getValue(ptr)\n";
+    out << "declare i64 @Integer_toInt64(ptr)\n";
+    // Arithmetic operations (using XXML method names)
+    out << "declare ptr @Integer_add(ptr, ptr)\n";
+    out << "declare ptr @Integer_subtract(ptr, ptr)\n";
+    out << "declare ptr @Integer_multiply(ptr, ptr)\n";
+    out << "declare ptr @Integer_divide(ptr, ptr)\n";
+    out << "declare ptr @Integer_modulo(ptr, ptr)\n";
+    out << "declare ptr @Integer_negate(ptr)\n";
+    out << "declare ptr @Integer_abs(ptr)\n";
+    // Comparison operations (return Bool ptr, not i1)
+    out << "declare ptr @Integer_equals(ptr, ptr)\n";
+    out << "declare ptr @Integer_notEquals(ptr, ptr)\n";
+    out << "declare ptr @Integer_lessThan(ptr, ptr)\n";
+    out << "declare ptr @Integer_greaterThan(ptr, ptr)\n";
+    out << "declare ptr @Integer_lessOrEqual(ptr, ptr)\n";
+    out << "declare ptr @Integer_greaterOrEqual(ptr, ptr)\n";
+    // Bitwise/logical operations
+    out << "declare ptr @Integer_not(ptr)\n";
+    out << "declare ptr @Integer_bitwiseAnd(ptr, ptr)\n";
+    out << "declare ptr @Integer_bitwiseOr(ptr, ptr)\n";
+    out << "declare ptr @Integer_bitwiseXor(ptr, ptr)\n";
+    out << "declare ptr @Integer_bitwiseNot(ptr)\n";
+    out << "declare ptr @Integer_shiftLeft(ptr, ptr)\n";
+    out << "declare ptr @Integer_shiftRight(ptr, ptr)\n";
+    // Conversion
+    out << "declare ptr @Integer_toString(ptr)\n";
+    // Assignment operators
+    out << "declare ptr @Integer_addAssign(ptr, ptr)\n";
+    out << "declare ptr @Integer_subtractAssign(ptr, ptr)\n";
+    out << "declare ptr @Integer_multiplyAssign(ptr, ptr)\n";
+    out << "declare ptr @Integer_divideAssign(ptr, ptr)\n";
+    out << "declare ptr @Integer_moduloAssign(ptr, ptr)\n";
+    out << "\n";
+}
+
+void PreambleGen::emitFloatOperations(std::stringstream& out) const {
+    out << "; Float Operations\n";
+    out << "declare ptr @Float_Constructor(float)\n";
+    out << "declare float @Float_getValue(ptr)\n";
+    out << "declare ptr @Float_toString(ptr)\n";
+    out << "declare ptr @xxml_float_to_string(float)\n";
+    out << "declare ptr @Float_addAssign(ptr, ptr)\n";
+    out << "declare ptr @Float_subtractAssign(ptr, ptr)\n";
+    out << "declare ptr @Float_multiplyAssign(ptr, ptr)\n";
+    out << "declare ptr @Float_divideAssign(ptr, ptr)\n";
+    out << "\n";
+}
+
+void PreambleGen::emitDoubleOperations(std::stringstream& out) const {
+    out << "; Double Operations\n";
+    out << "declare ptr @Double_Constructor(double)\n";
+    out << "declare double @Double_getValue(ptr)\n";
+    out << "declare ptr @Double_toString(ptr)\n";
+    out << "declare ptr @Double_addAssign(ptr, ptr)\n";
+    out << "declare ptr @Double_subtractAssign(ptr, ptr)\n";
+    out << "declare ptr @Double_multiplyAssign(ptr, ptr)\n";
+    out << "declare ptr @Double_divideAssign(ptr, ptr)\n";
+    out << "\n";
+}
+
+void PreambleGen::emitStringOperations(std::stringstream& out) const {
+    out << "; String Operations\n";
+    out << "declare ptr @String_Constructor(ptr)\n";
+    out << "declare ptr @String_FromCString(ptr)\n";
+    out << "declare ptr @String_toCString(ptr)\n";
+    out << "declare i64 @String_length(ptr)\n";
+    out << "declare ptr @String_concat(ptr, ptr)\n";
+    out << "declare ptr @String_append(ptr, ptr)\n";
+    out << "declare i1 @String_equals(ptr, ptr)\n";
+    out << "declare i1 @String_isEmpty(ptr)\n";
+    out << "declare void @String_destroy(ptr)\n";
+    out << "\n";
+}
+
+void PreambleGen::emitBoolOperations(std::stringstream& out) const {
+    out << "; Bool Operations\n";
+    out << "declare ptr @Bool_Constructor(i1)\n";
+    out << "declare i1 @Bool_getValue(ptr)\n";
+    out << "declare ptr @Bool_and(ptr, ptr)\n";
+    out << "declare ptr @Bool_or(ptr, ptr)\n";
+    out << "declare ptr @Bool_not(ptr)\n";
+    out << "declare ptr @Bool_xor(ptr, ptr)\n";
+    out << "declare ptr @Bool_toInteger(ptr)\n";
+    out << "\n";
+
+    out << "; None Operations\n";
+    out << "declare ptr @None_Constructor()\n";
+    out << "\n";
+}
+
+void PreambleGen::emitListOperations(std::stringstream& out) const {
+    out << "; List Operations\n";
+    out << "declare ptr @List_Constructor()\n";
+    out << "declare void @List_add(ptr, ptr)\n";
+    out << "declare ptr @List_get(ptr, i64)\n";
+    out << "declare i64 @List_size(ptr)\n";
+    out << "\n";
+}
+
+void PreambleGen::emitConsoleIO(std::stringstream& out) const {
+    out << "; Console I/O\n";
+    out << "declare void @Console_print(ptr)\n";
+    out << "declare void @Console_printLine(ptr)\n";
+    out << "declare void @Console_printInt(i64)\n";
+    out << "declare void @Console_printBool(i1)\n";
+    out << "\n";
+}
+
+void PreambleGen::emitSystemFunctions(std::stringstream& out) const {
+    out << "; System Functions\n";
+    out << "declare void @xxml_exit(i32)\n";
+    out << "declare void @exit(i32)\n";
+    out << "\n";
+}
+
+void PreambleGen::emitReflectionRuntime(std::stringstream& out) const {
+    out << "; Reflection Runtime Functions\n";
+    out << "declare void @Reflection_registerType(ptr)\n";
+    out << "declare ptr @Reflection_getTypeInfo(ptr)\n";
+    out << "declare i32 @Reflection_getTypeCount()\n";
+    out << "declare ptr @Reflection_getAllTypeNames()\n";
+    out << "\n";
+
+    out << "; Reflection Syscall Functions\n";
+    out << "declare ptr @xxml_reflection_getTypeByName(ptr)\n";
+    out << "declare ptr @xxml_reflection_type_getName(ptr)\n";
+    out << "declare ptr @xxml_reflection_type_getFullName(ptr)\n";
+    out << "declare ptr @xxml_reflection_type_getNamespace(ptr)\n";
+    out << "declare i64 @xxml_reflection_type_isTemplate(ptr)\n";
+    out << "declare i64 @xxml_reflection_type_getTemplateParamCount(ptr)\n";
+    out << "declare i64 @xxml_reflection_type_getPropertyCount(ptr)\n";
+    out << "declare ptr @xxml_reflection_type_getProperty(ptr, i64)\n";
+    out << "declare ptr @xxml_reflection_type_getPropertyByName(ptr, ptr)\n";
+    out << "declare i64 @xxml_reflection_type_getMethodCount(ptr)\n";
+    out << "declare ptr @xxml_reflection_type_getMethod(ptr, i64)\n";
+    out << "declare ptr @xxml_reflection_type_getMethodByName(ptr, ptr)\n";
+    out << "declare i64 @xxml_reflection_type_getInstanceSize(ptr)\n";
+    out << "declare ptr @xxml_reflection_property_getName(ptr)\n";
+    out << "declare ptr @xxml_reflection_property_getTypeName(ptr)\n";
+    out << "declare i64 @xxml_reflection_property_getOwnership(ptr)\n";
+    out << "declare i64 @xxml_reflection_property_getOffset(ptr)\n";
+    out << "declare ptr @xxml_reflection_method_getName(ptr)\n";
+    out << "declare ptr @xxml_reflection_method_getReturnType(ptr)\n";
+    out << "declare i64 @xxml_reflection_method_getReturnOwnership(ptr)\n";
+    out << "declare i64 @xxml_reflection_method_getParameterCount(ptr)\n";
+    out << "declare ptr @xxml_reflection_method_getParameter(ptr, i64)\n";
+    out << "declare i64 @xxml_reflection_method_isStatic(ptr)\n";
+    out << "declare i64 @xxml_reflection_method_isConstructor(ptr)\n";
+    out << "declare ptr @xxml_reflection_parameter_getName(ptr)\n";
+    out << "declare ptr @xxml_reflection_parameter_getTypeName(ptr)\n";
+    out << "declare i64 @xxml_reflection_parameter_getOwnership(ptr)\n";
+    out << "\n";
+}
+
+void PreambleGen::emitAnnotationRuntime(std::stringstream& out) const {
+    out << "; Annotation Runtime Functions\n";
+    out << "declare void @Annotation_registerForType(ptr, i32, ptr)\n";
+    out << "declare void @Annotation_registerForMethod(ptr, ptr, i32, ptr)\n";
+    out << "declare void @Annotation_registerForProperty(ptr, ptr, i32, ptr)\n";
+    out << "declare i32 @Annotation_getCountForType(ptr)\n";
+    out << "declare ptr @Annotation_getForType(ptr, i32)\n";
+    out << "declare i32 @Annotation_getCountForMethod(ptr, ptr)\n";
+    out << "declare ptr @Annotation_getForMethod(ptr, ptr, i32)\n";
+    out << "declare i32 @Annotation_getCountForProperty(ptr, ptr)\n";
+    out << "declare ptr @Annotation_getForProperty(ptr, ptr, i32)\n";
+    out << "declare i1 @Annotation_typeHas(ptr, ptr)\n";
+    out << "declare i1 @Annotation_methodHas(ptr, ptr, ptr)\n";
+    out << "declare i1 @Annotation_propertyHas(ptr, ptr, ptr)\n";
+    out << "declare ptr @Annotation_getByNameForType(ptr, ptr)\n";
+    out << "declare ptr @Annotation_getByNameForMethod(ptr, ptr, ptr)\n";
+    out << "declare ptr @Annotation_getByNameForProperty(ptr, ptr, ptr)\n";
+    out << "declare ptr @Annotation_getArgument(ptr, ptr)\n";
+    out << "declare i64 @Annotation_getIntArg(ptr, ptr, i64)\n";
+    out << "declare ptr @Annotation_getStringArg(ptr, ptr, ptr)\n";
+    out << "declare i1 @Annotation_getBoolArg(ptr, ptr, i1)\n";
+    out << "declare double @Annotation_getDoubleArg(ptr, ptr, double)\n";
+    out << "\n";
+
+    out << "; Annotation Info Language Bindings\n";
+    out << "declare ptr @Language_Reflection_AnnotationInfo_Constructor(ptr)\n";
+    out << "declare ptr @Language_Reflection_AnnotationInfo_getName(ptr)\n";
+    out << "declare ptr @Language_Reflection_AnnotationInfo_getArgumentCount(ptr)\n";
+    out << "declare ptr @Language_Reflection_AnnotationInfo_getArgument(ptr, ptr)\n";
+    out << "declare ptr @Language_Reflection_AnnotationInfo_getArgumentByName(ptr, ptr)\n";
+    out << "declare ptr @Language_Reflection_AnnotationInfo_hasArgument(ptr, ptr)\n";
+    out << "\n";
+
+    out << "; Annotation Arg Language Bindings\n";
+    out << "declare ptr @Language_Reflection_AnnotationArg_Constructor(ptr)\n";
+    out << "declare ptr @Language_Reflection_AnnotationArg_getName(ptr)\n";
+    out << "declare ptr @Language_Reflection_AnnotationArg_getType(ptr)\n";
+    out << "declare ptr @Language_Reflection_AnnotationArg_asInteger(ptr)\n";
+    out << "declare ptr @Language_Reflection_AnnotationArg_asString(ptr)\n";
+    out << "declare ptr @Language_Reflection_AnnotationArg_asBool(ptr)\n";
+    out << "declare ptr @Language_Reflection_AnnotationArg_asDouble(ptr)\n";
+    out << "\n";
+}
+
+void PreambleGen::emitProcessorAPI(std::stringstream& out) const {
+    out << "; Annotation Processor API\n";
+    out << "declare ptr @Processor_getTargetKind(ptr)\n";
+    out << "declare ptr @Processor_getTargetName(ptr)\n";
+    out << "declare ptr @Processor_getTypeName(ptr)\n";
+    out << "declare ptr @Processor_getClassName(ptr)\n";
+    out << "declare ptr @Processor_getNamespaceName(ptr)\n";
+    out << "declare ptr @Processor_getSourceFile(ptr)\n";
+    out << "declare i64 @Processor_getLineNumber(ptr)\n";
+    out << "declare i64 @Processor_getColumnNumber(ptr)\n";
+    out << "declare i64 @Processor_getPropertyCount(ptr)\n";
+    out << "declare ptr @Processor_getPropertyNameAt(ptr, i64)\n";
+    out << "declare ptr @Processor_getPropertyTypeAt(ptr, i64)\n";
+    out << "declare ptr @Processor_getPropertyOwnershipAt(ptr, i64)\n";
+    out << "declare i64 @Processor_getMethodCount(ptr)\n";
+    out << "declare ptr @Processor_getMethodNameAt(ptr, i64)\n";
+    out << "declare ptr @Processor_getMethodReturnTypeAt(ptr, i64)\n";
+    out << "declare i64 @Processor_hasMethod(ptr, ptr)\n";
+    out << "declare i64 @Processor_hasProperty(ptr, ptr)\n";
+    out << "declare ptr @Processor_getBaseClassName(ptr)\n";
+    out << "declare i64 @Processor_isClassFinal(ptr)\n";
+    out << "declare i64 @Processor_getParameterCount(ptr)\n";
+    out << "declare ptr @Processor_getParameterNameAt(ptr, i64)\n";
+    out << "declare ptr @Processor_getParameterTypeAt(ptr, i64)\n";
+    out << "declare ptr @Processor_getReturnTypeName(ptr)\n";
+    out << "declare i64 @Processor_isMethodStatic(ptr)\n";
+    out << "declare i64 @Processor_hasDefaultValue(ptr)\n";
+    out << "declare ptr @Processor_getOwnership(ptr)\n";
+    out << "declare ptr @Processor_getTargetValue(ptr)\n";
+    out << "declare i64 @Processor_hasTargetValue(ptr)\n";
+    out << "declare i64 @Processor_getTargetValueType(ptr)\n";
+    out << "declare void @Processor_message(ptr, ptr)\n";
+    out << "declare void @Processor_warning(ptr, ptr)\n";
+    out << "declare void @Processor_warningAt(ptr, ptr, ptr, i64, i64)\n";
+    out << "declare void @Processor_error(ptr, ptr)\n";
+    out << "declare void @Processor_errorAt(ptr, ptr, ptr, i64, i64)\n";
+    out << "declare ptr @Processor_argGetName(ptr)\n";
+    out << "declare i64 @Processor_argAsInt(ptr)\n";
+    out << "declare ptr @Processor_argAsString(ptr)\n";
+    out << "declare i64 @Processor_argAsBool(ptr)\n";
+    out << "declare double @Processor_argAsDouble(ptr)\n";
+    out << "declare i64 @Processor_getArgCount(ptr)\n";
+    out << "declare ptr @Processor_getArgAt(ptr, i64)\n";
+    out << "declare ptr @Processor_getArg(ptr, ptr)\n";
+    out << "declare i64 @Processor_getAnnotationArgCount(ptr)\n";
+    out << "declare ptr @Processor_getAnnotationArg(ptr, ptr)\n";
+    out << "declare ptr @Processor_getAnnotationArgNameAt(ptr, i64)\n";
+    out << "declare i64 @Processor_getAnnotationArgTypeAt(ptr, i64)\n";
+    out << "declare i64 @Processor_hasAnnotationArg(ptr, ptr)\n";
+    out << "declare i64 @Processor_getAnnotationIntArg(ptr, ptr, i64)\n";
+    out << "declare ptr @Processor_getAnnotationStringArg(ptr, ptr, ptr)\n";
+    out << "declare i64 @Processor_getAnnotationBoolArg(ptr, ptr, i64)\n";
+    out << "declare double @Processor_getAnnotationDoubleArg(ptr, ptr, double)\n";
+    out << "\n";
+}
+
+void PreambleGen::emitDynamicValueMethods(std::stringstream& out) const {
+    out << "; Dynamic Value Methods (runtime type dispatch)\n";
+    out << "declare ptr @__DynamicValue_toString(ptr)\n";
+    out << "declare i1 @__DynamicValue_greaterThan(ptr, ptr)\n";
+    out << "declare i1 @__DynamicValue_lessThan(ptr, ptr)\n";
+    out << "declare i1 @__DynamicValue_equals(ptr, ptr)\n";
+    out << "declare ptr @__DynamicValue_add(ptr, ptr)\n";
+    out << "declare ptr @__DynamicValue_sub(ptr, ptr)\n";
+    out << "declare ptr @__DynamicValue_mul(ptr, ptr)\n";
+    out << "declare ptr @__DynamicValue_div(ptr, ptr)\n";
+    out << "\n";
+}
+
+void PreambleGen::emitUtilityFunctions(std::stringstream& out) const {
+    out << "; Utility Functions\n";
+    out << "declare ptr @xxml_string_create(ptr)\n";
+    out << "declare ptr @xxml_string_concat(ptr, ptr)\n";
+    out << "declare i64 @xxml_string_hash(ptr)\n";
+    out << "declare i64 @xxml_ptr_is_null(ptr)\n";
+    out << "declare ptr @xxml_ptr_null()\n";
+    out << "\n";
+}
+
+void PreambleGen::emitThreadingFunctions(std::stringstream& out) const {
+    out << "; Threading functions\n";
+    out << "declare ptr @xxml_Thread_create(ptr, ptr)\n";
+    out << "declare i64 @xxml_Thread_join(ptr)\n";
+    out << "declare i64 @xxml_Thread_detach(ptr)\n";
+    out << "declare i1 @xxml_Thread_isJoinable(ptr)\n";
+    out << "declare void @xxml_Thread_sleep(i64)\n";
+    out << "declare void @xxml_Thread_yield()\n";
+    out << "declare i64 @xxml_Thread_currentId()\n";
+    out << "declare ptr @xxml_Thread_spawn_lambda(ptr)\n";
+    out << "\n";
+}
+
+void PreambleGen::emitMutexFunctions(std::stringstream& out) const {
+    out << "; Mutex functions\n";
+    out << "declare ptr @xxml_Mutex_create()\n";
+    out << "declare void @xxml_Mutex_destroy(ptr)\n";
+    out << "declare i64 @xxml_Mutex_lock(ptr)\n";
+    out << "declare i64 @xxml_Mutex_unlock(ptr)\n";
+    out << "declare i1 @xxml_Mutex_tryLock(ptr)\n";
+    out << "\n";
+}
+
+void PreambleGen::emitConditionVariableFunctions(std::stringstream& out) const {
+    out << "; Condition variable functions\n";
+    out << "declare ptr @xxml_CondVar_create()\n";
+    out << "declare void @xxml_CondVar_destroy(ptr)\n";
+    out << "declare i64 @xxml_CondVar_wait(ptr, ptr)\n";
+    out << "declare i64 @xxml_CondVar_waitTimeout(ptr, ptr, i64)\n";
+    out << "declare i64 @xxml_CondVar_signal(ptr)\n";
+    out << "declare i64 @xxml_CondVar_broadcast(ptr)\n";
+    out << "\n";
+}
+
+void PreambleGen::emitAtomicFunctions(std::stringstream& out) const {
+    out << "; Atomic functions\n";
+    out << "declare ptr @xxml_Atomic_create(i64)\n";
+    out << "declare void @xxml_Atomic_destroy(ptr)\n";
+    out << "declare i64 @xxml_Atomic_load(ptr)\n";
+    out << "declare void @xxml_Atomic_store(ptr, i64)\n";
+    out << "declare i64 @xxml_Atomic_add(ptr, i64)\n";
+    out << "declare i64 @xxml_Atomic_sub(ptr, i64)\n";
+    out << "declare i1 @xxml_Atomic_compareAndSwap(ptr, i64, i64)\n";
+    out << "declare i64 @xxml_Atomic_exchange(ptr, i64)\n";
+    out << "\n";
+}
+
+void PreambleGen::emitTLSFunctions(std::stringstream& out) const {
+    out << "; TLS functions\n";
+    out << "declare ptr @xxml_TLS_create()\n";
+    out << "declare void @xxml_TLS_destroy(ptr)\n";
+    out << "declare ptr @xxml_TLS_get(ptr)\n";
+    out << "declare void @xxml_TLS_set(ptr, ptr)\n";
+    out << "\n";
+}
+
+void PreambleGen::emitFileIOFunctions(std::stringstream& out) const {
+    out << "; File I/O functions\n";
+    out << "declare ptr @xxml_File_open(ptr, ptr)\n";
+    out << "declare void @xxml_File_close(ptr)\n";
+    out << "declare i64 @xxml_File_read(ptr, ptr, i64)\n";
+    out << "declare i64 @xxml_File_write(ptr, ptr, i64)\n";
+    out << "declare ptr @xxml_File_readLine(ptr)\n";
+    out << "declare i64 @xxml_File_writeString(ptr, ptr)\n";
+    out << "declare i64 @xxml_File_writeLine(ptr, ptr)\n";
+    out << "declare ptr @xxml_File_readAll(ptr)\n";
+    out << "declare i64 @xxml_File_seek(ptr, i64, i64)\n";
+    out << "declare i64 @xxml_File_tell(ptr)\n";
+    out << "declare i64 @xxml_File_size(ptr)\n";
+    out << "declare i1 @xxml_File_eof(ptr)\n";
+    out << "declare i64 @xxml_File_flush(ptr)\n";
+    out << "declare i1 @xxml_File_exists(ptr)\n";
+    out << "declare i1 @xxml_File_delete(ptr)\n";
+    out << "declare i1 @xxml_File_rename(ptr, ptr)\n";
+    out << "declare i1 @xxml_File_copy(ptr, ptr)\n";
+    out << "declare i64 @xxml_File_sizeByPath(ptr)\n";
+    out << "declare ptr @xxml_File_readAllByPath(ptr)\n";
+    out << "\n";
+}
+
+void PreambleGen::emitDirectoryFunctions(std::stringstream& out) const {
+    out << "; Directory functions\n";
+    out << "declare i1 @xxml_Dir_create(ptr)\n";
+    out << "declare i1 @xxml_Dir_exists(ptr)\n";
+    out << "declare i1 @xxml_Dir_delete(ptr)\n";
+    out << "declare ptr @xxml_Dir_getCurrent()\n";
+    out << "declare i1 @xxml_Dir_setCurrent(ptr)\n";
+    out << "\n";
+}
+
+void PreambleGen::emitPathFunctions(std::stringstream& out) const {
+    out << "; Path utility functions\n";
+    out << "declare ptr @xxml_Path_join(ptr, ptr)\n";
+    out << "declare ptr @xxml_Path_getFileName(ptr)\n";
+    out << "declare ptr @xxml_Path_getDirectory(ptr)\n";
+    out << "declare ptr @xxml_Path_getExtension(ptr)\n";
+    out << "declare i1 @xxml_Path_isAbsolute(ptr)\n";
+    out << "declare ptr @xxml_Path_getAbsolute(ptr)\n";
+    out << "\n";
+}
+
+void PreambleGen::emitFFIRuntime(std::stringstream& out) const {
+    out << "; Optimization attributes\n";
+    out << "attributes #0 = { noinline nounwind optnone uwtable }\n";
+    out << "attributes #1 = { nounwind uwtable }\n";
+
+    out << "; FFI Runtime Functions\n";
+    out << "declare ptr @xxml_FFI_loadLibrary(ptr)\n";
+    out << "declare ptr @xxml_FFI_getSymbol(ptr, ptr)\n";
+    out << "declare void @xxml_FFI_freeLibrary(ptr)\n";
+    out << "declare ptr @xxml_FFI_getError()\n";
+    out << "declare i1 @xxml_FFI_libraryExists(ptr)\n";
+    out << "\n";
+
+    out << "; FFI Type Conversion\n";
+    out << "declare ptr @xxml_FFI_stringToCString(ptr)\n";
+    out << "declare ptr @xxml_FFI_cstringToString(ptr)\n";
+    out << "declare i64 @xxml_FFI_integerToInt64(ptr)\n";
+    out << "declare ptr @xxml_FFI_int64ToInteger(i64)\n";
+    out << "declare float @xxml_FFI_floatToC(ptr)\n";
+    out << "declare ptr @xxml_FFI_cToFloat(float)\n";
+    out << "declare double @xxml_FFI_doubleToC(ptr)\n";
+    out << "declare ptr @xxml_FFI_cToDouble(double)\n";
+    out << "declare i1 @xxml_FFI_boolToC(ptr)\n";
+    out << "declare ptr @xxml_FFI_cToBool(i1)\n";
+    out << "\n";
+}
+
+void PreambleGen::emitWindowsDLLFunctions(std::stringstream& out) const {
+    out << "; Windows kernel32 functions for FFI\n";
+    out << "declare dllimport ptr @LoadLibraryA(ptr) #1\n";
+    out << "declare dllimport ptr @GetProcAddress(ptr, ptr) #1\n";
+    out << "declare dllimport i32 @FreeLibrary(ptr) #1\n";
+    out << "\n";
+}
+
+void PreambleGen::emitAttributes(std::stringstream& out) const {
+    out << "attributes #2 = { alwaysinline nounwind uwtable }\n";
+    out << "\n";
 }
 
 } // namespace Codegen

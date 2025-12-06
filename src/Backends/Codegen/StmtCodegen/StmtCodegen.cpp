@@ -1,4 +1,7 @@
 #include "Backends/Codegen/StmtCodegen/StmtCodegen.h"
+#include "Backends/TypeNormalizer.h"
+#include "Backends/LLVMIR/TypedInstructions.h"
+#include <iostream>
 
 namespace XXML {
 namespace Backends {
@@ -29,21 +32,539 @@ void StmtCodegen::generate(Parser::Statement* stmt) {
     } else if (auto* runStmt = dynamic_cast<Parser::RunStmt*>(stmt)) {
         visitRun(runStmt);
     }
-    // Other statement types can be added here
 }
 
-// Default implementations
+// === Run Statement (expression statement) ===
 
-void StmtCodegen::visitAssignment(Parser::AssignmentStmt*) {}
-void StmtCodegen::visitInstantiate(Parser::InstantiateStmt*) {}
-void StmtCodegen::visitIf(Parser::IfStmt*) {}
-void StmtCodegen::visitWhile(Parser::WhileStmt*) {}
-void StmtCodegen::visitFor(Parser::ForStmt*) {}
-void StmtCodegen::visitBreak(Parser::BreakStmt*) {}
-void StmtCodegen::visitContinue(Parser::ContinueStmt*) {}
-void StmtCodegen::visitReturn(Parser::ReturnStmt*) {}
-void StmtCodegen::visitExit(Parser::ExitStmt*) {}
-void StmtCodegen::visitRun(Parser::RunStmt*) {}
+void StmtCodegen::visitRun(Parser::RunStmt* stmt) {
+    if (!stmt || !stmt->expression) return;
+    // Simply evaluate the expression for side effects
+    exprCodegen_.generate(stmt->expression.get());
+}
+
+// === Return Statement ===
+
+void StmtCodegen::visitReturn(Parser::ReturnStmt* stmt) {
+    if (!stmt) return;
+
+    if (stmt->value) {
+        // Check for void return (None return type)
+        std::string returnType = std::string(ctx_.currentReturnType());
+        if (returnType == "void" || returnType == "None" || returnType.empty()) {
+            // Don't generate the return value - just return void
+            ctx_.builder().createRetVoid();
+        } else {
+            auto returnValue = exprCodegen_.generate(stmt->value.get());
+            ctx_.builder().createRet(returnValue);
+        }
+    } else {
+        ctx_.builder().createRetVoid();
+    }
+}
+
+// === Exit Statement ===
+
+void StmtCodegen::visitExit(Parser::ExitStmt* stmt) {
+    if (!stmt) return;
+
+    // Exit is like return but typically from Entrypoint
+    if (stmt->exitCode) {
+        auto exitValue = exprCodegen_.generate(stmt->exitCode.get());
+        // main() returns i32, so truncate if necessary
+        if (exitValue.isInt() && exitValue.asInt().getBitWidth() > 32) {
+            auto truncated = ctx_.builder().createTrunc(exitValue.asInt(), ctx_.module().getContext().getInt32Ty(), "");
+            ctx_.builder().createRet(LLVMIR::AnyValue(truncated));
+        } else {
+            ctx_.builder().createRet(exitValue);
+        }
+    } else {
+        // Return 0 for success
+        auto zero = ctx_.builder().getInt32(0);
+        ctx_.builder().createRet(LLVMIR::AnyValue(zero));
+    }
+}
+
+// === Assignment Statement ===
+
+void StmtCodegen::visitAssignment(Parser::AssignmentStmt* stmt) {
+    if (!stmt || !stmt->target || !stmt->value) return;
+
+    // Generate code for the value expression
+    auto valueResult = exprCodegen_.generate(stmt->value.get());
+
+    // Handle different types of lvalue expressions
+    if (auto* identExpr = dynamic_cast<Parser::IdentifierExpr*>(stmt->target.get())) {
+        // Simple variable assignment: Set x = value;
+        const std::string& varName = identExpr->name;
+
+        if (auto* varInfo = ctx_.getVariable(varName)) {
+            if (varInfo->alloca) {
+                ctx_.builder().createStore(valueResult, LLVMIR::PtrValue(varInfo->alloca));
+            }
+        } else if (!ctx_.currentClassName().empty()) {
+            // Check if it's a class property (implicit this.propertyName)
+            storeToThisProperty(varName, valueResult);
+        }
+    } else if (auto* memberExpr = dynamic_cast<Parser::MemberAccessExpr*>(stmt->target.get())) {
+        // Member access assignment: Set obj.property = value;
+        if (dynamic_cast<Parser::ThisExpr*>(memberExpr->object.get())) {
+            storeToThisProperty(memberExpr->member, valueResult);
+        } else if (auto* objIdent = dynamic_cast<Parser::IdentifierExpr*>(memberExpr->object.get())) {
+            storeToObjectProperty(objIdent->name, memberExpr->member, valueResult);
+        }
+    }
+}
+
+// === Instantiate Statement ===
+
+void StmtCodegen::visitInstantiate(Parser::InstantiateStmt* stmt) {
+    if (!stmt || !stmt->type) return;
+
+    const std::string& varName = stmt->variableName;
+    std::string typeName = stmt->type->typeName;
+
+    // Include template arguments if present
+    if (!stmt->type->templateArgs.empty()) {
+        typeName += "<";
+        for (size_t i = 0; i < stmt->type->templateArgs.size(); ++i) {
+            if (i > 0) typeName += ", ";
+            typeName += stmt->type->templateArgs[i].typeArg;
+        }
+        typeName += ">";
+    }
+
+    // Check if this is a pointer/object type (has ownership marker ^ or & or %)
+    bool isObjectType = (stmt->type->ownership == Parser::OwnershipType::Owned ||
+                         stmt->type->ownership == Parser::OwnershipType::Reference ||
+                         stmt->type->ownership == Parser::OwnershipType::Copy);
+
+    // Strip ownership markers
+    typeName = TypeNormalizer::stripOwnershipMarker(typeName);
+
+    // Resolve to fully qualified name before mapping
+    typeName = ctx_.resolveToQualifiedName(typeName);
+
+    // NativeType should NEVER be treated as object type - it stores the value directly
+    bool isNativeType = typeName.find("NativeType<") != std::string::npos;
+    if (isNativeType) {
+        isObjectType = false;
+    }
+
+    // Create alloca for the variable
+    // For object types (Integer^, Bool^, etc.), always use ptr type since they're heap-allocated
+    // But NativeType always stores the actual value type, not a pointer
+    auto* allocaType = isObjectType ? ctx_.builder().getPtrTy() : ctx_.mapType(typeName);
+    auto allocaPtr = ctx_.builder().createAlloca(allocaType, varName);
+
+    // Get raw AllocaInst* from PtrValue for registration
+    auto* allocaInst = static_cast<LLVMIR::AllocaInst*>(allocaPtr.raw());
+
+    // Register the variable using declareVariable
+    ctx_.declareVariable(varName, typeName, LLVMIR::AnyValue(allocaPtr), allocaInst);
+
+    // If there's an initializer, generate it and store
+    if (stmt->initializer) {
+        auto initValue = exprCodegen_.generate(stmt->initializer.get());
+        ctx_.builder().createStore(initValue, allocaPtr);
+    }
+}
+
+// === Control Flow: If Statement ===
+
+void StmtCodegen::visitIf(Parser::IfStmt* stmt) {
+    if (!stmt || !stmt->condition) return;
+
+    auto* func = ctx_.currentFunction();
+    if (!func) return;
+
+    // Check if we have an else branch
+    bool hasElse = !stmt->elseBranch.empty();
+
+    // Create basic blocks
+    auto* thenBB = func->createBasicBlock("if.then");
+    auto* elseBB = hasElse ? func->createBasicBlock("if.else") : nullptr;
+    auto* mergeBB = func->createBasicBlock("if.end");
+
+    // Evaluate condition
+    auto condValue = exprCodegen_.generate(stmt->condition.get());
+
+    // Convert to i1 if needed (condition might be a Bool object)
+    auto condI1 = ensureBoolCondition(condValue);
+
+    // Create conditional branch
+    if (elseBB) {
+        ctx_.builder().createCondBr(condI1, thenBB, elseBB);
+    } else {
+        ctx_.builder().createCondBr(condI1, thenBB, mergeBB);
+    }
+
+    // Emit then block
+    ctx_.setInsertPoint(thenBB);
+    for (const auto& thenStmt : stmt->thenBranch) {
+        generate(thenStmt.get());
+    }
+    // Only add branch to merge if block doesn't have a terminator
+    if (ctx_.currentBlock() && !ctx_.currentBlock()->getTerminator()) {
+        ctx_.builder().createBr(mergeBB);
+    }
+
+    // Emit else block if present
+    if (elseBB) {
+        ctx_.setInsertPoint(elseBB);
+        for (const auto& elseStmt : stmt->elseBranch) {
+            generate(elseStmt.get());
+        }
+        if (ctx_.currentBlock() && !ctx_.currentBlock()->getTerminator()) {
+            ctx_.builder().createBr(mergeBB);
+        }
+    }
+
+    // Continue at merge block
+    ctx_.setInsertPoint(mergeBB);
+}
+
+// === Control Flow: While Statement ===
+
+void StmtCodegen::visitWhile(Parser::WhileStmt* stmt) {
+    if (!stmt || !stmt->condition) return;
+
+    auto* func = ctx_.currentFunction();
+    if (!func) return;
+
+    // Create basic blocks
+    auto* condBB = func->createBasicBlock("while.cond");
+    auto* bodyBB = func->createBasicBlock("while.body");
+    auto* endBB = func->createBasicBlock("while.end");
+
+    // Push loop context for break/continue
+    ctx_.pushLoop(condBB, endBB);
+
+    // Branch to condition
+    ctx_.builder().createBr(condBB);
+
+    // Emit condition block
+    ctx_.setInsertPoint(condBB);
+    auto condValue = exprCodegen_.generate(stmt->condition.get());
+    auto condI1 = ensureBoolCondition(condValue);
+    ctx_.builder().createCondBr(condI1, bodyBB, endBB);
+
+    // Emit body block
+    ctx_.setInsertPoint(bodyBB);
+    for (const auto& bodyStmt : stmt->body) {
+        generate(bodyStmt.get());
+    }
+    if (ctx_.currentBlock() && !ctx_.currentBlock()->getTerminator()) {
+        ctx_.builder().createBr(condBB);
+    }
+
+    // Pop loop context
+    ctx_.popLoop();
+
+    // Continue at end block
+    ctx_.setInsertPoint(endBB);
+}
+
+// === Control Flow: For Statement ===
+
+void StmtCodegen::visitFor(Parser::ForStmt* stmt) {
+    if (!stmt) return;
+
+    auto* func = ctx_.currentFunction();
+    if (!func) return;
+
+    // Create basic blocks
+    auto* condBB = func->createBasicBlock("for.cond");
+    auto* bodyBB = func->createBasicBlock("for.body");
+    auto* incBB = func->createBasicBlock("for.inc");
+    auto* endBB = func->createBasicBlock("for.end");
+
+    // Push loop context (continue goes to inc, break goes to end)
+    ctx_.pushLoop(incBB, endBB);
+
+    // Handle initialization based on loop type
+    if (stmt->isCStyleLoop) {
+        // C-style loop: rangeStart is the initializer expression
+        if (stmt->rangeStart) {
+            exprCodegen_.generate(stmt->rangeStart.get());
+        }
+    } else {
+        // Range-based loop: create iterator variable
+        // For x = start .. end becomes: alloca x; store start, x; while (x < end) { body; x++ }
+        if (stmt->iteratorType && stmt->rangeStart) {
+            std::string iterName = stmt->iteratorName;
+            std::string typeName = stmt->iteratorType->typeName;
+            typeName = TypeNormalizer::stripOwnershipMarker(typeName);
+
+            // Check if this is an object type (Integer^, String^, etc.)
+            // Object types store pointers, not raw values
+            bool isObjectType = (stmt->iteratorType->ownership == Parser::OwnershipType::Owned ||
+                                 stmt->iteratorType->ownership == Parser::OwnershipType::Reference ||
+                                 stmt->iteratorType->ownership == Parser::OwnershipType::Copy);
+
+            // Use ptr type for object types, mapped type for primitives
+            auto* allocaType = isObjectType ? ctx_.builder().getPtrTy() : ctx_.mapType(typeName);
+            auto allocaPtr = ctx_.builder().createAlloca(allocaType, iterName);
+            auto* allocaInst = static_cast<LLVMIR::AllocaInst*>(allocaPtr.raw());
+            ctx_.declareVariable(iterName, typeName, LLVMIR::AnyValue(allocaPtr), allocaInst);
+
+            auto startVal = exprCodegen_.generate(stmt->rangeStart.get());
+            ctx_.builder().createStore(startVal, allocaPtr);
+        }
+    }
+
+    // Branch to condition
+    ctx_.builder().createBr(condBB);
+
+    // Emit condition block
+    ctx_.setInsertPoint(condBB);
+    if (stmt->isCStyleLoop && stmt->condition) {
+        auto condValue = exprCodegen_.generate(stmt->condition.get());
+        auto condI1 = ensureBoolCondition(condValue);
+        ctx_.builder().createCondBr(condI1, bodyBB, endBB);
+    } else if (!stmt->isCStyleLoop && stmt->rangeEnd) {
+        // Range-based: iterator < rangeEnd
+        // Load iterator, compare with rangeEnd
+        auto* varInfo = ctx_.getVariable(stmt->iteratorName);
+        if (varInfo && varInfo->alloca) {
+            // Check if this is an Integer^ type (object wrapper)
+            bool isIntegerObject = varInfo->xxmlType == "Integer" ||
+                                   varInfo->xxmlType == "Language::Core::Integer";
+
+            // Use ptr type for object types, mapped type for primitives
+            auto* loadType = isIntegerObject ? ctx_.builder().getPtrTy() : ctx_.mapType(varInfo->xxmlType);
+            auto iterVal = ctx_.builder().createLoad(
+                loadType,
+                LLVMIR::PtrValue(varInfo->alloca),
+                ""
+            );
+            auto endVal = exprCodegen_.generate(stmt->rangeEnd.get());
+
+            if (isIntegerObject && iterVal.isPtr() && endVal.isPtr()) {
+                // Call Integer_lessThan(iter, end) which returns a Bool*
+                auto* ltFunc = ctx_.module().getFunction("Integer_lessThan");
+                if (!ltFunc) {
+                    std::vector<LLVMIR::Type*> ltParams = {
+                        ctx_.builder().getPtrTy(), ctx_.builder().getPtrTy()
+                    };
+                    auto* ltType = ctx_.module().getContext().getFunctionTy(
+                        ctx_.builder().getPtrTy(), ltParams, false);
+                    ltFunc = ctx_.module().createFunction(ltType, "Integer_lessThan",
+                        LLVMIR::Function::Linkage::External);
+                }
+                std::vector<LLVMIR::AnyValue> ltArgs = { iterVal, endVal };
+                auto ltResult = ctx_.builder().createCall(ltFunc, ltArgs, "lt.result");
+
+                // Call Bool_getValue to get the raw i1
+                auto* boolGetFunc = ctx_.module().getFunction("Bool_getValue");
+                if (!boolGetFunc) {
+                    std::vector<LLVMIR::Type*> boolParams = { ctx_.builder().getPtrTy() };
+                    auto* boolType = ctx_.module().getContext().getFunctionTy(
+                        ctx_.module().getContext().getInt1Ty(), boolParams, false);
+                    boolGetFunc = ctx_.module().createFunction(boolType, "Bool_getValue",
+                        LLVMIR::Function::Linkage::External);
+                }
+                std::vector<LLVMIR::AnyValue> boolArgs = { ltResult };
+                auto condVal = ctx_.builder().createCall(boolGetFunc, boolArgs, "for.cond");
+                ctx_.builder().createCondBr(condVal.asInt(), bodyBB, endBB);
+            } else if (iterVal.isInt() && endVal.isInt()) {
+                // Raw integer comparison
+                auto cond = ctx_.builder().createICmpSLT(iterVal.asInt(), endVal.asInt(), "for.cmp");
+                ctx_.builder().createCondBr(cond, bodyBB, endBB);
+            } else {
+                ctx_.builder().createBr(bodyBB); // fallback
+            }
+        } else {
+            ctx_.builder().createBr(bodyBB);
+        }
+    } else {
+        ctx_.builder().createBr(bodyBB); // Infinite loop if no condition
+    }
+
+    // Emit body block
+    ctx_.setInsertPoint(bodyBB);
+    for (const auto& bodyStmt : stmt->body) {
+        generate(bodyStmt.get());
+    }
+    if (ctx_.currentBlock() && !ctx_.currentBlock()->getTerminator()) {
+        ctx_.builder().createBr(incBB);
+    }
+
+    // Emit increment block
+    ctx_.setInsertPoint(incBB);
+    if (stmt->isCStyleLoop && stmt->increment) {
+        exprCodegen_.generate(stmt->increment.get());
+    } else if (!stmt->isCStyleLoop) {
+        // Range-based: iterator++
+        auto* varInfo = ctx_.getVariable(stmt->iteratorName);
+        if (varInfo && varInfo->alloca) {
+            // Check if this is an Integer^ type (object wrapper)
+            bool isIntegerObject = varInfo->xxmlType == "Integer" ||
+                                   varInfo->xxmlType == "Language::Core::Integer";
+
+            // Use ptr type for object types, mapped type for primitives
+            auto* loadType = isIntegerObject ? ctx_.builder().getPtrTy() : ctx_.mapType(varInfo->xxmlType);
+            auto iterVal = ctx_.builder().createLoad(
+                loadType,
+                LLVMIR::PtrValue(varInfo->alloca),
+                ""
+            );
+
+            if (isIntegerObject && iterVal.isPtr()) {
+                // Create Integer(1) for increment
+                auto* intCtorFunc = ctx_.module().getFunction("Integer_Constructor");
+                if (!intCtorFunc) {
+                    std::vector<LLVMIR::Type*> ctorParams = { ctx_.module().getContext().getInt64Ty() };
+                    auto* ctorType = ctx_.module().getContext().getFunctionTy(
+                        ctx_.builder().getPtrTy(), ctorParams, false);
+                    intCtorFunc = ctx_.module().createFunction(ctorType, "Integer_Constructor",
+                        LLVMIR::Function::Linkage::External);
+                }
+                std::vector<LLVMIR::AnyValue> ctorArgs = { LLVMIR::AnyValue(ctx_.builder().getInt64(1)) };
+                auto oneInt = ctx_.builder().createCall(intCtorFunc, ctorArgs, "one");
+
+                // Call Integer_add(iter, one)
+                auto* addFunc = ctx_.module().getFunction("Integer_add");
+                if (!addFunc) {
+                    std::vector<LLVMIR::Type*> addParams = {
+                        ctx_.builder().getPtrTy(), ctx_.builder().getPtrTy()
+                    };
+                    auto* addType = ctx_.module().getContext().getFunctionTy(
+                        ctx_.builder().getPtrTy(), addParams, false);
+                    addFunc = ctx_.module().createFunction(addType, "Integer_add",
+                        LLVMIR::Function::Linkage::External);
+                }
+                std::vector<LLVMIR::AnyValue> addArgs = { iterVal, oneInt };
+                auto incVal = ctx_.builder().createCall(addFunc, addArgs, "inc.result");
+                ctx_.builder().createStore(incVal, LLVMIR::PtrValue(varInfo->alloca));
+            } else if (iterVal.isInt()) {
+                // Raw integer increment
+                auto one = ctx_.builder().getIntN(iterVal.asInt().getBitWidth(), 1);
+                auto incVal = ctx_.builder().createAdd(iterVal.asInt(), one, "");
+                ctx_.builder().createStore(LLVMIR::AnyValue(incVal), LLVMIR::PtrValue(varInfo->alloca));
+            }
+        }
+    }
+    ctx_.builder().createBr(condBB);
+
+    // Pop loop context
+    ctx_.popLoop();
+
+    // Continue at end block
+    ctx_.setInsertPoint(endBB);
+}
+
+// === Control Flow: Break Statement ===
+
+void StmtCodegen::visitBreak(Parser::BreakStmt*) {
+    auto* loopCtx = ctx_.currentLoop();
+    if (loopCtx && loopCtx->endBlock) {
+        ctx_.builder().createBr(loopCtx->endBlock);
+    }
+}
+
+// === Control Flow: Continue Statement ===
+
+void StmtCodegen::visitContinue(Parser::ContinueStmt*) {
+    auto* loopCtx = ctx_.currentLoop();
+    if (loopCtx && loopCtx->condBlock) {
+        ctx_.builder().createBr(loopCtx->condBlock);
+    }
+}
+
+// === Private Helper Methods ===
+
+void StmtCodegen::storeToThisProperty(const std::string& propName, LLVMIR::AnyValue value) {
+    auto* func = ctx_.currentFunction();
+    if (!func || func->getNumParams() == 0) return;
+
+    auto* thisArg = func->getArg(0);
+    if (!thisArg) return;
+
+    std::string className = std::string(ctx_.currentClassName());
+    auto* classInfo = ctx_.getClass(className);
+    if (!classInfo || !classInfo->structType) return;
+
+    for (const auto& prop : classInfo->properties) {
+        if (prop.name == propName) {
+            auto thisPtrValue = LLVMIR::PtrValue(thisArg);
+            auto propPtr = ctx_.builder().createStructGEP(
+                classInfo->structType,
+                thisPtrValue,
+                static_cast<unsigned>(prop.index),
+                propName + ".ptr"
+            );
+            ctx_.builder().createStore(value, propPtr);
+            return;
+        }
+    }
+}
+
+void StmtCodegen::storeToObjectProperty(const std::string& objName, const std::string& propName, LLVMIR::AnyValue value) {
+    auto* varInfo = ctx_.getVariable(objName);
+    if (!varInfo || !varInfo->alloca) return;
+
+    // Get the object's type and class info
+    std::string typeName = TypeNormalizer::stripOwnershipMarker(varInfo->xxmlType);
+    auto* classInfo = ctx_.getClass(typeName);
+    if (!classInfo || !classInfo->structType) return;
+
+    // Load the object pointer
+    auto objPtr = ctx_.builder().createLoad(
+        ctx_.module().getContext().getPtrTy(),
+        LLVMIR::PtrValue(varInfo->alloca),
+        ""
+    );
+
+    for (const auto& prop : classInfo->properties) {
+        if (prop.name == propName) {
+            auto propPtr = ctx_.builder().createStructGEP(
+                classInfo->structType,
+                objPtr.asPtr(),
+                static_cast<unsigned>(prop.index),
+                propName + ".ptr"
+            );
+            ctx_.builder().createStore(value, propPtr);
+            return;
+        }
+    }
+}
+
+LLVMIR::BoolValue StmtCodegen::ensureBoolCondition(LLVMIR::AnyValue value) {
+    // If it's an integer, check if already i1 or compare to 0
+    if (value.isInt()) {
+        auto intVal = value.asInt();
+        if (intVal.getBitWidth() == 1) {
+            return intVal;  // BoolValue is IntValue alias
+        }
+        // Non-boolean integer - compare to 0
+        auto zero = ctx_.builder().getIntN(intVal.getBitWidth(), 0);
+        return ctx_.builder().createICmpNE(intVal, zero, "tobool");
+    }
+
+    // If it's a pointer, assume it's a Bool^ object and call Bool_getValue
+    // In XXML, conditions like "If (someBool)" expect the Bool VALUE to be checked,
+    // not just whether the pointer is non-null. For null checks, users write
+    // explicit comparisons like "If (ptr != null)".
+    if (value.isPtr()) {
+        // Get or declare Bool_getValue function
+        auto* getBoolFunc = ctx_.module().getFunction("Bool_getValue");
+        if (!getBoolFunc) {
+            auto* funcType = ctx_.module().getContext().getFunctionTy(
+                ctx_.builder().getInt1Ty(),
+                {ctx_.builder().getPtrTy()},
+                false
+            );
+            getBoolFunc = ctx_.module().createFunction(funcType, "Bool_getValue",
+                                                       LLVMIR::Function::Linkage::External);
+        }
+        // Call Bool_getValue to extract the i1 value
+        auto boolResult = ctx_.builder().createCall(getBoolFunc, {value.asPtr()}, "boolval");
+        return boolResult.asInt();
+    }
+
+    // Default: treat as true
+    return ctx_.builder().getInt1(true);
+}
 
 } // namespace Codegen
 } // namespace Backends

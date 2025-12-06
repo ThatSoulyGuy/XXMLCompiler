@@ -13,10 +13,19 @@ ModularCodegen::ModularCodegen(Core::CompilationContext* compCtx)
 ModularCodegen::~ModularCodegen() = default;
 
 void ModularCodegen::initializeCodegens() {
-    // Create the codegen modules
+    // Create the codegen modules (order matters - some depend on others)
     exprCodegen_ = std::make_unique<ExprCodegen>(ctx_);
     stmtCodegen_ = std::make_unique<StmtCodegen>(ctx_, *exprCodegen_);
     declCodegen_ = std::make_unique<DeclCodegen>(ctx_, *exprCodegen_, *stmtCodegen_);
+    reflectionCodegen_ = std::make_unique<ReflectionCodegen>(ctx_);
+    annotationCodegen_ = std::make_unique<AnnotationCodegen>(ctx_);
+
+    // New modules
+    templateCodegen_ = std::make_unique<TemplateCodegen>(ctx_, *declCodegen_);
+    moduleCodegen_ = std::make_unique<ModuleCodegen>(ctx_, *declCodegen_);
+    nativeCodegen_ = std::make_unique<NativeCodegen>(ctx_, ctx_.compilationContext());
+    // Note: lambdaTemplateCodegen_ needs 'this' pointer, so we initialize it after construction
+    lambdaTemplateCodegen_ = std::make_unique<LambdaTemplateCodegen>(ctx_, this);
 }
 
 LLVMIR::AnyValue ModularCodegen::generateExpr(Parser::Expression* expr) {
@@ -75,6 +84,128 @@ void ModularCodegen::generateProgramDecls(const std::vector<std::unique_ptr<Pars
 std::string ModularCodegen::getIR() const {
     LLVMIR::LLVMEmitter emitter(ctx_.module());
     return emitter.emit();
+}
+
+std::string ModularCodegen::getFunctionsIR() const {
+    LLVMIR::LLVMEmitter emitter(ctx_.module());
+    return emitter.emitFunctionsOnly();
+}
+
+void ModularCodegen::generateMetadata() {
+    // Generate reflection metadata
+    if (reflectionCodegen_) {
+        reflectionCodegen_->generate();
+    }
+    // Generate annotation metadata
+    if (annotationCodegen_) {
+        annotationCodegen_->generate();
+    }
+}
+
+std::string ModularCodegen::getMetadataIR() const {
+    std::string result;
+    if (reflectionCodegen_) {
+        result += reflectionCodegen_->getIR();
+    }
+    if (annotationCodegen_) {
+        result += annotationCodegen_->getIR();
+    }
+    return result;
+}
+
+void ModularCodegen::generateTemplates(Semantic::SemanticAnalyzer& analyzer) {
+    if (templateCodegen_) {
+        templateCodegen_->generateClassTemplates(analyzer);
+        templateCodegen_->generateMethodTemplates(analyzer);
+    }
+
+    // Verify that all Deferred types have been resolved after template instantiation
+    // This is a debug check to ensure templates are properly instantiated
+    #ifndef NDEBUG
+    auto stats = ctx_.getTypeVerificationStats();
+    if (stats.deferredTypes > 0 || stats.unknownTypes > 0) {
+        std::cerr << "[DEBUG] After template generation: "
+                  << stats.deferredTypes << " Deferred types, "
+                  << stats.unknownTypes << " Unknown types still present\n";
+        // Note: Some Deferred types may be resolved later during actual codegen
+        // Full verification happens at the end of compilation
+    }
+    #endif
+}
+
+void ModularCodegen::collectReflectionMetadata(Parser::Program& program) {
+    if (moduleCodegen_) {
+        moduleCodegen_->collectReflectionMetadata(program);
+    }
+}
+
+void ModularCodegen::generateImportedModule(Parser::Program& program, const std::string& moduleName) {
+    if (moduleCodegen_) {
+        moduleCodegen_->generateImportedModuleCode(program, moduleName);
+    }
+}
+
+void ModularCodegen::generateNativeThunk(Parser::MethodDecl& node,
+                                        const std::string& className,
+                                        const std::string& namespaceName) {
+    if (nativeCodegen_) {
+        nativeCodegen_->generateNativeThunk(node, className, namespaceName);
+    }
+}
+
+std::string ModularCodegen::getNativeThunkIR() const {
+    if (nativeCodegen_) {
+        return nativeCodegen_->getIR();
+    }
+    return "";
+}
+
+const std::vector<std::pair<std::string, std::string>>& ModularCodegen::getNativeStringLiterals() const {
+    static std::vector<std::pair<std::string, std::string>> empty;
+    if (nativeCodegen_) {
+        return nativeCodegen_->stringLiterals();
+    }
+    return empty;
+}
+
+void ModularCodegen::resetNativeCodegen() {
+    if (nativeCodegen_) {
+        nativeCodegen_->reset();
+    }
+}
+
+void ModularCodegen::generateLambdaTemplates(Semantic::SemanticAnalyzer& analyzer) {
+    if (lambdaTemplateCodegen_) {
+        lambdaTemplateCodegen_->generateLambdaTemplates(analyzer);
+    }
+}
+
+const std::vector<std::string>& ModularCodegen::getLambdaDefinitions() const {
+    static std::vector<std::string> empty;
+    if (lambdaTemplateCodegen_) {
+        return lambdaTemplateCodegen_->getLambdaDefinitions();
+    }
+    return empty;
+}
+
+std::string ModularCodegen::getLambdaFunction(const std::string& key) const {
+    if (lambdaTemplateCodegen_) {
+        return lambdaTemplateCodegen_->getLambdaFunction(key);
+    }
+    return "";
+}
+
+const LambdaTemplateCodegen::LambdaInfo* ModularCodegen::getLambdaInfo(const std::string& key) const {
+    if (lambdaTemplateCodegen_) {
+        return lambdaTemplateCodegen_->getLambdaInfo(key);
+    }
+    return nullptr;
+}
+
+void ModularCodegen::resetLambdaCodegen() {
+    if (lambdaTemplateCodegen_) {
+        lambdaTemplateCodegen_->reset();
+    }
 }
 
 } // namespace Codegen

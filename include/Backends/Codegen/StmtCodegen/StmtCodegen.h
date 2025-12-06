@@ -49,6 +49,12 @@ public:
 protected:
     CodegenContext& ctx_;
     ExprCodegen& exprCodegen_;
+
+private:
+    // Helper methods
+    void storeToThisProperty(const std::string& propName, LLVMIR::AnyValue value);
+    void storeToObjectProperty(const std::string& objName, const std::string& propName, LLVMIR::AnyValue value);
+    LLVMIR::BoolValue ensureBoolCondition(LLVMIR::AnyValue value);
 };
 
 } // namespace Codegen

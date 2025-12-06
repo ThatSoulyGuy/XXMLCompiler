@@ -1,0 +1,148 @@
+// DeferredTypeTest - Verifies that Deferred types are properly instantiated
+//
+// This test exercises template code paths that produce Deferred types during
+// semantic analysis, then verifies they are resolved to concrete types after
+// template instantiation.
+
+#import Language::Core;
+#import Language::Collections;
+
+// A generic container that holds a value of type T
+[ Namespace <Test>
+    [ Class <Box> <T Constrains None> Final Extends None
+        [ Private <>
+            Property <value> Types T^;
+        ]
+        [ Public <>
+            Constructor = default;
+
+            // Method that takes the template parameter type
+            Method <set> Returns Test::Box<T>^ Parameters (Parameter <val> Types T^) Do
+            {
+                Set value = val;
+                Return this;
+            }
+
+            // Method that returns the template parameter type
+            Method <get> Returns T^ Parameters () Do
+            {
+                Return value;
+            }
+
+            // Method that chains template type operations
+            Method <swap> Returns T^ Parameters (Parameter <newVal> Types T^) Do
+            {
+                Instantiate T^ As <old> = value;
+                Set value = newVal;
+                Return old;
+            }
+        ]
+    ]
+
+    // A class that uses multiple template parameters
+    [ Class <Pair> <K Constrains None, V Constrains None> Final Extends None
+        [ Private <>
+            Property <first> Types K^;
+            Property <second> Types V^;
+        ]
+        [ Public <>
+            Constructor = default;
+
+            Method <init> Returns Test::Pair<K, V>^ Parameters (Parameter <k> Types K^, Parameter <v> Types V^) Do
+            {
+                Set first = k;
+                Set second = v;
+                Return this;
+            }
+
+            Method <getFirst> Returns K^ Parameters () Do
+            {
+                Return first;
+            }
+
+            Method <getSecond> Returns V^ Parameters () Do
+            {
+                Return second;
+            }
+
+            Method <setFirst> Returns None Parameters (Parameter <k> Types K^) Do
+            {
+                Set first = k;
+            }
+
+            Method <setSecond> Returns None Parameters (Parameter <v> Types V^) Do
+            {
+                Set second = v;
+            }
+        ]
+    ]
+]
+
+[ Entrypoint
+{
+    Run System::Console::printLine(String::Constructor("=== Deferred Type Resolution Test ==="));
+
+    // Test 1: Box<Integer> - basic template instantiation
+    Run System::Console::printLine(String::Constructor("Test 1: Box<Integer>"));
+    Instantiate Test::Box<Integer>^ As <intBox> = Test::Box@Integer::Constructor();
+    Run intBox.set(Integer::Constructor(42));
+    Instantiate Integer^ As <val1> = intBox.get();
+    Run System::Console::printLine(String::Constructor("  Value: "));
+    Run System::Console::printLine(val1.toString());
+
+    // Test 2: Box<String> - different type instantiation
+    Run System::Console::printLine(String::Constructor("Test 2: Box<String>"));
+    Instantiate Test::Box<String>^ As <strBox> = Test::Box@String::Constructor();
+    Run strBox.set(String::Constructor("Hello Template"));
+    Instantiate String^ As <val2> = strBox.get();
+    Run System::Console::printLine(String::Constructor("  Value: "));
+    Run System::Console::printLine(val2);
+
+    // Test 3: Box.swap - exercises Deferred type in local variables
+    Run System::Console::printLine(String::Constructor("Test 3: Box swap"));
+    Instantiate Test::Box<Integer>^ As <swapBox> = Test::Box@Integer::Constructor();
+    Run swapBox.set(Integer::Constructor(10));
+    Instantiate Integer^ As <oldVal> = swapBox.swap(Integer::Constructor(20));
+    Instantiate Integer^ As <newVal> = swapBox.get();
+    Run System::Console::printLine(String::Constructor("  Old value: "));
+    Run System::Console::printLine(oldVal.toString());
+    Run System::Console::printLine(String::Constructor("  New value: "));
+    Run System::Console::printLine(newVal.toString());
+
+    // Test 4: Pair<Integer, String> - multiple template parameters
+    Run System::Console::printLine(String::Constructor("Test 4: Pair<Integer, String>"));
+    Instantiate Test::Pair<Integer, String>^ As <pair1> = Test::Pair@Integer, String::Constructor();
+    Run pair1.init(Integer::Constructor(1), String::Constructor("one"));
+    Instantiate Integer^ As <pairKey> = pair1.getFirst();
+    Instantiate String^ As <pairVal> = pair1.getSecond();
+    Run System::Console::printLine(String::Constructor("  Key: "));
+    Run System::Console::printLine(pairKey.toString());
+    Run System::Console::printLine(String::Constructor("  Value: "));
+    Run System::Console::printLine(pairVal);
+
+    // Test 5: Pair<String, Integer> - reversed type parameters
+    Run System::Console::printLine(String::Constructor("Test 5: Pair<String, Integer>"));
+    Instantiate Test::Pair<String, Integer>^ As <pair2> = Test::Pair@String, Integer::Constructor();
+    Run pair2.init(String::Constructor("two"), Integer::Constructor(2));
+    Instantiate String^ As <pairKey2> = pair2.getFirst();
+    Instantiate Integer^ As <pairVal2> = pair2.getSecond();
+    Run System::Console::printLine(String::Constructor("  Key: "));
+    Run System::Console::printLine(pairKey2);
+    Run System::Console::printLine(String::Constructor("  Value: "));
+    Run System::Console::printLine(pairVal2.toString());
+
+    // Test 6: Modifying Pair values
+    Run System::Console::printLine(String::Constructor("Test 6: Modifying Pair"));
+    Run pair1.setFirst(Integer::Constructor(100));
+    Run pair1.setSecond(String::Constructor("hundred"));
+    Instantiate Integer^ As <modKey> = pair1.getFirst();
+    Instantiate String^ As <modVal> = pair1.getSecond();
+    Run System::Console::printLine(String::Constructor("  Modified key: "));
+    Run System::Console::printLine(modKey.toString());
+    Run System::Console::printLine(String::Constructor("  Modified value: "));
+    Run System::Console::printLine(modVal);
+
+    Run System::Console::printLine(String::Constructor("=== All Deferred Type Tests Passed ==="));
+    Exit(0);
+}
+]

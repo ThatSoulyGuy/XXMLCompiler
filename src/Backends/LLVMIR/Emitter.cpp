@@ -24,6 +24,22 @@ std::string LLVMEmitter::emit() {
     return out_.str();
 }
 
+std::string LLVMEmitter::emitFunctionsOnly() {
+    out_.str("");
+    out_.clear();
+
+    // Emit struct declarations (needed for GEP instructions)
+    emitStructDeclarations();
+
+    // Emit global variables (includes string literals)
+    emitGlobalVariables();
+
+    // Emit function definitions only (skip declarations - preamble has them)
+    emitFunctionDefinitions();
+
+    return out_.str();
+}
+
 // ============================================================================
 // Module Header
 // ============================================================================
@@ -647,10 +663,27 @@ std::string LLVMEmitter::getValueName(const Value* val) {
         return it->second;
     }
 
+    // Determine prefix based on value type
+    // GlobalVariable and Function use '@', local values use '%'
+    std::string prefix = "%";
+    if (dynamic_cast<const GlobalVariable*>(val) || dynamic_cast<const Function*>(val)) {
+        prefix = "@";
+    }
+
     // Assign a new name
     std::string name;
     if (val->hasName()) {
-        name = "%" + std::string(val->getName());
+        std::string baseName = std::string(val->getName());
+        std::string candidate = prefix + baseName;
+        // Check if name is already used, if so append a number to make it unique
+        if (usedNames_.count(candidate)) {
+            int suffix = 1;
+            do {
+                candidate = prefix + baseName + "." + std::to_string(suffix++);
+            } while (usedNames_.count(candidate));
+        }
+        name = candidate;
+        usedNames_.insert(name);
     } else {
         name = "%" + std::to_string(tempCounter_++);
     }
@@ -660,10 +693,23 @@ std::string LLVMEmitter::getValueName(const Value* val) {
 }
 
 void LLVMEmitter::assignValueNames(const Function* func) {
+    // Helper to get a unique name
+    auto getUniqueName = [this](const std::string& baseName) -> std::string {
+        std::string candidate = "%" + baseName;
+        if (usedNames_.count(candidate)) {
+            int suffix = 1;
+            do {
+                candidate = "%" + baseName + "." + std::to_string(suffix++);
+            } while (usedNames_.count(candidate));
+        }
+        usedNames_.insert(candidate);
+        return candidate;
+    };
+
     // Assign names to arguments
     for (const auto& arg : func->getArgs()) {
         if (arg->hasName()) {
-            valueNames_[arg.get()] = "%" + std::string(arg->getName());
+            valueNames_[arg.get()] = getUniqueName(std::string(arg->getName()));
         } else {
             valueNames_[arg.get()] = "%" + std::to_string(tempCounter_++);
         }
@@ -672,7 +718,7 @@ void LLVMEmitter::assignValueNames(const Function* func) {
     // Assign names to basic blocks and instructions
     for (const auto& bb : func->getBasicBlocks()) {
         if (bb->hasName()) {
-            valueNames_[bb.get()] = "%" + std::string(bb->getName());
+            valueNames_[bb.get()] = getUniqueName(std::string(bb->getName()));
         } else {
             valueNames_[bb.get()] = "%bb" + std::to_string(blockCounter_++);
         }
@@ -681,7 +727,7 @@ void LLVMEmitter::assignValueNames(const Function* func) {
             // Only name instructions that produce values
             if (inst->getType() && !inst->getType()->isVoid()) {
                 if (inst->hasName()) {
-                    valueNames_[inst] = "%" + std::string(inst->getName());
+                    valueNames_[inst] = getUniqueName(std::string(inst->getName()));
                 } else {
                     valueNames_[inst] = "%" + std::to_string(tempCounter_++);
                 }
