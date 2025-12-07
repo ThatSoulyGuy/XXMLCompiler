@@ -42,10 +42,10 @@ XXML is a statically-typed, object-oriented programming language with explicit o
 ### Keywords
 
 ```
-import, Namespace, Class, Final, Extends, None, Public, Private, Protected,
+import, Namespace, Class, Enumeration, Value, Final, Extends, None, Public, Private, Protected,
 Property, Types, Constructor, default, Method, Returns, Parameters, Parameter,
 Entrypoint, Instantiate, As, Run, For, While, If, Else, Exit, Return,
-Break, Continue, Lambda, true, false
+Break, Continue, Lambda, true, false, Compiletime, Templates, Constrains
 ```
 
 ### Identifiers
@@ -331,6 +331,55 @@ Instantiate Integer& As <ref> = existingVar;
 - `Final` - Class cannot be inherited from
 - `Extends BaseClass` - Inherits from BaseClass
 - `Extends None` - No inheritance
+
+### Enumeration Declarations
+
+XXML supports enumeration types for defining named integer constants:
+
+```xxml
+[ Enumeration <EnumName>
+    Value <NAME1> = intValue;
+    Value <NAME2> = intValue;
+    Value <NAME3>;  // Auto-increments from previous value
+]
+```
+
+**Example:**
+```xxml
+[ Enumeration <Color>
+    Value <RED> = 1;
+    Value <GREEN> = 2;
+    Value <BLUE> = 3;
+]
+
+[ Enumeration <Key>
+    Value <UNKNOWN> = -1;
+    Value <SPACE> = 32;
+    Value <A> = 65;
+    Value <B>;  // Auto: 66
+    Value <C>;  // Auto: 67
+]
+```
+
+**Accessing Enum Values:**
+
+Enum values are accessed using the `EnumName::ValueName` syntax:
+
+```xxml
+// Use enum value in comparison
+If (keyCode.equals(Key::SPACE)) -> {
+    Run Console::printLine(String::Constructor("Space pressed"));
+}
+
+// Enum values are compile-time integer constants
+Instantiate Integer^ As <color> = Integer::Constructor(Color::RED);
+```
+
+**Features:**
+- Explicit integer values with `= intValue`
+- Auto-increment when no value specified (continues from previous value)
+- Namespace-qualified access: `EnumName::Value`
+- Compile-time constant evaluation
 
 ### Property Declarations
 
@@ -1071,11 +1120,15 @@ Method <size> Returns Integer^ Parameters ()
 ```ebnf
 program ::= declaration*
 
-declaration ::= import_decl | namespace_decl | class_decl | entrypoint_decl
+declaration ::= import_decl | namespace_decl | class_decl | enum_decl | entrypoint_decl
 
 import_decl ::= "#import" qualified_id ";"
 
 namespace_decl ::= "[" "Namespace" "<" qualified_id ">" declaration* "]"
+
+enum_decl ::= "[" "Enumeration" "<" id ">" enum_value* "]"
+
+enum_value ::= "Value" "<" id ">" ("=" integer_literal)? ";"
 
 class_decl ::= "[" "Class" "<" id ">" "Final"? "Extends" (id | "None") access_section* "]"
 

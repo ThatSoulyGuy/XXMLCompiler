@@ -40,7 +40,11 @@ std::string LLVMEmitter::emitFunctionsOnly() {
     // Emit global variables (includes string literals)
     emitGlobalVariables();
 
-    // Emit function definitions only (skip declarations - preamble has them)
+    // Emit function declarations for external functions (important for native FFI methods
+    // that are created on-demand during codegen, not in the preamble)
+    emitFunctionDeclarations();
+
+    // Emit function definitions
     emitFunctionDefinitions();
 
     return out_.str();
@@ -128,8 +132,30 @@ void LLVMEmitter::emitGlobalVariables() {
 // ============================================================================
 
 void LLVMEmitter::emitFunctionDeclarations() {
+    // Preamble function prefixes - these are declared in the preamble already
+    static const std::vector<std::string> preamblePrefixes = {
+        "Bool_", "Integer_", "Float_", "Double_", "String_", "Console_",
+        "Object_",  // Fallback type for string operations
+        "Reflection_", "xxml_", "malloc", "free", "memcpy", "memset",
+        "llvm.", "printf", "puts", "exit"
+    };
+
     for (const auto& [name, func] : module_.getFunctions()) {
         if (func->isDeclaration()) {
+            // Check if this is a preamble function by checking prefixes
+            bool isPreambleFunc = false;
+            for (const auto& prefix : preamblePrefixes) {
+                if (name.find(prefix) == 0) {
+                    isPreambleFunc = true;
+                    break;
+                }
+            }
+
+            // Skip preamble functions - they are declared in the preamble already
+            if (isPreambleFunc) {
+                continue;
+            }
+
             out_ << "declare ";
             out_ << formatType(func->getReturnType()) << " ";
             out_ << "@" << name << "(";

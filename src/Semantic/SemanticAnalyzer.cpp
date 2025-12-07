@@ -340,6 +340,23 @@ bool SemanticAnalyzer::isCompatibleType(const std::string& expected, const std::
     if (expected.find("NativeType<float>") != std::string::npos && actual == "Integer") return true; // int to float conversion
     if (expected.find("NativeType<double>") != std::string::npos && actual == "Integer") return true; // int to double conversion
 
+    // Enum types are compatible with NativeType<int64> and Integer (enums store int64 values)
+    if (enumRegistry_.find(actual) != enumRegistry_.end()) {
+        // Enum values can be passed where NativeType<int64> or Integer is expected
+        if (expected.find("NativeType<int64>") != std::string::npos) return true;
+        if (expected == "Integer") return true;
+    }
+    // Also check without namespace qualification for enum types
+    for (const auto& [enumName, enumInfo] : enumRegistry_) {
+        // Check if actual matches the unqualified enum name
+        size_t colonPos = enumName.rfind("::");
+        std::string unqualifiedName = (colonPos != std::string::npos) ? enumName.substr(colonPos + 2) : enumName;
+        if (actual == unqualifiedName || actual == enumName) {
+            if (expected.find("NativeType<int64>") != std::string::npos) return true;
+            if (expected == "Integer") return true;
+        }
+    }
+
     // Reverse: wrapper types can be used where NativeType is expected (implicit conversion)
     if (actual.find("NativeType<int64>") != std::string::npos && expected == "Integer") return true;
     if (actual.find("NativeType<bool>") != std::string::npos && expected == "Bool") return true;
@@ -1076,8 +1093,14 @@ void SemanticAnalyzer::visit(Parser::EnumerationDecl& node) {
 
     // Check for duplicate
     if (enumRegistry_.find(fullName) != enumRegistry_.end()) {
-        // During validation phase, enums may already exist from merged registries - skip silently
+        // If this enum was merged from another module, silently skip re-registration
+        // This happens when the same file is processed both as a discovered module and as the main file,
+        // or during the two-pass analysis in runPipeline()
+        if (mergedEnums_.find(fullName) != mergedEnums_.end()) {
+            return;  // Silently skip - this is the same enum being re-analyzed
+        }
         // Only report error during Phase 1 (registration phase) when validation is disabled
+        // and the duplicate is a true duplicate within the same file (not from merge)
         if (!enableValidation) {
             errorReporter.reportError(
                 Common::ErrorCode::DuplicateDeclaration,
@@ -1250,6 +1273,17 @@ void SemanticAnalyzer::visit(Parser::DestructorDecl& node) {
 }
 
 void SemanticAnalyzer::visit(Parser::MethodDecl& node) {
+    // ERROR: Methods must be declared inside a class (or inside a Processor block)
+    if (currentClass.empty() && !inProcessorContext_) {
+        errorReporter.reportError(
+            Common::ErrorCode::InvalidMethodDeclaration,
+            "Method '" + node.name + "' must be declared inside a class. "
+            "Module-level functions are not allowed.",
+            node.location
+        );
+        return;  // Don't process further
+    }
+
     // Validate annotations on this method
     for (auto& annotation : node.annotations) {
         annotation->accept(*this);
@@ -1666,8 +1700,10 @@ void SemanticAnalyzer::visit(Parser::InstantiateStmt& node) {
 }
 
 void SemanticAnalyzer::visit(Parser::AssignmentStmt& node) {
-    // Analyze the target expression (lvalue)
+    // Analyze the target expression (lvalue context - skip move checks)
+    inAssignmentTarget_ = true;
     node.target->accept(*this);
+    inAssignmentTarget_ = false;
 
     // Verify it's a valid lvalue (for now, we allow all expressions that were analyzed successfully)
     // In a more complete implementation, we would check that it's actually assignable
@@ -2088,8 +2124,8 @@ void SemanticAnalyzer::visit(Parser::IdentifierExpr& node) {
         return;
     }
 
-    // Check if variable has been moved
-    if (enableValidation) {
+    // Check if variable has been moved (only for rvalue context, not assignment targets)
+    if (enableValidation && !inAssignmentTarget_) {
         checkVariableNotMoved(node.name, node.location);
     }
 

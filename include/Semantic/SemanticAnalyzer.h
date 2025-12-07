@@ -1,5 +1,6 @@
 #pragma once
 #include <memory>
+#include <unordered_set>
 #include "../Parser/AST.h"
 #include "SymbolTable.h"
 #include "../Common/Error.h"
@@ -212,6 +213,7 @@ private:
 
     // Move tracking for ownership safety
     std::set<std::string> movedVariables_;  // Variables that have been moved from (owned capture or owned param)
+    bool inAssignmentTarget_ = false;  // True when visiting assignment target (lvalue context)
 
     // Function type tracking for lambda .call() ownership validation
     // Maps variable name -> vector of parameter ownership types
@@ -281,6 +283,7 @@ private:
         std::vector<EnumValueInfo> values;
     };
     std::unordered_map<std::string, EnumInfo> enumRegistry_;  // Qualified enum name -> EnumInfo
+    std::unordered_set<std::string> mergedEnums_;  // Enums that were merged from other modules (not locally defined)
 
     // Callback type registry for FFI callbacks
     // (CallbackParamInfo and CallbackTypeInfo defined in PassResults.h)
@@ -430,6 +433,7 @@ public:
             // Don't overwrite existing entries (prefer local definitions)
             if (enumRegistry_.find(name) == enumRegistry_.end()) {
                 enumRegistry_[name] = info;
+                mergedEnums_.insert(name);  // Track that this enum came from merging
             }
         }
     }

@@ -27,6 +27,14 @@
 				Return value;
 			}
 
+			// Get raw value as int32 (for FFI compatibility)
+			Method <toInt32> Returns NativeType<"int32">^ Parameters () ->
+			{
+				Instantiate NativeType<"int64">^ As <v> = value;
+				Instantiate NativeType<"int32">^ As <result> = v;
+				Return result;
+			}
+
 			// Arithmetic operations
 			Method <add> Returns Integer^ Parameters (
 				Parameter <other> Types Integer&

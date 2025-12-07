@@ -82,23 +82,6 @@ If (value.equals(Integer::Constructor(1))) -> {
 }
 ```
 
-### No Enum Types
-
-Enumeration types are not supported. Use integer constants or classes with static properties.
-
-**Workaround**: Define a class with static constants.
-
-```xxml
-[ Class <Color> Final Extends None
-    [ Public <>
-        // Simulate enum with static-like constants
-        Method <RED> Returns Integer^ Parameters () Do { Return Integer::Constructor(0); }
-        Method <GREEN> Returns Integer^ Parameters () Do { Return Integer::Constructor(1); }
-        Method <BLUE> Returns Integer^ Parameters () Do { Return Integer::Constructor(2); }
-    ]
-]
-```
-
 ### No Async/Await or Coroutines
 
 Asynchronous programming must be done with explicit threading primitives. See [THREADING.md](THREADING.md).
@@ -276,45 +259,6 @@ The parser stops at the first syntax error rather than attempting to continue an
             Set r.hasError = Bool::Constructor(true);
             Set r.errorMessage = msg;
             Return r;
-        }
-    ]
-]
-```
-
-### Enum Pattern
-
-```xxml
-// Simulate enums with a class
-[ Class <Status> Final Extends None
-    [ Private <>
-        Property <code> Types Integer^;
-    ]
-
-    [ Public <>
-        Constructor Parameters (Parameter <c> Types Integer^) ->
-        {
-            Set code = c;
-        }
-
-        Method <equals> Returns Bool^ Parameters (Parameter <other> Types Status^) Do
-        {
-            Return code.equals(other.code);
-        }
-
-        // Static-like accessors
-        Method <PENDING> Returns Status^ Parameters () Do
-        {
-            Return Status::Constructor(Integer::Constructor(0));
-        }
-
-        Method <ACTIVE> Returns Status^ Parameters () Do
-        {
-            Return Status::Constructor(Integer::Constructor(1));
-        }
-
-        Method <COMPLETED> Returns Status^ Parameters () Do
-        {
-            Return Status::Constructor(Integer::Constructor(2));
         }
     ]
 ]

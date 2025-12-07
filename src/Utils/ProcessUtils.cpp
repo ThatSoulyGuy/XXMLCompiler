@@ -3,6 +3,8 @@
 #include <sstream>
 #include <fstream>
 #include <filesystem>
+#include <thread>
+#include <atomic>
 
 #include <cstdlib>
 
@@ -269,35 +271,47 @@ ProcessResult ProcessUtils::executeWindows(
         CloseHandle(hStderrWrite);
     }
 
-    // Wait for process to complete
-    WaitForSingleObject(pi.hProcess, INFINITE);
+    // Read output WHILE process runs to avoid pipe buffer deadlock
+    // When capturing output, use threads to read pipes concurrently with process execution
+    if (captureOutput) {
+        std::string stdoutData, stderrData;
+
+        // Lambda to read from a pipe handle into a string
+        auto readPipe = [](HANDLE hPipe, std::string& output) {
+            char buffer[4096];
+            DWORD bytesRead;
+            while (ReadFile(hPipe, buffer, sizeof(buffer) - 1, &bytesRead, NULL) && bytesRead > 0) {
+                buffer[bytesRead] = '\0';
+                output += buffer;
+            }
+        };
+
+        // Start threads to read stdout and stderr concurrently
+        std::thread stdoutThread(readPipe, hStdoutRead, std::ref(stdoutData));
+        std::thread stderrThread(readPipe, hStderrRead, std::ref(stderrData));
+
+        // Wait for process to complete
+        WaitForSingleObject(pi.hProcess, INFINITE);
+
+        // Wait for reader threads to finish (they'll exit when pipes close)
+        stdoutThread.join();
+        stderrThread.join();
+
+        result.output = std::move(stdoutData);
+        result.error = std::move(stderrData);
+
+        CloseHandle(hStdoutRead);
+        CloseHandle(hStderrRead);
+    } else {
+        // No capturing - just wait for process
+        WaitForSingleObject(pi.hProcess, INFINITE);
+    }
 
     // Get exit code
     DWORD exitCode;
     GetExitCodeProcess(pi.hProcess, &exitCode);
     result.exitCode = exitCode;
     result.success = (exitCode == 0);
-
-    // Read output
-    if (captureOutput) {
-        char buffer[4096];
-        DWORD bytesRead;
-
-        // Read stdout
-        while (ReadFile(hStdoutRead, buffer, sizeof(buffer) - 1, &bytesRead, NULL) && bytesRead > 0) {
-            buffer[bytesRead] = '\0';
-            result.output += buffer;
-        }
-
-        // Read stderr
-        while (ReadFile(hStderrRead, buffer, sizeof(buffer) - 1, &bytesRead, NULL) && bytesRead > 0) {
-            buffer[bytesRead] = '\0';
-            result.error += buffer;
-        }
-
-        CloseHandle(hStdoutRead);
-        CloseHandle(hStderrRead);
-    }
 
     // Cleanup
     CloseHandle(pi.hProcess);

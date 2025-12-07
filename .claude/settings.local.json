@@ -146,7 +146,17 @@
       "Bash(\"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" --processor \"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\Language\\ProcessorCtx\\ProcessorAnnotationArg.XXML\" --emit-llvm -o \"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\processorarg.ll\")",
       "Bash(Select-String -Pattern \"^\")",
       "Bash(Select-Object -First 50)",
-      "Bash(Select-Object -Last 100)"
+      "Bash(Select-Object -Last 100)",
+      "Bash(\"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" \"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\Hello.XXML\" --emit-llvm -o \"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\hello2.ll\")",
+      "Bash(\"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" \"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\Hello.XXML\" --emit-llvm -o \"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\hello3.ll\")",
+      "Bash(\"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" \"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\Hello.XXML\" --emit-llvm -o \"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\hello4.ll\")",
+      "Bash(\"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" \"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\Hello.XXML\" --emit-llvm -o \"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\hello5.ll\")",
+      "Bash(\"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" \"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\Hello.XXML\" --emit-llvm -o \"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\hello6.ll\")",
+      "Bash(Select-Object -Last 25)",
+      "Bash(\"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" \"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\Hello.XXML\" --emit-llvm -o \"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\hello_debug.ll\")",
+      "Bash(git -C \"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\" log --oneline -20)",
+      "Bash(git -C \"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\" diff --stat HEAD)",
+      "Bash(git -C \"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\" diff --stat docs/*.md README.md)"
     ],
     "deny": [],
     "ask": []

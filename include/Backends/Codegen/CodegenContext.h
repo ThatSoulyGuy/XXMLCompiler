@@ -6,6 +6,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 #include <memory>
 #include <functional>
@@ -179,6 +180,10 @@ public:
     void registerClass(const std::string& name, const ClassInfo& info);
     const ClassInfo* getClass(const std::string& name) const;
     bool hasClass(const std::string& name) const;
+
+    // === NativeStructure Management ===
+    void registerNativeStruct(const std::string& name);
+    bool isNativeStruct(const std::string& name) const;
 
     // === Type Mapping ===
     LLVMIR::Type* mapType(std::string_view xxmlType);
@@ -359,6 +364,9 @@ private:
 
     // Class info
     std::unordered_map<std::string, ClassInfo> classes_;
+
+    // NativeStructure names (opaque pointer types)
+    std::unordered_set<std::string> nativeStructs_;
 
     // Loop stack
     std::vector<LoopContext> loopStack_;

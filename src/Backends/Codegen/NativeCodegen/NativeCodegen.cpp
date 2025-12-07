@@ -15,7 +15,9 @@ NativeCodegen::NativeCodegen(CodegenContext& ctx, Core::CompilationContext* comp
 
 std::string NativeCodegen::getQualifiedName(const std::string& className, const std::string& methodName) const {
     std::string mangledClassName = TypeNormalizer::mangleForLLVM(className);
-    return mangledClassName + "_" + methodName;
+    std::string combined = mangledClassName + "_" + methodName;
+    // Apply mangling to remove consecutive underscores (e.g., "Native__glfwInit" -> "Native_glfwInit")
+    return TypeNormalizer::mangleForLLVM(combined);
 }
 
 std::string NativeCodegen::mapNativeTypeToLLVMString(const std::string& nativeType) const {
@@ -164,15 +166,9 @@ void NativeCodegen::generateNativeThunk(Parser::MethodDecl& node,
     }
 
     // Build parameter info
-    config.isInstanceMethod = !className.empty();
-
-    if (config.isInstanceMethod) {
-        LLVMIR::FFIParameter thisParam;
-        thisParam.name = "this";
-        thisParam.type = typeCtx.getPtrTy();
-        thisParam.isCallback = false;
-        config.parameters.push_back(thisParam);
-    }
+    // Native FFI methods are always static - they don't have a 'this' pointer
+    // They're declared in a class for organization but called as Class::method()
+    config.isInstanceMethod = false;
 
     for (const auto& param : node.parameters) {
         LLVMIR::FFIParameter ffiParam;

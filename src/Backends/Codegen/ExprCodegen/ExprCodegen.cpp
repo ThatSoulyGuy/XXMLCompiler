@@ -323,8 +323,18 @@ LLVMIR::AnyValue ExprCodegen::visitMemberAccess(Parser::MemberAccessExpr* expr) 
         return loadThisProperty(expr->member);
     }
 
-    // Handle 'variable.property'
+    // Handle 'variable.property' or 'EnumName::VALUE'
     if (auto* ident = dynamic_cast<Parser::IdentifierExpr*>(expr->object.get())) {
+        // Check if this is an enum value access (member starts with "::")
+        if (expr->member.size() > 2 && expr->member.substr(0, 2) == "::") {
+            std::string enumValueName = ident->name + expr->member;  // e.g., "Color::RED"
+            if (ctx_.hasEnumValue(enumValueName)) {
+                int64_t value = ctx_.getEnumValue(enumValueName);
+                auto intValue = ctx_.builder().getInt64(value);
+                ctx_.lastExprValue = LLVMIR::AnyValue(intValue);
+                return ctx_.lastExprValue;
+            }
+        }
         return loadObjectProperty(ident->name, expr->member);
     }
 
@@ -580,10 +590,6 @@ LLVMIR::AnyValue ExprCodegen::handleMemberCall(Parser::CallExpr* expr,
             }
 
             if (!isProperty) {
-            // Check for template type BEFORE resolving (resolution removes < and >)
-            std::string originalName = ident->name;
-            bool isTemplateType = originalName.find('<') != std::string::npos;
-
             std::string className = ctx_.substituteTemplateParams(ident->name);
             className = ctx_.resolveToQualifiedName(className);
 
@@ -613,8 +619,8 @@ LLVMIR::AnyValue ExprCodegen::handleMemberCall(Parser::CallExpr* expr,
                 if (!isNativeType) {
                     functionName += "_" + std::to_string(expr->arguments.size());
 
-                    // Template constructors need this pointer - allocate and pass it
-                    if (isTemplateType) {
+                    // All non-native type constructors need this pointer - allocate and pass it
+                    {
                         // Allocate memory using xxml_malloc
                         auto* mallocFunc = ctx_.module().getFunction("xxml_malloc");
                         if (!mallocFunc) {
@@ -680,9 +686,6 @@ LLVMIR::AnyValue ExprCodegen::handleMemberCall(Parser::CallExpr* expr,
                 qualifiedClass += "::" + seg;
             }
 
-            // Check for template type BEFORE resolving (resolution removes < and >)
-            bool isNestedTemplateType = qualifiedClass.find('<') != std::string::npos;
-
             // Resolve and mangle the function name
             qualifiedClass = ctx_.resolveToQualifiedName(qualifiedClass);
 
@@ -709,8 +712,8 @@ LLVMIR::AnyValue ExprCodegen::handleMemberCall(Parser::CallExpr* expr,
                 if (!isNativeType) {
                     functionName += "_" + std::to_string(expr->arguments.size());
 
-                    // Template constructors need this pointer - allocate and pass it
-                    if (isNestedTemplateType) {
+                    // All non-native type constructors need this pointer - allocate and pass it
+                    {
                         // Allocate memory using xxml_malloc
                         auto* mallocFunc = ctx_.module().getFunction("xxml_malloc");
                         if (!mallocFunc) {
@@ -861,9 +864,29 @@ LLVMIR::AnyValue ExprCodegen::emitCall(const std::string& functionName,
 
     auto* func = ctx_.module().getFunction(resolvedName);
     if (!func) {
+        // Infer parameter types from actual argument values
+        // This is important for native methods where parameters may be i32, i64, etc.
         std::vector<LLVMIR::Type*> paramTypes;
-        for (size_t i = 0; i < args.size(); ++i) {
-            paramTypes.push_back(ctx_.builder().getPtrTy());
+        for (const auto& arg : args) {
+            if (arg.isInt()) {
+                // Use the actual integer type from the value
+                auto* rawVal = arg.raw();
+                if (rawVal && rawVal->getType()) {
+                    paramTypes.push_back(rawVal->getType());
+                } else {
+                    paramTypes.push_back(ctx_.builder().getInt64Ty());  // Default to i64
+                }
+            } else if (arg.isFloat()) {
+                // Check if it's float or double precision
+                auto floatVal = arg.asFloat();
+                if (floatVal.getPrecision() == LLVMIR::FloatType::Precision::Double) {
+                    paramTypes.push_back(ctx_.builder().getDoubleTy());
+                } else {
+                    paramTypes.push_back(ctx_.builder().getFloatTy());
+                }
+            } else {
+                paramTypes.push_back(ctx_.builder().getPtrTy());  // Default to ptr
+            }
         }
 
         // Look up the actual return type from semantic analysis

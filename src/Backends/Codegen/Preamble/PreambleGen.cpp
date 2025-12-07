@@ -147,6 +147,13 @@ void PreambleGen::emitIntegerOperations(std::stringstream& out) const {
     out << "declare ptr @Integer_Constructor(i64)\n";
     out << "declare i64 @Integer_getValue(ptr)\n";
     out << "declare i64 @Integer_toInt64(ptr)\n";
+    // Integer_toInt32: truncate i64 value to i32
+    out << "define i32 @Integer_toInt32(ptr %this) {\n";
+    out << "  %val_ptr = getelementptr inbounds %Integer, ptr %this, i32 0, i32 0\n";
+    out << "  %val64 = load i64, ptr %val_ptr, align 8\n";
+    out << "  %val32 = trunc i64 %val64 to i32\n";
+    out << "  ret i32 %val32\n";
+    out << "}\n";
     // Arithmetic operations (using XXML method names)
     out << "declare ptr @Integer_add(ptr, ptr)\n";
     out << "declare ptr @Integer_subtract(ptr, ptr)\n";
@@ -217,6 +224,11 @@ void PreambleGen::emitStringOperations(std::stringstream& out) const {
     out << "declare i1 @String_equals(ptr, ptr)\n";
     out << "declare i1 @String_isEmpty(ptr)\n";
     out << "declare void @String_destroy(ptr)\n";
+    // Object_append: wrapper for String_append when type resolution falls back to Object
+    out << "define ptr @Object_append(ptr %this, ptr %other) {\n";
+    out << "  %result = tail call ptr @String_append(ptr %this, ptr %other)\n";
+    out << "  ret ptr %result\n";
+    out << "}\n";
     out << "\n";
 }
 

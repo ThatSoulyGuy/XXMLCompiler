@@ -36,6 +36,7 @@ enum class ErrorCode {
     DuplicateSymbol,
     UndefinedType,
     InvalidMethodCall,
+    InvalidMethodDeclaration,
     ConstructorError,
     InvalidReference,
     ConstraintViolation,

@@ -9,7 +9,7 @@ A production-ready compiler for the XXML programming language that compiles to L
 - **Ownership Semantics**: Explicit memory management with `^` (owned), `&` (reference), and `%` (copy)
 - **Generic Templates**: Full template support with [constraints](docs/CONSTRAINTS.md)
 - **Compile-Time Evaluation**: Constant expressions evaluated at compile-time ([details](docs/COMPILETIME.md))
-- **Object-Oriented**: Classes, inheritance, access modifiers, methods, and properties
+- **Object-Oriented**: Classes, inheritance, access modifiers, methods, properties, and enumerations
 - **Type-Safe**: Static type checking with comprehensive error reporting
 - **Reflection System**: Runtime type introspection ([details](docs/REFLECTION_SYSTEM.md))
 - **Self-Hosting Standard Library**: Standard library written in XXML itself
@@ -97,6 +97,28 @@ See [Types and Ownership](docs/LANGUAGE_SPEC.md#types-and-ownership) for details
         }
     ]
 ]
+```
+
+### Enumerations
+
+```xxml
+[ Enumeration <Color>
+    Value <RED> = 1;
+    Value <GREEN> = 2;
+    Value <BLUE> = 3;
+]
+
+[ Enumeration <Key>
+    Value <SPACE> = 32;
+    Value <A> = 65;
+    Value <B>;  // Auto-increments to 66
+    Value <C>;  // Auto-increments to 67
+]
+
+// Access enum values
+If (keyCode.equals(Key::SPACE)) -> {
+    Run Console::printLine(String::Constructor("Space pressed"));
+}
 ```
 
 ### Templates

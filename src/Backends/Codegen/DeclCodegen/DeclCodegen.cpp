@@ -1,4 +1,5 @@
 #include "Backends/Codegen/DeclCodegen/DeclCodegen.h"
+#include "Backends/Codegen/NativeCodegen/NativeCodegen.h"
 #include "Backends/TypeNormalizer.h"
 #include "Parser/AST.h"
 #include <iostream>
@@ -221,8 +222,21 @@ void DeclCodegen::visitClass(Parser::ClassDecl* decl) {
     ctx_.setCurrentClassName(previousClass);
 }
 
-void DeclCodegen::visitNativeStruct(Parser::NativeStructureDecl*) {
-    // Native structs are handled by preamble generation
+void DeclCodegen::visitNativeStruct(Parser::NativeStructureDecl* decl) {
+    if (!decl) return;
+
+    // Register this NativeStructure name so mapType recognizes it as a pointer type
+    std::string fullName = decl->name;
+    std::string ns(ctx_.currentNamespace());
+    if (!ns.empty()) {
+        fullName = ns + "::" + decl->name;
+    }
+
+    // Register both qualified and unqualified names
+    ctx_.registerNativeStruct(fullName);
+    ctx_.registerNativeStruct(decl->name);
+
+    // Preamble generation handles the actual type definition
 }
 
 // === Constructor Declaration ===
@@ -398,8 +412,28 @@ void DeclCodegen::visitMethod(Parser::MethodDecl* decl) {
     // Skip template method declarations
     if (!decl->templateParams.empty()) return;
 
-    // Skip native methods (handled separately)
-    if (decl->isNative) return;
+    // Generate FFI thunk for native methods
+    if (decl->isNative) {
+        std::string fullClassName = std::string(ctx_.currentClassName());
+        std::string namespaceName = std::string(ctx_.currentNamespace());
+
+        // Extract just the simple class name (without namespace) for thunk generation
+        // This ensures consistency with how call sites resolve method names
+        // e.g., "GLFW::Native" -> "Native"
+        std::string simpleClassName = fullClassName;
+        size_t lastColon = fullClassName.rfind("::");
+        if (lastColon != std::string::npos) {
+            simpleClassName = fullClassName.substr(lastColon + 2);
+        }
+
+        std::cerr << "[DEBUG DeclCodegen] Generating native thunk for: " << decl->name
+                  << " (class: " << simpleClassName << ", fullClass: " << fullClassName << ")\n";
+
+        // Create a NativeCodegen instance and generate the thunk
+        NativeCodegen nativeCodegen(ctx_, ctx_.compilationContext());
+        nativeCodegen.generateNativeThunk(*decl, simpleClassName, namespaceName);
+        return;
+    }
 
     std::string className = std::string(ctx_.currentClassName());
     std::cerr << "[DEBUG DeclCodegen] visitMethod: " << decl->name << " (class: " << className << ")\n";

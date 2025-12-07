@@ -110,6 +110,16 @@ bool CodegenContext::hasClass(const std::string& name) const {
     return classes_.find(name) != classes_.end();
 }
 
+// === NativeStructure Management ===
+
+void CodegenContext::registerNativeStruct(const std::string& name) {
+    nativeStructs_.insert(name);
+}
+
+bool CodegenContext::isNativeStruct(const std::string& name) const {
+    return nativeStructs_.find(name) != nativeStructs_.end();
+}
+
 // === Type Mapping ===
 
 LLVMIR::Type* CodegenContext::mapType(std::string_view xxmlType) {
@@ -201,6 +211,12 @@ LLVMIR::Type* CodegenContext::mapType(std::string_view xxmlType) {
         return ctx.getPtrTy();  // Treat as object pointer - will be validated at link time
     }
 
+    // Check if it's a NativeStructure (opaque pointer type)
+    // NativeStructures like _GLFWcursor are treated as pointers
+    if (isNativeStruct(type)) {
+        return ctx.getPtrTy();
+    }
+
     // STRICT MODE: Unknown types are now a hard failure
     // This indicates semantic analysis did not resolve this type
     if (type != "Unknown" && !type.empty()) {
@@ -269,9 +285,10 @@ std::string CodegenContext::lookupMethodReturnType(const std::string& mangledNam
     // Check preamble/runtime functions first
     // These are declared in PreambleGen but not registered in the module
     static const std::unordered_map<std::string, std::string> preambleFunctions = {
-        // Integer methods that return NativeType<int64>
+        // Integer methods that return NativeType
         {"Integer_getValue", "NativeType<int64>"},
         {"Integer_toInt64", "NativeType<int64>"},
+        {"Integer_toInt32", "NativeType<int32>"},
         // Float methods
         {"Float_getValue", "NativeType<float>"},
         // Double methods
@@ -306,6 +323,29 @@ std::string CodegenContext::lookupMethodReturnType(const std::string& mangledNam
     auto preambleIt = preambleFunctions.find(mangledName);
     if (preambleIt != preambleFunctions.end()) {
         return preambleIt->second;
+    }
+
+    // Special handling for Native class methods (FFI)
+    // Native methods are mangled as "Native_methodName"
+    // IMPORTANT: The mangling function removes consecutive underscores, so:
+    //   - Method "_glfwGetTime" mangles to "Native_glfwGetTime" (not "Native__glfwGetTime")
+    // We need to try both with and without leading underscore
+    if (mangledName.find("Native_") == 0 && mangledName.length() > 7) {
+        std::string nativeMethodName = mangledName.substr(7);  // Everything after "Native_"
+        if (semanticAnalyzer_) {
+            // Try exact match first (for methods without leading underscore)
+            auto* methodInfo = semanticAnalyzer_->findMethod("Native", nativeMethodName);
+            if (methodInfo) {
+                return methodInfo->returnType;
+            }
+            // Try with leading underscore (mangling removes consecutive underscores)
+            // e.g., "Native_glfwGetTime" -> try "_glfwGetTime"
+            std::string underscoreName = "_" + nativeMethodName;
+            methodInfo = semanticAnalyzer_->findMethod("Native", underscoreName);
+            if (methodInfo) {
+                return methodInfo->returnType;
+            }
+        }
     }
 
     // Parse mangled name: "ClassName_methodName" or "Namespace_Class_methodName"
@@ -734,13 +774,40 @@ std::string CodegenContext::substituteTemplateParams(const std::string& typeName
 }
 
 std::string CodegenContext::resolveToQualifiedName(const std::string& typeName) const {
+    // Strip ownership markers first
+    std::string baseType = TypeNormalizer::stripOwnershipMarker(typeName);
+
+    // Already qualified - return as-is
+    if (baseType.find("::") != std::string::npos) {
+        return baseType;
+    }
+
+    // "Native" is a special FFI class that maps to external C functions
+    // It should NOT be qualified with namespace to preserve FFI calling convention
+    if (baseType == "Native") {
+        return baseType;
+    }
+
     // Delegate to SemanticAnalyzer if available
     if (semanticAnalyzer_) {
-        return semanticAnalyzer_->resolveTypeArgToQualified(typeName);
+        std::string resolved = semanticAnalyzer_->resolveTypeArgToQualified(baseType);
+        if (resolved != baseType) {
+            return resolved;  // Successfully resolved
+        }
+    }
+
+    // If semantic analyzer didn't resolve and we have a current namespace,
+    // try prepending the current namespace (for types in same namespace)
+    if (!currentNamespace_.empty()) {
+        std::string qualifiedName = currentNamespace_ + "::" + baseType;
+        // Check if this qualified name exists as a class
+        if (hasClass(qualifiedName)) {
+            return qualifiedName;
+        }
     }
 
     // Fallback: return as-is
-    return typeName;
+    return baseType;
 }
 
 // === Reflection Metadata ===
