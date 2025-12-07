@@ -196,9 +196,58 @@
   )
 ]
 
-// Core functions
-@NativeFunction(name = "glfwInit", path = "glfw3.dll", convention = "cdecl")
-Method <_glfwInit> Returns NativeType<"int32">^ Parameters ();
+// Character with modifiers callback (deprecated but still in API)
+[ CallbackType <CharModsCallback> Convention(cdecl)
+  Returns None
+  Parameters (
+    Parameter <window> Types NativeType<"ptr">^,
+    Parameter <codepoint> Types NativeType<"uint32">^,
+    Parameter <mods> Types NativeType<"int32">^
+  )
+]
+
+// Preedit callback for IME support
+[ CallbackType <PreeditCallback> Convention(cdecl)
+  Returns None
+  Parameters (
+    Parameter <window> Types NativeType<"ptr">^,
+    Parameter <preeditCount> Types NativeType<"int32">^,
+    Parameter <preeditString> Types NativeType<"ptr">^,
+    Parameter <blockCount> Types NativeType<"int32">^,
+    Parameter <blockSizes> Types NativeType<"ptr">^,
+    Parameter <focusedBlock> Types NativeType<"int32">^,
+    Parameter <caret> Types NativeType<"int32">^
+  )
+]
+
+// IME status callback
+[ CallbackType <IMEStatusCallback> Convention(cdecl)
+  Returns None
+  Parameters (
+    Parameter <window> Types NativeType<"ptr">^
+  )
+]
+
+// Preedit candidate callback
+[ CallbackType <PreeditCandidateCallback> Convention(cdecl)
+  Returns None
+  Parameters (
+    Parameter <window> Types NativeType<"ptr">^,
+    Parameter <candidatesCount> Types NativeType<"int32">^,
+    Parameter <selectedIndex> Types NativeType<"int32">^,
+    Parameter <pageStart> Types NativeType<"int32">^,
+    Parameter <pageSize> Types NativeType<"int32">^
+  )
+]
+
+// ============================================================================
+// Native - Low-level FFI bindings wrapper class
+// ============================================================================
+[ Class <Native> Final Extends None
+[ Public<>
+    // Core functions
+    @NativeFunction(name = "glfwInit", path = "glfw3.dll", convention = "cdecl")
+    Method <_glfwInit> Returns NativeType<"int32">^ Parameters ();
 
 @NativeFunction(name = "glfwTerminate", path = "glfw3.dll", convention = "cdecl")
 Method <_glfwTerminate> Returns None Parameters ();
@@ -761,16 +810,6 @@ Method <_glfwCreateWindowSurface> Returns NativeType<"int32">^ Parameters (
     Parameter <surface> Types NativeType<"ptr">^
 );
 
-// Character with modifiers callback (deprecated but still in API)
-[ CallbackType <CharModsCallback> Convention(cdecl)
-  Returns None
-  Parameters (
-    Parameter <window> Types NativeType<"ptr">^,
-    Parameter <codepoint> Types NativeType<"uint32">^,
-    Parameter <mods> Types NativeType<"int32">^
-  )
-]
-
 @NativeFunction(name = "glfwSetCharModsCallback", path = "glfw3.dll", convention = "cdecl")
 Method <_glfwSetCharModsCallback> Returns NativeType<"ptr">^ Parameters (
     Parameter <window> Types _GLFWwindow^,
@@ -805,40 +844,6 @@ Method <_glfwGetWin32Adapter> Returns NativeType<"ptr">^ Parameters (
 Method <_glfwGetWin32Monitor> Returns NativeType<"ptr">^ Parameters (
     Parameter <monitor> Types _GLFWmonitor^
 );
-
-// Preedit callback for IME support
-[ CallbackType <PreeditCallback> Convention(cdecl)
-  Returns None
-  Parameters (
-    Parameter <window> Types NativeType<"ptr">^,
-    Parameter <preeditCount> Types NativeType<"int32">^,
-    Parameter <preeditString> Types NativeType<"ptr">^,
-    Parameter <blockCount> Types NativeType<"int32">^,
-    Parameter <blockSizes> Types NativeType<"ptr">^,
-    Parameter <focusedBlock> Types NativeType<"int32">^,
-    Parameter <caret> Types NativeType<"int32">^
-  )
-]
-
-// IME status callback
-[ CallbackType <IMEStatusCallback> Convention(cdecl)
-  Returns None
-  Parameters (
-    Parameter <window> Types NativeType<"ptr">^
-  )
-]
-
-// Preedit candidate callback
-[ CallbackType <PreeditCandidateCallback> Convention(cdecl)
-  Returns None
-  Parameters (
-    Parameter <window> Types NativeType<"ptr">^,
-    Parameter <candidatesCount> Types NativeType<"int32">^,
-    Parameter <selectedIndex> Types NativeType<"int32">^,
-    Parameter <pageStart> Types NativeType<"int32">^,
-    Parameter <pageSize> Types NativeType<"int32">^
-  )
-]
 
 // Additional window management functions
 @NativeFunction(name = "glfwGetPrimaryMonitor", path = "glfw3.dll", convention = "cdecl")
@@ -1032,10 +1037,12 @@ Method <_glfwSetScrollCallback> Returns NativeType<"ptr">^ Parameters (
 );
 
 @NativeFunction(name = "glfwSetDropCallback", path = "glfw3.dll", convention = "cdecl")
-Method <_glfwSetDropCallback> Returns NativeType<"ptr">^ Parameters (
-    Parameter <window> Types _GLFWwindow^,
-    Parameter <callback> Types DropCallback^
-);
+    Method <_glfwSetDropCallback> Returns NativeType<"ptr">^ Parameters (
+        Parameter <window> Types _GLFWwindow^,
+        Parameter <callback> Types DropCallback^
+    );
+]
+]
 
 // ============================================================================
 // PUBLIC API: Type-safe, modern interface
@@ -1404,57 +1411,15 @@ Method <_glfwSetDropCallback> Returns NativeType<"ptr">^ Parameters (
 
     Constructor = default;
 
-    Method <create> Returns Cursor^ Parameters (
-        Parameter <shape> Types CursorShape^
-    ) -> {
-        Set <_shape> = shape;
-        Set <_handle> = _glfwCreateStandardCursor(shape);
-        Return this;
-    }
+    // TODO: Standard cursor methods removed - fix CursorShape enum conversion
 
     Method <destroy> Returns None Parameters () -> {
-        Run _glfwDestroyCursor(_handle);
+        Run Native::_glfwDestroyCursor(_handle);
     }
 
     // Get the internal handle (for use by other classes)
     Method <getHandle> Returns _GLFWcursor^ Parameters () -> {
         Return _handle;
-    }
-
-    // Factory method - create an arrow cursor
-    Method <arrow> Returns Cursor^ Parameters () -> {
-        Run this.create(CursorShape::Arrow);
-        Return this;
-    }
-
-    // Factory method - create an I-beam cursor
-    Method <ibeam> Returns Cursor^ Parameters () -> {
-        Run this.create(CursorShape::IBeam);
-        Return this;
-    }
-
-    // Factory method - create a crosshair cursor
-    Method <crosshair> Returns Cursor^ Parameters () -> {
-        Run this.create(CursorShape::Crosshair);
-        Return this;
-    }
-
-    // Factory method - create a hand cursor
-    Method <hand> Returns Cursor^ Parameters () -> {
-        Run this.create(CursorShape::Hand);
-        Return this;
-    }
-
-    // Factory method - create a horizontal resize cursor
-    Method <resizeH> Returns Cursor^ Parameters () -> {
-        Run this.create(CursorShape::ResizeHorizontal);
-        Return this;
-    }
-
-    // Factory method - create a vertical resize cursor
-    Method <resizeV> Returns Cursor^ Parameters () -> {
-        Run this.create(CursorShape::ResizeVertical);
-        Return this;
     }
 
     // Create cursor from custom image
@@ -1463,7 +1428,7 @@ Method <_glfwSetDropCallback> Returns NativeType<"ptr">^ Parameters (
         Parameter <xhot> Types Integer^,
         Parameter <yhot> Types Integer^
     ) -> {
-        Set <_handle> = _glfwCreateCursor(image.getPixels(), xhot, yhot);
+        Set <_handle> = Native::_glfwCreateCursor(image.getPixels(), xhot.toInt32(), yhot.toInt32());
         Return this;
     }
 ]
@@ -1486,13 +1451,13 @@ Method <_glfwSetDropCallback> Returns NativeType<"ptr">^ Parameters (
     }
 
     Method <getName> Returns String^ Parameters () -> {
-        Instantiate NativeType<"ptr">^ As <namePtr> = _glfwGetMonitorName(_handle);
+        Instantiate NativeType<"ptr">^ As <namePtr> = Native::_glfwGetMonitorName(_handle);
         Return String::FromCString(namePtr);
     }
 
     // Factory method - get primary monitor
     Method <primary> Returns Monitor^ Parameters () -> {
-        Set <_handle> = _glfwGetPrimaryMonitor();
+        Set <_handle> = Native::_glfwGetPrimaryMonitor();
         Return this;
     }
 
@@ -1505,14 +1470,14 @@ Method <_glfwSetDropCallback> Returns NativeType<"ptr">^ Parameters (
     Method <setGamma> Returns None Parameters (
         Parameter <gamma> Types NativeType<"float">^
     ) -> {
-        Run _glfwSetGamma(_handle, gamma);
+        Run Native::_glfwSetGamma(_handle, gamma);
     }
 
     // Set monitor gamma ramp for precise control
     Method <setGammaRamp> Returns None Parameters (
         Parameter <ramp> Types GammaRamp^
     ) -> {
-        Run _glfwSetGammaRamp(_handle, ramp.getRed());
+        Run Native::_glfwSetGammaRamp(_handle, ramp.getRed());
     }
 ]
 ]
@@ -1522,11 +1487,9 @@ Method <_glfwSetDropCallback> Returns NativeType<"ptr">^ Parameters (
 // ============================================================================
 [ Class <Window> Final Extends None
 [ Public<>
-    Property <_handle> Types _GLFWwindow^;
+    Property <_handle> Types NativeType<"ptr">^;
     Property <_title> Types String^;
     Property <_isOpen> Types Bool^;
-
-    Constructor = default;
 
     // Create a window with specified dimensions and title
     Constructor Parameters (
@@ -1534,16 +1497,16 @@ Method <_glfwSetDropCallback> Returns NativeType<"ptr">^ Parameters (
         Parameter <height> Types Integer^,
         Parameter <title> Types String^
     ) -> {
-        Run _glfwDefaultWindowHints();
+        Run Native::_glfwDefaultWindowHints();
         Instantiate NativeType<"cstr">^ As <cTitle> = title.toCString();
         // Use explicit null pointer for windowed mode (no monitor)
         Instantiate NativeType<"ptr">^ As <nullMonitor> = 0;
         Instantiate NativeType<"ptr">^ As <nullShare> = 0;
-        // Note: width/height Integer^ will be converted to i64 by FFI system
-        Set <_handle> = _glfwCreateWindow(width, height, cTitle, nullMonitor, nullShare);
+        Instantiate NativeType<"ptr">^ As <windowHandle> = Native::_glfwCreateWindow(width.toInt32(), height.toInt32(), cTitle, nullMonitor, nullShare);
+        Set <_handle> = windowHandle;
         Set <_title> = title;
         Set <_isOpen> = Bool::Constructor(true);
-        Run _glfwMakeContextCurrent(_handle);
+        // Note: Call makeContextCurrent() explicitly after construction
     }
 
     // Internal helper to initialize from a handle
@@ -1554,19 +1517,19 @@ Method <_glfwSetDropCallback> Returns NativeType<"ptr">^ Parameters (
         Set <_handle> = handle;
         Set <_title> = title;
         Set <_isOpen> = Bool::Constructor(true);
-        Run _glfwMakeContextCurrent(_handle);
+        // Note: Call makeContextCurrent() explicitly after construction
         Return this;
     }
 
     // Close and destroy the window
     Method <close> Returns None Parameters () -> {
-        Run _glfwDestroyWindow(_handle);
+        Run Native::_glfwDestroyWindow(_handle);
         Set <_isOpen> = Bool::Constructor(false);
     }
 
     // Check if window should close (user clicked X, etc.)
     Method <shouldClose> Returns Bool^ Parameters () -> {
-        Instantiate NativeType<"int32">^ As <result> = _glfwWindowShouldClose(_handle);
+        Instantiate NativeType<"int32">^ As <result> = Native::_glfwWindowShouldClose(_handle);
         If (result != 0) -> {
             Return Bool::Constructor(true);
         }
@@ -1575,7 +1538,8 @@ Method <_glfwSetDropCallback> Returns NativeType<"ptr">^ Parameters (
 
     // Request window to close
     Method <requestClose> Returns None Parameters () -> {
-        Run _glfwSetWindowShouldClose(_handle, 1);
+        Instantiate NativeType<"int32">^ As <val> = Integer::Constructor(1).toInt32();
+        Run Native::_glfwSetWindowShouldClose(_handle, val);
     }
 
     // Set window title
@@ -1583,7 +1547,7 @@ Method <_glfwSetDropCallback> Returns NativeType<"ptr">^ Parameters (
         Parameter <title> Types String^
     ) -> {
         Instantiate NativeType<"cstr">^ As <cTitle> = title.toCString();
-        Run _glfwSetWindowTitle(_handle, cTitle);
+        Run Native::_glfwSetWindowTitle(_handle, cTitle);
         Set <_title> = title;
     }
 
@@ -1597,7 +1561,7 @@ Method <_glfwSetDropCallback> Returns NativeType<"ptr">^ Parameters (
         Parameter <width> Types Integer^,
         Parameter <height> Types Integer^
     ) -> {
-        Run _glfwSetWindowSize(_handle, width, height);
+        Run Native::_glfwSetWindowSize(_handle, width.toInt32(), height.toInt32());
     }
 
     // Set window position
@@ -1605,7 +1569,7 @@ Method <_glfwSetDropCallback> Returns NativeType<"ptr">^ Parameters (
         Parameter <x> Types Integer^,
         Parameter <y> Types Integer^
     ) -> {
-        Run _glfwSetWindowPos(_handle, x, y);
+        Run Native::_glfwSetWindowPos(_handle, x.toInt32(), y.toInt32());
     }
 
     // Set minimum and maximum size constraints
@@ -1615,7 +1579,7 @@ Method <_glfwSetDropCallback> Returns NativeType<"ptr">^ Parameters (
         Parameter <maxWidth> Types Integer^,
         Parameter <maxHeight> Types Integer^
     ) -> {
-        Run _glfwSetWindowSizeLimits(_handle, minWidth, minHeight, maxWidth, maxHeight);
+        Run Native::_glfwSetWindowSizeLimits(_handle, minWidth.toInt32(), minHeight.toInt32(), maxWidth.toInt32(), maxHeight.toInt32());
     }
 
     // Set aspect ratio constraint
@@ -1623,126 +1587,96 @@ Method <_glfwSetDropCallback> Returns NativeType<"ptr">^ Parameters (
         Parameter <numerator> Types Integer^,
         Parameter <denominator> Types Integer^
     ) -> {
-        Run _glfwSetWindowAspectRatio(_handle, numerator, denominator);
+        Run Native::_glfwSetWindowAspectRatio(_handle, numerator.toInt32(), denominator.toInt32());
     }
 
     // Minimize window
     Method <minimize> Returns None Parameters () -> {
-        Run _glfwIconifyWindow(_handle);
+        Run Native::_glfwIconifyWindow(_handle);
     }
 
     // Maximize window
     Method <maximize> Returns None Parameters () -> {
-        Run _glfwMaximizeWindow(_handle);
+        Run Native::_glfwMaximizeWindow(_handle);
     }
 
     // Restore window from minimized/maximized state
     Method <restore> Returns None Parameters () -> {
-        Run _glfwRestoreWindow(_handle);
+        Run Native::_glfwRestoreWindow(_handle);
     }
 
     // Show window (if hidden)
     Method <show> Returns None Parameters () -> {
-        Run _glfwShowWindow(_handle);
+        Run Native::_glfwShowWindow(_handle);
     }
 
     // Hide window
     Method <hide> Returns None Parameters () -> {
-        Run _glfwHideWindow(_handle);
+        Run Native::_glfwHideWindow(_handle);
     }
 
     // Focus window
     Method <focus> Returns None Parameters () -> {
-        Run _glfwFocusWindow(_handle);
+        Run Native::_glfwFocusWindow(_handle);
     }
 
     // Request attention (flash taskbar, etc.)
     Method <requestAttention> Returns None Parameters () -> {
-        Run _glfwRequestWindowAttention(_handle);
+        Run Native::_glfwRequestWindowAttention(_handle);
     }
 
     // Swap front/back buffers
     Method <swapBuffers> Returns None Parameters () -> {
-        Run _glfwSwapBuffers(_handle);
+        Run Native::_glfwSwapBuffers(_handle);
     }
 
     // Make this window's OpenGL context current
     Method <makeContextCurrent> Returns None Parameters () -> {
-        Run _glfwMakeContextCurrent(_handle);
+        Run Native::_glfwMakeContextCurrent(_handle);
     }
 
     // ========== Input Methods ==========
-
-    // Check if a key is currently pressed
-    Method <isKeyPressed> Returns Bool^ Parameters (
-        Parameter <key> Types Key^
-    ) -> {
-        Instantiate NativeType<"int32">^ As <state> = _glfwGetKey(_handle, key);
-        If (state != 0) -> {
-            Return Bool::Constructor(true);
-        }
-        Return Bool::Constructor(false);
-    }
-
-    // Check if a key is currently released
-    Method <isKeyReleased> Returns Bool^ Parameters (
-        Parameter <key> Types Key^
-    ) -> {
-        Instantiate NativeType<"int32">^ As <state> = _glfwGetKey(_handle, key);
-        If (state == 0) -> {
-            Return Bool::Constructor(true);
-        }
-        Return Bool::Constructor(false);
-    }
-
-    // Check if a mouse button is pressed
-    Method <isMouseButtonPressed> Returns Bool^ Parameters (
-        Parameter <button> Types MouseButton^
-    ) -> {
-        Instantiate NativeType<"int32">^ As <state> = _glfwGetMouseButton(_handle, button);
-        If (state != 0) -> {
-            Return Bool::Constructor(true);
-        }
-        Return Bool::Constructor(false);
-    }
-
-    // Set cursor mode (Normal, Hidden, Disabled)
-    Method <setCursorMode> Returns None Parameters (
-        Parameter <mode> Types CursorMode^
-    ) -> {
-        Run _glfwSetInputMode(_handle, 208897, mode);
-    }
+    // TODO: Implement after fixing enum-to-NativeType conversions
 
     // Set custom cursor
     Method <setCursor> Returns None Parameters (
         Parameter <cursor> Types Cursor^
     ) -> {
-        Run _glfwSetCursor(_handle, cursor.getHandle());
+        Run Native::_glfwSetCursor(_handle, cursor.getHandle());
     }
 
     // Reset to default cursor
     Method <resetCursor> Returns None Parameters () -> {
-        Run _glfwSetCursor(_handle, 0);
+        Instantiate NativeType<"ptr">^ As <nullCursor> = 0;
+        Run Native::_glfwSetCursor(_handle, nullCursor);
     }
 
     // Enable sticky keys (key press registered until polled)
     Method <enableStickyKeys> Returns None Parameters () -> {
-        Run _glfwSetInputMode(_handle, 208898, 1);
+        Instantiate NativeType<"int32">^ As <mode> = Integer::Constructor(208898).toInt32();
+        Instantiate NativeType<"int32">^ As <val> = Integer::Constructor(1).toInt32();
+        Run Native::_glfwSetInputMode(_handle, mode, val);
     }
 
     // Disable sticky keys
     Method <disableStickyKeys> Returns None Parameters () -> {
-        Run _glfwSetInputMode(_handle, 208898, 0);
+        Instantiate NativeType<"int32">^ As <mode> = Integer::Constructor(208898).toInt32();
+        Instantiate NativeType<"int32">^ As <val> = Integer::Constructor(0).toInt32();
+        Run Native::_glfwSetInputMode(_handle, mode, val);
     }
 
     // Enable sticky mouse buttons
     Method <enableStickyMouseButtons> Returns None Parameters () -> {
-        Run _glfwSetInputMode(_handle, 208899, 1);
+        Instantiate NativeType<"int32">^ As <mode> = Integer::Constructor(208899).toInt32();
+        Instantiate NativeType<"int32">^ As <val> = Integer::Constructor(1).toInt32();
+        Run Native::_glfwSetInputMode(_handle, mode, val);
     }
 
     // Disable sticky mouse buttons
     Method <disableStickyMouseButtons> Returns None Parameters () -> {
-        Run _glfwSetInputMode(_handle, 208899, 0);
+        Instantiate NativeType<"int32">^ As <mode> = Integer::Constructor(208899).toInt32();
+        Instantiate NativeType<"int32">^ As <val> = Integer::Constructor(0).toInt32();
+        Run Native::_glfwSetInputMode(_handle, mode, val);
     }
 
     // ========== Clipboard Methods ==========
@@ -1752,140 +1686,32 @@ Method <_glfwSetDropCallback> Returns NativeType<"ptr">^ Parameters (
         Parameter <text> Types String^
     ) -> {
         Instantiate NativeType<"cstr">^ As <cText> = text.toCString();
-        Run _glfwSetClipboardString(_handle, cText);
+        Run Native::_glfwSetClipboardString(_handle, cText);
     }
 
     // Get clipboard content
     Method <getClipboard> Returns String^ Parameters () -> {
-        Instantiate NativeType<"ptr">^ As <ptr> = _glfwGetClipboardString(_handle);
+        Instantiate NativeType<"ptr">^ As <ptr> = Native::_glfwGetClipboardString(_handle);
         Return String::FromCString(ptr);
     }
 
     // ========== Callback Methods ==========
-
-    // Set key callback - called when keyboard key is pressed/released
-    Method <setKeyCallback> Returns None Parameters (
-        Parameter <callback> Types F(None^)(NativeType<"ptr">^, NativeType<"int32">^, NativeType<"int32">^, NativeType<"int32">^, NativeType<"int32">^)^
-    ) -> {
-        Run _glfwSetKeyCallback(_handle, callback);
-    }
-
-    // Set character callback - called when unicode character is input
-    Method <setCharCallback> Returns None Parameters (
-        Parameter <callback> Types F(None^)(NativeType<"ptr">^, NativeType<"uint32">^)^
-    ) -> {
-        Run _glfwSetCharCallback(_handle, callback);
-    }
-
-    // Set mouse button callback
-    Method <setMouseButtonCallback> Returns None Parameters (
-        Parameter <callback> Types F(None^)(NativeType<"ptr">^, NativeType<"int32">^, NativeType<"int32">^, NativeType<"int32">^)^
-    ) -> {
-        Run _glfwSetMouseButtonCallback(_handle, callback);
-    }
-
-    // Set cursor position callback
-    Method <setCursorPosCallback> Returns None Parameters (
-        Parameter <callback> Types F(None^)(NativeType<"ptr">^, NativeType<"double">^, NativeType<"double">^)^
-    ) -> {
-        Run _glfwSetCursorPosCallback(_handle, callback);
-    }
-
-    // Set cursor enter callback
-    Method <setCursorEnterCallback> Returns None Parameters (
-        Parameter <callback> Types F(None^)(NativeType<"ptr">^, NativeType<"int32">^)^
-    ) -> {
-        Run _glfwSetCursorEnterCallback(_handle, callback);
-    }
-
-    // Set scroll callback
-    Method <setScrollCallback> Returns None Parameters (
-        Parameter <callback> Types F(None^)(NativeType<"ptr">^, NativeType<"double">^, NativeType<"double">^)^
-    ) -> {
-        Run _glfwSetScrollCallback(_handle, callback);
-    }
-
-    // Set window size callback
-    Method <setWindowSizeCallback> Returns None Parameters (
-        Parameter <callback> Types F(None^)(NativeType<"ptr">^, NativeType<"int32">^, NativeType<"int32">^)^
-    ) -> {
-        Run _glfwSetWindowSizeCallback(_handle, callback);
-    }
-
-    // Set window position callback
-    Method <setWindowPosCallback> Returns None Parameters (
-        Parameter <callback> Types F(None^)(NativeType<"ptr">^, NativeType<"int32">^, NativeType<"int32">^)^
-    ) -> {
-        Run _glfwSetWindowPosCallback(_handle, callback);
-    }
-
-    // Set window close callback
-    Method <setWindowCloseCallback> Returns None Parameters (
-        Parameter <callback> Types F(None^)(NativeType<"ptr">^)^
-    ) -> {
-        Run _glfwSetWindowCloseCallback(_handle, callback);
-    }
-
-    // Set window focus callback
-    Method <setWindowFocusCallback> Returns None Parameters (
-        Parameter <callback> Types F(None^)(NativeType<"ptr">^, NativeType<"int32">^)^
-    ) -> {
-        Run _glfwSetWindowFocusCallback(_handle, callback);
-    }
-
-    // Set window iconify callback
-    Method <setWindowIconifyCallback> Returns None Parameters (
-        Parameter <callback> Types F(None^)(NativeType<"ptr">^, NativeType<"int32">^)^
-    ) -> {
-        Run _glfwSetWindowIconifyCallback(_handle, callback);
-    }
-
-    // Set window maximize callback
-    Method <setWindowMaximizeCallback> Returns None Parameters (
-        Parameter <callback> Types F(None^)(NativeType<"ptr">^, NativeType<"int32">^)^
-    ) -> {
-        Run _glfwSetWindowMaximizeCallback(_handle, callback);
-    }
-
-    // Set framebuffer size callback
-    Method <setFramebufferSizeCallback> Returns None Parameters (
-        Parameter <callback> Types F(None^)(NativeType<"ptr">^, NativeType<"int32">^, NativeType<"int32">^)^
-    ) -> {
-        Run _glfwSetFramebufferSizeCallback(_handle, callback);
-    }
-
-    // Set window refresh callback
-    Method <setWindowRefreshCallback> Returns None Parameters (
-        Parameter <callback> Types F(None^)(NativeType<"ptr">^)^
-    ) -> {
-        Run _glfwSetWindowRefreshCallback(_handle, callback);
-    }
-
-    // Set window content scale callback
-    Method <setWindowContentScaleCallback> Returns None Parameters (
-        Parameter <callback> Types F(None^)(NativeType<"ptr">^, NativeType<"float">^, NativeType<"float">^)^
-    ) -> {
-        Run _glfwSetWindowContentScaleCallback(_handle, callback);
-    }
-
-    // Set drop callback (files dragged onto window)
-    Method <setDropCallback> Returns None Parameters (
-        Parameter <callback> Types F(None^)(NativeType<"ptr">^, NativeType<"int32">^, NativeType<"ptr">^)^
-    ) -> {
-        Run _glfwSetDropCallback(_handle, callback);
-    }
+    // TODO: Implement after fixing callback type matching
 
     // Factory method - create a fullscreen window on primary monitor
     Method <fullscreen> Returns Window^ Parameters (
         Parameter <title> Types String^
     ) -> {
-        Run _glfwDefaultWindowHints();
-        Instantiate _GLFWmonitor^ As <monitor> = _glfwGetPrimaryMonitor();
+        Run Native::_glfwDefaultWindowHints();
+        Instantiate _GLFWmonitor^ As <monitor> = Native::_glfwGetPrimaryMonitor();
         Instantiate NativeType<"cstr">^ As <cTitle> = title.toCString();
-        Set <_handle> = _glfwCreateWindow(1920, 1080, cTitle, monitor, 0);
+        Instantiate NativeType<"int32">^ As <w> = Integer::Constructor(1920).toInt32();
+        Instantiate NativeType<"int32">^ As <h> = Integer::Constructor(1080).toInt32();
+        Instantiate NativeType<"ptr">^ As <nullShare> = 0;
+        Set <_handle> = Native::_glfwCreateWindow(w, h, cTitle, monitor, nullShare);
         Set <_title> = title;
         Set <_isOpen> = Bool::Constructor(true);
-        Run _glfwMakeContextCurrent(_handle);
+        Run Native::_glfwMakeContextCurrent(_handle);
         Return this;
     }
 
@@ -1895,13 +1721,17 @@ Method <_glfwSetDropCallback> Returns NativeType<"ptr">^ Parameters (
         Parameter <height> Types Integer^,
         Parameter <title> Types String^
     ) -> {
-        Run _glfwDefaultWindowHints();
-        Run _glfwWindowHint(131077, 0);
+        Run Native::_glfwDefaultWindowHints();
+        Instantiate NativeType<"int32">^ As <hint> = Integer::Constructor(131077).toInt32();
+        Instantiate NativeType<"int32">^ As <hintVal> = Integer::Constructor(0).toInt32();
+        Run Native::_glfwWindowHint(hint, hintVal);
         Instantiate NativeType<"cstr">^ As <cTitle> = title.toCString();
-        Set <_handle> = _glfwCreateWindow(width, height, cTitle, 0, 0);
+        Instantiate NativeType<"ptr">^ As <nullMonitor> = 0;
+        Instantiate NativeType<"ptr">^ As <nullShare> = 0;
+        Set <_handle> = Native::_glfwCreateWindow(width.toInt32(), height.toInt32(), cTitle, nullMonitor, nullShare);
         Set <_title> = title;
         Set <_isOpen> = Bool::Constructor(true);
-        Run _glfwMakeContextCurrent(_handle);
+        Run Native::_glfwMakeContextCurrent(_handle);
         Return this;
     }
 
@@ -1911,13 +1741,17 @@ Method <_glfwSetDropCallback> Returns NativeType<"ptr">^ Parameters (
         Parameter <height> Types Integer^,
         Parameter <title> Types String^
     ) -> {
-        Run _glfwDefaultWindowHints();
-        Run _glfwWindowHint(131075, 0);
+        Run Native::_glfwDefaultWindowHints();
+        Instantiate NativeType<"int32">^ As <hint> = Integer::Constructor(131075).toInt32();
+        Instantiate NativeType<"int32">^ As <hintVal> = Integer::Constructor(0).toInt32();
+        Run Native::_glfwWindowHint(hint, hintVal);
         Instantiate NativeType<"cstr">^ As <cTitle> = title.toCString();
-        Set <_handle> = _glfwCreateWindow(width, height, cTitle, 0, 0);
+        Instantiate NativeType<"ptr">^ As <nullMonitor> = 0;
+        Instantiate NativeType<"ptr">^ As <nullShare> = 0;
+        Set <_handle> = Native::_glfwCreateWindow(width.toInt32(), height.toInt32(), cTitle, nullMonitor, nullShare);
         Set <_title> = title;
         Set <_isOpen> = Bool::Constructor(true);
-        Run _glfwMakeContextCurrent(_handle);
+        Run Native::_glfwMakeContextCurrent(_handle);
         Return this;
     }
 
@@ -1925,12 +1759,12 @@ Method <_glfwSetDropCallback> Returns NativeType<"ptr">^ Parameters (
 
     // Get native Win32 window handle (HWND)
     Method <getWin32Handle> Returns NativeType<"ptr">^ Parameters () -> {
-        Return _glfwGetWin32Window(_handle);
+        Return Native::_glfwGetWin32Window(_handle);
     }
 
     // Get WGL context handle
     Method <getWGLContext> Returns NativeType<"ptr">^ Parameters () -> {
-        Return _glfwGetWGLContext(_handle);
+        Return Native::_glfwGetWGLContext(_handle);
     }
 
     // ========== Vulkan Integration ==========
@@ -1941,7 +1775,7 @@ Method <_glfwSetDropCallback> Returns NativeType<"ptr">^ Parameters (
         Parameter <allocator> Types NativeType<"ptr">^,
         Parameter <surface> Types NativeType<"ptr">^
     ) -> {
-        Return _glfwCreateWindowSurface(instance, _handle, allocator, surface);
+        Return Native::_glfwCreateWindowSurface(instance, _handle, allocator, surface);
     }
 
     // Get raw window handle for use with native APIs
@@ -1956,14 +1790,14 @@ Method <_glfwSetDropCallback> Returns NativeType<"ptr">^ Parameters (
 
     // Get window opacity (0.0 to 1.0)
     Method <getOpacity> Returns NativeType<"float">^ Parameters () -> {
-        Return _glfwGetWindowOpacity(_handle);
+        Return Native::_glfwGetWindowOpacity(_handle);
     }
 
     // Set window opacity (0.0 = fully transparent, 1.0 = fully opaque)
     Method <setOpacity> Returns None Parameters (
         Parameter <opacity> Types NativeType<"float">^
     ) -> {
-        Run _glfwSetWindowOpacity(_handle, opacity);
+        Run Native::_glfwSetWindowOpacity(_handle, opacity);
     }
 ]
 ]
@@ -1983,7 +1817,7 @@ Method <_glfwSetDropCallback> Returns NativeType<"ptr">^ Parameters (
 
     // Check if this joystick is connected
     Method <isConnected> Returns Bool^ Parameters () -> {
-        Instantiate NativeType<"int32">^ As <result> = _glfwJoystickPresent(_id);
+        Instantiate NativeType<"int32">^ As <result> = Native::_glfwJoystickPresent(_id.toInt32());
         If (result != 0) -> {
             Return Bool::Constructor(true);
         }
@@ -1992,19 +1826,19 @@ Method <_glfwSetDropCallback> Returns NativeType<"ptr">^ Parameters (
 
     // Get the joystick name
     Method <getName> Returns String^ Parameters () -> {
-        Instantiate NativeType<"ptr">^ As <namePtr> = _glfwGetJoystickName(_id);
+        Instantiate NativeType<"ptr">^ As <namePtr> = Native::_glfwGetJoystickName(_id.toInt32());
         Return String::FromCString(namePtr);
     }
 
     // Get the joystick GUID
     Method <getGUID> Returns String^ Parameters () -> {
-        Instantiate NativeType<"ptr">^ As <guidPtr> = _glfwGetJoystickGUID(_id);
+        Instantiate NativeType<"ptr">^ As <guidPtr> = Native::_glfwGetJoystickGUID(_id.toInt32());
         Return String::FromCString(guidPtr);
     }
 
     // Check if this joystick is a gamepad
     Method <isGamepad> Returns Bool^ Parameters () -> {
-        Instantiate NativeType<"int32">^ As <result> = _glfwJoystickIsGamepad(_id);
+        Instantiate NativeType<"int32">^ As <result> = Native::_glfwJoystickIsGamepad(_id.toInt32());
         If (result != 0) -> {
             Return Bool::Constructor(true);
         }
@@ -2013,7 +1847,7 @@ Method <_glfwSetDropCallback> Returns NativeType<"ptr">^ Parameters (
 
     // Get gamepad name (if this is a gamepad)
     Method <getGamepadName> Returns String^ Parameters () -> {
-        Instantiate NativeType<"ptr">^ As <namePtr> = _glfwGetGamepadName(_id);
+        Instantiate NativeType<"ptr">^ As <namePtr> = Native::_glfwGetGamepadName(_id.toInt32());
         Return String::FromCString(namePtr);
     }
 
@@ -2054,7 +1888,7 @@ Method <_glfwSetDropCallback> Returns NativeType<"ptr">^ Parameters (
 
     // Reset all hints to default values
     Method <reset> Returns WindowHints^ Parameters () -> {
-        Run _glfwDefaultWindowHints();
+        Run Native::_glfwDefaultWindowHints();
         Return this;
     }
 
@@ -2062,12 +1896,12 @@ Method <_glfwSetDropCallback> Returns NativeType<"ptr">^ Parameters (
     Method <resizable> Returns WindowHints^ Parameters (
         Parameter <value> Types Bool^
     ) -> {
+        Instantiate NativeType<"int32">^ As <hint> = Integer::Constructor(131075).toInt32();
+        Instantiate NativeType<"int32">^ As <hintVal> = Integer::Constructor(0).toInt32();
         If (value) -> {
-            Run _glfwWindowHint(131075, 1);
+            Set <hintVal> = Integer::Constructor(1).toInt32();
         }
-        If (value.not()) -> {
-            Run _glfwWindowHint(131075, 0);
-        }
+        Run Native::_glfwWindowHint(hint, hintVal);
         Return this;
     }
 
@@ -2075,12 +1909,12 @@ Method <_glfwSetDropCallback> Returns NativeType<"ptr">^ Parameters (
     Method <visible> Returns WindowHints^ Parameters (
         Parameter <value> Types Bool^
     ) -> {
+        Instantiate NativeType<"int32">^ As <hint> = Integer::Constructor(131076).toInt32();
+        Instantiate NativeType<"int32">^ As <hintVal> = Integer::Constructor(0).toInt32();
         If (value) -> {
-            Run _glfwWindowHint(131076, 1);
+            Set <hintVal> = Integer::Constructor(1).toInt32();
         }
-        If (value.not()) -> {
-            Run _glfwWindowHint(131076, 0);
-        }
+        Run Native::_glfwWindowHint(hint, hintVal);
         Return this;
     }
 
@@ -2088,12 +1922,12 @@ Method <_glfwSetDropCallback> Returns NativeType<"ptr">^ Parameters (
     Method <decorated> Returns WindowHints^ Parameters (
         Parameter <value> Types Bool^
     ) -> {
+        Instantiate NativeType<"int32">^ As <hint> = Integer::Constructor(131077).toInt32();
+        Instantiate NativeType<"int32">^ As <hintVal> = Integer::Constructor(0).toInt32();
         If (value) -> {
-            Run _glfwWindowHint(131077, 1);
+            Set <hintVal> = Integer::Constructor(1).toInt32();
         }
-        If (value.not()) -> {
-            Run _glfwWindowHint(131077, 0);
-        }
+        Run Native::_glfwWindowHint(hint, hintVal);
         Return this;
     }
 
@@ -2101,12 +1935,12 @@ Method <_glfwSetDropCallback> Returns NativeType<"ptr">^ Parameters (
     Method <focused> Returns WindowHints^ Parameters (
         Parameter <value> Types Bool^
     ) -> {
+        Instantiate NativeType<"int32">^ As <hint> = Integer::Constructor(131073).toInt32();
+        Instantiate NativeType<"int32">^ As <hintVal> = Integer::Constructor(0).toInt32();
         If (value) -> {
-            Run _glfwWindowHint(131073, 1);
+            Set <hintVal> = Integer::Constructor(1).toInt32();
         }
-        If (value.not()) -> {
-            Run _glfwWindowHint(131073, 0);
-        }
+        Run Native::_glfwWindowHint(hint, hintVal);
         Return this;
     }
 
@@ -2114,12 +1948,12 @@ Method <_glfwSetDropCallback> Returns NativeType<"ptr">^ Parameters (
     Method <floating> Returns WindowHints^ Parameters (
         Parameter <value> Types Bool^
     ) -> {
+        Instantiate NativeType<"int32">^ As <hint> = Integer::Constructor(131079).toInt32();
+        Instantiate NativeType<"int32">^ As <hintVal> = Integer::Constructor(0).toInt32();
         If (value) -> {
-            Run _glfwWindowHint(131079, 1);
+            Set <hintVal> = Integer::Constructor(1).toInt32();
         }
-        If (value.not()) -> {
-            Run _glfwWindowHint(131079, 0);
-        }
+        Run Native::_glfwWindowHint(hint, hintVal);
         Return this;
     }
 
@@ -2127,12 +1961,12 @@ Method <_glfwSetDropCallback> Returns NativeType<"ptr">^ Parameters (
     Method <maximized> Returns WindowHints^ Parameters (
         Parameter <value> Types Bool^
     ) -> {
+        Instantiate NativeType<"int32">^ As <hint> = Integer::Constructor(131080).toInt32();
+        Instantiate NativeType<"int32">^ As <hintVal> = Integer::Constructor(0).toInt32();
         If (value) -> {
-            Run _glfwWindowHint(131080, 1);
+            Set <hintVal> = Integer::Constructor(1).toInt32();
         }
-        If (value.not()) -> {
-            Run _glfwWindowHint(131080, 0);
-        }
+        Run Native::_glfwWindowHint(hint, hintVal);
         Return this;
     }
 
@@ -2140,12 +1974,12 @@ Method <_glfwSetDropCallback> Returns NativeType<"ptr">^ Parameters (
     Method <transparent> Returns WindowHints^ Parameters (
         Parameter <value> Types Bool^
     ) -> {
+        Instantiate NativeType<"int32">^ As <hint> = Integer::Constructor(131082).toInt32();
+        Instantiate NativeType<"int32">^ As <hintVal> = Integer::Constructor(0).toInt32();
         If (value) -> {
-            Run _glfwWindowHint(131082, 1);
+            Set <hintVal> = Integer::Constructor(1).toInt32();
         }
-        If (value.not()) -> {
-            Run _glfwWindowHint(131082, 0);
-        }
+        Run Native::_glfwWindowHint(hint, hintVal);
         Return this;
     }
 
@@ -2154,20 +1988,26 @@ Method <_glfwSetDropCallback> Returns NativeType<"ptr">^ Parameters (
         Parameter <major> Types Integer^,
         Parameter <minor> Types Integer^
     ) -> {
-        Run _glfwWindowHint(139266, major);
-        Run _glfwWindowHint(139267, minor);
+        Instantiate NativeType<"int32">^ As <majorHint> = Integer::Constructor(139266).toInt32();
+        Instantiate NativeType<"int32">^ As <minorHint> = Integer::Constructor(139267).toInt32();
+        Run Native::_glfwWindowHint(majorHint, major.toInt32());
+        Run Native::_glfwWindowHint(minorHint, minor.toInt32());
         Return this;
     }
 
     // Use core OpenGL profile
     Method <coreProfile> Returns WindowHints^ Parameters () -> {
-        Run _glfwWindowHint(139272, 204801);
+        Instantiate NativeType<"int32">^ As <hint> = Integer::Constructor(139272).toInt32();
+        Instantiate NativeType<"int32">^ As <val> = Integer::Constructor(204801).toInt32();
+        Run Native::_glfwWindowHint(hint, val);
         Return this;
     }
 
     // Use compatibility OpenGL profile
     Method <compatProfile> Returns WindowHints^ Parameters () -> {
-        Run _glfwWindowHint(139272, 204802);
+        Instantiate NativeType<"int32">^ As <hint> = Integer::Constructor(139272).toInt32();
+        Instantiate NativeType<"int32">^ As <val> = Integer::Constructor(204802).toInt32();
+        Run Native::_glfwWindowHint(hint, val);
         Return this;
     }
 
@@ -2175,7 +2015,8 @@ Method <_glfwSetDropCallback> Returns NativeType<"ptr">^ Parameters (
     Method <samples> Returns WindowHints^ Parameters (
         Parameter <count> Types Integer^
     ) -> {
-        Run _glfwWindowHint(135181, count);
+        Instantiate NativeType<"int32">^ As <hint> = Integer::Constructor(135181).toInt32();
+        Run Native::_glfwWindowHint(hint, count.toInt32());
         Return this;
     }
 ]
@@ -2190,7 +2031,7 @@ Method <_glfwSetDropCallback> Returns NativeType<"ptr">^ Parameters (
 
     // Initialize GLFW - must be called before any other GLFW functions
     Method <init> Returns Bool^ Parameters () -> {
-        Instantiate NativeType<"int32">^ As <result> = _glfwInit();
+        Instantiate NativeType<"int32">^ As <result> = Native::_glfwInit();
         If (result != 0) -> {
             Return Bool::Constructor(true);
         }
@@ -2199,49 +2040,49 @@ Method <_glfwSetDropCallback> Returns NativeType<"ptr">^ Parameters (
 
     // Terminate GLFW - call when done with GLFW
     Method <terminate> Returns None Parameters () -> {
-        Run _glfwTerminate();
+        Run Native::_glfwTerminate();
     }
 
     // Poll for events (call every frame)
     Method <pollEvents> Returns None Parameters () -> {
-        Run _glfwPollEvents();
+        Run Native::_glfwPollEvents();
     }
 
     // Wait for events (blocks until event occurs)
     Method <waitEvents> Returns None Parameters () -> {
-        Run _glfwWaitEvents();
+        Run Native::_glfwWaitEvents();
     }
 
     // Post empty event (wake up waitEvents from another thread)
     Method <postEmptyEvent> Returns None Parameters () -> {
-        Run _glfwPostEmptyEvent();
+        Run Native::_glfwPostEmptyEvent();
     }
 
     // Get current time in seconds since GLFW init
     Method <getTime> Returns NativeType<"double">^ Parameters () -> {
-        Return _glfwGetTime();
+        Return Native::_glfwGetTime();
     }
 
     // Set current time
     Method <setTime> Returns None Parameters (
         Parameter <time> Types NativeType<"double">^
     ) -> {
-        Run _glfwSetTime(time);
+        Run Native::_glfwSetTime(time);
     }
 
     // Get raw timer value
     Method <getTimerValue> Returns NativeType<"int64">^ Parameters () -> {
-        Return _glfwGetTimerValue();
+        Return Native::_glfwGetTimerValue();
     }
 
     // Get timer frequency (ticks per second)
     Method <getTimerFrequency> Returns NativeType<"int64">^ Parameters () -> {
-        Return _glfwGetTimerFrequency();
+        Return Native::_glfwGetTimerFrequency();
     }
 
     // Check if raw mouse motion is supported
     Method <rawMouseMotionSupported> Returns Bool^ Parameters () -> {
-        Instantiate NativeType<"int32">^ As <result> = _glfwRawMouseMotionSupported();
+        Instantiate NativeType<"int32">^ As <result> = Native::_glfwRawMouseMotionSupported();
         If (result != 0) -> {
             Return Bool::Constructor(true);
         }
@@ -2252,14 +2093,14 @@ Method <_glfwSetDropCallback> Returns NativeType<"ptr">^ Parameters (
     Method <setSwapInterval> Returns None Parameters (
         Parameter <interval> Types Integer^
     ) -> {
-        Run _glfwSwapInterval(interval);
+        Run Native::_glfwSwapInterval(interval.toInt32());
     }
 
     // Check if a joystick is connected
     Method <isJoystickConnected> Returns Bool^ Parameters (
         Parameter <id> Types Integer^
     ) -> {
-        Instantiate NativeType<"int32">^ As <result> = _glfwJoystickPresent(id);
+        Instantiate NativeType<"int32">^ As <result> = Native::_glfwJoystickPresent(id.toInt32());
         If (result != 0) -> {
             Return Bool::Constructor(true);
         }
@@ -2270,7 +2111,7 @@ Method <_glfwSetDropCallback> Returns NativeType<"ptr">^ Parameters (
     Method <isGamepad> Returns Bool^ Parameters (
         Parameter <id> Types Integer^
     ) -> {
-        Instantiate NativeType<"int32">^ As <result> = _glfwJoystickIsGamepad(id);
+        Instantiate NativeType<"int32">^ As <result> = Native::_glfwJoystickIsGamepad(id.toInt32());
         If (result != 0) -> {
             Return Bool::Constructor(true);
         }
@@ -2281,7 +2122,7 @@ Method <_glfwSetDropCallback> Returns NativeType<"ptr">^ Parameters (
     Method <getJoystickName> Returns String^ Parameters (
         Parameter <id> Types Integer^
     ) -> {
-        Instantiate NativeType<"ptr">^ As <namePtr> = _glfwGetJoystickName(id);
+        Instantiate NativeType<"ptr">^ As <namePtr> = Native::_glfwGetJoystickName(id.toInt32());
         Return String::FromCString(namePtr);
     }
 
@@ -2289,38 +2130,18 @@ Method <_glfwSetDropCallback> Returns NativeType<"ptr">^ Parameters (
     Method <getGamepadName> Returns String^ Parameters (
         Parameter <id> Types Integer^
     ) -> {
-        Instantiate NativeType<"ptr">^ As <namePtr> = _glfwGetGamepadName(id);
+        Instantiate NativeType<"ptr">^ As <namePtr> = Native::_glfwGetGamepadName(id.toInt32());
         Return String::FromCString(namePtr);
     }
 
     // ========== Callback Methods ==========
-
-    // Set error callback
-    Method <setErrorCallback> Returns None Parameters (
-        Parameter <callback> Types F(None^)(NativeType<"int32">^, NativeType<"ptr">^)^
-    ) -> {
-        Run _glfwSetErrorCallback(callback);
-    }
-
-    // Set monitor callback
-    Method <setMonitorCallback> Returns None Parameters (
-        Parameter <callback> Types F(None^)(NativeType<"ptr">^, NativeType<"int32">^)^
-    ) -> {
-        Run _glfwSetMonitorCallback(callback);
-    }
-
-    // Set joystick callback
-    Method <setJoystickCallback> Returns None Parameters (
-        Parameter <callback> Types F(None^)(NativeType<"int32">^, NativeType<"int32">^)^
-    ) -> {
-        Run _glfwSetJoystickCallback(callback);
-    }
+    // TODO: Implement after fixing callback type matching
 
     // ========== Vulkan Support ==========
 
     // Check if Vulkan is available on this system
     Method <vulkanSupported> Returns Bool^ Parameters () -> {
-        Instantiate NativeType<"int32">^ As <result> = _glfwVulkanSupported();
+        Instantiate NativeType<"int32">^ As <result> = Native::_glfwVulkanSupported();
         If (result != 0) -> {
             Return Bool::Constructor(true);
         }
@@ -2333,7 +2154,7 @@ Method <_glfwSetDropCallback> Returns NativeType<"ptr">^ Parameters (
         Parameter <procname> Types String^
     ) -> {
         Instantiate NativeType<"cstr">^ As <cName> = procname.toCString();
-        Return _glfwGetInstanceProcAddress(instance, cName);
+        Return Native::_glfwGetInstanceProcAddress(instance, cName);
     }
 
     // Check if a Vulkan physical device supports presentation to a surface
@@ -2342,7 +2163,8 @@ Method <_glfwSetDropCallback> Returns NativeType<"ptr">^ Parameters (
         Parameter <device> Types NativeType<"ptr">^,
         Parameter <queueFamily> Types Integer^
     ) -> {
-        Instantiate NativeType<"int32">^ As <result> = _glfwGetPhysicalDevicePresentationSupport(instance, device, queueFamily);
+        Instantiate NativeType<"uint32">^ As <qf> = queueFamily.toInt32();
+        Instantiate NativeType<"int32">^ As <result> = Native::_glfwGetPhysicalDevicePresentationSupport(instance, device, qf);
         If (result != 0) -> {
             Return Bool::Constructor(true);
         }
@@ -2356,7 +2178,7 @@ Method <_glfwSetDropCallback> Returns NativeType<"ptr">^ Parameters (
         Parameter <mappings> Types String^
     ) -> {
         Instantiate NativeType<"cstr">^ As <cMappings> = mappings.toCString();
-        Instantiate NativeType<"int32">^ As <result> = _glfwUpdateGamepadMappings(cMappings);
+        Instantiate NativeType<"int32">^ As <result> = Native::_glfwUpdateGamepadMappings(cMappings);
         If (result != 0) -> {
             Return Bool::Constructor(true);
         }
@@ -2367,7 +2189,7 @@ Method <_glfwSetDropCallback> Returns NativeType<"ptr">^ Parameters (
     Method <getJoystickGUID> Returns String^ Parameters (
         Parameter <id> Types Integer^
     ) -> {
-        Instantiate NativeType<"ptr">^ As <guidPtr> = _glfwGetJoystickGUID(id);
+        Instantiate NativeType<"ptr">^ As <guidPtr> = Native::_glfwGetJoystickGUID(id.toInt32());
         Return String::FromCString(guidPtr);
     }
 
@@ -2375,7 +2197,7 @@ Method <_glfwSetDropCallback> Returns NativeType<"ptr">^ Parameters (
 
     // Get GLFW version string
     Method <getVersionString> Returns String^ Parameters () -> {
-        Instantiate NativeType<"ptr">^ As <verPtr> = _glfwGetVersionString();
+        Instantiate NativeType<"ptr">^ As <verPtr> = Native::_glfwGetVersionString();
         Return String::FromCString(verPtr);
     }
 ]
