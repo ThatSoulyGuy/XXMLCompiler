@@ -6,9 +6,13 @@ namespace XXML {
 namespace Semantic {
 
 TemplateExpander::TemplateExpander(Common::ErrorReporter& errorReporter,
-                                   const TypeResolutionResult& typeResolution)
+                                   const TypeResolutionResult& typeResolution,
+                                   const std::unordered_map<std::string, ClassInfo>& classRegistry,
+                                   const std::unordered_map<std::string, ConstraintInfo>& constraintRegistry)
     : errorReporter_(errorReporter),
-      typeResolution_(typeResolution) {
+      typeResolution_(typeResolution),
+      classRegistry_(classRegistry),
+      constraintRegistry_(constraintRegistry) {
 }
 
 TemplateExpansionResult TemplateExpander::run(
@@ -83,15 +87,8 @@ TemplateExpansionResult TemplateExpander::run(
 bool TemplateExpander::validateConstraintDefinition(Parser::ConstraintDecl* decl) {
     if (!decl) return false;
 
-    // Store constraint info
-    ConstraintInfo info;
-    info.name = decl->name;
-    info.templateParams = decl->templateParams;
-    info.paramBindings = decl->paramBindings;
-    for (const auto& req : decl->requirements) {
-        info.requirements.push_back(req.get());
-    }
-    constraintRegistry_[decl->name] = info;
+    // Constraints are now registered in SemanticAnalyzer and passed to TemplateExpander,
+    // so this function just validates the constraint definition syntax
 
     // Validate that requirements reference valid template parameters
     std::set<std::string> validParams;
@@ -309,7 +306,65 @@ ConstraintProof TemplateExpander::proveConstraint(
 
     // Validate each requirement
     for (const auto* req : info.requirements) {
-        // TODO: Validate requirement with substitutions
+        switch (req->kind) {
+            case Parser::RequirementKind::Method:
+            case Parser::RequirementKind::CompiletimeMethod: {
+                // Look up the target parameter binding to get the actual type
+                std::string targetType = typeName;
+                for (const auto& binding : info.paramBindings) {
+                    if (binding.bindingName == req->targetParam) {
+                        // Find the substitution for this template param
+                        auto subIt = constraintSubs.find(binding.templateParamName);
+                        if (subIt != constraintSubs.end()) {
+                            targetType = subIt->second;
+                        }
+                        break;
+                    }
+                }
+
+                // Validate the method exists on the target type
+                if (!validateMethodRequirement(targetType, req->methodName, req->methodReturnType.get())) {
+                    std::string returnTypeStr = req->methodReturnType ?
+                        req->methodReturnType->typeName : "?";
+
+                    proof.failureReason = "Type '" + targetType + "' is missing required method:\n"
+                        "  " + req->methodName + "() -> " + returnTypeStr + "\n\n"
+                        "Hint: Add a '" + req->methodName + "' method to '" + targetType + "'\n"
+                        "See: Language/Core/" + constraint.name + ".XXML for constraint definition";
+                    return proof;
+                }
+                break;
+            }
+            case Parser::RequirementKind::Constructor:
+            case Parser::RequirementKind::CompiletimeConstructor: {
+                // Look up the target parameter binding
+                std::string targetType = typeName;
+                for (const auto& binding : info.paramBindings) {
+                    if (binding.bindingName == req->targetParam) {
+                        auto subIt = constraintSubs.find(binding.templateParamName);
+                        if (subIt != constraintSubs.end()) {
+                            targetType = subIt->second;
+                        }
+                        break;
+                    }
+                }
+
+                if (!validateConstructorRequirement(targetType, req->constructorParamTypes)) {
+                    proof.failureReason = "Type '" + targetType + "' is missing required constructor\n\n"
+                        "Hint: Add the required constructor to '" + targetType + "'\n"
+                        "See: Language/Core/" + constraint.name + ".XXML for constraint definition";
+                    return proof;
+                }
+                break;
+            }
+            case Parser::RequirementKind::Truth: {
+                if (!validateTruthRequirement(req->truthCondition.get(), constraintSubs)) {
+                    proof.failureReason = "Type '" + typeName + "' does not satisfy truth condition for constraint '" + constraint.name + "'";
+                    return proof;
+                }
+                break;
+            }
+        }
     }
 
     proof.satisfied = true;
@@ -352,11 +407,25 @@ std::vector<ConstraintProof> TemplateExpander::validateAllConstraints(
 bool TemplateExpander::validateMethodRequirement(const std::string& typeName,
                                                   const std::string& methodName,
                                                   Parser::TypeRef* returnType) {
-    // Look up the type in type resolution result
-    const QualifiedType* type = typeResolution_.lookupType(typeName);
-    if (!type) return false;
+    // Look up the class in the registry
+    auto it = classRegistry_.find(typeName);
+    if (it == classRegistry_.end()) {
+        // Type not found in registry - could be a builtin or not yet registered
+        return false;
+    }
 
-    // TODO: Look up method in class registry
+    const ClassInfo& classInfo = it->second;
+
+    // Look for the method in the class
+    auto methodIt = classInfo.methods.find(methodName);
+    if (methodIt == classInfo.methods.end()) {
+        return false;
+    }
+
+    // If return type is specified, we could validate it matches
+    // For now, just check the method exists
+    // TODO: Add return type validation if needed
+
     return true;
 }
 
@@ -364,10 +433,21 @@ bool TemplateExpander::validateConstructorRequirement(
     const std::string& typeName,
     const std::vector<std::unique_ptr<Parser::TypeRef>>& paramTypes) {
 
-    const QualifiedType* type = typeResolution_.lookupType(typeName);
-    if (!type) return false;
+    // Look up the class in the registry
+    auto it = classRegistry_.find(typeName);
+    if (it == classRegistry_.end()) {
+        return false;
+    }
 
-    // TODO: Look up constructor in class registry
+    const ClassInfo& classInfo = it->second;
+
+    // Check if class has a Constructor method
+    auto methodIt = classInfo.methods.find("Constructor");
+    if (methodIt == classInfo.methods.end()) {
+        return false;
+    }
+
+    // TODO: Validate parameter types match if needed
     return true;
 }
 

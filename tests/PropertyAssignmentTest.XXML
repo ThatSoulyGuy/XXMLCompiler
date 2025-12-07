@@ -1,0 +1,106 @@
+// Test property assignment via this.x syntax (the bug that caused Failed.XXML to segfault)
+#import Language::Core;
+#import System;
+
+// Class with explicit this.x assignment in constructor
+[ Class <ExplicitThisClass> Final Extends None
+[ Private <>
+    Property <value> Types Integer^;
+]
+[ Public <>
+    Constructor (Parameter <v> Types Integer^) ->
+    {
+        Set this.value = v;
+    }
+
+    Method <getValue> Returns Integer^ Parameters () Do
+    {
+        Return this.value;
+    }
+]
+]
+
+// Class with implicit property assignment (just propertyName)
+[ Class <ImplicitThisClass> Final Extends None
+[ Private <>
+    Property <value> Types Integer^;
+]
+[ Public <>
+    Constructor (Parameter <v> Types Integer^) ->
+    {
+        Set value = v;
+    }
+
+    Method <getValue> Returns Integer^ Parameters () Do
+    {
+        Return value;
+    }
+]
+]
+
+// Class with multiple properties and mixed assignment styles
+[ Class <MixedClass> Final Extends None
+[ Private <>
+    Property <a> Types Integer^;
+    Property <b> Types Integer^;
+    Property <c> Types Integer^;
+]
+[ Public <>
+    Constructor (Parameter <x> Types Integer^, Parameter <y> Types Integer^, Parameter <z> Types Integer^) ->
+    {
+        Set this.a = x;
+        Set b = y;
+        Set this.c = z;
+    }
+
+    Method <getA> Returns Integer^ Parameters () Do
+    {
+        Return this.a;
+    }
+
+    Method <getB> Returns Integer^ Parameters () Do
+    {
+        Return b;
+    }
+
+    Method <getC> Returns Integer^ Parameters () Do
+    {
+        Return this.c;
+    }
+]
+]
+
+[ Entrypoint
+{
+    Run System::Console::printLine(String::Constructor("=== Property Assignment Test ==="));
+
+    // Test explicit this.x assignment
+    Run System::Console::printLine(String::Constructor("Testing explicit this.x assignment..."));
+    Instantiate ExplicitThisClass^ As <explicit> = ExplicitThisClass::Constructor(Integer::Constructor(42));
+    Instantiate Integer^ As <explicitVal> = explicit.getValue();
+    Run System::Console::printLine(String::Constructor("  Explicit value: ").append(explicitVal.toString()));
+
+    // Test implicit property assignment
+    Run System::Console::printLine(String::Constructor("Testing implicit property assignment..."));
+    Instantiate ImplicitThisClass^ As <implicit> = ImplicitThisClass::Constructor(Integer::Constructor(100));
+    Instantiate Integer^ As <implicitVal> = implicit.getValue();
+    Run System::Console::printLine(String::Constructor("  Implicit value: ").append(implicitVal.toString()));
+
+    // Test mixed assignment
+    Run System::Console::printLine(String::Constructor("Testing mixed assignment..."));
+    Instantiate MixedClass^ As <mixed> = MixedClass::Constructor(
+        Integer::Constructor(10),
+        Integer::Constructor(20),
+        Integer::Constructor(30)
+    );
+    Instantiate Integer^ As <aVal> = mixed.getA();
+    Instantiate Integer^ As <bVal> = mixed.getB();
+    Instantiate Integer^ As <cVal> = mixed.getC();
+    Run System::Console::printLine(String::Constructor("  a (10): ").append(aVal.toString()));
+    Run System::Console::printLine(String::Constructor("  b (20): ").append(bVal.toString()));
+    Run System::Console::printLine(String::Constructor("  c (30): ").append(cVal.toString()));
+
+    Run System::Console::printLine(String::Constructor("=== All Property Assignment Tests Passed ==="));
+    Exit(0);
+}
+]

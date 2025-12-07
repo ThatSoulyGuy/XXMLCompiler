@@ -2,6 +2,49 @@
 
 All notable changes to the XXML Compiler project will be documented in this file.
 
+## [2.3.0] - 2025-12-07
+
+### Added
+
+#### Full Compile-Time Constant Folding
+- **Method Call Folding**: Compile-time method calls like `x.add(y)` are now fully evaluated at compile-time and folded to constants
+- **User-Defined Compiletime Classes**: User-defined classes marked with `Compiletime` now have full compile-time evaluation support:
+  - Constructors execute at compile-time, setting properties
+  - Methods execute at compile-time, returning folded values
+  - Entire method chains like `p.getX().toString()` fold to string constants
+
+```xxml
+[ Class <Point> Compiletime Final Extends None
+    [ Private <>
+        Property <x> Types Integer^;
+        Property <y> Types Integer^;
+    ]
+    [ Public <>
+        Constructor Parameters (Parameter <px> Types Integer^, Parameter <py> Types Integer^) -> {
+            Set x = px;
+            Set y = py;
+        }
+        Method <getX> Returns Integer^ Parameters () -> { Return x; }
+    ]
+]
+
+// p.getX().toString() is evaluated at compile-time to "10"
+Instantiate Compiletime Point^ As <p> = Point::Constructor(Integer::Constructor(10), Integer::Constructor(20));
+```
+
+#### CompiletimeInterpreter Enhancements
+- `executeMethod()`: Execute user-defined methods on CompiletimeObject at compile-time
+- `findConstructor(classDecl, argCount)`: Find constructor matching parameter count
+- `evalMethodCall()`: Extended to handle CompiletimeObject method dispatch
+- `evalIdentifier()`: Extended to lookup properties on `this` object
+
+### Documentation
+- Updated `docs/COMPILETIME.md` with:
+  - User-defined compile-time class documentation and examples
+  - Method call folding documentation with LLVM IR examples
+  - Updated limitations section
+  - Supported statement types in compile-time methods
+
 ## [2.2.0] - 2025-12-02
 
 ### Added

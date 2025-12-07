@@ -3,8 +3,8 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
-#include "CompiletimeValue.h"
 #include "../Parser/AST.h"
+#include "CompiletimeValue.h"
 
 namespace XXML {
 namespace Semantic {
@@ -34,10 +34,38 @@ public:
     void setVariable(const std::string& name, std::unique_ptr<CompiletimeValue> value);
     CompiletimeValue* getVariable(const std::string& name);
     void clearVariables();
-    
+
+    // Scope management for nested evaluation
+    void pushScope();
+    void popScope();
+
+    // Statement execution for compile-time evaluation
+    bool executeStatement(Parser::Statement* stmt);
+
+    // User-defined class support
+    Parser::ClassDecl* findCompiletimeClass(const std::string& className);
+    std::unique_ptr<CompiletimeValue> evalUserDefinedConstructor(
+        Parser::ClassDecl* classDecl, const std::vector<CompiletimeValue*>& args);
+    Parser::ConstructorDecl* findConstructor(Parser::ClassDecl* classDecl, size_t argCount = 0);
+
 private:
     SemanticAnalyzer& analyzer_;
     std::unordered_map<std::string, std::unique_ptr<CompiletimeValue>> variables_;
+
+    // Scope frame wrapper to avoid MSVC template instantiation issues
+    struct ScopeFrame {
+        std::unordered_map<std::string, std::unique_ptr<CompiletimeValue>> vars;
+
+        ScopeFrame() = default;
+        ScopeFrame(ScopeFrame&&) = default;
+        ScopeFrame& operator=(ScopeFrame&&) = default;
+
+        // Explicitly delete copy operations
+        ScopeFrame(const ScopeFrame&) = delete;
+        ScopeFrame& operator=(const ScopeFrame&) = delete;
+    };
+    std::vector<ScopeFrame> scopes_;
+    std::unique_ptr<CompiletimeValue> lastReturnValue_;
     
     // Expression evaluation helpers
     std::unique_ptr<CompiletimeValue> evalLiteral(Parser::Expression* expr);

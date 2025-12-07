@@ -15,7 +15,10 @@
 namespace XXML {
 
 namespace Parser { class ClassDecl; }
-namespace Semantic { class SemanticAnalyzer; }
+namespace Semantic {
+    class SemanticAnalyzer;
+    class CompiletimeInterpreter;
+}
 namespace Core { class CompilationContext; }
 
 namespace Backends {
@@ -254,6 +257,11 @@ public:
     void setSemanticAnalyzer(Semantic::SemanticAnalyzer* analyzer) { semanticAnalyzer_ = analyzer; }
     Semantic::SemanticAnalyzer* semanticAnalyzer() const { return semanticAnalyzer_; }
 
+    // === Compile-Time Interpreter (for constant folding) ===
+    void setCompiletimeInterpreter(Semantic::CompiletimeInterpreter* interp) { compiletimeInterp_ = interp; }
+    Semantic::CompiletimeInterpreter* compiletimeInterpreter() const { return compiletimeInterp_; }
+    bool hasCompiletimeInterpreter() const { return compiletimeInterp_ != nullptr; }
+
     // === Template Parameter Substitution ===
     void setTemplateSubstitutions(const std::unordered_map<std::string, std::string>& subs);
     void clearTemplateSubstitutions();
@@ -401,6 +409,7 @@ private:
     // External references
     Semantic::SemanticAnalyzer* semanticAnalyzer_ = nullptr;
     Core::CompilationContext* compCtx_ = nullptr;
+    Semantic::CompiletimeInterpreter* compiletimeInterp_ = nullptr;
 
     // Template parameter substitution map (T -> Integer, etc.)
     std::unordered_map<std::string, std::string> templateSubstitutions_;

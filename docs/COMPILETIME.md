@@ -189,25 +189,76 @@ If (debug) -> {
 }
 ```
 
-## Compile-Time Classes
+## User-Defined Compile-Time Classes
 
-Classes can be marked as compile-time to enable compile-time constructor and method evaluation:
+Classes can be marked as `Compiletime` to enable full compile-time constructor and method evaluation. When you instantiate a `Compiletime` variable of a user-defined `Compiletime` class, the compiler will:
+
+1. Execute the constructor at compile-time
+2. Execute any method calls at compile-time
+3. Fold the results into constants in the generated code
+
+### Example: Point Class
 
 ```xxml
-[ Class <Config> Compiletime Final Extends None
-    [ Public <>
-        Property Compiletime <maxRetries> Types Integer^;
-        Property Compiletime <timeout> Types Integer^;
+[ Class <Point> Compiletime Final Extends None
+    [ Private <>
+        Property <x> Types Integer^;
+        Property <y> Types Integer^;
+    ]
 
-        Constructor Compiletime Parameters (
-            Parameter <retries> Types Integer^,
-            Parameter <time> Types Integer^
+    [ Public <>
+        Constructor = default;
+
+        Constructor Parameters (
+            Parameter <px> Types Integer^,
+            Parameter <py> Types Integer^
         ) -> {
-            Set maxRetries = retries;
-            Set timeout = time;
+            Set x = px;
+            Set y = py;
+        }
+
+        Method <getX> Returns Integer^ Parameters () -> {
+            Return x;
+        }
+
+        Method <getY> Returns Integer^ Parameters () -> {
+            Return y;
         }
     ]
 ]
+
+[ Entrypoint
+    {
+        // Create Point at compile-time
+        Instantiate Compiletime Point^ As <p> = Point::Constructor(
+            Integer::Constructor(10),
+            Integer::Constructor(20)
+        );
+
+        // These method calls are evaluated at compile-time!
+        // p.getX().toString() becomes "10" at compile-time
+        Run Console::printLine(String::Constructor("x = ").append(p.getX().toString()));
+        Run Console::printLine(String::Constructor("y = ").append(p.getY().toString()));
+    }
+]
+```
+
+### Generated LLVM IR
+
+The above code generates optimized IR where method calls are completely eliminated:
+
+```llvm
+; String constants directly embedded - no runtime method calls!
+@.str.1 = private constant [5 x i8] c"x = \00"
+@.str.2 = private constant [3 x i8] c"10\00"   ; p.getX().toString() folded to "10"
+@.str.3 = private constant [5 x i8] c"y = \00"
+@.str.4 = private constant [3 x i8] c"20\00"   ; p.getY().toString() folded to "20"
+
+define i32 @main() {
+  ; No Point_getX, Point_getY, or Integer_toString calls!
+  %ct.str = call ptr @String_Constructor(ptr @.str.2)
+  ; ...
+}
 ```
 
 ## Compile-Time Methods
@@ -241,34 +292,74 @@ Individual methods can be marked as compile-time:
 
 The compiler applies the following optimizations for compile-time values:
 
-### Compile-Time Expression Evaluation
-All operations on compile-time values are evaluated during compilation:
+### Constant Constructor Arguments
+
+When compile-time values are constructed with literal arguments, the constants are emitted directly:
+
 ```xxml
 Instantiate Compiletime Integer^ As <x> = Integer::Constructor(10);
-Instantiate Compiletime Integer^ As <y> = Integer::Constructor(5);
-Instantiate Compiletime Integer^ As <sum> = x.add(y);  // Evaluated to 15 at compile-time
+Instantiate Compiletime Integer^ As <y> = Integer::Constructor(8);
 ```
-The `x.add(y)` call is computed at compile-time; no runtime method call occurs.
 
-### Value Caching
-When a compile-time value is accessed at runtime (e.g., for printing), the wrapper object is created only once and cached:
-```xxml
-Run Console::printLine(sum.toString());  // Creates Integer(15) once
-Run Console::printLine(sum.toString());  // Reuses the cached object
+Generated LLVM IR:
+```llvm
+%0 = call ptr @Integer_Constructor(i64 10)
+%1 = call ptr @Integer_Constructor(i64 8)
 ```
-This avoids redundant object allocation for repeated accesses.
+
+The literal values `10` and `8` are passed directly as i64 constants.
+
+### Method Call Folding
+
+Method calls on compile-time values are now fully evaluated at compile-time:
+
+```xxml
+Instantiate Compiletime Integer^ As <x> = Integer::Constructor(10);
+Instantiate Compiletime Integer^ As <y> = Integer::Constructor(8);
+Instantiate Compiletime Integer^ As <sum> = x.add(y);  // Folded to 18!
+
+Run Console::printLine(String::Constructor("sum = ").append(sum.toString()));
+```
+
+Generated LLVM IR:
+```llvm
+; The value 18 is computed at compile-time and embedded directly
+@.str.sum = private constant [3 x i8] c"18\00"
+
+define i32 @main() {
+  ; No Integer_add call - result is already computed!
+  %ct.str = call ptr @String_Constructor(ptr @.str.sum)
+  ; ...
+}
+```
+
+The entire chain `x.add(y).toString()` is evaluated at compile-time, resulting in the string constant `"18"` being embedded directly in the binary.
 
 ### Constant Propagation
 Compile-time values can be used in expressions with runtime values:
 ```xxml
 Instantiate Compiletime Integer^ As <factor> = Integer::Constructor(10);
 Instantiate Integer^ As <runtime> = Integer::Constructor(5);
-Instantiate Integer^ As <result> = runtime.multiply(factor);  // factor is constant 10
+Instantiate Integer^ As <result> = runtime.multiply(factor);
 ```
 
 ## Limitations
 
 - Compile-time values must be initialized with compile-time evaluable expressions
-- User-defined compile-time methods are still experimental
-- Compile-time objects have limited support
 - I/O operations cannot be performed at compile-time
+- Compile-time class methods must have deterministic behavior
+- Recursive compile-time methods have depth limits to prevent infinite loops
+- External/native functions cannot be called at compile-time
+
+## Supported Statement Types in Compile-Time Methods
+
+The following statement types are supported in compile-time method/constructor bodies:
+
+| Statement | Description |
+|-----------|-------------|
+| `Set x = expr` | Property or variable assignment |
+| `Instantiate Type As <var> = expr` | Local variable declaration |
+| `Return expr` | Return statement |
+| `Run expr` | Expression statement (evaluated for side effects) |
+
+Control flow statements (`If`, `While`, `For`) in compile-time methods are not yet supported.

@@ -257,15 +257,7 @@ private:
         const std::unordered_map<std::string, std::string>& typeMap,
         const Common::SourceLocation& callLocation);
 
-    // Constraint registry and validation
-    struct ConstraintInfo {
-        std::string name;
-        std::vector<Parser::TemplateParameter> templateParams;
-        std::vector<Parser::ConstraintParamBinding> paramBindings;
-        std::vector<Parser::RequireStmt*> requirements;
-        Parser::ConstraintDecl* astNode;
-    };
-
+    // Constraint registry and validation (ConstraintInfo defined in PassResults.h)
     std::unordered_map<std::string, ConstraintInfo> constraintRegistry_;  // Constraint name -> info
 
     // Annotation registry (uses public structs AnnotationInfo, AnnotationParamInfo, PendingProcessorCompilation)

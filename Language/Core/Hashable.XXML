@@ -2,7 +2,7 @@
 // Types that satisfy this constraint can be used as keys in hash-based collections
 // such as HashMap and Set
 
-[ Namespace <Core>
+[ Namespace <Language::Core>
     [ Constraint <Hashable> <T Constrains None> (T a)
         // Returns a hash code for this object
         // The hash code should be consistent: calling hash() multiple times

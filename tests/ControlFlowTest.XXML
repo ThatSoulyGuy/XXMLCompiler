@@ -1,0 +1,71 @@
+// Comprehensive control flow test
+#import Language::Core;
+#import System;
+
+[ Entrypoint
+{
+    Run System::Console::printLine(String::Constructor("=== Control Flow Test ==="));
+
+    // Test simple if-then
+    Run System::Console::printLine(String::Constructor("Testing if-then:"));
+    Instantiate Integer^ As <x> = Integer::Constructor(10);
+    If (x.greaterThan(Integer::Constructor(5))) -> {
+        Run System::Console::printLine(String::Constructor("  10 > 5: true"));
+    }
+
+    // Test if-then-else
+    Run System::Console::printLine(String::Constructor("Testing if-then-else:"));
+    If (x.lessThan(Integer::Constructor(5))) -> {
+        Run System::Console::printLine(String::Constructor("  10 < 5: true (wrong!)"));
+    } Else -> {
+        Run System::Console::printLine(String::Constructor("  10 < 5: false"));
+    }
+
+    // Test nested if
+    Run System::Console::printLine(String::Constructor("Testing nested if:"));
+    If (x.greaterThan(Integer::Constructor(0))) -> {
+        If (x.lessThan(Integer::Constructor(100))) -> {
+            Run System::Console::printLine(String::Constructor("  0 < 10 < 100: true"));
+        }
+    }
+
+    // Test while loop
+    Run System::Console::printLine(String::Constructor("Testing while loop:"));
+    Instantiate Integer^ As <counter> = Integer::Constructor(0);
+    While (counter.lessThan(Integer::Constructor(5))) -> {
+        Run System::Console::printLine(String::Constructor("  Counter: ").append(counter.toString()));
+        Set counter = counter.add(Integer::Constructor(1));
+    }
+
+    // Test for loop (counting up)
+    Run System::Console::printLine(String::Constructor("Testing for loop (0 to 2):"));
+    For (Integer^ <i> = Integer::Constructor(0) .. Integer::Constructor(3)) -> {
+        Run System::Console::printLine(String::Constructor("  i = ").append(i.toString()));
+    }
+
+    // Test break in while
+    Run System::Console::printLine(String::Constructor("Testing break in while:"));
+    Instantiate Integer^ As <j> = Integer::Constructor(0);
+    While (j.lessThan(Integer::Constructor(100))) -> {
+        Run System::Console::printLine(String::Constructor("  j = ").append(j.toString()));
+        If (j.equals(Integer::Constructor(2))) -> {
+            Run System::Console::printLine(String::Constructor("  Breaking at j=2"));
+            Break;
+        }
+        Set j = j.add(Integer::Constructor(1));
+    }
+
+    // Test continue in for
+    Run System::Console::printLine(String::Constructor("Testing continue in for:"));
+    For (Integer^ <k> = Integer::Constructor(0) .. Integer::Constructor(5)) -> {
+        If (k.equals(Integer::Constructor(2))) -> {
+            Run System::Console::printLine(String::Constructor("  Skipping k=2"));
+            Continue;
+        }
+        Run System::Console::printLine(String::Constructor("  k = ").append(k.toString()));
+    }
+
+    Run System::Console::printLine(String::Constructor("=== All Control Flow Tests Passed ==="));
+    Exit(0);
+}
+]

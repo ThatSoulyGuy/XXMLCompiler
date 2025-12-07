@@ -59,7 +59,9 @@ public:
 
     // Constructor
     TemplateExpander(Common::ErrorReporter& errorReporter,
-                     const TypeResolutionResult& typeResolution);
+                     const TypeResolutionResult& typeResolution,
+                     const std::unordered_map<std::string, ClassInfo>& classRegistry,
+                     const std::unordered_map<std::string, ConstraintInfo>& constraintRegistry);
 
     // Main entry point
     TemplateExpansionResult run(
@@ -84,16 +86,9 @@ public:
 private:
     Common::ErrorReporter& errorReporter_;
     const TypeResolutionResult& typeResolution_;
+    const std::unordered_map<std::string, ClassInfo>& classRegistry_;
+    const std::unordered_map<std::string, ConstraintInfo>& constraintRegistry_;
     TemplateExpansionResult result_;
-
-    // Constraint registry (from semantic analyzer)
-    struct ConstraintInfo {
-        std::string name;
-        std::vector<Parser::TemplateParameter> templateParams;
-        std::vector<Parser::ConstraintParamBinding> paramBindings;
-        std::vector<Parser::RequireStmt*> requirements;
-    };
-    std::unordered_map<std::string, ConstraintInfo> constraintRegistry_;
 
     // Mangling helpers
     std::string mangleClassName(const std::string& baseName,

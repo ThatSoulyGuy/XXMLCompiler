@@ -7,9 +7,7 @@
 {
 	Run System::Console::printLine(String::Constructor("Step 1: About to create list"));
 	Instantiate List<Integer>^ As <numbers> = List@Integer::Constructor();
-	Run System::Console::printLine(String::Constructor("Step 2: List created, calling init"));
-	Run numbers.init();
-	Run System::Console::printLine(String::Constructor("Step 3: Init done"));
+	Run System::Console::printLine(String::Constructor("Step 2: List created and initialized"));
 
 	Run System::Console::printLine(String::Constructor("Step 4: Adding element"));
 	Run numbers.add(Integer::Constructor(42));

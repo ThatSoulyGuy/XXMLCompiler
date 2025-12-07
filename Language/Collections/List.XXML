@@ -11,14 +11,14 @@
 		]
 
 		[ Public <>
-			// Default constructor - properties are zero-initialized by default
-			Constructor = default;
-
-			// Initialize method to set up the list
-			// With default constructor, values should already be zero-initialized
-			Method <init> Returns List<T>^ Parameters () Do
+			// Constructor - initializes empty list
+			Constructor () ->
 			{
-				Return this;
+				Instantiate NativeType<"ptr">^ As <nullPtr> = 0;
+				Instantiate NativeType<"int64">^ As <zero> = 0;
+				Set dataPtr = nullPtr;
+				Set capacity = zero;
+				Set count = zero;
 			}
 
 			// Add an element to the list
@@ -143,11 +143,12 @@
 			{
 				If (dataPtr != 0) -> {
 					Run Syscall::free(dataPtr);
-					// Can't easily set pointer to null due to compiler limitation
-					// But after free, we shouldn't access it anyway
+					Instantiate NativeType<"ptr">^ As <nullPtr> = 0;
+					Set dataPtr = nullPtr;
 				}
-				// Note: count and capacity could be reset but not strictly necessary
-				// after dispose() since the object should not be used again
+				Instantiate NativeType<"int64">^ As <zero> = 0;
+				Set count = zero;
+				Set capacity = zero;
 			}
 		]
 	]

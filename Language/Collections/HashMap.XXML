@@ -3,7 +3,7 @@
 // Requires K to implement hash() and equals() methods
 
 [ Namespace <Language::Collections>
-	[ Class <HashMap> <K Constrains None, V Constrains None> Final Extends None
+	[ Class <HashMap> <K Constrains (Hashable, Equatable), V Constrains None> Final Extends None
 		[ Private <>
 			// Array of bucket pointers (each bucket stores arrays of key-value pairs)
 			Property <buckets> Types NativeType<"ptr">^;
@@ -22,11 +22,8 @@
 		]
 
 		[ Public <>
-			// Default constructor - properties zero-initialized
-			Constructor = default;
-
-			// Initialize method to set up the hash map
-			Method <init> Returns HashMap<K, V>^ Parameters () Do
+			// Constructor - initializes the hash map
+			Constructor () ->
 			{
 				// Initialize with default number of buckets
 				Instantiate NativeType<"int64">^ As <initialBuckets> = 16;
@@ -44,15 +41,16 @@
 				Run Syscall::memset(countsPtr, 0, arraySize);
 				Run Syscall::memset(capsPtr, 0, arraySize);
 
-				// Save to properties
+				// Save to properties (keep buckets for struct layout compatibility)
+				Instantiate NativeType<"ptr">^ As <nullPtr> = 0;
+				Set buckets = nullPtr;
 				Set bucketKeys = keysPtr;
 				Set bucketValues = valuesPtr;
 				Set bucketCounts = countsPtr;
 				Set bucketCapacities = capsPtr;
 				Set numBuckets = initialBuckets;
-				// count is already 0 from default constructor
-
-				Return this;
+				Instantiate NativeType<"int64">^ As <zero> = 0;
+				Set count = zero;
 			}
 
 			// Put a key-value pair

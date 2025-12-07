@@ -1,7 +1,7 @@
 // Generic Stack<T> - LIFO (Last In First Out) data structure
 // Dynamic resizable stack for any type
 
-[ Namespace <Collections>
+[ Namespace <Language::Collections>
 	[ Class <Stack> <T Constrains None> Final Extends None
 
 		[ Private <>
@@ -15,9 +15,9 @@
 			{
 				Instantiate NativeType<"ptr">^ As <nullPtr> = 0;
 				Instantiate NativeType<"int64">^ As <zero> = 0;
-				Run Syscall::memcpy(&dataPtr, &nullPtr, 8);
-				Run Syscall::memcpy(&capacity, &zero, 8);
-				Run Syscall::memcpy(&count, &zero, 8);
+				Set dataPtr = nullPtr;
+				Set capacity = zero;
+				Set count = zero;
 			}
 
 			// Push an element onto the stack
@@ -39,8 +39,8 @@
 						Run Syscall::free(dataPtr);
 					}
 
-					Run Syscall::memcpy(&dataPtr, &newData, 8);
-					Run Syscall::memcpy(&capacity, &newCapacity, 8);
+					Set dataPtr = newData;
+					Set capacity = newCapacity;
 				}
 
 				// Add the element at the top (end)
@@ -48,7 +48,7 @@
 				Run Syscall::ptr_write(offset, value);
 
 				Instantiate NativeType<"int64">^ As <newCount> = count + 1;
-				Run Syscall::memcpy(&count, &newCount, 8);
+				Set count = newCount;
 			}
 
 			// Pop element from the top of the stack
@@ -68,7 +68,7 @@
 				Instantiate T^ As <value> = Syscall::ptr_read(offset);
 
 				// Decrease count
-				Run Syscall::memcpy(&count, &topIndex, 8);
+				Set count = topIndex;
 
 				Return value;
 			}
@@ -106,7 +106,7 @@
 			Method <clear> Returns None Parameters () Do
 			{
 				Instantiate NativeType<"int64">^ As <zero> = 0;
-				Run Syscall::memcpy(&count, &zero, 8);
+				Set count = zero;
 			}
 
 			// Free the stack memory
@@ -114,13 +114,13 @@
 			{
 				If (dataPtr != 0) -> {
 					Run Syscall::free(dataPtr);
-					Instantiate NativeType<"ptr">^ As <zero> = 0;
-					Run Syscall::memcpy(&dataPtr, &zero, 8);
+					Instantiate NativeType<"ptr">^ As <nullPtr> = 0;
+					Set dataPtr = nullPtr;
 				}
 
-				Instantiate NativeType<"int64">^ As <zero64> = 0;
-				Run Syscall::memcpy(&count, &zero64, 8);
-				Run Syscall::memcpy(&capacity, &zero64, 8);
+				Instantiate NativeType<"int64">^ As <zero> = 0;
+				Set count = zero;
+				Set capacity = zero;
 			}
 		]
 	]

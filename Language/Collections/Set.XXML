@@ -1,9 +1,9 @@
 // Generic Set<T> - Collection of unique values with fast membership testing
 // Hash-based implementation for O(1) average operations
-// Requires T to implement hash() method
+// T must implement hash() and equals() methods
 
 [ Namespace <Language::Collections>
-	[ Class <Set> <T Constrains None> Final Extends None
+	[ Class <Set> <T Constrains (Hashable, Equatable)> Final Extends None
 
 		[ Private <>
 			// Hash table buckets - array of pointers to bucket arrays
@@ -45,11 +45,11 @@
 					Set i = i + 1;
 				}
 
-				Run Syscall::memcpy(&buckets, &bucketsPtr, 8);
-				Run Syscall::memcpy(&bucketCounts, &countsPtr, 8);
-				Run Syscall::memcpy(&bucketCapacities, &capsPtr, 8);
-				Run Syscall::memcpy(&numBuckets, &initialBuckets, 8);
-				Run Syscall::memcpy(&count, &zero, 8);
+				Set buckets = bucketsPtr;
+				Set bucketCounts = countsPtr;
+				Set bucketCapacities = capsPtr;
+				Set numBuckets = initialBuckets;
+				Set count = zero;
 			}
 
 			// Add an element to the set
@@ -65,9 +65,6 @@
 				}
 
 				// Continue with hash and bucket index
-				If (hashVal < 0) -> {
-					Set hashVal = 0 - hashVal;
-				}
 				Instantiate NativeType<"int64">^ As <bucketIdx> = hashVal % numBuckets;
 
 				// Get bucket pointers
@@ -111,7 +108,7 @@
 				Run Syscall::memcpy(countOffset, &newBucketCount, 8);
 
 				Instantiate NativeType<"int64">^ As <newCount> = count + one;
-				Run Syscall::memcpy(&count, &newCount, 8);
+				Set count = newCount;
 
 				Return Bool::Constructor(true);
 			}
@@ -121,9 +118,6 @@
 			{
 				// Get hash and bucket index
 				Instantiate NativeType<"int64">^ As <hashVal> = value.hash();
-				If (hashVal < 0) -> {
-					Set hashVal = 0 - hashVal;
-				}
 				Instantiate NativeType<"int64">^ As <bucketIdx> = hashVal % numBuckets;
 
 				// Get bucket data
@@ -162,9 +156,6 @@
 			{
 				// Get hash and bucket index
 				Instantiate NativeType<"int64">^ As <hashVal> = value.hash();
-				If (hashVal < 0) -> {
-					Set hashVal = 0 - hashVal;
-				}
 				Instantiate NativeType<"int64">^ As <bucketIdx> = hashVal % numBuckets;
 
 				// Get bucket data
@@ -206,7 +197,7 @@
 						Run Syscall::memcpy(countOffset, &newBucketCount, 8);
 
 						Instantiate NativeType<"int64">^ As <newCount> = count - one;
-						Run Syscall::memcpy(&count, &newCount, 8);
+						Set count = newCount;
 
 						Return Bool::Constructor(true);
 					}
@@ -240,7 +231,7 @@
 					Run Syscall::memcpy(countOffset, &zero, 8);
 					Set i = i + 1;
 				}
-				Run Syscall::memcpy(&count, &zero, 8);
+				Set count = zero;
 			}
 
 			// Free the set memory
@@ -270,11 +261,11 @@
 
 				Instantiate NativeType<"ptr">^ As <nullPtr> = 0;
 				Instantiate NativeType<"int64">^ As <zero> = 0;
-				Run Syscall::memcpy(&buckets, &nullPtr, 8);
-				Run Syscall::memcpy(&bucketCounts, &nullPtr, 8);
-				Run Syscall::memcpy(&bucketCapacities, &nullPtr, 8);
-				Run Syscall::memcpy(&numBuckets, &zero, 8);
-				Run Syscall::memcpy(&count, &zero, 8);
+				Set buckets = nullPtr;
+				Set bucketCounts = nullPtr;
+				Set bucketCapacities = nullPtr;
+				Set numBuckets = zero;
+				Set count = zero;
 			}
 		]
 	]

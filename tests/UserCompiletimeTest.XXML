@@ -1,0 +1,15 @@
+#import Language::Core;
+
+[ Entrypoint
+    {
+        // Test Phase 1: Method call folding (should work)
+        Instantiate Compiletime Integer^ As <a> = Integer::Constructor(5);
+        Instantiate Compiletime Integer^ As <b> = Integer::Constructor(3);
+        Instantiate Compiletime Integer^ As <sum> = a.add(b);
+
+        // Print results
+        Run Console::printLine(String::Constructor("a = ").append(a.toString()));
+        Run Console::printLine(String::Constructor("b = ").append(b.toString()));
+        Run Console::printLine(String::Constructor("sum = ").append(sum.toString()));
+    }
+]

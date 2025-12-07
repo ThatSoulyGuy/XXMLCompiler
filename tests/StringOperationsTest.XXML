@@ -1,0 +1,35 @@
+// Test string operations
+#import Language::Core;
+#import System;
+
+[ Entrypoint
+{
+    Run System::Console::printLine(String::Constructor("=== String Operations Test ==="));
+
+    // Test string creation
+    Run System::Console::printLine(String::Constructor("Testing string creation:"));
+    Instantiate String^ As <s1> = String::Constructor("Hello");
+    Run System::Console::printLine(String::Constructor("  Created: ").append(s1));
+
+    // Test string append
+    Run System::Console::printLine(String::Constructor("Testing string append:"));
+    Instantiate String^ As <s2> = s1.append(String::Constructor(" World"));
+    Run System::Console::printLine(String::Constructor("  Appended: ").append(s2));
+
+    // Test string with integer
+    Run System::Console::printLine(String::Constructor("Testing string with integer:"));
+    Instantiate Integer^ As <num> = Integer::Constructor(42);
+    Instantiate String^ As <s3> = String::Constructor("The answer is ").append(num.toString());
+    Run System::Console::printLine(String::Constructor("  ").append(s3));
+
+    // Test multiple appends
+    Run System::Console::printLine(String::Constructor("Testing multiple appends:"));
+    Instantiate String^ As <multi> = String::Constructor("1");
+    Set multi = multi.append(String::Constructor("2"));
+    Set multi = multi.append(String::Constructor("3"));
+    Run System::Console::printLine(String::Constructor("  Multi '123': ").append(multi));
+
+    Run System::Console::printLine(String::Constructor("=== All String Tests Passed ==="));
+    Exit(0);
+}
+]

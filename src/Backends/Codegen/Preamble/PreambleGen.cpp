@@ -218,7 +218,7 @@ void PreambleGen::emitStringOperations(std::stringstream& out) const {
     out << "declare ptr @String_Constructor(ptr)\n";
     out << "declare ptr @String_FromCString(ptr)\n";
     out << "declare ptr @String_toCString(ptr)\n";
-    out << "declare i64 @String_length(ptr)\n";
+    out << "declare ptr @String_length(ptr)\n";
     out << "declare ptr @String_concat(ptr, ptr)\n";
     out << "declare ptr @String_append(ptr, ptr)\n";
     out << "declare i1 @String_equals(ptr, ptr)\n";

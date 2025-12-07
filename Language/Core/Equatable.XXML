@@ -2,7 +2,7 @@
 // Types that satisfy this constraint can be compared for equality
 // Required for keys in HashMap to check if two keys are the same
 
-[ Namespace <Core>
+[ Namespace <Language::Core>
     [ Constraint <Equatable> <T Constrains None> (T a)
         // Returns true if this object is equal to the other object
         // Must satisfy:

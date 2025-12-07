@@ -1,0 +1,25 @@
+// Test string length method
+#import Language::Core;
+#import System;
+
+[ Entrypoint
+{
+    Run System::Console::printLine(String::Constructor("=== String Length Test ==="));
+
+    // Create a string
+    Run System::Console::printLine(String::Constructor("Creating string 'Hello'..."));
+    Instantiate String^ As <s> = String::Constructor("Hello");
+
+    // Print the string first
+    Run System::Console::printLine(String::Constructor("String created: ").append(s));
+
+    // Now try to get length
+    Run System::Console::printLine(String::Constructor("Getting length..."));
+    Instantiate Integer^ As <len> = s.length();
+
+    Run System::Console::printLine(String::Constructor("Length: ").append(len.toString()));
+
+    Run System::Console::printLine(String::Constructor("=== Test Complete ==="));
+    Exit(0);
+}
+]

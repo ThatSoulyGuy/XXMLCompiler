@@ -3,6 +3,8 @@
 #include "Backends/Codegen/CodegenContext.h"
 #include "Backends/LLVMIR/TypedValue.h"
 #include "Parser/AST.h"
+#include "Semantic/CompiletimeValue.h"
+#include <optional>
 
 namespace XXML {
 namespace Backends {
@@ -105,6 +107,33 @@ protected:
 
     LLVMIR::AnyValue generateLogicalAnd(Parser::BinaryExpr* expr, LLVMIR::AnyValue leftResult);
     LLVMIR::AnyValue generateLogicalOr(Parser::BinaryExpr* expr, LLVMIR::AnyValue leftResult);
+
+    // === Compile-Time Constant Folding ===
+
+    // Attempt to fold an expression at compile-time
+    // Returns std::nullopt if the expression cannot be folded
+    std::optional<LLVMIR::AnyValue> tryCompiletimeFold(Parser::Expression* expr);
+
+    // Convert a compile-time value to LLVM IR
+    LLVMIR::AnyValue emitConstantValue(Semantic::CompiletimeValue* value);
+
+    // Emit raw LLVM constants for primitive types
+    LLVMIR::AnyValue emitRawConstant(Semantic::CompiletimeValue* value);
+
+    // Emit constant for string values
+    LLVMIR::AnyValue emitStringConstant(const std::string& value);
+
+    // Emit object constants with nested folding support
+    LLVMIR::AnyValue emitObjectConstant(Semantic::CompiletimeObject* obj);
+
+    // Emit NativeType wrapper (Integer, Float, etc.) with constant value
+    LLVMIR::AnyValue emitNativeTypeWrapper(Semantic::CompiletimeObject* obj);
+
+    // Emit user-defined compiletime struct with folded properties
+    LLVMIR::AnyValue emitCompiletimeStruct(Semantic::CompiletimeObject* obj);
+
+    // Check if a class is a NativeType wrapper (Integer, Float, Double, Bool)
+    bool isNativeTypeWrapper(const std::string& className) const;
 };
 
 } // namespace Codegen

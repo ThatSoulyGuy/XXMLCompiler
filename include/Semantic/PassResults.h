@@ -37,6 +37,15 @@ struct ClassInfo {
     Parser::ClassDecl* astNode = nullptr;  // Optional: only valid for same-module access
 };
 
+// Constraint information for template constraint validation
+struct ConstraintInfo {
+    std::string name;
+    std::vector<Parser::TemplateParameter> templateParams;
+    std::vector<Parser::ConstraintParamBinding> paramBindings;
+    std::vector<Parser::RequireStmt*> requirements;  // Raw pointers to AST nodes
+    Parser::ConstraintDecl* astNode = nullptr;  // Optional: only valid for same-module access
+};
+
 //==============================================================================
 // SHARED TYPE INFORMATION STRUCTURES
 // (Used across multiple pass headers to avoid circular dependencies)

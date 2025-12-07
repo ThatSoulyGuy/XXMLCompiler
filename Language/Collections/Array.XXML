@@ -3,7 +3,7 @@
 // Example: Array<Integer, 10> creates an array of 10 integers
 // Replaces IntegerArray, StringArray, etc.
 
-[ Namespace <Collections>
+[ Namespace <Language::Collections>
 	[ Class <Array> <T Constrains None, N Constrains None> Final Extends None
 
 		[ Private <>
@@ -12,26 +12,22 @@
 		]
 
 		[ Public <>
-			// Constructor - use default
-			Constructor = default;
-
-			// Initialize - allocate fixed-size array
-			Method <init> Returns None Parameters () Do
+			// Constructor - allocate fixed-size array
+			Constructor () ->
 			{
 				// N will be substituted with the actual size at instantiation
-				Run Syscall::memcpy(&arraySize, N, 8);
+				Instantiate NativeType<"int64">^ As <size> = N;
+				Set arraySize = size;
 				Instantiate NativeType<"ptr">^ As <ptr> = Syscall::malloc(N * 8);
-				Run Syscall::memcpy(&dataPtr, &ptr, 8);
+				Set dataPtr = ptr;
 
 				// Initialize all slots to zero/null
-				Instantiate Integer^ As <zero> = Integer::Constructor(0);
-				Instantiate Integer^ As <sizeInt> = Integer::Constructor(arraySize);
-				For (Integer <i> = zero .. sizeInt) ->
-				{
-					Instantiate NativeType<"int64">^ As <idx> = i;
-					Instantiate NativeType<"ptr">^ As <offset> = dataPtr + (idx * 8);
+				Instantiate NativeType<"int64">^ As <i> = 0;
+				While (i < arraySize) -> {
+					Instantiate NativeType<"ptr">^ As <offset> = dataPtr + (i * 8);
 					Instantiate NativeType<"int64">^ As <zeroVal> = 0;
 					Run Syscall::ptr_write(offset, zeroVal);
+					Set i = i + 1;
 				}
 			}
 
@@ -83,13 +79,11 @@
 			// Fill all elements with a value
 			Method <fill> Returns None Parameters (Parameter <value> Types T^) Do
 			{
-				Instantiate Integer^ As <zero> = Integer::Constructor(0);
-				Instantiate Integer^ As <sizeInt> = Integer::Constructor(arraySize);
-				For (Integer <i> = zero .. sizeInt) ->
-				{
-					Instantiate NativeType<"int64">^ As <idx> = i;
-					Instantiate NativeType<"ptr">^ As <offset> = dataPtr + (idx * 8);
+				Instantiate NativeType<"int64">^ As <i> = 0;
+				While (i < arraySize) -> {
+					Instantiate NativeType<"ptr">^ As <offset> = dataPtr + (i * 8);
 					Run Syscall::ptr_write(offset, value);
+					Set i = i + 1;
 				}
 			}
 
@@ -106,12 +100,12 @@
 			{
 				If (dataPtr != 0) -> {
 					Run Syscall::free(dataPtr);
-					Instantiate NativeType<"ptr">^ As <zero> = 0;
-					Run Syscall::memcpy(&dataPtr, &zero, 8);
+					Instantiate NativeType<"ptr">^ As <nullPtr> = 0;
+					Set dataPtr = nullPtr;
 				}
 
-				Instantiate NativeType<"int64">^ As <zero64> = 0;
-				Run Syscall::memcpy(&arraySize, &zero64, 8);
+				Instantiate NativeType<"int64">^ As <zero> = 0;
+				Set arraySize = zero;
 			}
 		]
 	]

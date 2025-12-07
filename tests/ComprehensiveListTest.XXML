@@ -7,9 +7,8 @@
 {
 	Run System::Console::printLine(String::Constructor("=== Comprehensive List Test ==="));
 
-	// Create and initialize list
+	// Create list (constructor handles initialization)
 	Instantiate List<Integer>^ As <numbers> = List@Integer::Constructor();
-	Run numbers.init();
 
 	// Test isEmpty on empty list
 	Instantiate Bool^ As <empty1> = numbers.isEmpty();

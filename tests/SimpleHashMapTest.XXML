@@ -9,12 +9,9 @@
 		Property <val> Types Integer^;
 	]
 	[ Public <>
-		Constructor = default;
-
-		Method <init> Returns IntKey^ Parameters (Parameter <v> Types Integer^) Do
+		Constructor (Parameter <v> Types Integer^) ->
 		{
 			Set val = v;
-			Return this;
 		}
 
 		Method <hash> Returns NativeType<"int64">^ Parameters () Do
@@ -40,14 +37,12 @@
 {
 	Run System::Console::printLine(String::Constructor("=== Simple HashMap Test ==="));
 
-	// Create and initialize hashmap
+	// Create hashmap (no init() needed - constructor initializes)
 	Instantiate HashMap<IntKey, Integer>^ As <map> = HashMap@IntKey, Integer::Constructor();
-	Run map.init();
 
 	// Add one key
 	Run System::Console::printLine(String::Constructor("Adding key 1..."));
-	Instantiate IntKey^ As <key1> = IntKey::Constructor();
-	Run key1.init(Integer::Constructor(1));
+	Instantiate IntKey^ As <key1> = IntKey::Constructor(Integer::Constructor(1));
 	Run map.put(key1, Integer::Constructor(100));
 
 	Run System::Console::printLine(String::Constructor("Size: "));
@@ -56,8 +51,7 @@
 
 	// Test containsKey for existing key
 	Run System::Console::printLine(String::Constructor("Testing containsKey for key 1..."));
-	Instantiate IntKey^ As <checkKey1> = IntKey::Constructor();
-	Run checkKey1.init(Integer::Constructor(1));
+	Instantiate IntKey^ As <checkKey1> = IntKey::Constructor(Integer::Constructor(1));
 	Instantiate Bool^ As <has1> = map.containsKey(checkKey1);
 	If (has1) -> {
 		Run System::Console::printLine(String::Constructor("  contains key 1: true"));
@@ -68,8 +62,7 @@
 
 	// Test containsKey for non-existent key in SAME bucket (17 % 16 = 1)
 	Run System::Console::printLine(String::Constructor("Testing containsKey for key 17 (same bucket as 1)..."));
-	Instantiate IntKey^ As <checkKey17> = IntKey::Constructor();
-	Run checkKey17.init(Integer::Constructor(17));
+	Instantiate IntKey^ As <checkKey17> = IntKey::Constructor(Integer::Constructor(17));
 	Instantiate Bool^ As <has17> = map.containsKey(checkKey17);
 	If (has17) -> {
 		Run System::Console::printLine(String::Constructor("  contains key 17: true"));
@@ -80,8 +73,7 @@
 
 	// Test containsKey for non-existent key in EMPTY bucket (5 % 16 = 5)
 	Run System::Console::printLine(String::Constructor("Testing containsKey for key 5 (empty bucket)..."));
-	Instantiate IntKey^ As <checkKey5> = IntKey::Constructor();
-	Run checkKey5.init(Integer::Constructor(5));
+	Instantiate IntKey^ As <checkKey5> = IntKey::Constructor(Integer::Constructor(5));
 	Instantiate Bool^ As <has5> = map.containsKey(checkKey5);
 	If (has5) -> {
 		Run System::Console::printLine(String::Constructor("  contains key 5: true"));

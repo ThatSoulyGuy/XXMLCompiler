@@ -349,9 +349,9 @@ const char* String_toCString(void* self) {
     return ((String*)self)->data;
 }
 
-size_t String_length(void* self) {
-    if (!self) return 0;
-    return ((String*)self)->length;
+void* String_length(void* self) {
+    if (!self) return Integer_Constructor(0);
+    return Integer_Constructor((int64_t)((String*)self)->length);
 }
 
 bool String_isEmpty(void* self) {

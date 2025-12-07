@@ -1209,24 +1209,29 @@ std::unique_ptr<AssignmentStmt> Parser::parseAssignment() {
 
     // Check for member access (. or ::)
     while (check(Lexer::TokenType::Dot) || check(Lexer::TokenType::DoubleColon)) {
-        std::string accessor = advance().lexeme;  // "." or "::"
+        bool isStatic = check(Lexer::TokenType::DoubleColon);
+        advance();  // consume "." or "::"
 
         if (check(Lexer::TokenType::Identifier)) {
             std::string memberName = advance().lexeme;
+            // For :: access, include prefix for namespace/static distinction
+            // For . access, just use the member name
+            std::string member = isStatic ? ("::" + memberName) : memberName;
             target = std::make_unique<MemberAccessExpr>(
                 std::move(target),
-                accessor + memberName,
+                member,
                 loc
             );
         } else if (check(Lexer::TokenType::AngleBracketId)) {
             std::string memberName = parseAngleBracketIdentifier();
+            std::string member = isStatic ? ("::" + memberName) : memberName;
             target = std::make_unique<MemberAccessExpr>(
                 std::move(target),
-                accessor + memberName,
+                member,
                 loc
             );
         } else {
-            error("Expected member name after '" + accessor + "'");
+            error("Expected member name after accessor");
             return nullptr;
         }
     }

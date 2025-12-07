@@ -1,6 +1,7 @@
 #include "Backends/Codegen/ExprCodegen/ExprCodegen.h"
 #include "Backends/TypeNormalizer.h"
 #include "Semantic/SemanticError.h"
+#include "Semantic/CompiletimeInterpreter.h"
 #include <unordered_set>
 #include <iostream>
 
@@ -11,6 +12,11 @@ namespace Codegen {
 LLVMIR::AnyValue ExprCodegen::generate(Parser::Expression* expr) {
     if (!expr) {
         return LLVMIR::AnyValue(ctx_.builder().getNullPtr());
+    }
+
+    // Try compile-time constant folding first
+    if (auto foldedValue = tryCompiletimeFold(expr)) {
+        return *foldedValue;
     }
 
     // Dispatch based on expression type
@@ -631,8 +637,15 @@ LLVMIR::AnyValue ExprCodegen::handleMemberCall(Parser::CallExpr* expr,
                                 LLVMIR::Function::Linkage::External);
                         }
 
-                        // Allocate reasonable size for struct (3 pointers = 24 bytes on 64-bit)
-                        auto sizeVal = ctx_.builder().getInt64(24);
+                        // Calculate actual struct size from class info
+                        // Use mangled name for class lookup (e.g., HashMap@IntKey, Integer -> HashMap_IntKey_Integer)
+                        size_t allocSize = 24;  // Default fallback
+                        std::string mangledClassName = TypeNormalizer::mangleForLLVM(className);
+                        auto* classInfo = ctx_.getClass(mangledClassName);
+                        if (classInfo && classInfo->instanceSize > 0) {
+                            allocSize = classInfo->instanceSize;
+                        }
+                        auto sizeVal = ctx_.builder().getInt64(allocSize);
 
                         // Call malloc
                         std::vector<LLVMIR::AnyValue> mallocArgs = { LLVMIR::AnyValue(sizeVal) };
@@ -724,8 +737,15 @@ LLVMIR::AnyValue ExprCodegen::handleMemberCall(Parser::CallExpr* expr,
                                 LLVMIR::Function::Linkage::External);
                         }
 
-                        // Allocate reasonable size for struct (3 pointers = 24 bytes on 64-bit)
-                        auto sizeVal = ctx_.builder().getInt64(24);
+                        // Calculate actual struct size from class info
+                        // Use mangled name for class lookup (e.g., HashMap@IntKey, Integer -> HashMap_IntKey_Integer)
+                        size_t allocSize = 24;  // Default fallback
+                        std::string mangledQualifiedClass = TypeNormalizer::mangleForLLVM(qualifiedClass);
+                        auto* classInfo = ctx_.getClass(mangledQualifiedClass);
+                        if (classInfo && classInfo->instanceSize > 0) {
+                            allocSize = classInfo->instanceSize;
+                        }
+                        auto sizeVal = ctx_.builder().getInt64(allocSize);
 
                         // Call malloc
                         std::vector<LLVMIR::AnyValue> mallocArgs = { LLVMIR::AnyValue(sizeVal) };
@@ -908,8 +928,41 @@ LLVMIR::AnyValue ExprCodegen::emitCall(const std::string& functionName,
         return LLVMIR::AnyValue(ctx_.builder().getNullPtr());
     }
 
+    // Adapt argument types to match expected parameter types
+    // This is critical for Syscall functions like xxml_memset which expect specific int sizes
+    std::vector<LLVMIR::AnyValue> adaptedArgs = args;
+    auto* funcType = func->getFunctionType();
+    size_t numParams = funcType->getParamTypes().size();
+
+    for (size_t i = 0; i < adaptedArgs.size() && i < numParams; ++i) {
+        auto& arg = adaptedArgs[i];
+        auto* expectedType = funcType->getParamType(i);
+
+        if (arg.isInt() && expectedType) {
+            auto* argType = arg.raw()->getType();
+
+            // Check if both are integer types but with different bit widths
+            if (auto* expectedIntTy = dynamic_cast<LLVMIR::IntegerType*>(expectedType)) {
+                if (auto* argIntTy = dynamic_cast<LLVMIR::IntegerType*>(argType)) {
+                    unsigned expectedBits = expectedIntTy->getBitWidth();
+                    unsigned argBits = argIntTy->getBitWidth();
+
+                    if (argBits > expectedBits) {
+                        // Truncate larger int to smaller (e.g., i64 -> i32)
+                        auto truncated = ctx_.builder().createTrunc(arg.asInt(), expectedIntTy, "");
+                        arg = LLVMIR::AnyValue(truncated);
+                    } else if (argBits < expectedBits) {
+                        // Zero-extend smaller int to larger (e.g., i32 -> i64)
+                        auto extended = ctx_.builder().createZExt(arg.asInt(), expectedIntTy, "");
+                        arg = LLVMIR::AnyValue(extended);
+                    }
+                }
+            }
+        }
+    }
+
     // Don't set a fixed name - let the emitter assign unique temporaries
-    auto result = ctx_.builder().createCall(func, args, "");
+    auto result = ctx_.builder().createCall(func, adaptedArgs, "");
     ctx_.lastExprValue = result;
     return ctx_.lastExprValue;
 }
@@ -1163,6 +1216,320 @@ LLVMIR::AnyValue ExprCodegen::generateLogicalOr(Parser::BinaryExpr* expr, LLVMIR
 
     ctx_.lastExprValue = LLVMIR::AnyValue(phiNode->result());
     return ctx_.lastExprValue;
+}
+
+// === Compile-Time Constant Folding ===
+
+std::optional<LLVMIR::AnyValue> ExprCodegen::tryCompiletimeFold(Parser::Expression* expr) {
+    // Check if we have a compile-time interpreter
+    if (!ctx_.hasCompiletimeInterpreter()) {
+        return std::nullopt;
+    }
+
+    // Skip folding for simple literals - they're already handled efficiently
+    // by their respective visitor methods (visitIntegerLiteral, etc.)
+    // Folding them would cause double-wrapping issues when they're call arguments
+    if (dynamic_cast<Parser::IntegerLiteralExpr*>(expr) ||
+        dynamic_cast<Parser::FloatLiteralExpr*>(expr) ||
+        dynamic_cast<Parser::DoubleLiteralExpr*>(expr) ||
+        dynamic_cast<Parser::BoolLiteralExpr*>(expr) ||
+        dynamic_cast<Parser::StringLiteralExpr*>(expr)) {
+        return std::nullopt;
+    }
+
+    auto* interp = ctx_.compiletimeInterpreter();
+
+    // Check if expression is compile-time evaluable
+    if (!interp->isCompiletimeEvaluable(expr)) {
+        return std::nullopt;
+    }
+
+    // Evaluate at compile-time
+    auto ctValue = interp->evaluate(expr);
+    if (!ctValue) {
+        return std::nullopt;
+    }
+
+    // Convert to LLVM IR
+    return emitConstantValue(ctValue.get());
+}
+
+LLVMIR::AnyValue ExprCodegen::emitConstantValue(Semantic::CompiletimeValue* value) {
+    if (!value) {
+        return LLVMIR::AnyValue(ctx_.builder().getNullPtr());
+    }
+
+    auto& builder = ctx_.builder();
+    auto& mod = ctx_.module();
+
+    // For primitive compile-time values, emit wrapped objects via constructor calls
+    // This is needed because XXML uses Integer^, Float^, etc. which are object types
+    if (value->isInteger()) {
+        int64_t val = static_cast<Semantic::CompiletimeInteger*>(value)->value;
+        auto* ctorFunc = mod.getFunction("Integer_Constructor");
+        if (!ctorFunc) {
+            std::vector<LLVMIR::Type*> params = { mod.getContext().getInt64Ty() };
+            auto* funcType = mod.getContext().getFunctionTy(builder.getPtrTy(), params, false);
+            ctorFunc = mod.createFunction(funcType, "Integer_Constructor", LLVMIR::Function::Linkage::External);
+        }
+        std::vector<LLVMIR::AnyValue> args = { LLVMIR::AnyValue(builder.getInt64(val)) };
+        return builder.createCall(ctorFunc, args, "ct.int");
+    }
+
+    if (value->isFloat()) {
+        float val = static_cast<Semantic::CompiletimeFloat*>(value)->value;
+        auto* ctorFunc = mod.getFunction("Float_Constructor");
+        if (!ctorFunc) {
+            std::vector<LLVMIR::Type*> params = { mod.getContext().getFloatTy() };
+            auto* funcType = mod.getContext().getFunctionTy(builder.getPtrTy(), params, false);
+            ctorFunc = mod.createFunction(funcType, "Float_Constructor", LLVMIR::Function::Linkage::External);
+        }
+        std::vector<LLVMIR::AnyValue> args = { LLVMIR::AnyValue(builder.getFloat(val)) };
+        return builder.createCall(ctorFunc, args, "ct.float");
+    }
+
+    if (value->isDouble()) {
+        double val = static_cast<Semantic::CompiletimeDouble*>(value)->value;
+        auto* ctorFunc = mod.getFunction("Double_Constructor");
+        if (!ctorFunc) {
+            std::vector<LLVMIR::Type*> params = { mod.getContext().getDoubleTy() };
+            auto* funcType = mod.getContext().getFunctionTy(builder.getPtrTy(), params, false);
+            ctorFunc = mod.createFunction(funcType, "Double_Constructor", LLVMIR::Function::Linkage::External);
+        }
+        std::vector<LLVMIR::AnyValue> args = { LLVMIR::AnyValue(builder.getDouble(val)) };
+        return builder.createCall(ctorFunc, args, "ct.double");
+    }
+
+    if (value->isBool()) {
+        bool val = static_cast<Semantic::CompiletimeBool*>(value)->value;
+        auto* ctorFunc = mod.getFunction("Bool_Constructor");
+        if (!ctorFunc) {
+            std::vector<LLVMIR::Type*> params = { mod.getContext().getInt1Ty() };
+            auto* funcType = mod.getContext().getFunctionTy(builder.getPtrTy(), params, false);
+            ctorFunc = mod.createFunction(funcType, "Bool_Constructor", LLVMIR::Function::Linkage::External);
+        }
+        std::vector<LLVMIR::AnyValue> args = { LLVMIR::AnyValue(builder.getInt1(val)) };
+        return builder.createCall(ctorFunc, args, "ct.bool");
+    }
+
+    // Handle object types (custom compiletime classes)
+    if (value->isObject()) {
+        return emitObjectConstant(static_cast<Semantic::CompiletimeObject*>(value));
+    }
+
+    // Handle string values
+    if (value->isString()) {
+        auto* strVal = static_cast<Semantic::CompiletimeString*>(value);
+        return emitStringConstant(strVal->value);
+    }
+
+    // Fallback - return null
+    return LLVMIR::AnyValue(ctx_.builder().getNullPtr());
+}
+
+LLVMIR::AnyValue ExprCodegen::emitRawConstant(Semantic::CompiletimeValue* value) {
+    auto& builder = ctx_.builder();
+
+    // Emit true raw LLVM constants - NO constructor calls here!
+    // Boxing should only happen in emitNativeTypeWrapper when needed.
+    // This is called for values that canUseRawValue() returns true.
+
+    if (value->isInteger()) {
+        int64_t val = static_cast<Semantic::CompiletimeInteger*>(value)->value;
+        return LLVMIR::AnyValue(builder.getInt64(val));
+    }
+
+    if (value->isFloat()) {
+        float val = static_cast<Semantic::CompiletimeFloat*>(value)->value;
+        return LLVMIR::AnyValue(builder.getFloat(val));
+    }
+
+    if (value->isDouble()) {
+        double val = static_cast<Semantic::CompiletimeDouble*>(value)->value;
+        return LLVMIR::AnyValue(builder.getDouble(val));
+    }
+
+    if (value->isBool()) {
+        bool val = static_cast<Semantic::CompiletimeBool*>(value)->value;
+        return LLVMIR::AnyValue(builder.getInt1(val));
+    }
+
+    return LLVMIR::AnyValue(ctx_.builder().getNullPtr());
+}
+
+LLVMIR::AnyValue ExprCodegen::emitStringConstant(const std::string& value) {
+    // Create a global string constant and call String_Constructor
+    auto& builder = ctx_.builder();
+
+    // Create global string constant
+    std::string label = ctx_.allocateStringLabel();
+    ctx_.addStringLiteral(label, value);
+
+    // Get pointer to the string constant
+    auto* globalStr = ctx_.module().getOrCreateStringLiteral(value);
+    auto strPtr = globalStr->toTypedValue();
+
+    // Call String_Constructor with the C string
+    auto* func = ctx_.module().getFunction("String_Constructor");
+    if (func) {
+        std::vector<LLVMIR::AnyValue> args = { strPtr };
+        auto result = builder.createCall(func, args, "ct.str");
+        return LLVMIR::AnyValue(result);
+    }
+
+    return strPtr;
+}
+
+LLVMIR::AnyValue ExprCodegen::emitObjectConstant(Semantic::CompiletimeObject* obj) {
+    // Check if this is a NativeType wrapper (Integer, Float, Double, Bool)
+    if (isNativeTypeWrapper(obj->className)) {
+        return emitNativeTypeWrapper(obj);
+    }
+
+    // For user-defined compiletime classes, emit as struct with constant values
+    return emitCompiletimeStruct(obj);
+}
+
+bool ExprCodegen::isNativeTypeWrapper(const std::string& className) const {
+    return className == "Integer" || className == "Float" ||
+           className == "Double" || className == "Bool" ||
+           className == "String";
+}
+
+LLVMIR::AnyValue ExprCodegen::emitNativeTypeWrapper(Semantic::CompiletimeObject* obj) {
+    auto& builder = ctx_.builder();
+
+    // Integer stores its value internally - extract and call constructor
+    if (obj->className == "Integer") {
+        if (auto* prop = obj->getProperty("value")) {
+            if (prop->isInteger()) {
+                int64_t val = static_cast<Semantic::CompiletimeInteger*>(prop)->value;
+                auto* func = ctx_.module().getFunction("Integer_Constructor");
+                if (func) {
+                    auto constArg = builder.getInt64(val);
+                    std::vector<LLVMIR::AnyValue> args = { LLVMIR::AnyValue(constArg) };
+                    auto result = builder.createCall(func, args, "ct.int");
+                    return LLVMIR::AnyValue(result);
+                }
+            }
+        }
+    }
+
+    if (obj->className == "Float") {
+        if (auto* prop = obj->getProperty("value")) {
+            if (prop->isFloat()) {
+                float val = static_cast<Semantic::CompiletimeFloat*>(prop)->value;
+                auto* func = ctx_.module().getFunction("Float_Constructor");
+                if (func) {
+                    auto constArg = builder.getFloat(val);
+                    std::vector<LLVMIR::AnyValue> args = { LLVMIR::AnyValue(constArg) };
+                    auto result = builder.createCall(func, args, "ct.float");
+                    return LLVMIR::AnyValue(result);
+                }
+            }
+        }
+    }
+
+    if (obj->className == "Double") {
+        if (auto* prop = obj->getProperty("value")) {
+            if (prop->isDouble()) {
+                double val = static_cast<Semantic::CompiletimeDouble*>(prop)->value;
+                auto* func = ctx_.module().getFunction("Double_Constructor");
+                if (func) {
+                    auto constArg = builder.getDouble(val);
+                    std::vector<LLVMIR::AnyValue> args = { LLVMIR::AnyValue(constArg) };
+                    auto result = builder.createCall(func, args, "ct.double");
+                    return LLVMIR::AnyValue(result);
+                }
+            }
+        }
+    }
+
+    if (obj->className == "Bool") {
+        if (auto* prop = obj->getProperty("value")) {
+            if (prop->isBool()) {
+                bool val = static_cast<Semantic::CompiletimeBool*>(prop)->value;
+                auto* func = ctx_.module().getFunction("Bool_Constructor");
+                if (func) {
+                    auto constArg = builder.getInt1(val);
+                    std::vector<LLVMIR::AnyValue> args = { LLVMIR::AnyValue(constArg) };
+                    auto result = builder.createCall(func, args, "ct.bool");
+                    return LLVMIR::AnyValue(result);
+                }
+            }
+        }
+    }
+
+    if (obj->className == "String") {
+        if (auto* prop = obj->getProperty("value")) {
+            if (prop->isString()) {
+                const std::string& val = static_cast<Semantic::CompiletimeString*>(prop)->value;
+                return emitStringConstant(val);
+            }
+        }
+    }
+
+    return LLVMIR::AnyValue(ctx_.builder().getNullPtr());
+}
+
+LLVMIR::AnyValue ExprCodegen::emitCompiletimeStruct(Semantic::CompiletimeObject* obj) {
+    // For user-defined compiletime classes:
+    // 1. Get or create the struct type
+    // 2. Allocate on the heap (for consistency with XXML object model)
+    // 3. Initialize each property with recursively folded constant values
+
+    auto& builder = ctx_.builder();
+
+    // Look up class info to get struct type and property layout
+    const auto* classInfo = ctx_.getClass(obj->className);
+    if (!classInfo || !classInfo->structType) {
+        // Fallback: return null if class not found
+        return LLVMIR::AnyValue(builder.getNullPtr());
+    }
+
+    // Allocate memory for the object (malloc)
+    auto* mallocFunc = ctx_.module().getFunction("xxml_malloc");
+    if (!mallocFunc) {
+        return LLVMIR::AnyValue(builder.getNullPtr());
+    }
+
+    // Get instance size
+    size_t instanceSize = classInfo->instanceSize;
+    if (instanceSize == 0) {
+        instanceSize = 8; // Minimum size
+    }
+
+    auto sizeArg = builder.getInt64(static_cast<int64_t>(instanceSize));
+    std::vector<LLVMIR::AnyValue> mallocArgs = { LLVMIR::AnyValue(sizeArg) };
+    auto objPtr = builder.createCall(mallocFunc, mallocArgs, "ct.obj");
+
+    // Initialize each property with constant values
+    for (const auto& [propName, propValue] : obj->properties) {
+        // Find property index in the class
+        int propIndex = -1;
+        for (size_t i = 0; i < classInfo->properties.size(); ++i) {
+            if (classInfo->properties[i].name == propName) {
+                propIndex = static_cast<int>(i);
+                break;
+            }
+        }
+
+        if (propIndex < 0) continue;
+
+        // RECURSIVE: Emit constant value for this property
+        auto foldedProp = emitConstantValue(propValue.get());
+
+        // Store in struct field using GEP
+        auto fieldPtr = builder.createStructGEP(
+            classInfo->structType,
+            objPtr.asPtr(),
+            static_cast<unsigned>(propIndex),
+            propName
+        );
+        builder.createStore(foldedProp, fieldPtr);
+    }
+
+    return LLVMIR::AnyValue(objPtr);
 }
 
 } // namespace Codegen

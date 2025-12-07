@@ -1,6 +1,7 @@
 #include "Backends/Codegen/StmtCodegen/StmtCodegen.h"
 #include "Backends/TypeNormalizer.h"
 #include "Backends/LLVMIR/TypedInstructions.h"
+#include "Semantic/CompiletimeInterpreter.h"
 #include <iostream>
 
 namespace XXML {
@@ -166,6 +167,16 @@ void StmtCodegen::visitInstantiate(Parser::InstantiateStmt* stmt) {
     if (stmt->initializer) {
         auto initValue = exprCodegen_.generate(stmt->initializer.get());
         ctx_.builder().createStore(initValue, allocaPtr);
+
+        // Register compiletime variables in the interpreter for constant folding
+        if (stmt->isCompiletime && ctx_.hasCompiletimeInterpreter()) {
+            auto* interp = ctx_.compiletimeInterpreter();
+            // Evaluate the initializer at compile-time
+            auto ctValue = interp->evaluate(stmt->initializer.get());
+            if (ctValue) {
+                interp->setVariable(varName, std::move(ctValue));
+            }
+        }
     }
 }
 

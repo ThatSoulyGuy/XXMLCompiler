@@ -258,7 +258,21 @@ CompilationPassResults SemanticAnalyzer::runPipeline(Parser::Program& program) {
         lambdaInstRequests.insert(req);
     }
 
-    TemplateExpander templateExpander(errorReporter, passResults_.typeResolution);
+    // Build merged constraint registry (local + global)
+    std::unordered_map<std::string, ConstraintInfo> mergedConstraintRegistry = constraintRegistry_;
+    if (context_) {
+        auto* globalConstraintRegistry = context_->getCustomData<std::unordered_map<std::string, ConstraintInfo>>("globalConstraintRegistry");
+        if (globalConstraintRegistry) {
+            for (const auto& pair : *globalConstraintRegistry) {
+                // Only add if not already in local registry (local takes precedence)
+                if (mergedConstraintRegistry.find(pair.first) == mergedConstraintRegistry.end()) {
+                    mergedConstraintRegistry[pair.first] = pair.second;
+                }
+            }
+        }
+    }
+
+    TemplateExpander templateExpander(errorReporter, passResults_.typeResolution, classRegistry_, mergedConstraintRegistry);
     passResults_.templateExpansion = templateExpander.run(
         classInstRequests,
         methodInstRequests,
@@ -3420,8 +3434,9 @@ void SemanticAnalyzer::recordTemplateInstantiation(const std::string& templateNa
                 );
             } else {
                 // ✅ Phase 7: Improved constraint validation error message
-                // Validate type constraints
-                if (!validateConstraint(arg.typeArg, param.constraints, param.constraintsAreAnd)) {
+                // Validate type constraints - only during validation pass (second pass)
+                // During first pass (registration), classes may not have their methods registered yet
+                if (enableValidation && !validateConstraint(arg.typeArg, param.constraints, param.constraintsAreAnd)) {
                     // Build constraint list for error message
                     std::string constraintList;
                     std::string separator = param.constraintsAreAnd ? ", " : " | ";
@@ -4689,10 +4704,25 @@ bool SemanticAnalyzer::validateSingleConstraint(const std::string& typeName,
     }
 
     // Check if this is a constraint definition (has requirements)
+    // First check local registry, then global registry
+    const ConstraintInfo* constraintInfoPtr = nullptr;
     auto constraintIt = constraintRegistry_.find(constraint.name);
     if (constraintIt != constraintRegistry_.end()) {
+        constraintInfoPtr = &constraintIt->second;
+    } else if (context_) {
+        // Check global constraint registry for imported constraints
+        auto* globalConstraintRegistry = context_->getCustomData<std::unordered_map<std::string, ConstraintInfo>>("globalConstraintRegistry");
+        if (globalConstraintRegistry) {
+            auto globalIt = globalConstraintRegistry->find(constraint.name);
+            if (globalIt != globalConstraintRegistry->end()) {
+                constraintInfoPtr = &globalIt->second;
+            }
+        }
+    }
+
+    if (constraintInfoPtr) {
         // Build type substitution map for parameterized constraints
-        const ConstraintInfo& constraintInfo = constraintIt->second;
+        const ConstraintInfo& constraintInfo = *constraintInfoPtr;
         std::unordered_map<std::string, std::string> typeSubstitutions = providedSubstitutions;
 
         // Map constraint's template parameters to resolved args
@@ -5030,6 +5060,21 @@ void SemanticAnalyzer::visit(Parser::ConstraintDecl& node) {
     }
 
     constraintRegistry_[node.name] = info;
+
+    // Also register in global registry for cross-module constraint sharing
+    if (context_) {
+        auto* globalConstraintRegistry = context_->getCustomData<std::unordered_map<std::string, ConstraintInfo>>("globalConstraintRegistry");
+        if (!globalConstraintRegistry) {
+            context_->setCustomData("globalConstraintRegistry", std::unordered_map<std::string, ConstraintInfo>{});
+            globalConstraintRegistry = context_->getCustomData<std::unordered_map<std::string, ConstraintInfo>>("globalConstraintRegistry");
+        }
+        if (globalConstraintRegistry) {
+            // Create copy with astNode cleared for cross-module safety
+            ConstraintInfo globalCopy = info;
+            globalCopy.astNode = nullptr;
+            (*globalConstraintRegistry)[node.name] = globalCopy;
+        }
+    }
 
     // Visit requirements to validate their syntax
     for (auto& req : node.requirements) {

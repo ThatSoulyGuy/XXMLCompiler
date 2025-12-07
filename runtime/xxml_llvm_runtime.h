@@ -92,7 +92,7 @@ void* Double_divideAssign(void* self, void* other);
 void* String_Constructor(const char* cstr);
 void* String_FromCString(const char* cstr);
 const char* String_toCString(void* self);
-size_t String_length(void* self);
+void* String_length(void* self);
 bool String_isEmpty(void* self);
 void* String_concat(void* self, void* other);
 void* String_append(void* self, void* other);

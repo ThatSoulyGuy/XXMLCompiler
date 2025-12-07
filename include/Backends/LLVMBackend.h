@@ -4,6 +4,7 @@
 #include "../Parser/AST.h"
 #include "Codegen/ModularCodegen.h"  // Modular code generation
 #include "Codegen/Preamble/PreambleGen.h"  // Preamble generation
+#include "Semantic/CompiletimeInterpreter.h"  // Compile-time evaluation
 #include <sstream>
 #include <unordered_map>
 #include <unordered_set>
@@ -59,6 +60,13 @@ public:
         // Also set on modular codegen for type resolution
         if (modularCodegen_) {
             modularCodegen_->setSemanticAnalyzer(analyzer);
+        }
+        // Create compile-time interpreter and wire to codegen context
+        if (analyzer) {
+            compiletimeInterp_ = std::make_unique<Semantic::CompiletimeInterpreter>(*analyzer);
+            if (modularCodegen_) {
+                modularCodegen_->context().setCompiletimeInterpreter(compiletimeInterp_.get());
+            }
         }
     }
 
@@ -149,6 +157,9 @@ private:
 
     // Semantic analyzer for template instantiation
     Semantic::SemanticAnalyzer* semanticAnalyzer_ = nullptr;
+
+    // Compile-time interpreter for constant folding
+    std::unique_ptr<Semantic::CompiletimeInterpreter> compiletimeInterp_;
 
     // Imported modules for code generation
     std::vector<Parser::Program*> importedModules_;

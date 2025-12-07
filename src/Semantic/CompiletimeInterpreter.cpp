@@ -271,6 +271,15 @@ std::unique_ptr<CompiletimeValue> CompiletimeInterpreter::evalCall(Parser::CallE
                         static_cast<CompiletimeString*>(evaluatedArgs[0].get())->value);
                 }
             }
+
+            // User-defined compiletime class constructor
+            if (auto* classDef = findCompiletimeClass(className)) {
+                std::vector<CompiletimeValue*> argPtrs;
+                for (const auto& arg : evaluatedArgs) {
+                    argPtrs.push_back(arg.get());
+                }
+                return evalUserDefinedConstructor(classDef, argPtrs);
+            }
         }
     }
 
@@ -318,6 +327,12 @@ std::unique_ptr<CompiletimeValue> CompiletimeInterpreter::evalMethodCall(
         return evalStringMethod(static_cast<CompiletimeString*>(receiver)->value, methodName, args);
     }
 
+    // Handle user-defined compiletime objects
+    if (receiver->isObject()) {
+        auto* ctObj = static_cast<CompiletimeObject*>(receiver);
+        return executeMethod(ctObj->className, methodName, ctObj, args);
+    }
+
     return nullptr;
 }
 
@@ -347,8 +362,23 @@ std::unique_ptr<CompiletimeValue> CompiletimeInterpreter::evalLambda(Parser::Lam
 }
 
 std::unique_ptr<CompiletimeValue> CompiletimeInterpreter::evalIdentifier(Parser::IdentifierExpr* expr) {
+    // First check local variables and parameters
     auto* value = getVariable(expr->name);
-    return value ? value->clone() : nullptr;
+    if (value) {
+        return value->clone();
+    }
+
+    // If not found and we have a "this" object, check properties
+    auto* thisObj = getVariable("this");
+    if (thisObj && thisObj->isObject()) {
+        auto* ctObj = static_cast<CompiletimeObject*>(thisObj);
+        auto* prop = ctObj->getProperty(expr->name);
+        if (prop) {
+            return prop->clone();
+        }
+    }
+
+    return nullptr;
 }
 
 std::unique_ptr<CompiletimeValue> CompiletimeInterpreter::evalUnary(Parser::Expression* expr) {
@@ -362,8 +392,65 @@ std::unique_ptr<CompiletimeValue> CompiletimeInterpreter::executeMethod(
     const std::string& methodName,
     CompiletimeObject* thisObj,
     const std::vector<CompiletimeValue*>& args) {
-    (void)className; (void)methodName; (void)thisObj; (void)args;
-    return nullptr;
+
+    // Find the class definition
+    auto* classDecl = findCompiletimeClass(className);
+    if (!classDecl) {
+        return nullptr;
+    }
+
+    // Find the method in the class
+    Parser::MethodDecl* method = nullptr;
+    for (const auto& section : classDecl->sections) {
+        for (const auto& decl : section->declarations) {
+            if (auto* m = dynamic_cast<Parser::MethodDecl*>(decl.get())) {
+                if (m->name == methodName && m->parameters.size() == args.size()) {
+                    method = m;
+                    break;
+                }
+            }
+        }
+        if (method) break;
+    }
+
+    if (!method) {
+        return nullptr;
+    }
+
+    // Push a new scope for method execution
+    pushScope();
+
+    // Bind "this" to the object
+    if (thisObj) {
+        setVariable("this", thisObj->clone());
+    }
+
+    // Bind parameters
+    for (size_t i = 0; i < args.size() && i < method->parameters.size(); ++i) {
+        setVariable(method->parameters[i]->name, args[i]->clone());
+    }
+
+    // Clear return value
+    lastReturnValue_ = nullptr;
+
+    // Execute method body
+    bool success = true;
+    for (const auto& stmt : method->body) {
+        if (!executeStatement(stmt.get())) {
+            success = false;
+            break;
+        }
+        // Check if we hit a return
+        if (lastReturnValue_) break;
+    }
+
+    // Get the return value
+    std::unique_ptr<CompiletimeValue> result = std::move(lastReturnValue_);
+
+    // Pop the scope
+    popScope();
+
+    return success ? std::move(result) : nullptr;
 }
 
 bool CompiletimeInterpreter::isCompiletimeEvaluable(Parser::Expression* expr) const {
@@ -426,16 +513,40 @@ bool CompiletimeInterpreter::isCompiletimeEvaluable(Parser::Expression* expr) co
 }
 
 void CompiletimeInterpreter::setVariable(const std::string& name, std::unique_ptr<CompiletimeValue> value) {
-    variables_[name] = std::move(value);
+    // If we're in a scope, use the innermost scope
+    if (!scopes_.empty()) {
+        scopes_.back().vars[name] = std::move(value);
+    } else {
+        variables_[name] = std::move(value);
+    }
 }
 
 CompiletimeValue* CompiletimeInterpreter::getVariable(const std::string& name) {
+    // Search scopes from innermost to outermost
+    for (auto it = scopes_.rbegin(); it != scopes_.rend(); ++it) {
+        auto found = it->vars.find(name);
+        if (found != it->vars.end()) {
+            return found->second.get();
+        }
+    }
+    // Fall back to global variables
     auto it = variables_.find(name);
     return (it != variables_.end()) ? it->second.get() : nullptr;
 }
 
 void CompiletimeInterpreter::clearVariables() {
     variables_.clear();
+    scopes_.clear();
+}
+
+void CompiletimeInterpreter::pushScope() {
+    scopes_.emplace_back();
+}
+
+void CompiletimeInterpreter::popScope() {
+    if (!scopes_.empty()) {
+        scopes_.pop_back();
+    }
 }
 
 // ============================================================================
@@ -736,6 +847,186 @@ std::unique_ptr<CompiletimeValue> CompiletimeInterpreter::evalStringMethod(
     }
 
     return nullptr;
+}
+
+// ============================================================================
+// Statement Execution for Compile-Time Evaluation
+// ============================================================================
+
+bool CompiletimeInterpreter::executeStatement(Parser::Statement* stmt) {
+    if (!stmt) return true;  // Null statements are okay
+
+    // Handle Set property statement (Set propName = expr)
+    if (auto* setStmt = dynamic_cast<Parser::AssignmentStmt*>(stmt)) {
+        // Get the value expression
+        auto value = evaluate(setStmt->value.get());
+        if (!value) return false;
+
+        // Check if target is an identifier (property or variable)
+        if (auto* identTarget = dynamic_cast<Parser::IdentifierExpr*>(setStmt->target.get())) {
+            const std::string& targetName = identTarget->name;
+
+            // Check if we have a "this" object (we're in a constructor/method)
+            auto* thisObj = getVariable("this");
+            if (thisObj && thisObj->isObject()) {
+                // Set property on this
+                auto* obj = static_cast<CompiletimeObject*>(thisObj);
+                obj->setProperty(targetName, std::move(value));
+                return true;
+            }
+
+            // Otherwise set as local variable
+            setVariable(targetName, std::move(value));
+            return true;
+        }
+
+        // Handle member access target (obj.prop = value)
+        if (auto* memberTarget = dynamic_cast<Parser::MemberAccessExpr*>(setStmt->target.get())) {
+            // Evaluate the object
+            auto obj = evaluate(memberTarget->object.get());
+            if (obj && obj->isObject()) {
+                static_cast<CompiletimeObject*>(obj.get())->setProperty(memberTarget->member, std::move(value));
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    // Handle Instantiate statement (local variable declaration)
+    if (auto* instStmt = dynamic_cast<Parser::InstantiateStmt*>(stmt)) {
+        if (instStmt->initializer) {
+            auto value = evaluate(instStmt->initializer.get());
+            if (!value) return false;
+            setVariable(instStmt->variableName, std::move(value));
+        }
+        return true;
+    }
+
+    // Handle Return statement
+    if (auto* retStmt = dynamic_cast<Parser::ReturnStmt*>(stmt)) {
+        if (retStmt->value) {
+            lastReturnValue_ = evaluate(retStmt->value.get());
+        }
+        return true;
+    }
+
+    // Handle Run statement (expression statement)
+    if (auto* runStmt = dynamic_cast<Parser::RunStmt*>(stmt)) {
+        // Just evaluate for side effects
+        evaluate(runStmt->expression.get());
+        return true;
+    }
+
+    // Unknown statement type - treat as no-op
+    return true;
+}
+
+// ============================================================================
+// User-Defined Compiletime Class Support
+// ============================================================================
+
+Parser::ClassDecl* CompiletimeInterpreter::findCompiletimeClass(const std::string& className) {
+    // Look up the class in the class registry
+    const auto& classRegistry = analyzer_.getClassRegistry();
+
+    // Try exact name first
+    auto it = classRegistry.find(className);
+    if (it == classRegistry.end()) {
+        // Try with common namespace prefixes
+        it = classRegistry.find("Language::Core::" + className);
+    }
+
+    if (it != classRegistry.end() && it->second.isCompiletime && it->second.astNode) {
+        return it->second.astNode;
+    }
+
+    return nullptr;
+}
+
+Parser::ConstructorDecl* CompiletimeInterpreter::findConstructor(Parser::ClassDecl* classDecl, size_t argCount) {
+    if (!classDecl) return nullptr;
+
+    // First pass: find constructor with matching parameter count
+    for (const auto& section : classDecl->sections) {
+        for (const auto& decl : section->declarations) {
+            if (auto* ctor = dynamic_cast<Parser::ConstructorDecl*>(decl.get())) {
+                // Skip default constructors (isDefault = true)
+                if (ctor->isDefault) continue;
+                if (ctor->parameters.size() == argCount) {
+                    return ctor;
+                }
+            }
+        }
+    }
+
+    // Second pass: if no args, allow default constructor
+    if (argCount == 0) {
+        for (const auto& section : classDecl->sections) {
+            for (const auto& decl : section->declarations) {
+                if (auto* ctor = dynamic_cast<Parser::ConstructorDecl*>(decl.get())) {
+                    if (ctor->isDefault || ctor->parameters.empty()) {
+                        return ctor;
+                    }
+                }
+            }
+        }
+    }
+
+    return nullptr;
+}
+
+std::unique_ptr<CompiletimeValue> CompiletimeInterpreter::evalUserDefinedConstructor(
+    Parser::ClassDecl* classDecl,
+    const std::vector<CompiletimeValue*>& args) {
+
+    if (!classDecl) return nullptr;
+
+    // Create the object
+    auto obj = std::make_unique<CompiletimeObject>(classDecl->name);
+
+    // Find the constructor matching the argument count
+    Parser::ConstructorDecl* ctor = findConstructor(classDecl, args.size());
+    if (!ctor) {
+        // No matching constructor - return empty object
+        return obj;
+    }
+
+    // Push a new scope for constructor execution
+    pushScope();
+
+    // Bind "this" to the object being constructed
+    setVariable("this", obj->clone());
+
+    // Bind parameters
+    size_t paramCount = std::min(args.size(), ctor->parameters.size());
+    for (size_t i = 0; i < paramCount; ++i) {
+        auto argClone = args[i]->clone();
+        setVariable(ctor->parameters[i]->name, std::move(argClone));
+    }
+
+    // Execute constructor body
+    bool success = true;
+    for (const auto& stmt : ctor->body) {
+        if (!executeStatement(stmt.get())) {
+            success = false;
+            break;
+        }
+    }
+
+    // Get the final state of "this" (which may have been modified)
+    auto* finalThis = getVariable("this");
+    std::unique_ptr<CompiletimeValue> result;
+    if (finalThis && finalThis->isObject()) {
+        result = finalThis->clone();
+    } else {
+        result = std::move(obj);
+    }
+
+    // Pop the scope
+    popScope();
+
+    return success ? std::move(result) : nullptr;
 }
 
 } // namespace Semantic

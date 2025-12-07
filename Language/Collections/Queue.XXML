@@ -1,7 +1,7 @@
 // Generic Queue<T> - FIFO (First In First Out) data structure
 // Implemented as a circular buffer for efficient enqueue/dequeue operations
 
-[ Namespace <Collections>
+[ Namespace <Language::Collections>
 	[ Class <Queue> <T Constrains None> Final Extends None
 
 		[ Private <>
@@ -17,11 +17,11 @@
 			{
 				Instantiate NativeType<"ptr">^ As <nullPtr> = 0;
 				Instantiate NativeType<"int64">^ As <zero> = 0;
-				Run Syscall::memcpy(&dataPtr, &nullPtr, 8);
-				Run Syscall::memcpy(&capacity, &zero, 8);
-				Run Syscall::memcpy(&count, &zero, 8);
-				Run Syscall::memcpy(&head, &zero, 8);
-				Run Syscall::memcpy(&tail, &zero, 8);
+				Set dataPtr = nullPtr;
+				Set capacity = zero;
+				Set count = zero;
+				Set head = zero;
+				Set tail = zero;
 			}
 
 			// Enqueue an element at the back
@@ -62,11 +62,11 @@
 					}
 
 					// Update pointers - now linear from 0
-					Run Syscall::memcpy(&dataPtr, &newData, 8);
-					Run Syscall::memcpy(&capacity, &newCapacity, 8);
+					Set dataPtr = newData;
+					Set capacity = newCapacity;
 					Instantiate NativeType<"int64">^ As <zero> = 0;
-					Run Syscall::memcpy(&head, &zero, 8);
-					Run Syscall::memcpy(&tail, &count, 8);
+					Set head = zero;
+					Set tail = count;
 				}
 
 				// Add the element at tail
@@ -79,10 +79,10 @@
 				If (newTail >= capacity) -> {
 					Set newTail = 0;
 				}
-				Run Syscall::memcpy(&tail, &newTail, 8);
+				Set tail = newTail;
 
 				Instantiate NativeType<"int64">^ As <newCount> = count + one;
-				Run Syscall::memcpy(&count, &newCount, 8);
+				Set count = newCount;
 			}
 
 			// Dequeue element from the front
@@ -106,10 +106,10 @@
 				If (newHead >= capacity) -> {
 					Set newHead = 0;
 				}
-				Run Syscall::memcpy(&head, &newHead, 8);
+				Set head = newHead;
 
 				Instantiate NativeType<"int64">^ As <newCount> = count - one;
-				Run Syscall::memcpy(&count, &newCount, 8);
+				Set count = newCount;
 
 				Return value;
 			}
@@ -146,9 +146,9 @@
 			Method <clear> Returns None Parameters () Do
 			{
 				Instantiate NativeType<"int64">^ As <zero> = 0;
-				Run Syscall::memcpy(&count, &zero, 8);
-				Run Syscall::memcpy(&head, &zero, 8);
-				Run Syscall::memcpy(&tail, &zero, 8);
+				Set count = zero;
+				Set head = zero;
+				Set tail = zero;
 			}
 
 			// Free the queue memory
@@ -156,15 +156,15 @@
 			{
 				If (dataPtr != 0) -> {
 					Run Syscall::free(dataPtr);
-					Instantiate NativeType<"ptr">^ As <zero> = 0;
-					Run Syscall::memcpy(&dataPtr, &zero, 8);
+					Instantiate NativeType<"ptr">^ As <nullPtr> = 0;
+					Set dataPtr = nullPtr;
 				}
 
-				Instantiate NativeType<"int64">^ As <zero64> = 0;
-				Run Syscall::memcpy(&count, &zero64, 8);
-				Run Syscall::memcpy(&capacity, &zero64, 8);
-				Run Syscall::memcpy(&head, &zero64, 8);
-				Run Syscall::memcpy(&tail, &zero64, 8);
+				Instantiate NativeType<"int64">^ As <zero> = 0;
+				Set count = zero;
+				Set capacity = zero;
+				Set head = zero;
+				Set tail = zero;
 			}
 		]
 	]
