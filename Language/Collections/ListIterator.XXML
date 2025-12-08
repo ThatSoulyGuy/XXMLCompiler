@@ -1,0 +1,137 @@
+// Generic ListIterator<T> - Random access iterator for List<T>
+// Satisfies the RandomAccessIterator constraint
+// Provides C++ style iteration with hasNext/next/current/previous/advance
+
+[ Namespace <Language::Collections>
+	[ Class <ListIterator> <T Constrains None> Final Extends None
+
+		[ Private <>
+			// Pointer to the list's data array
+			Property <dataPtr> Types NativeType<"ptr">^;
+			// Total number of elements in the list
+			Property <listSize> Types NativeType<"int64">^;
+			// Current position in the list
+			Property <position> Types NativeType<"int64">^;
+		]
+
+		[ Public <>
+			// Constructor - creates iterator from list data pointer, size, and starting position
+			Constructor Parameters (
+				Parameter <data> Types NativeType<"ptr">^,
+				Parameter <size> Types NativeType<"int64">^,
+				Parameter <startPos> Types NativeType<"int64">^
+			) ->
+			{
+				Set dataPtr = data;
+				Set listSize = size;
+				Set position = startPos;
+			}
+
+			// Check if there are more elements ahead
+			Method <hasNext> Returns Bool^ Parameters () Do
+			{
+				Return Bool::Constructor(position < listSize);
+			}
+
+			// Check if there are elements behind
+			Method <hasPrevious> Returns Bool^ Parameters () Do
+			{
+				Instantiate NativeType<"int64">^ As <zero> = 0;
+				Return Bool::Constructor(position > zero);
+			}
+
+			// Get current element without advancing
+			Method <current> Returns T^ Parameters () Do
+			{
+				If (position >= listSize) -> {
+					Instantiate NativeType<"ptr">^ As <nullPtr> = 0;
+					Return Syscall::ptr_read(nullPtr);
+				}
+				Instantiate NativeType<"int64">^ As <zero> = 0;
+				If (position < zero) -> {
+					Instantiate NativeType<"ptr">^ As <nullPtr> = 0;
+					Return Syscall::ptr_read(nullPtr);
+				}
+				Instantiate NativeType<"ptr">^ As <offset> = dataPtr + (position * 8);
+				Return Syscall::ptr_read(offset);
+			}
+
+			// Advance iterator and return the current element
+			Method <next> Returns T^ Parameters () Do
+			{
+				Instantiate T^ As <elem> = this.current();
+				Instantiate NativeType<"int64">^ As <one> = 1;
+				Set position = position + one;
+				Return elem;
+			}
+
+			// Move iterator backward and return the previous element
+			Method <previous> Returns T^ Parameters () Do
+			{
+				Instantiate NativeType<"int64">^ As <one> = 1;
+				Set position = position - one;
+				Return this.current();
+			}
+
+			// Advance iterator by n positions (can be negative)
+			Method <advance> Returns None Parameters (Parameter <n> Types Integer^) Do
+			{
+				Instantiate NativeType<"int64">^ As <delta> = n.toInt64();
+				Set position = position + delta;
+			}
+
+			// Get element at absolute index (doesn't change position)
+			Method <at> Returns T^ Parameters (Parameter <idx> Types Integer^) Do
+			{
+				Instantiate NativeType<"int64">^ As <i> = idx.toInt64();
+				Instantiate NativeType<"int64">^ As <zero> = 0;
+				If (i < zero) -> {
+					Instantiate NativeType<"ptr">^ As <nullPtr> = 0;
+					Return Syscall::ptr_read(nullPtr);
+				}
+				If (i >= listSize) -> {
+					Instantiate NativeType<"ptr">^ As <nullPtr> = 0;
+					Return Syscall::ptr_read(nullPtr);
+				}
+				Instantiate NativeType<"ptr">^ As <offset> = dataPtr + (i * 8);
+				Return Syscall::ptr_read(offset);
+			}
+
+			// Get current position index
+			Method <index> Returns Integer^ Parameters () Do
+			{
+				Return Integer::Constructor(position);
+			}
+
+			// Reset iterator to beginning
+			Method <reset> Returns None Parameters () Do
+			{
+				Instantiate NativeType<"int64">^ As <zero> = 0;
+				Set position = zero;
+			}
+
+			// Move to end (past last element)
+			Method <toEnd> Returns None Parameters () Do
+			{
+				Set position = listSize;
+			}
+
+			// Check if two iterators point to same position
+			Method <equals> Returns Bool^ Parameters (Parameter <other> Types ListIterator<T>^) Do
+			{
+				Instantiate Integer^ As <otherIdx> = other.index();
+				Instantiate NativeType<"int64">^ As <otherPos> = otherIdx.toInt64();
+				Return Bool::Constructor(position == otherPos);
+			}
+
+			// Distance to another iterator
+			Method <distance> Returns Integer^ Parameters (Parameter <other> Types ListIterator<T>^) Do
+			{
+				Instantiate Integer^ As <otherIdx> = other.index();
+				Instantiate NativeType<"int64">^ As <otherPos> = otherIdx.toInt64();
+				Instantiate NativeType<"int64">^ As <dist> = otherPos - position;
+				Return Integer::Constructor(dist);
+			}
+		]
+	]
+]

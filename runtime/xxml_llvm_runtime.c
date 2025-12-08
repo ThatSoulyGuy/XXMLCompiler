@@ -408,6 +408,40 @@ void String_destroy(void* self) {
     xxml_free(str);
 }
 
+// Copy a string (return new String object)
+void* String_copy(void* self) {
+    if (!self) return String_Constructor("");
+    String* str = (String*)self;
+    return String_Constructor(str->data ? str->data : "");
+}
+
+// Get character at index as a new single-character string
+// Takes Integer pointer for index
+void* String_charAt(void* self, void* indexObj) {
+    if (!self || !indexObj) return String_Constructor("");
+    String* str = (String*)self;
+    int64_t index = Integer_getValue(indexObj);
+    if (index < 0 || (size_t)index >= str->length) return String_Constructor("");
+
+    char buf[2];
+    buf[0] = str->data[index];
+    buf[1] = '\0';
+    return String_Constructor(buf);
+}
+
+// Set character at index from another string (uses first character)
+// Takes Integer pointer for index, String pointer for character
+void String_setCharAt(void* self, void* indexObj, void* charStr) {
+    if (!self || !indexObj || !charStr) return;
+    String* str = (String*)self;
+    String* ch = (String*)charStr;
+    int64_t index = Integer_getValue(indexObj);
+    if (index < 0 || (size_t)index >= str->length) return;
+    if (ch->length == 0) return;
+
+    str->data[index] = ch->data[0];
+}
+
 // djb2 hash algorithm for strings
 int64_t xxml_string_hash(void* self) {
     if (!self) return 0;
@@ -2124,6 +2158,61 @@ void* xxml_string_concat(void* str1, void* str2) {
     void* newStr = String_Constructor(result);
     xxml_free(result);
     return newStr;
+}
+
+// Get the C string pointer from an XXML String
+const char* xxml_string_cstr(void* str) {
+    return String_toCString(str);
+}
+
+// Get the length of an XXML String
+int64_t xxml_string_length(void* str) {
+    if (!str) return 0;
+    return (int64_t)((String*)str)->length;
+}
+
+// Copy an XXML String
+void* xxml_string_copy(void* str) {
+    const char* cstr = String_toCString(str);
+    return String_Constructor(cstr ? cstr : "");
+}
+
+// Check if two XXML Strings are equal
+int64_t xxml_string_equals(void* str1, void* str2) {
+    const char* cstr1 = String_toCString(str1);
+    const char* cstr2 = String_toCString(str2);
+    if (!cstr1 && !cstr2) return 1;
+    if (!cstr1 || !cstr2) return 0;
+    return strcmp(cstr1, cstr2) == 0 ? 1 : 0;
+}
+
+// Get character at index as a new single-character string
+const char* xxml_string_charAt(void* str, int64_t index) {
+    if (!str) return "";
+    String* s = (String*)str;
+    if (index < 0 || (size_t)index >= s->length) return "";
+
+    // Return pointer to position in string (single char + null)
+    static char result[2];
+    result[0] = s->data[index];
+    result[1] = '\0';
+    return result;
+}
+
+// Set character at index from another string (uses first character)
+void xxml_string_setCharAt(void* str, int64_t index, void* charStr) {
+    if (!str || !charStr) return;
+    String* s = (String*)str;
+    String* ch = (String*)charStr;
+    if (index < 0 || (size_t)index >= s->length) return;
+    if (ch->length == 0) return;
+
+    s->data[index] = ch->data[0];
+}
+
+// Destroy an XXML String
+void xxml_string_destroy(void* str) {
+    String_destroy(str);
 }
 
 // Check if a pointer is null

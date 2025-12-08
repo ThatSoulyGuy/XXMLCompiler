@@ -3,11 +3,31 @@
 #include "Parser/AST.h"
 #include <memory>
 #include <unordered_map>
+#include <set>
 #include <string>
 
 namespace XXML {
 namespace Backends {
 namespace Codegen {
+
+/**
+ * @brief Represents a nested template instantiation discovered during AST cloning
+ */
+struct NestedTemplateInstantiation {
+    std::string templateName;
+    std::vector<Parser::TemplateArgument> arguments;
+
+    bool operator<(const NestedTemplateInstantiation& other) const {
+        if (templateName != other.templateName) return templateName < other.templateName;
+        if (arguments.size() != other.arguments.size()) return arguments.size() < other.arguments.size();
+        for (size_t i = 0; i < arguments.size(); ++i) {
+            if (arguments[i].typeArg != other.arguments[i].typeArg) {
+                return arguments[i].typeArg < other.arguments[i].typeArg;
+            }
+        }
+        return false;
+    }
+};
 
 /**
  * @brief Utility class for cloning and substituting AST nodes during template instantiation
@@ -111,6 +131,32 @@ public:
     std::unique_ptr<Parser::LambdaExpr> cloneLambda(
         const Parser::LambdaExpr* original,
         const TypeMap& typeMap);
+
+    // === Nested Template Instantiation Tracking ===
+
+    /**
+     * Get all nested template instantiations discovered during cloning
+     * These are types like ListIterator<Integer> found in return types, parameters, etc.
+     */
+    const std::set<NestedTemplateInstantiation>& getNestedInstantiations() const {
+        return nestedInstantiations_;
+    }
+
+    /**
+     * Clear the nested instantiations list (call before cloning a new class)
+     */
+    void clearNestedInstantiations() {
+        nestedInstantiations_.clear();
+    }
+
+private:
+    /**
+     * Record a nested template instantiation discovered during type cloning
+     */
+    void recordNestedInstantiation(const std::string& typeName,
+                                    const std::vector<Parser::TemplateArgument>& args);
+
+    std::set<NestedTemplateInstantiation> nestedInstantiations_;
 };
 
 } // namespace Codegen

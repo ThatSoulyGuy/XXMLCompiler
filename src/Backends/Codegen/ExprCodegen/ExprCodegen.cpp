@@ -1,5 +1,6 @@
 #include "Backends/Codegen/ExprCodegen/ExprCodegen.h"
 #include "Backends/TypeNormalizer.h"
+#include "Backends/NameMangler.h"
 #include "Semantic/SemanticError.h"
 #include "Semantic/CompiletimeInterpreter.h"
 #include <unordered_set>
@@ -199,18 +200,13 @@ LLVMIR::AnyValue ExprCodegen::visitIdentifier(Parser::IdentifierExpr* expr) {
 
     // Check if it's a property of the current class
     if (!ctx_.currentClassName().empty()) {
-        std::cerr << "[DEBUG ExprCodegen] visitIdentifier: looking for property '" << name << "' in class '" << ctx_.currentClassName() << "'\n";
         auto* classInfo = ctx_.getClass(std::string(ctx_.currentClassName()));
         if (classInfo) {
-            std::cerr << "[DEBUG ExprCodegen]   Found classInfo, checking " << classInfo->properties.size() << " properties\n";
             for (const auto& prop : classInfo->properties) {
                 if (prop.name == name) {
-                    std::cerr << "[DEBUG ExprCodegen]   Found property '" << name << "', isObjectType=" << prop.isObjectType << ", xxmlType=" << prop.xxmlType << "\n";
                     return loadPropertyFromThis(prop);
                 }
             }
-        } else {
-            std::cerr << "[DEBUG ExprCodegen]   No classInfo found for class '" << ctx_.currentClassName() << "'\n";
         }
     }
 
@@ -247,11 +243,36 @@ LLVMIR::AnyValue ExprCodegen::visitReference(Parser::ReferenceExpr* expr) {
     }
 
     if (auto* ident = dynamic_cast<Parser::IdentifierExpr*>(expr->expr.get())) {
+        // First check if it's a local variable
         if (auto* varInfo = ctx_.getVariable(ident->name)) {
             if (varInfo->alloca) {
                 auto ptrValue = LLVMIR::PtrValue(varInfo->alloca);
                 ctx_.lastExprValue = LLVMIR::AnyValue(ptrValue);
                 return ctx_.lastExprValue;
+            }
+        }
+
+        // Check if it's a property on 'this' - return the address without loading
+        auto* func = ctx_.currentFunction();
+        if (func && func->getNumParams() > 0) {
+            std::string currentClass = std::string(ctx_.currentClassName());
+            auto* classInfo = ctx_.getClass(currentClass);
+            if (classInfo && classInfo->structType) {
+                for (const auto& prop : classInfo->properties) {
+                    if (prop.name == ident->name) {
+                        // Found the property - return its address (GEP) without loading
+                        auto* thisArg = func->getArg(0);
+                        auto thisPtrValue = LLVMIR::PtrValue(thisArg);
+                        auto propPtr = ctx_.builder().createStructGEP(
+                            classInfo->structType,
+                            thisPtrValue,
+                            static_cast<unsigned>(prop.index),
+                            ident->name + ".ptr"
+                        );
+                        ctx_.lastExprValue = LLVMIR::AnyValue(propPtr);
+                        return ctx_.lastExprValue;
+                    }
+                }
             }
         }
     }
@@ -266,11 +287,8 @@ LLVMIR::AnyValue ExprCodegen::visitBinary(Parser::BinaryExpr* expr) {
         return LLVMIR::AnyValue(ctx_.builder().getInt64(0));
     }
 
-    std::cerr << "[DEBUG ExprCodegen] visitBinary: op='" << expr->op << "'\n";
-
     // Evaluate left operand
     auto leftResult = generate(expr->left.get());
-    std::cerr << "[DEBUG ExprCodegen]   Left: isInt=" << leftResult.isInt() << ", isFloat=" << leftResult.isFloat() << ", isPtr=" << leftResult.isPtr() << "\n";
 
     // Short-circuit for logical operators
     if (expr->op == "&&" || expr->op == "and") {
@@ -282,11 +300,9 @@ LLVMIR::AnyValue ExprCodegen::visitBinary(Parser::BinaryExpr* expr) {
 
     // Evaluate right operand
     auto rightResult = generate(expr->right.get());
-    std::cerr << "[DEBUG ExprCodegen]   Right: isInt=" << rightResult.isInt() << ", isFloat=" << rightResult.isFloat() << ", isPtr=" << rightResult.isPtr() << "\n";
 
     // Determine operand types
     std::string leftType = getExpressionType(expr->left.get());
-    std::cerr << "[DEBUG ExprCodegen]   leftType = '" << leftType << "'\n";
 
     const std::string& op = expr->op;
 
@@ -455,7 +471,6 @@ LLVMIR::AnyValue ExprCodegen::loadThisProperty(const std::string& propName) {
     }
 
     std::string currentClass = std::string(ctx_.currentClassName());
-    std::cerr << "[DEBUG ExprCodegen] loadThisProperty('" << propName << "') for class: " << currentClass << "\n";
     auto* classInfo = ctx_.getClass(currentClass);
     if (!classInfo) {
         throw Semantic::MissingClassError(currentClass,
@@ -478,8 +493,6 @@ LLVMIR::AnyValue ExprCodegen::loadThisProperty(const std::string& propName) {
 
             // Use ptr type for object types (owned/reference/copy), otherwise primitive type
             auto* propType = prop.isObjectType ? ctx_.module().getContext().getPtrTy() : ctx_.mapType(prop.xxmlType);
-            std::cerr << "[DEBUG ExprCodegen]   Found property '" << propName << "', xxmlType=" << prop.xxmlType
-                      << ", isObjectType=" << prop.isObjectType << ", loading as " << (prop.isObjectType ? "ptr" : "mapped type") << "\n";
             auto loaded = ctx_.builder().createLoad(propType, propPtr, "");
             ctx_.lastExprValue = loaded;
             return ctx_.lastExprValue;
@@ -555,18 +568,28 @@ LLVMIR::AnyValue ExprCodegen::handleMemberCall(Parser::CallExpr* expr,
         if (auto* varInfo = ctx_.getVariable(ident->name)) {
             isInstanceMethod = true;
 
+            std::string className = TypeNormalizer::stripOwnershipMarker(varInfo->xxmlType);
+            className = ctx_.resolveToQualifiedName(className);
+
             if (varInfo->alloca) {
-                auto loaded = ctx_.builder().createLoadPtr(
-                    LLVMIR::PtrValue(varInfo->alloca),
-                    ""
-                );
-                instancePtr = loaded;
+                // Check if this is a value type (Structure)
+                auto* classInfo = ctx_.getClass(className);
+                if (classInfo && classInfo->isValueType) {
+                    // Value types: pass the alloca address directly
+                    // (the struct lives in the alloca itself, not as a pointer to heap)
+                    instancePtr = LLVMIR::PtrValue(varInfo->alloca);
+                } else {
+                    // Reference types: load the pointer stored in the alloca
+                    // (the alloca stores a pointer to the heap-allocated object)
+                    auto loaded = ctx_.builder().createLoadPtr(
+                        LLVMIR::PtrValue(varInfo->alloca),
+                        ""
+                    );
+                    instancePtr = loaded;
+                }
             } else if (varInfo->value.isPtr()) {
                 instancePtr = varInfo->value.asPtr();
             }
-
-            std::string className = TypeNormalizer::stripOwnershipMarker(varInfo->xxmlType);
-            className = ctx_.resolveToQualifiedName(className);
 
             functionName = ctx_.mangleFunctionName(className, memberAccess->member);
         } else {
@@ -627,29 +650,39 @@ LLVMIR::AnyValue ExprCodegen::handleMemberCall(Parser::CallExpr* expr,
 
                     // All non-native type constructors need this pointer - allocate and pass it
                     {
-                        // Allocate memory using xxml_malloc
-                        auto* mallocFunc = ctx_.module().getFunction("xxml_malloc");
-                        if (!mallocFunc) {
-                            std::vector<LLVMIR::Type*> mallocParams = { ctx_.module().getContext().getInt64Ty() };
-                            auto* mallocType = ctx_.module().getContext().getFunctionTy(
-                                ctx_.builder().getPtrTy(), mallocParams, false);
-                            mallocFunc = ctx_.module().createFunction(mallocType, "xxml_malloc",
-                                LLVMIR::Function::Linkage::External);
-                        }
-
                         // Calculate actual struct size from class info
-                        // Use mangled name for class lookup (e.g., HashMap@IntKey, Integer -> HashMap_IntKey_Integer)
+                        // Classes are registered with qualified names using :: separators
+                        // and template args use underscores (e.g., Language::Collections::HashMap_Integer_String)
+                        // Normalize template syntax (<> or @) to underscore format for lookup
                         size_t allocSize = 24;  // Default fallback
-                        std::string mangledClassName = TypeNormalizer::mangleForLLVM(className);
-                        auto* classInfo = ctx_.getClass(mangledClassName);
+                        std::string lookupName = NameMangler::normalizeTemplateForLookup(className);
+                        auto* classInfo = ctx_.getClass(lookupName);
                         if (classInfo && classInfo->instanceSize > 0) {
                             allocSize = classInfo->instanceSize;
                         }
-                        auto sizeVal = ctx_.builder().getInt64(allocSize);
 
-                        // Call malloc
-                        std::vector<LLVMIR::AnyValue> mallocArgs = { LLVMIR::AnyValue(sizeVal) };
-                        auto allocResult = ctx_.builder().createCall(mallocFunc, mallocArgs, "");
+                        LLVMIR::AnyValue allocResult;
+
+                        // Check if this is a value type (Structure) - use stack allocation
+                        if (classInfo && classInfo->isValueType) {
+                            // Value type: allocate on stack with alloca in entry block
+                            // Use entry block alloca to prevent stack overflow in loops
+                            auto allocaPtr = ctx_.builder().createEntryBlockAlloca(classInfo->structType, "struct.tmp");
+                            allocResult = LLVMIR::AnyValue(allocaPtr);
+                        } else {
+                            // Reference type: allocate on heap with xxml_malloc
+                            auto* mallocFunc = ctx_.module().getFunction("xxml_malloc");
+                            if (!mallocFunc) {
+                                std::vector<LLVMIR::Type*> mallocParams = { ctx_.module().getContext().getInt64Ty() };
+                                auto* mallocType = ctx_.module().getContext().getFunctionTy(
+                                    ctx_.builder().getPtrTy(), mallocParams, false);
+                                mallocFunc = ctx_.module().createFunction(mallocType, "xxml_malloc",
+                                    LLVMIR::Function::Linkage::External);
+                            }
+                            auto sizeVal = ctx_.builder().getInt64(allocSize);
+                            std::vector<LLVMIR::AnyValue> mallocArgs = { LLVMIR::AnyValue(sizeVal) };
+                            allocResult = ctx_.builder().createCall(mallocFunc, mallocArgs, "");
+                        }
 
                         // Build constructor args with this pointer first
                         std::vector<LLVMIR::AnyValue> ctorArgs;
@@ -658,9 +691,30 @@ LLVMIR::AnyValue ExprCodegen::handleMemberCall(Parser::CallExpr* expr,
                             ctorArgs.push_back(generate(argExpr.get()));
                         }
 
-                        ctx_.lastExprValue = emitCall(functionName, ctorArgs, true, allocResult.asPtr());
+                        emitCall(functionName, ctorArgs, true, allocResult.asPtr());
+
+                        // Register as temporary for cleanup after statement
+                        // (only for heap-allocated objects, not value types)
+                        if (!classInfo || !classInfo->isValueType) {
+                            ctx_.registerTemporary(className + "^", allocResult);
+                        }
+
+                        ctx_.lastExprValue = allocResult;
                         return ctx_.lastExprValue;
                     }
+                } else {
+                    // Native type constructor (String, Integer, etc.)
+                    // These allocate internally and return a pointer
+                    // Build args and call the constructor
+                    std::vector<LLVMIR::AnyValue> ctorArgs;
+                    for (const auto& argExpr : expr->arguments) {
+                        ctorArgs.push_back(generate(argExpr.get()));
+                    }
+                    auto result = emitCall(functionName, ctorArgs, false, LLVMIR::PtrValue(nullptr));
+                    // Note: emitCall already handles temporary registration for heap types
+
+                    ctx_.lastExprValue = result;
+                    return ctx_.lastExprValue;
                 }
             }
             }  // close if (!isProperty)
@@ -727,29 +781,39 @@ LLVMIR::AnyValue ExprCodegen::handleMemberCall(Parser::CallExpr* expr,
 
                     // All non-native type constructors need this pointer - allocate and pass it
                     {
-                        // Allocate memory using xxml_malloc
-                        auto* mallocFunc = ctx_.module().getFunction("xxml_malloc");
-                        if (!mallocFunc) {
-                            std::vector<LLVMIR::Type*> mallocParams = { ctx_.module().getContext().getInt64Ty() };
-                            auto* mallocType = ctx_.module().getContext().getFunctionTy(
-                                ctx_.builder().getPtrTy(), mallocParams, false);
-                            mallocFunc = ctx_.module().createFunction(mallocType, "xxml_malloc",
-                                LLVMIR::Function::Linkage::External);
-                        }
-
                         // Calculate actual struct size from class info
-                        // Use mangled name for class lookup (e.g., HashMap@IntKey, Integer -> HashMap_IntKey_Integer)
+                        // Classes are registered with qualified names using :: separators
+                        // and template args use underscores (e.g., Language::Collections::HashMap_Integer_String)
+                        // Normalize template syntax (<> or @) to underscore format for lookup
                         size_t allocSize = 24;  // Default fallback
-                        std::string mangledQualifiedClass = TypeNormalizer::mangleForLLVM(qualifiedClass);
-                        auto* classInfo = ctx_.getClass(mangledQualifiedClass);
+                        std::string lookupName = NameMangler::normalizeTemplateForLookup(qualifiedClass);
+                        auto* classInfo = ctx_.getClass(lookupName);
                         if (classInfo && classInfo->instanceSize > 0) {
                             allocSize = classInfo->instanceSize;
                         }
-                        auto sizeVal = ctx_.builder().getInt64(allocSize);
 
-                        // Call malloc
-                        std::vector<LLVMIR::AnyValue> mallocArgs = { LLVMIR::AnyValue(sizeVal) };
-                        auto allocResult = ctx_.builder().createCall(mallocFunc, mallocArgs, "");
+                        LLVMIR::AnyValue allocResult;
+
+                        // Check if this is a value type (Structure) - use stack allocation
+                        if (classInfo && classInfo->isValueType) {
+                            // Value type: allocate on stack with alloca in entry block
+                            // Use entry block alloca to prevent stack overflow in loops
+                            auto allocaPtr = ctx_.builder().createEntryBlockAlloca(classInfo->structType, "struct.tmp");
+                            allocResult = LLVMIR::AnyValue(allocaPtr);
+                        } else {
+                            // Reference type: allocate on heap with xxml_malloc
+                            auto* mallocFunc = ctx_.module().getFunction("xxml_malloc");
+                            if (!mallocFunc) {
+                                std::vector<LLVMIR::Type*> mallocParams = { ctx_.module().getContext().getInt64Ty() };
+                                auto* mallocType = ctx_.module().getContext().getFunctionTy(
+                                    ctx_.builder().getPtrTy(), mallocParams, false);
+                                mallocFunc = ctx_.module().createFunction(mallocType, "xxml_malloc",
+                                    LLVMIR::Function::Linkage::External);
+                            }
+                            auto sizeVal = ctx_.builder().getInt64(allocSize);
+                            std::vector<LLVMIR::AnyValue> mallocArgs = { LLVMIR::AnyValue(sizeVal) };
+                            allocResult = ctx_.builder().createCall(mallocFunc, mallocArgs, "");
+                        }
 
                         // Build constructor args with this pointer first
                         std::vector<LLVMIR::AnyValue> ctorArgs;
@@ -758,7 +822,15 @@ LLVMIR::AnyValue ExprCodegen::handleMemberCall(Parser::CallExpr* expr,
                             ctorArgs.push_back(generate(argExpr.get()));
                         }
 
-                        ctx_.lastExprValue = emitCall(functionName, ctorArgs, true, allocResult.asPtr());
+                        emitCall(functionName, ctorArgs, true, allocResult.asPtr());
+
+                        // Register as temporary for cleanup after statement
+                        // (only for heap-allocated objects, not value types)
+                        if (!classInfo || !classInfo->isValueType) {
+                            ctx_.registerTemporary(qualifiedClass + "^", allocResult);
+                        }
+
+                        ctx_.lastExprValue = allocResult;
                         return ctx_.lastExprValue;
                     }
                 }
@@ -865,6 +937,22 @@ LLVMIR::AnyValue ExprCodegen::handleMemberCall(Parser::CallExpr* expr,
         args.push_back(argValue);
     }
 
+    // Check for ownership transfer - if a parameter is owned (^), the callee takes ownership
+    // and we should NOT free the argument after the call
+    auto paramTypes = ctx_.lookupMethodParameterTypes(functionName);
+    if (!paramTypes.empty()) {
+        // paramTypes does not include 'this', so adjust index
+        size_t paramOffset = isInstanceMethod ? 1 : 0;
+        for (size_t i = 0; i < paramTypes.size() && (i + paramOffset) < args.size(); ++i) {
+            const std::string& paramType = paramTypes[i];
+            // Check if parameter is owned (ends with ^) - ownership transfers to callee
+            if (!paramType.empty() && paramType.back() == '^') {
+                // Unregister this argument as a temporary - callee now owns it
+                ctx_.unregisterTemporary(args[i + paramOffset]);
+            }
+        }
+    }
+
     return emitCall(functionName, args, isInstanceMethod, instancePtr);
 }
 
@@ -963,6 +1051,55 @@ LLVMIR::AnyValue ExprCodegen::emitCall(const std::string& functionName,
 
     // Don't set a fixed name - let the emitter assign unique temporaries
     auto result = ctx_.builder().createCall(func, adaptedArgs, "");
+
+    // Register method return values as temporaries if they are OWNED heap-allocated objects
+    // We use the xxmlReturnType we looked up earlier
+    // IMPORTANT: References (&) should NOT be registered - they are borrowed, not owned
+    std::string returnType = ctx_.lookupMethodReturnType(resolvedName);
+    if (!returnType.empty() && result.isPtr()) {
+        // Check ownership marker FIRST - references should never be freed
+        char ownershipMarker = returnType.back();
+        bool isReference = (ownershipMarker == '&');
+        bool isCopy = (ownershipMarker == '%');
+
+        // Skip references entirely - they are borrowed and should not be freed
+        if (!isReference && !isCopy) {
+            // Strip ownership markers to get base type
+            std::string baseType = returnType;
+            if (!baseType.empty() && (baseType.back() == '^' || baseType.back() == '&' || baseType.back() == '%')) {
+                baseType = baseType.substr(0, baseType.size() - 1);
+            }
+
+            // Check if the return type indicates a heap-allocated object
+            // Skip NativeType, None, void, and primitive return types
+            bool isHeapObject = false;
+            if (baseType.find("NativeType<") == std::string::npos &&
+                baseType != "None" &&
+                baseType != "none" &&
+                baseType != "void" &&
+                baseType != "") {
+                // Known heap-allocated wrapper types
+                static const std::unordered_set<std::string> heapTypes = {
+                    "Integer", "String", "Bool", "Float", "Double", "Byte"
+                };
+
+                // Check if it's a known heap type or a class type
+                if (heapTypes.count(baseType) > 0 ||
+                    baseType.find("::") != std::string::npos ||  // Namespaced type
+                    baseType.find("<") != std::string::npos ||   // Template type
+                    std::isupper(baseType[0])) {                 // PascalCase class name
+                    isHeapObject = true;
+                }
+            }
+
+            if (isHeapObject) {
+                // Use owned type for cleanup
+                std::string typeForCleanup = baseType + "^";
+                ctx_.registerTemporary(typeForCleanup, result);
+            }
+        }
+    }
+
     ctx_.lastExprValue = result;
     return ctx_.lastExprValue;
 }
@@ -1309,7 +1446,10 @@ LLVMIR::AnyValue ExprCodegen::emitConstantValue(Semantic::CompiletimeValue* valu
             ctorFunc = mod.createFunction(funcType, "Bool_Constructor", LLVMIR::Function::Linkage::External);
         }
         std::vector<LLVMIR::AnyValue> args = { LLVMIR::AnyValue(builder.getInt1(val)) };
-        return builder.createCall(ctorFunc, args, "ct.bool");
+        auto result = builder.createCall(ctorFunc, args, "ct.bool");
+        // Register as temporary for cleanup
+        ctx_.registerTemporary("Bool^", result);
+        return result;
     }
 
     // Handle object types (custom compiletime classes)
@@ -1454,6 +1594,8 @@ LLVMIR::AnyValue ExprCodegen::emitNativeTypeWrapper(Semantic::CompiletimeObject*
                     auto constArg = builder.getInt1(val);
                     std::vector<LLVMIR::AnyValue> args = { LLVMIR::AnyValue(constArg) };
                     auto result = builder.createCall(func, args, "ct.bool");
+                    // Register as temporary for cleanup
+                    ctx_.registerTemporary("Bool^", result);
                     return LLVMIR::AnyValue(result);
                 }
             }

@@ -1,0 +1,25 @@
+// XXML Standard Library - Iterable Constraint
+// Types that satisfy this constraint can be iterated over
+// Similar to C++ concepts with begin()/end()
+
+[ Namespace <Language::Core>
+    // Iterable - a collection that can produce an iterator
+    // Container must implement begin() to get an iterator
+    [ Constraint <Iterable> <Container Constrains None, IteratorType Constrains None> (Container c)
+        // Returns an iterator pointing to the first element
+        Require (F(IteratorType^)(begin)(*) On c)
+
+        // Returns the number of elements (for bounds checking)
+        Require (F(Integer^)(size)(*) On c)
+    ]
+
+    // ForwardIterable - iterable with explicit iterator type requirement
+    // The iterator must satisfy the Iterator constraint
+    [ Constraint <ForwardIterable> <Container Constrains None, Element Constrains None> (Container c)
+        // Returns an iterator
+        Require (F(NativeType<"ptr">^)(begin)(*) On c)
+
+        // Collection size
+        Require (F(Integer^)(size)(*) On c)
+    ]
+]

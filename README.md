@@ -7,11 +7,11 @@ A production-ready compiler for the XXML programming language that compiles to L
 - **Complete Compiler Pipeline**: Lexer → Parser → Semantic Analyzer → LLVM IR Code Generator
 - **Native Compilation**: Direct compilation to native executables via LLVM
 - **Ownership Semantics**: Explicit memory management with `^` (owned), `&` (reference), and `%` (copy)
-- **Generic Templates**: Full template support with [constraints](docs/CONSTRAINTS.md)
-- **Compile-Time Evaluation**: Constant expressions evaluated at compile-time ([details](docs/COMPILETIME.md))
+- **Generic Templates**: Full template support with [constraints](docs/language/CONSTRAINTS.md)
+- **Compile-Time Evaluation**: Constant expressions evaluated at compile-time ([details](docs/language/COMPILETIME.md))
 - **Object-Oriented**: Classes, inheritance, access modifiers, methods, properties, and enumerations
 - **Type-Safe**: Static type checking with comprehensive error reporting
-- **Reflection System**: Runtime type introspection ([details](docs/REFLECTION_SYSTEM.md))
+- **Reflection System**: Runtime type introspection ([details](docs/advanced/REFLECTION.md))
 - **Self-Hosting Standard Library**: Standard library written in XXML itself
 
 ## Quick Start
@@ -70,7 +70,7 @@ Parameter <refString> Types String&;     // Reference
 Parameter <copiedInt> Types Integer%;    // Copy
 ```
 
-See [Types and Ownership](docs/LANGUAGE_SPEC.md#types-and-ownership) for details.
+See [Ownership System](docs/language/OWNERSHIP.md) for details.
 
 ### Classes
 
@@ -135,7 +135,7 @@ If (keyCode.equals(Key::SPACE)) -> {
 Instantiate Box<Integer>^ As <box> = Box@Integer::Constructor(Integer::Constructor(42));
 ```
 
-See [Templates](docs/TEMPLATES.md) and [Constraints](docs/CONSTRAINTS.md).
+See [Templates](docs/language/TEMPLATES.md) and [Constraints](docs/language/CONSTRAINTS.md).
 
 ### Constraints
 
@@ -169,7 +169,7 @@ Constraints restrict template parameters to types with specific capabilities:
 ]
 ```
 
-See [Constraints](docs/CONSTRAINTS.md) for full documentation.
+See [Constraints](docs/language/CONSTRAINTS.md) for full documentation.
 
 ### Lambdas
 
@@ -185,7 +185,7 @@ Instantiate F(Integer^)(Integer&)^ As <multiply> = [ Lambda [%multiplier] Return
 Instantiate Integer^ As <result> = multiply.call(Integer::Constructor(3));  // 15
 ```
 
-See [Lambdas](docs/LANGUAGE_SPEC.md#lambdas-and-function-references).
+See [Lambdas](docs/language/LAMBDAS.md).
 
 ### Lambda Templates
 
@@ -210,7 +210,7 @@ identity<Integer>.call(x)   // Angle bracket syntax
 identity@Integer.call(x)    // At-sign syntax
 ```
 
-See [Lambda Templates](docs/TEMPLATES.md#lambda-templates) for full documentation.
+See [Lambda Templates](docs/language/TEMPLATES.md#lambda-templates) for full documentation.
 
 ### Compile-Time Evaluation
 
@@ -227,7 +227,7 @@ Instantiate Compiletime String^ As <greeting> = String::Constructor("Hello");
 Instantiate Compiletime Bool^ As <debug> = Bool::Constructor(true);
 ```
 
-See [Compile-Time Evaluation](docs/COMPILETIME.md).
+See [Compile-Time Evaluation](docs/language/COMPILETIME.md).
 
 ### Control Flow
 
@@ -306,22 +306,50 @@ XXMLCompiler/
 
 ## Documentation
 
+See the [Documentation Index](docs/INDEX.md) for complete documentation.
+
+### Language Reference
+
 | Document | Description |
 |----------|-------------|
-| [Language Specification](docs/LANGUAGE_SPEC.md) | Complete language syntax and semantics |
-| [Templates](docs/TEMPLATES.md) | Generic programming with templates |
-| [Constraints](docs/CONSTRAINTS.md) | Template constraints system |
-| [Compile-Time Evaluation](docs/COMPILETIME.md) | Compile-time constant evaluation |
-| [Foreign Function Interface](docs/FFI.md) | Foreign function interface system |
-| [Imports](docs/IMPORTS.md) | Imports (#import ...) system |
-| [Advanced Features](docs/ADVANCED_FEATURES.md) | Destructors, native types, syscalls |
-| [Reflection System](docs/REFLECTION_SYSTEM.md) | Runtime type introspection |
-| [Threading](docs/THREADING.md) | Concurrency and synchronization |
-| [Architecture](docs/ARCHITECTURE.md) | Compiler architecture |
-| [Limitations](docs/LIMITATIONS.md) | Known limitations and TODOs |
+| [Syntax](docs/language/SYNTAX.md) | Keywords, operators, statements |
+| [Ownership](docs/language/OWNERSHIP.md) | Memory management with `^`, `&`, `%` |
+| [Classes](docs/language/CLASSES.md) | Class declarations and inheritance |
+| [Structures](docs/language/STRUCTURES.md) | Stack-allocated value types |
+| [Templates](docs/language/TEMPLATES.md) | Generic programming |
+| [Constraints](docs/language/CONSTRAINTS.md) | Template constraints system |
+| [Lambdas](docs/language/LAMBDAS.md) | Anonymous functions and closures |
+| [Compile-Time](docs/language/COMPILETIME.md) | Compile-time evaluation |
+
+### Standard Library
+
+| Document | Description |
+|----------|-------------|
+| [Core Types](docs/stdlib/CORE.md) | Integer, String, Bool, Float, Double |
+| [Collections](docs/stdlib/COLLECTIONS.md) | List, HashMap, Set, Array, Stack, Queue |
+| [Console](docs/stdlib/CONSOLE.md) | Console I/O |
+| [File I/O](docs/stdlib/FILE_IO.md) | File operations |
+| [Math](docs/stdlib/MATH.md) | Mathematical functions |
+
+### Advanced Topics
+
+| Document | Description |
+|----------|-------------|
+| [FFI](docs/advanced/FFI.md) | Foreign function interface |
+| [Native Types](docs/advanced/NATIVE_TYPES.md) | Low-level types and syscalls |
+| [Reflection](docs/advanced/REFLECTION.md) | Runtime type introspection |
+| [Threading](docs/advanced/THREADING.md) | Concurrency and synchronization |
+| [Destructors](docs/advanced/DESTRUCTORS.md) | RAII and resource cleanup |
+
+### Tools & Other
+
+| Document | Description |
+|----------|-------------|
+| [CLI Reference](docs/tools/CLI.md) | Compiler command-line options |
+| [Import System](docs/tools/IMPORTS.md) | Module resolution |
+| [Limitations](docs/LIMITATIONS.md) | Known limitations |
 | [Quick Start](QUICKSTART.md) | Getting started guide |
 | [Contributing](CONTRIBUTING.md) | Contribution guidelines |
-| [Testing](TESTING.md) | Test suite information |
 
 ## Requirements
 
@@ -342,7 +370,7 @@ ctest
 
 ## Known Limitations
 
-See [docs/LIMITATIONS.md](docs/LIMITATIONS.md) for a complete list including:
+See [Limitations](docs/LIMITATIONS.md) for a complete list including:
 - No exception handling system
 - No interface/trait system
 - No operator overloading (use methods like `.add()`)
@@ -355,4 +383,4 @@ This project is licensed under the MIT License - see LICENSE file for details.
 
 ---
 
-**XXML Compiler v2.0**
+**XXML Compiler v2.3.0**

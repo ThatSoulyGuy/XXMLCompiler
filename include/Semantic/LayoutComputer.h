@@ -55,6 +55,7 @@ private:
     const TypeResolutionResult& typeResolution_;
     const SemanticValidationResult& semanticResult_;
     LayoutComputationResult result_;
+    const std::unordered_map<std::string, ClassInfo>* classRegistry_ = nullptr;
 
     // Dependency tracking for layout order
     std::unordered_map<std::string, std::vector<std::string>> dependencies_;
@@ -80,6 +81,7 @@ private:
     size_t getPrimitiveAlignment(const std::string& typeName) const;
     size_t getPointerSize() const { return 8; }  // 64-bit
     size_t getPointerAlignment() const { return 8; }
+    bool isValueType(const std::string& typeName) const;
 
     // Alignment calculation
     size_t alignTo(size_t offset, size_t alignment) const {

@@ -34,6 +34,7 @@ struct ClassInfo {
     bool isTemplate = false;  // Whether this is a template class
     bool isInstantiated = false;  // Whether this is an instantiated template class
     bool isCompiletime = false;  // Whether this is a compile-time class
+    bool isValueType = false;  // Whether this is a value type (Structure, not Class)
     Parser::ClassDecl* astNode = nullptr;  // Optional: only valid for same-module access
 };
 

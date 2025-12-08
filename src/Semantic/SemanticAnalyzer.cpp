@@ -104,6 +104,7 @@ SemanticAnalyzer::SemanticAnalyzer(Core::CompilationContext& context, Common::Er
     intrinsicMethods_["Syscall::string_equals"] = {"NativeType<\"int64\">", Parser::OwnershipType::Owned};
     intrinsicMethods_["Syscall::string_hash"] = {"NativeType<\"int64\">", Parser::OwnershipType::Owned};
     intrinsicMethods_["Syscall::string_charAt"] = {"NativeType<\"cstr\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::string_setCharAt"] = {"None", Parser::OwnershipType::None};
     intrinsicMethods_["Syscall::string_destroy"] = {"None", Parser::OwnershipType::None};
 
     // Syscall - type conversion
@@ -122,6 +123,62 @@ SemanticAnalyzer::SemanticAnalyzer(Core::CompilationContext& context, Common::Er
     intrinsicMethods_["Syscall::reflection_type_getPropertyByName"] = {"NativeType<\"ptr\">", Parser::OwnershipType::Owned};
     intrinsicMethods_["Syscall::reflection_type_getMethodCount"] = {"NativeType<\"int64\">", Parser::OwnershipType::Owned};
     intrinsicMethods_["Syscall::reflection_type_getMethod"] = {"NativeType<\"ptr\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::reflection_type_getInstanceSize"] = {"NativeType<\"int64\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::reflection_type_getMethodByName"] = {"NativeType<\"ptr\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::reflection_getTypeByName"] = {"NativeType<\"ptr\">", Parser::OwnershipType::Owned};
+
+    // Language::Reflection template class methods
+    intrinsicMethods_["Language::Reflection::GetType::get"] = {"Language::Reflection::Type", Parser::OwnershipType::Owned};
+
+    // Language::Reflection::Type class methods (needed because Language:: prefix triggers intrinsic namespace handling)
+    intrinsicMethods_["Language::Reflection::Type::getName"] = {"String", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Language::Reflection::Type::getFullName"] = {"String", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Language::Reflection::Type::getNamespace"] = {"String", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Language::Reflection::Type::isTemplate"] = {"Bool", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Language::Reflection::Type::getTemplateParameterCount"] = {"Integer", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Language::Reflection::Type::getPropertyCount"] = {"Integer", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Language::Reflection::Type::getPropertyAt"] = {"Language::Reflection::PropertyInfo", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Language::Reflection::Type::getProperty"] = {"Language::Reflection::PropertyInfo", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Language::Reflection::Type::getMethodCount"] = {"Integer", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Language::Reflection::Type::getMethodAt"] = {"Language::Reflection::MethodInfo", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Language::Reflection::Type::getMethod"] = {"Language::Reflection::MethodInfo", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Language::Reflection::Type::forName"] = {"Language::Reflection::Type", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Language::Reflection::Type::getInstanceSize"] = {"Integer", Parser::OwnershipType::Owned};
+
+    // Syscall - runtime reflection AnnotationArg methods
+    intrinsicMethods_["Syscall::Language_Reflection_AnnotationArg_getName"] = {"NativeType<\"ptr\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::Language_Reflection_AnnotationArg_getType"] = {"NativeType<\"int64\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::Language_Reflection_AnnotationArg_asInteger"] = {"NativeType<\"int64\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::Language_Reflection_AnnotationArg_asString"] = {"NativeType<\"ptr\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::Language_Reflection_AnnotationArg_asBool"] = {"NativeType<\"int64\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::Language_Reflection_AnnotationArg_asDouble"] = {"NativeType<\"double\">", Parser::OwnershipType::Owned};
+
+    // Syscall - runtime reflection AnnotationInfo methods
+    intrinsicMethods_["Syscall::Language_Reflection_AnnotationInfo_getName"] = {"NativeType<\"ptr\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::Language_Reflection_AnnotationInfo_getArgumentCount"] = {"NativeType<\"int64\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::Language_Reflection_AnnotationInfo_getArgument"] = {"NativeType<\"ptr\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::Language_Reflection_AnnotationInfo_getArgumentByName"] = {"NativeType<\"ptr\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::Language_Reflection_AnnotationInfo_hasArgument"] = {"NativeType<\"int64\">", Parser::OwnershipType::Owned};
+
+    // Syscall - runtime reflection MethodInfo methods
+    intrinsicMethods_["Syscall::reflection_method_getName"] = {"NativeType<\"cstr\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::reflection_method_getReturnType"] = {"NativeType<\"cstr\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::reflection_method_getReturnOwnership"] = {"NativeType<\"int64\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::reflection_method_getParameterCount"] = {"NativeType<\"int64\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::reflection_method_getParameter"] = {"NativeType<\"ptr\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::reflection_method_isStatic"] = {"NativeType<\"int64\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::reflection_method_isConstructor"] = {"NativeType<\"int64\">", Parser::OwnershipType::Owned};
+
+    // Syscall - runtime reflection ParameterInfo methods
+    intrinsicMethods_["Syscall::reflection_parameter_getName"] = {"NativeType<\"cstr\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::reflection_parameter_getTypeName"] = {"NativeType<\"cstr\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::reflection_parameter_getOwnership"] = {"NativeType<\"int64\">", Parser::OwnershipType::Owned};
+
+    // Syscall - runtime reflection PropertyInfo methods
+    intrinsicMethods_["Syscall::reflection_property_getName"] = {"NativeType<\"cstr\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::reflection_property_getTypeName"] = {"NativeType<\"cstr\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::reflection_property_getOwnership"] = {"NativeType<\"int64\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::reflection_property_getOffset"] = {"NativeType<\"int64\">", Parser::OwnershipType::Owned};
 
     // Syscall - annotation processor argument access
     intrinsicMethods_["Syscall::Processor_argGetName"] = {"NativeType<\"ptr\">", Parser::OwnershipType::Owned};
@@ -997,6 +1054,217 @@ void SemanticAnalyzer::visit(Parser::ClassDecl& node) {
     }
 
     // ✅ Phase 5: Restore template context
+    inTemplateDefinition = wasInTemplateDefinition;
+    templateTypeParameters = previousTemplateParams;
+
+    currentClass = previousClass;
+}
+
+void SemanticAnalyzer::visit(Parser::StructureDecl& node) {
+    std::string previousClass = currentClass;
+    currentClass = node.name;
+
+    // Validate annotations on this structure
+    for (auto& annotation : node.annotations) {
+        annotation->accept(*this);
+        validateAnnotationUsage(*annotation, Parser::AnnotationTarget::Classes, node.name, node.location, &node);
+    }
+
+    // Record template structure if it has template parameters
+    if (!node.templateParams.empty()) {
+        std::string qualifiedTemplateName = currentNamespace.empty() ? node.name : currentNamespace + "::" + node.name;
+
+        TemplateClassInfo templateInfo;
+        templateInfo.qualifiedName = qualifiedTemplateName;
+        templateInfo.templateParams = node.templateParams;
+        templateInfo.baseClassName = "";  // Structures don't support inheritance
+        templateInfo.astNode = nullptr;  // No ClassDecl for structures
+
+        templateClasses[qualifiedTemplateName] = templateInfo;
+        if (!currentNamespace.empty()) {
+            templateClasses[node.name] = templateInfo;
+        }
+
+        // Also register in global template registry
+        if (context_) {
+            auto* globalTemplates = context_->getCustomData<std::unordered_map<std::string, TemplateClassInfo>>("globalTemplateClasses");
+            if (!globalTemplates) {
+                context_->setCustomData("globalTemplateClasses", std::unordered_map<std::string, TemplateClassInfo>{});
+                globalTemplates = context_->getCustomData<std::unordered_map<std::string, TemplateClassInfo>>("globalTemplateClasses");
+            }
+            if (globalTemplates) {
+                (*globalTemplates)[qualifiedTemplateName] = templateInfo;
+                if (!currentNamespace.empty()) {
+                    (*globalTemplates)[node.name] = templateInfo;
+                }
+            }
+        }
+    }
+
+    // Define the structure symbol in the CURRENT (parent) scope
+    auto symbol = std::make_unique<Symbol>(
+        node.name,
+        SymbolKind::Class,  // Treat structures as class-like types
+        node.name,
+        Parser::OwnershipType::Owned,
+        node.location
+    );
+    symbolTable_->define(node.name, std::move(symbol));
+
+    // Export the structure if we're at global scope
+    if (symbolTable_->getCurrentScope() == symbolTable_->getGlobalScope()) {
+        symbolTable_->exportSymbol(node.name);
+    }
+
+    // Enter structure scope for processing members
+    symbolTable_->enterScope(node.name);
+
+    // Set template context and register template parameters
+    bool wasInTemplateDefinition = inTemplateDefinition;
+    std::set<std::string> previousTemplateParams = templateTypeParameters;
+
+    if (!node.templateParams.empty()) {
+        inTemplateDefinition = true;
+        for (const auto& templateParam : node.templateParams) {
+            templateTypeParameters.insert(templateParam.name);
+        }
+    }
+
+    // Register template parameters as valid types within this structure scope
+    for (const auto& templateParam : node.templateParams) {
+        auto templateTypeSymbol = std::make_unique<Symbol>(
+            templateParam.name,
+            SymbolKind::Class,
+            templateParam.name,
+            Parser::OwnershipType::Owned,
+            templateParam.location
+        );
+        symbolTable_->define(templateParam.name, std::move(templateTypeSymbol));
+    }
+
+    // Create ClassInfo entry for the structure (with isValueType = true)
+    std::string qualifiedStructName = currentNamespace.empty() ? node.name : currentNamespace + "::" + node.name;
+    ClassInfo structInfo;
+    structInfo.qualifiedName = qualifiedStructName;
+    structInfo.baseClassName = "";  // Structures don't support inheritance
+    structInfo.templateParams = node.templateParams;
+    structInfo.isTemplate = !node.templateParams.empty();
+    structInfo.isCompiletime = node.isCompiletime;
+    structInfo.isValueType = true;  // Key difference from Class!
+    structInfo.astNode = nullptr;  // No ClassDecl for structures
+
+    // Collect methods and properties by processing sections
+    for (auto& section : node.sections) {
+        for (auto& decl : section->declarations) {
+            if (auto* methodDecl = dynamic_cast<Parser::MethodDecl*>(decl.get())) {
+                // Register template methods
+                if (!methodDecl->templateParams.empty()) {
+                    std::string methodKey = qualifiedStructName + "::" + methodDecl->name;
+                    TemplateMethodInfo methodInfo;
+                    methodInfo.className = qualifiedStructName;
+                    methodInfo.methodName = methodDecl->name;
+                    if (methodDecl->returnType) {
+                        methodInfo.returnTypeName = methodDecl->returnType->typeName;
+                    }
+                    methodInfo.templateParams = methodDecl->templateParams;
+                    methodInfo.callsInBody = extractCallsFromMethodBody(methodDecl, methodDecl->templateParams);
+                    methodInfo.astNode = methodDecl;
+                    templateMethods[methodKey] = methodInfo;
+                }
+
+                MethodInfo methodInfo;
+                std::string fullReturnType = methodDecl->returnType->typeName;
+                if (!methodDecl->returnType->templateArgs.empty()) {
+                    fullReturnType += "<";
+                    for (size_t i = 0; i < methodDecl->returnType->templateArgs.size(); ++i) {
+                        if (i > 0) fullReturnType += ", ";
+                        fullReturnType += methodDecl->returnType->templateArgs[i].typeArg;
+                    }
+                    fullReturnType += ">";
+                }
+                methodInfo.returnType = fullReturnType;
+                methodInfo.returnOwnership = methodDecl->returnType->ownership;
+                methodInfo.isConstructor = (methodDecl->name == "Constructor");
+                methodInfo.isCompiletime = methodDecl->isCompiletime;
+                for (auto& param : methodDecl->parameters) {
+                    std::string fullParamType = param->type->typeName;
+                    if (!param->type->templateArgs.empty()) {
+                        fullParamType += "<";
+                        for (size_t i = 0; i < param->type->templateArgs.size(); ++i) {
+                            if (i > 0) fullParamType += ", ";
+                            fullParamType += param->type->templateArgs[i].typeArg;
+                        }
+                        fullParamType += ">";
+                    }
+                    methodInfo.parameters.push_back({fullParamType, param->type->ownership});
+                }
+                structInfo.methods[methodDecl->name] = methodInfo;
+            } else if (auto* propDecl = dynamic_cast<Parser::PropertyDecl*>(decl.get())) {
+                structInfo.properties[propDecl->name] = {propDecl->type->typeName, propDecl->type->ownership};
+            } else if (auto* ctorDecl = dynamic_cast<Parser::ConstructorDecl*>(decl.get())) {
+                MethodInfo methodInfo;
+                methodInfo.returnType = node.name;
+                methodInfo.returnOwnership = Parser::OwnershipType::Owned;
+                methodInfo.isConstructor = true;
+                methodInfo.isCompiletime = ctorDecl->isCompiletime;
+                for (auto& param : ctorDecl->parameters) {
+                    methodInfo.parameters.push_back({param->type->typeName, param->type->ownership});
+                }
+                structInfo.methods["Constructor"] = methodInfo;
+            }
+        }
+    }
+
+    // Register the structure in the registry
+    classRegistry_[qualifiedStructName] = structInfo;
+    if (!currentNamespace.empty()) {
+        classRegistry_[node.name] = structInfo;
+    }
+
+    // Register in global registry
+    if (context_) {
+        auto* globalRegistry = context_->getCustomData<std::unordered_map<std::string, ClassInfo>>("globalClassRegistry");
+        if (!globalRegistry) {
+            context_->setCustomData("globalClassRegistry", std::unordered_map<std::string, ClassInfo>{});
+            globalRegistry = context_->getCustomData<std::unordered_map<std::string, ClassInfo>>("globalClassRegistry");
+        }
+        if (globalRegistry) {
+            (*globalRegistry)[qualifiedStructName] = structInfo;
+            if (!currentNamespace.empty()) {
+                (*globalRegistry)[node.name] = structInfo;
+            }
+        }
+    }
+
+    // First pass - Define all method symbols before processing bodies
+    for (auto& section : node.sections) {
+        for (auto& decl : section->declarations) {
+            if (auto* methodDecl = dynamic_cast<Parser::MethodDecl*>(decl.get())) {
+                Symbol* existing = symbolTable_->getCurrentScope()->resolveLocal(methodDecl->name);
+                if (!existing) {
+                    auto symbol = std::make_unique<Symbol>(
+                        methodDecl->name,
+                        SymbolKind::Method,
+                        methodDecl->returnType->typeName,
+                        methodDecl->returnType->ownership,
+                        methodDecl->location
+                    );
+                    symbolTable_->define(methodDecl->name, std::move(symbol));
+                }
+            }
+        }
+    }
+
+    // Process access sections
+    for (auto& section : node.sections) {
+        section->accept(*this);
+    }
+
+    if (symbolTable_) {
+        symbolTable_->exitScope();
+    }
+
+    // Restore template context
     inTemplateDefinition = wasInTemplateDefinition;
     templateTypeParameters = previousTemplateParams;
 
@@ -2593,6 +2861,36 @@ void SemanticAnalyzer::visit(Parser::CallExpr& node) {
             }
             return;
         }
+
+        // Handle implicit this method calls: bare method name like getReturnType()
+        // when we're inside a class context
+        if (className.empty() && !methodName.empty() && !currentClass.empty()) {
+            // This is an implicit this.methodName() call
+            MethodInfo* method = findMethod(currentClass, methodName);
+
+            if (method) {
+                // Found the method in current class - register return type
+                registerExpressionType(&node, method->returnType, method->returnOwnership);
+                return;
+            }
+
+            // Also check if it's a method call that needs to be validated at instantiation time
+            if (inTemplateDefinition) {
+                registerExpressionType(&node, DEFERRED_TYPE, Parser::OwnershipType::Owned);
+                return;
+            }
+
+            // Method not found in current class
+            if (enableValidation) {
+                errorReporter.reportError(
+                    Common::ErrorCode::UndeclaredIdentifier,
+                    "Method '" + methodName + "' not found in class '" + currentClass + "'",
+                    node.location
+                );
+            }
+            registerExpressionType(&node, UNKNOWN_TYPE, Parser::OwnershipType::Owned);
+            return;
+        }
     } else if (auto* memberExpr = dynamic_cast<Parser::MemberAccessExpr*>(node.callee.get())) {
         // obj.method() call
         std::string objectType = getExpressionType(memberExpr->object.get());
@@ -3548,8 +3846,9 @@ bool SemanticAnalyzer::isTemplateClass(const std::string& className) {
     }
 
     // Check global registry for cross-module templates
+    // FIXED: Use TemplateClassInfo instead of Parser::ClassDecl* to match recordTemplateInstantiation
     if (context_) {
-        auto* globalTemplates = context_->getCustomData<std::unordered_map<std::string, Parser::ClassDecl*>>("globalTemplateClasses");
+        auto* globalTemplates = context_->getCustomData<std::unordered_map<std::string, TemplateClassInfo>>("globalTemplateClasses");
         if (globalTemplates && globalTemplates->find(className) != globalTemplates->end()) {
             return true;
         }
@@ -5051,6 +5350,13 @@ void SemanticAnalyzer::visit(Parser::ConstraintDecl& node) {
 
     // Check for duplicate constraint names
     if (constraintRegistry_.find(node.name) != constraintRegistry_.end()) {
+        // During validation pass (second pass in runPipeline), silently skip
+        // re-registration - this is normal during two-pass analysis
+        if (enableValidation) {
+            return;  // Silently skip - same constraint being re-analyzed
+        }
+        // Only report error during registration pass (first pass) when this is
+        // a true duplicate within the same file
         errorReporter.reportError(
             Common::ErrorCode::DuplicateSymbol,
             "Constraint '" + node.name + "' is already defined",

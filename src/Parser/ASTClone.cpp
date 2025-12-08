@@ -1,6 +1,7 @@
 // AST cloning implementations for template instantiation
 #include "../../include/Parser/AST.h"
 #include <stdexcept>
+#include <iostream>
 
 namespace XXML {
 namespace Parser {
@@ -296,7 +297,7 @@ std::unique_ptr<ASTNode> ReturnStmt::clone() const {
 }
 
 std::unique_ptr<Statement> ReturnStmt::cloneStmt() const {
-    return std::make_unique<ReturnStmt>(value->cloneExpr(), location);
+    return std::make_unique<ReturnStmt>(value ? value->cloneExpr() : nullptr, location);
 }
 
 std::unique_ptr<ASTNode> IfStmt::clone() const {
@@ -506,6 +507,28 @@ std::unique_ptr<Declaration> ClassDecl::cloneDecl() const {
         templateParams,
         isFinal,
         baseClass,
+        location
+    );
+
+    // Clone sections
+    for (const auto& section : sections) {
+        cloned->sections.push_back(cloneAccessSection(*section));
+    }
+
+    // Copy compile-time flag
+    cloned->isCompiletime = isCompiletime;
+
+    return cloned;
+}
+
+std::unique_ptr<ASTNode> StructureDecl::clone() const {
+    return cloneDecl();
+}
+
+std::unique_ptr<Declaration> StructureDecl::cloneDecl() const {
+    auto cloned = std::make_unique<StructureDecl>(
+        name,
+        templateParams,
         location
     );
 

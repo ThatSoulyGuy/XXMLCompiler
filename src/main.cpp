@@ -381,6 +381,12 @@ int main(int argc, char* argv[]) {
         std::vector<std::string> cycle;
         if (depGraph.hasCycle(cycle)) {
             std::cerr << "Error: Circular dependency detected!\n";
+            std::cerr << "  Cycle: ";
+            for (size_t i = 0; i < cycle.size(); ++i) {
+                if (i > 0) std::cerr << " -> ";
+                std::cerr << cycle[i];
+            }
+            std::cerr << std::endl;
             return 1;
         }
 
@@ -391,6 +397,9 @@ int main(int argc, char* argv[]) {
         std::map<std::string, std::unique_ptr<XXML::Semantic::SemanticAnalyzer>> analyzerMap;
 
         // Phase 1: Registration
+        // ✅ FIXED: Share templates progressively so imported templates are available
+        std::unordered_map<std::string, XXML::Semantic::SemanticAnalyzer::TemplateClassInfo> allTemplateClasses;
+
         std::cout << "Phase 1: Registering types...\n";
         for (const auto& moduleName : compilationOrder) {
             auto it = moduleMap.find(moduleName);
@@ -399,10 +408,18 @@ int main(int argc, char* argv[]) {
                 errorReporter.setCurrentFile(it->second->filePath, it->second->isSTLFile);
                 auto analyzer = std::make_unique<XXML::Semantic::SemanticAnalyzer>(compilationContext, errorReporter);
                 analyzer->setValidationEnabled(false);
+                // Register templates from previously processed modules BEFORE analysis
+                for (const auto& [name, templateInfo] : allTemplateClasses) {
+                    analyzer->registerTemplateClass(name, templateInfo);
+                }
                 analyzer->analyze(*it->second->ast);
                 if (errorReporter.hasErrors()) {
                     errorReporter.printErrors();
                     return 1;
+                }
+                // Collect templates from this module for subsequent modules
+                for (const auto& [name, templateInfo] : analyzer->getTemplateClasses()) {
+                    allTemplateClasses[name] = templateInfo;
                 }
                 analyzerMap[moduleName] = std::move(analyzer);
             }
@@ -412,20 +429,18 @@ int main(int argc, char* argv[]) {
         errorReporter.setCurrentFile(mainModule->filePath, mainModule->isSTLFile);
         auto mainAnalyzer = std::make_unique<XXML::Semantic::SemanticAnalyzer>(compilationContext, errorReporter);
         mainAnalyzer->setValidationEnabled(false);
+        // Register templates from all imported modules BEFORE analyzing main module
+        for (const auto& [name, templateInfo] : allTemplateClasses) {
+            mainAnalyzer->registerTemplateClass(name, templateInfo);
+        }
         mainAnalyzer->analyze(*mainModule->ast);
         if (errorReporter.hasErrors()) {
             errorReporter.printErrors();
             return 1;
         }
 
-        // Collect template classes
+        // Templates are already collected in allTemplateClasses
         // ✅ SAFE: Use TemplateClassInfo instead of raw ClassDecl pointers
-        std::unordered_map<std::string, XXML::Semantic::SemanticAnalyzer::TemplateClassInfo> allTemplateClasses;
-        for (const auto& [moduleName, analyzer] : analyzerMap) {
-            for (const auto& [name, templateInfo] : analyzer->getTemplateClasses()) {
-                allTemplateClasses[name] = templateInfo;
-            }
-        }
 
         // Collect annotations from all modules (needed for @annotations defined in library files)
         std::unordered_map<std::string, XXML::Semantic::SemanticAnalyzer::AnnotationInfo> allAnnotations;

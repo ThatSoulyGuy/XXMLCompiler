@@ -2,6 +2,10 @@
 // Hash table with separate chaining for collision resolution
 // Requires K to implement hash() and equals() methods
 
+#import Language::Collections::HashMapIterator;
+#import Language::Collections::KeyValuePair;
+#import Language::Collections::List;
+
 [ Namespace <Language::Collections>
 	[ Class <HashMap> <K Constrains (Hashable, Equatable), V Constrains None> Final Extends None
 		[ Private <>
@@ -81,14 +85,20 @@
 				Instantiate NativeType<"int64">^ As <i> = 0;
 				While (i < bucketCount) -> {
 					Instantiate NativeType<"ptr">^ As <keyElemOffset> = keyData + (i * 8);
+					// Read key but null it after use to prevent RAII from freeing HashMap's data
 					Instantiate K^ As <existingKey> = Syscall::ptr_read(keyElemOffset);
 
 					Instantiate Bool^ As <keysEqual> = existingKey.equals(key);
+
+					// Null out existingKey to prevent RAII from freeing HashMap's internal data
+					Instantiate NativeType<"ptr">^ As <nullPtr1> = 0;
+					Run Syscall::memcpy(&existingKey, &nullPtr1, 8);
+
 					If (keysEqual) -> {
 						// Key exists - update value
 						Instantiate NativeType<"ptr">^ As <valueElemOffset> = valueData + (i * 8);
 						Run Syscall::ptr_write(valueElemOffset, value);
-						Return None::Constructor();
+						Return;
 					}
 
 					Set i = i + 1;
@@ -136,7 +146,8 @@
 			}
 
 			// Get value by key, returns null if not found
-			Method <get> Returns V^ Parameters (Parameter <key> Types K^) Do
+			// Note: Returns a reference to the stored value, NOT a copy
+			Method <get> Returns V& Parameters (Parameter <key> Types K^) Do
 			{
 				// Get hash and bucket index
 				Instantiate NativeType<"int64">^ As <hashVal> = key.hash();
@@ -164,9 +175,15 @@
 				Instantiate NativeType<"int64">^ As <i> = 0;
 				While (i < bucketCount) -> {
 					Instantiate NativeType<"ptr">^ As <keyElemOffset> = keyData + (i * 8);
+					// Read key but null it after use to prevent RAII from freeing HashMap's data
 					Instantiate K^ As <existingKey> = Syscall::ptr_read(keyElemOffset);
 
 					Instantiate Bool^ As <keysEqual> = existingKey.equals(key);
+
+					// Null out existingKey to prevent RAII from freeing HashMap's internal data
+					Instantiate NativeType<"ptr">^ As <nullPtr1> = 0;
+					Run Syscall::memcpy(&existingKey, &nullPtr1, 8);
+
 					If (keysEqual) -> {
 						// Found - return value
 						Instantiate NativeType<"ptr">^ As <valueElemOffset> = valueData + (i * 8);
@@ -207,9 +224,15 @@
 				Instantiate NativeType<"int64">^ As <i> = 0;
 				While (i < bucketCount) -> {
 					Instantiate NativeType<"ptr">^ As <keyElemOffset> = keyData + (i * 8);
+					// Read key but null it after use to prevent RAII from freeing HashMap's data
 					Instantiate K^ As <existingKey> = Syscall::ptr_read(keyElemOffset);
 
 					Instantiate Bool^ As <keysEqual> = existingKey.equals(key);
+
+					// Null out existingKey to prevent RAII from freeing HashMap's internal data
+					Instantiate NativeType<"ptr">^ As <nullPtr1> = 0;
+					Run Syscall::memcpy(&existingKey, &nullPtr1, 8);
+
 					If (keysEqual) -> {
 						Return Bool::Constructor(true);
 					}
@@ -248,9 +271,15 @@
 				Instantiate NativeType<"int64">^ As <i> = 0;
 				While (i < bucketCount) -> {
 					Instantiate NativeType<"ptr">^ As <keyElemOffset> = keyData + (i * 8);
+					// Read key but null it after use to prevent RAII from freeing HashMap's data
 					Instantiate K^ As <existingKey> = Syscall::ptr_read(keyElemOffset);
 
 					Instantiate Bool^ As <keysEqual> = existingKey.equals(key);
+
+					// Null out existingKey to prevent RAII from freeing HashMap's internal data
+					Instantiate NativeType<"ptr">^ As <nullPtr1> = 0;
+					Run Syscall::memcpy(&existingKey, &nullPtr1, 8);
+
 					If (keysEqual) -> {
 						// Found - shift remaining elements
 						Instantiate NativeType<"int64">^ As <j> = i;
@@ -262,13 +291,13 @@
 
 							Instantiate NativeType<"ptr">^ As <destKeyOffset> = keyData + (j * 8);
 							Instantiate NativeType<"ptr">^ As <srcKeyOffset> = keyData + (nextJ * 8);
-							Instantiate K^ As <nextKey> = Syscall::ptr_read(srcKeyOffset);
-							Run Syscall::ptr_write(destKeyOffset, nextKey);
+							Instantiate NativeType<"ptr">^ As <nextKeyPtr> = Syscall::ptr_read(srcKeyOffset);
+							Run Syscall::ptr_write(destKeyOffset, nextKeyPtr);
 
 							Instantiate NativeType<"ptr">^ As <destValueOffset> = valueData + (j * 8);
 							Instantiate NativeType<"ptr">^ As <srcValueOffset> = valueData + (nextJ * 8);
-							Instantiate V^ As <nextValue> = Syscall::ptr_read(srcValueOffset);
-							Run Syscall::ptr_write(destValueOffset, nextValue);
+							Instantiate NativeType<"ptr">^ As <nextValuePtr> = Syscall::ptr_read(srcValueOffset);
+							Run Syscall::ptr_write(destValueOffset, nextValuePtr);
 
 							Set j = nextJ;
 						}
@@ -315,8 +344,8 @@
 				Set count = zero;
 			}
 
-			// Free the map memory
-			Method <dispose> Returns None Parameters () Do
+			// Free the map memory - called automatically by RAII
+			Destructor Parameters () ->
 			{
 				// Free each bucket's key and value arrays
 				Instantiate NativeType<"int64">^ As <i> = 0;
@@ -350,7 +379,38 @@
 				If (bucketCapacities != 0) -> {
 					Run Syscall::free(bucketCapacities);
 				}
-				// Note: Not resetting properties to null/zero as object should not be used after dispose
+				// Note: Not resetting properties to null/zero as object should not be used after destruction
+			}
+
+			// Iterator support - C++ style begin
+			// Returns an iterator pointing to the first key-value pair
+			Method <begin> Returns HashMapIterator<K, V>^ Parameters () Do
+			{
+				Return HashMapIterator@K, V::Constructor(bucketKeys, bucketValues, bucketCounts, numBuckets, count);
+			}
+
+			// Get all keys as a List
+			Method <keys> Returns List<K>^ Parameters () Do
+			{
+				Instantiate List<K>^ As <keyList> = List@K::Constructor();
+				Instantiate HashMapIterator<K, V>^ As <iter> = this.begin();
+				While (iter.hasNext()) -> {
+					Instantiate KeyValuePair<K, V>^ As <pair> = iter.next();
+					Run keyList.add(pair.key());
+				}
+				Return keyList;
+			}
+
+			// Get all values as a List
+			Method <values> Returns List<V>^ Parameters () Do
+			{
+				Instantiate List<V>^ As <valueList> = List@V::Constructor();
+				Instantiate HashMapIterator<K, V>^ As <iter> = this.begin();
+				While (iter.hasNext()) -> {
+					Instantiate KeyValuePair<K, V>^ As <pair> = iter.next();
+					Run valueList.add(pair.value());
+				}
+				Return valueList;
 			}
 		]
 	]

@@ -1,4 +1,5 @@
 #include "Backends/Codegen/TemplateCodegen/ASTCloner.h"
+#include <iostream>
 
 namespace XXML::Backends::Codegen {
 
@@ -60,6 +61,20 @@ std::unique_ptr<Parser::ClassDecl> ASTCloner::cloneClass(
                 auto clonedMethod = cloneMethod(method, typeMap);
                 if (clonedMethod) newSection->declarations.push_back(std::move(clonedMethod));
             }
+            else if (auto* dtor = dynamic_cast<Parser::DestructorDecl*>(decl.get())) {
+                // Clone destructor
+                std::vector<std::unique_ptr<Parser::Statement>> clonedBody;
+                for (const auto& stmt : dtor->body) {
+                    auto clonedStmt = cloneStmt(stmt.get(), typeMap);
+                    if (clonedStmt) clonedBody.push_back(std::move(clonedStmt));
+                }
+
+                auto clonedDtor = std::make_unique<Parser::DestructorDecl>(
+                    std::move(clonedBody),
+                    dtor->location
+                );
+                newSection->declarations.push_back(std::move(clonedDtor));
+            }
         }
 
         instantiated->sections.push_back(std::move(newSection));
@@ -97,6 +112,12 @@ std::unique_ptr<Parser::TypeRef> ASTCloner::cloneType(
             auto clonedExpr = cloneExpr(arg.valueArg.get(), typeMap);
             clonedArgs.emplace_back(std::move(clonedExpr), arg.location);
         }
+    }
+
+    // Record nested template instantiation if this type has template arguments
+    // This ensures types like ListIterator<Integer> are also instantiated
+    if (!clonedArgs.empty()) {
+        recordNestedInstantiation(typeName, clonedArgs);
     }
 
     return std::make_unique<Parser::TypeRef>(
@@ -352,8 +373,51 @@ std::unique_ptr<Parser::Expression> ASTCloner::cloneExpr(
             }
         }
 
-        // Not a template parameter - keep the identifier as-is
-        return std::make_unique<Parser::IdentifierExpr>(ident->name, ident->location);
+        // Check if the identifier contains template arguments that need substitution
+        // e.g., "ListIterator<T>" -> "ListIterator<Integer>" when T maps to Integer
+        std::string identName = ident->name;
+        size_t ltPos = identName.find('<');
+        if (ltPos != std::string::npos) {
+            size_t gtPos = identName.rfind('>');
+            if (gtPos != std::string::npos && gtPos > ltPos) {
+                // Extract template arguments and substitute
+                std::string baseName = identName.substr(0, ltPos);
+                std::string argsStr = identName.substr(ltPos + 1, gtPos - ltPos - 1);
+
+                // Parse and substitute template arguments (handles comma-separated args)
+                std::string newArgs;
+                size_t argStart = 0;
+                int depth = 0;
+                for (size_t i = 0; i <= argsStr.length(); ++i) {
+                    bool atEnd = (i == argsStr.length());
+                    char c = atEnd ? ',' : argsStr[i];
+
+                    if (c == '<') depth++;
+                    else if (c == '>') depth--;
+                    else if ((c == ',' && depth == 0) || atEnd) {
+                        std::string arg = argsStr.substr(argStart, i - argStart);
+                        // Trim whitespace
+                        while (!arg.empty() && (arg.front() == ' ' || arg.front() == '\t')) arg.erase(0, 1);
+                        while (!arg.empty() && (arg.back() == ' ' || arg.back() == '\t')) arg.pop_back();
+
+                        // Substitute if this arg is a template parameter
+                        auto argIt = typeMap.find(arg);
+                        if (argIt != typeMap.end()) {
+                            arg = argIt->second;
+                        }
+
+                        if (!newArgs.empty()) newArgs += ", ";
+                        newArgs += arg;
+                        argStart = i + 1;
+                    }
+                }
+
+                identName = baseName + "<" + newArgs + ">";
+            }
+        }
+
+        // Return identifier with potentially substituted template args
+        return std::make_unique<Parser::IdentifierExpr>(identName, ident->location);
     }
     if (auto* call = dynamic_cast<const Parser::CallExpr*>(expr)) {
         // Check for __typename intrinsic - replaces __typename(T) with the actual type name string
@@ -462,6 +526,37 @@ std::unique_ptr<Parser::LambdaExpr> ASTCloner::cloneLambda(
     // Don't copy templateParams - the cloned lambda is a concrete instantiation
 
     return cloned;
+}
+
+void ASTCloner::recordNestedInstantiation(const std::string& typeName,
+                                           const std::vector<Parser::TemplateArgument>& args) {
+    // Skip built-in types that don't need instantiation
+    if (typeName == "Integer" || typeName == "Float" || typeName == "Bool" ||
+        typeName == "String" || typeName == "None" || typeName == "NativeType") {
+        return;
+    }
+
+    // Check if any argument is still a template parameter (contains only alphanumeric and _)
+    // These are unsubstituted template parameters like T, K, V
+    for (const auto& arg : args) {
+        if (arg.kind == Parser::TemplateArgument::Kind::Type) {
+            // Simple heuristic: single uppercase letter or common param names are template params
+            const std::string& typeArg = arg.typeArg;
+            if (typeArg.length() == 1 && std::isupper(typeArg[0])) {
+                return; // Still has unsubstituted template parameter
+            }
+            if (typeArg == "K" || typeArg == "V" || typeArg == "T" || typeArg == "U" ||
+                typeArg == "Key" || typeArg == "Value" || typeArg == "Element") {
+                return; // Common template parameter names
+            }
+        }
+    }
+
+    // Record this instantiation
+    NestedTemplateInstantiation inst;
+    inst.templateName = typeName;
+    inst.arguments = args;
+    nestedInstantiations_.insert(inst);
 }
 
 } // namespace XXML::Backends::Codegen

@@ -179,6 +179,16 @@ void PreambleGen::emitIntegerOperations(std::stringstream& out) const {
     out << "declare ptr @Integer_shiftRight(ptr, ptr)\n";
     // Conversion
     out << "declare ptr @Integer_toString(ptr)\n";
+    // Hash (for Hashable interface - used by HashMap)
+    // Returns absolute value of the integer as the hash code
+    out << "define i64 @Integer_hash(ptr %this) {\n";
+    out << "  %val_ptr = getelementptr inbounds %Integer, ptr %this, i32 0, i32 0\n";
+    out << "  %val = load i64, ptr %val_ptr, align 8\n";
+    out << "  %is_neg = icmp slt i64 %val, 0\n";
+    out << "  %neg_val = sub i64 0, %val\n";
+    out << "  %result = select i1 %is_neg, i64 %neg_val, i64 %val\n";
+    out << "  ret i64 %result\n";
+    out << "}\n";
     // Assignment operators
     out << "declare ptr @Integer_addAssign(ptr, ptr)\n";
     out << "declare ptr @Integer_subtractAssign(ptr, ptr)\n";
@@ -224,6 +234,9 @@ void PreambleGen::emitStringOperations(std::stringstream& out) const {
     out << "declare i1 @String_equals(ptr, ptr)\n";
     out << "declare i1 @String_isEmpty(ptr)\n";
     out << "declare void @String_destroy(ptr)\n";
+    out << "declare ptr @String_copy(ptr)\n";
+    out << "declare ptr @String_charAt(ptr, ptr)\n";
+    out << "declare void @String_setCharAt(ptr, ptr, ptr)\n";
     // Object_append: wrapper for String_append when type resolution falls back to Object
     out << "define ptr @Object_append(ptr %this, ptr %other) {\n";
     out << "  %result = tail call ptr @String_append(ptr %this, ptr %other)\n";
@@ -430,6 +443,13 @@ void PreambleGen::emitUtilityFunctions(std::stringstream& out) const {
     out << "declare ptr @xxml_string_create(ptr)\n";
     out << "declare ptr @xxml_string_concat(ptr, ptr)\n";
     out << "declare i64 @xxml_string_hash(ptr)\n";
+    out << "declare ptr @xxml_string_cstr(ptr)\n";
+    out << "declare i64 @xxml_string_length(ptr)\n";
+    out << "declare ptr @xxml_string_copy(ptr)\n";
+    out << "declare i64 @xxml_string_equals(ptr, ptr)\n";
+    out << "declare ptr @xxml_string_charAt(ptr, i64)\n";
+    out << "declare void @xxml_string_setCharAt(ptr, i64, ptr)\n";
+    out << "declare void @xxml_string_destroy(ptr)\n";
     out << "declare i64 @xxml_ptr_is_null(ptr)\n";
     out << "declare ptr @xxml_ptr_null()\n";
     out << "\n";

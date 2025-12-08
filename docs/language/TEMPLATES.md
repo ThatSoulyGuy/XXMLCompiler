@@ -727,8 +727,29 @@ Instantiate List@Integer^ As <list> = List<Integer>::Constructor();
 ]
 ```
 
+## Template Structures
+
+Structures also support template parameters with the same syntax as classes:
+
+```xxml
+[ Structure <Pair> <T Constrains None, U Constrains None>
+    [ Public <>
+        Property <first> Types T^;
+        Property <second> Types U^;
+
+        Constructor Parameters (Parameter <f> Types T%, Parameter <s> Types U%) -> {
+            Set first = f;
+            Set second = s;
+        }
+    ]
+]
+```
+
+See [Structures](STRUCTURES.md) for complete documentation on stack-allocated value types.
+
 ## See Also
 
+- [Structures](STRUCTURES.md) - Stack-allocated value types with templates
 - [CONSTRAINTS.md](CONSTRAINTS.md) - Template constraints
 - [LANGUAGE_SPEC.md](LANGUAGE_SPEC.md) - Complete language specification
 - [ADVANCED_FEATURES.md](ADVANCED_FEATURES.md) - Advanced language features

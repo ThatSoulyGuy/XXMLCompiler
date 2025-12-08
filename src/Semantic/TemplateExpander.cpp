@@ -1,6 +1,7 @@
 #include "../../include/Semantic/TemplateExpander.h"
 #include "../../include/Semantic/SemanticAnalyzer.h"
 #include <sstream>
+#include <iostream>
 
 namespace XXML {
 namespace Semantic {
@@ -230,7 +231,9 @@ std::unique_ptr<Parser::ClassDecl> TemplateExpander::cloneClassWithSubstitution(
     Parser::ClassDecl* original,
     const std::unordered_map<std::string, std::string>& substitutions) {
 
-    if (!original) return nullptr;
+    if (!original) {
+        return nullptr;
+    }
 
     // Clone the class declaration
     auto cloned = std::unique_ptr<Parser::ClassDecl>(

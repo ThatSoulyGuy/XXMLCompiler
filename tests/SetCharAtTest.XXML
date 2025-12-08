@@ -1,0 +1,30 @@
+#import Language::Core;
+
+[ Entrypoint
+{
+    Run Console::printLine(String::Constructor("=== SetCharAt Test ==="));
+
+    // Create a test string
+    Instantiate String^ As <str> = String::Constructor("Hello World");
+    Run Console::print(String::Constructor("Original: "));
+    Run Console::printLine(str.copy());
+
+    // Set character at index 0 to 'J'
+    Run str.setCharAt(Integer::Constructor(0), String::Constructor("J"));
+    Run Console::print(String::Constructor("After setCharAt(0, 'J'): "));
+    Run Console::printLine(str.copy());
+
+    // Set character at index 6 to 'P'
+    Run str.setCharAt(Integer::Constructor(6), String::Constructor("P"));
+    Run Console::print(String::Constructor("After setCharAt(6, 'P'): "));
+    Run Console::printLine(str.copy());
+
+    // Get and display a character
+    Instantiate String^ As <ch> = str.charAt(Integer::Constructor(0));
+    Run Console::print(String::Constructor("charAt(0) = "));
+    Run Console::printLine(ch);
+
+    Run Console::printLine(String::Constructor("=== Done ==="));
+    Exit(0);
+}
+]

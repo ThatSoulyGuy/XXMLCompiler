@@ -43,6 +43,7 @@ void DestructorDecl::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void MethodDecl::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void AccessSection::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void ClassDecl::accept(ASTVisitor& visitor) { visitor.visit(*this); }
+void StructureDecl::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void NativeStructureDecl::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void CallbackTypeDecl::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void EnumValueDecl::accept(ASTVisitor& visitor) { visitor.visit(*this); }

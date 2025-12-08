@@ -27,6 +27,7 @@ public:
 
     // ClassCodegen.cpp
     virtual void visitClass(Parser::ClassDecl* decl);
+    virtual void visitStructure(Parser::StructureDecl* decl);
     virtual void visitNativeStruct(Parser::NativeStructureDecl* decl);
 
     // ConstructorCodegen.cpp

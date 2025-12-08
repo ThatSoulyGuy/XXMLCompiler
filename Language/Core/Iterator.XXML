@@ -1,0 +1,45 @@
+// XXML Standard Library - Iterator Constraint
+// Types that satisfy this constraint can be used as forward iterators
+// Similar to C++ InputIterator/ForwardIterator concepts
+
+[ Namespace <Language::Core>
+    // Basic forward iterator - can traverse a collection once
+    [ Constraint <Iterator> <T Constrains None, Element Constrains None> (T iter)
+        // Returns true if there are more elements to iterate
+        Require (F(Bool^)(hasNext)(*) On iter)
+
+        // Advances the iterator and returns the next element
+        // Behavior is undefined if hasNext() returns false
+        Require (F(Element^)(next)(*) On iter)
+
+        // Returns the current element without advancing
+        Require (F(Element^)(current)(*) On iter)
+    ]
+
+    // Bidirectional iterator - can traverse forwards and backwards
+    [ Constraint <BidirectionalIterator> <T Constrains None, Element Constrains None> (T iter)
+        // Forward traversal (inherited from Iterator concept)
+        Require (F(Bool^)(hasNext)(*) On iter)
+        Require (F(Element^)(next)(*) On iter)
+        Require (F(Element^)(current)(*) On iter)
+
+        // Backward traversal
+        Require (F(Bool^)(hasPrevious)(*) On iter)
+        Require (F(Element^)(previous)(*) On iter)
+    ]
+
+    // Random access iterator - supports O(1) positional access
+    [ Constraint <RandomAccessIterator> <T Constrains None, Element Constrains None> (T iter)
+        // Forward/backward traversal
+        Require (F(Bool^)(hasNext)(*) On iter)
+        Require (F(Element^)(next)(*) On iter)
+        Require (F(Element^)(current)(*) On iter)
+        Require (F(Bool^)(hasPrevious)(*) On iter)
+        Require (F(Element^)(previous)(*) On iter)
+
+        // Random access operations
+        Require (F(None)(advance)(Integer^) On iter)
+        Require (F(Element^)(at)(Integer^) On iter)
+        Require (F(Integer^)(index)(*) On iter)
+    ]
+]

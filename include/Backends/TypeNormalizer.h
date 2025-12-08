@@ -10,6 +10,9 @@ namespace Backends {
 /**
  * Normalizes type names for consistent handling.
  * Provides utilities for ownership markers, type qualifiers, name mangling, and NativeType parsing.
+ *
+ * NOTE: Name mangling functions delegate to NameMangler for consistency.
+ * New code should use NameMangler directly for mangling operations.
  */
 class TypeNormalizer {
 public:
@@ -56,11 +59,14 @@ public:
     static std::string getQualifier(std::string_view typeName);
 
     // ========== Name Mangling for LLVM ==========
+    // NOTE: These delegate to NameMangler. Use NameMangler directly for new code.
 
     /// Mangle a name for LLVM (replaces ::, <, >, comma, space with underscores)
+    /// @deprecated Use NameMangler::mangleForLLVM instead
     static std::string mangleForLLVM(std::string_view name);
 
     /// Attempt to demangle an LLVM-mangled name (basic reversal)
+    /// @deprecated Use NameMangler::demangleFromLLVM instead
     static std::string demangleFromLLVM(std::string_view mangledName);
 
     // ========== NativeType Format Utilities ==========

@@ -1,0 +1,123 @@
+// Generic SetIterator<T> - Forward iterator for Set<T>
+// Satisfies the Iterator constraint
+// Iterates over all elements in the hash set across all buckets
+
+[ Namespace <Language::Collections>
+	[ Class <SetIterator> <T Constrains None> Final Extends None
+
+		[ Private <>
+			// Pointer to buckets array
+			Property <bucketsPtr> Types NativeType<"ptr">^;
+			// Pointer to bucket counts array
+			Property <countsPtr> Types NativeType<"ptr">^;
+			// Number of buckets
+			Property <numBuckets> Types NativeType<"int64">^;
+			// Current bucket index
+			Property <bucketIdx> Types NativeType<"int64">^;
+			// Current position within the bucket
+			Property <posInBucket> Types NativeType<"int64">^;
+			// Total elements visited (for end detection)
+			Property <totalVisited> Types NativeType<"int64">^;
+			// Total elements in set
+			Property <totalElements> Types NativeType<"int64">^;
+		]
+
+		[ Public <>
+			// Constructor - creates iterator from set's internal data
+			Constructor Parameters (
+				Parameter <buckets> Types NativeType<"ptr">^,
+				Parameter <counts> Types NativeType<"ptr">^,
+				Parameter <numBkts> Types NativeType<"int64">^,
+				Parameter <total> Types NativeType<"int64">^
+			) ->
+			{
+				Set bucketsPtr = buckets;
+				Set countsPtr = counts;
+				Set numBuckets = numBkts;
+				Set totalElements = total;
+				Instantiate NativeType<"int64">^ As <zero> = 0;
+				Set bucketIdx = zero;
+				Set posInBucket = zero;
+				Set totalVisited = zero;
+
+				// Find first non-empty bucket
+				Run this.findNextElement();
+			}
+
+			// Internal helper: advance to next valid position
+			Method <findNextElement> Returns None Parameters () Do
+			{
+				While (bucketIdx < numBuckets) -> {
+					Instantiate NativeType<"ptr">^ As <countOffset> = countsPtr + (bucketIdx * 8);
+					Instantiate NativeType<"int64">^ As <bucketCount> = 0;
+					Run Syscall::memcpy(&bucketCount, countOffset, 8);
+
+					If (posInBucket < bucketCount) -> {
+						// Found valid position
+						Return;
+					}
+
+					// Move to next bucket
+					Instantiate NativeType<"int64">^ As <one> = 1;
+					Set bucketIdx = bucketIdx + one;
+					Instantiate NativeType<"int64">^ As <zero> = 0;
+					Set posInBucket = zero;
+				}
+			}
+
+			// Check if there are more elements
+			Method <hasNext> Returns Bool^ Parameters () Do
+			{
+				Return Bool::Constructor(totalVisited < totalElements);
+			}
+
+			// Get current element without advancing
+			Method <current> Returns T^ Parameters () Do
+			{
+				If (totalVisited >= totalElements) -> {
+					Instantiate NativeType<"ptr">^ As <nullPtr> = 0;
+					Return Syscall::ptr_read(nullPtr);
+				}
+
+				// Get bucket data pointer
+				Instantiate NativeType<"ptr">^ As <bucketPtrOffset> = bucketsPtr + (bucketIdx * 8);
+				Instantiate NativeType<"ptr">^ As <bucketData> = Syscall::ptr_read(bucketPtrOffset);
+
+				If (bucketData == 0) -> {
+					Instantiate NativeType<"ptr">^ As <nullPtr> = 0;
+					Return Syscall::ptr_read(nullPtr);
+				}
+
+				// Get element at position
+				Instantiate NativeType<"ptr">^ As <elemOffset> = bucketData + (posInBucket * 8);
+				Return Syscall::ptr_read(elemOffset);
+			}
+
+			// Advance and return the current element
+			Method <next> Returns T^ Parameters () Do
+			{
+				Instantiate T^ As <elem> = this.current();
+
+				// Advance position
+				Instantiate NativeType<"int64">^ As <one> = 1;
+				Set posInBucket = posInBucket + one;
+				Set totalVisited = totalVisited + one;
+
+				// Find next valid position
+				Run this.findNextElement();
+
+				Return elem;
+			}
+
+			// Reset to beginning
+			Method <reset> Returns None Parameters () Do
+			{
+				Instantiate NativeType<"int64">^ As <zero> = 0;
+				Set bucketIdx = zero;
+				Set posInBucket = zero;
+				Set totalVisited = zero;
+				Run this.findNextElement();
+			}
+		]
+	]
+]

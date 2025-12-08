@@ -1,5 +1,6 @@
 #include "Backends/Codegen/CodegenContext.h"
 #include "Backends/TypeNormalizer.h"
+#include "Backends/NameMangler.h"
 #include "Core/TypeRegistry.h"
 #include "Semantic/SemanticError.h"
 #include "Semantic/SemanticAnalyzer.h"
@@ -26,6 +27,15 @@ CodegenContext::CodegenContext(Core::CompilationContext* compCtx)
 }
 
 CodegenContext::~CodegenContext() = default;
+
+void CodegenContext::setCurrentFunction(LLVMIR::Function* func) {
+    currentFunction_ = func;
+    // Clear temporaries when entering a new function
+    // This prevents cross-function value references which cause IR validation errors
+    if (func) {
+        clearTemporaries();
+    }
+}
 
 void CodegenContext::setInsertPoint(LLVMIR::BasicBlock* bb) {
     currentBlock_ = bb;
@@ -259,32 +269,40 @@ std::string CodegenContext::getDefaultValue(std::string_view llvmType) const {
 }
 
 // === Name Mangling ===
+// NOTE: Delegates to NameMangler for centralized, consistent mangling.
 
 std::string CodegenContext::mangleFunctionName(std::string_view className, std::string_view method) const {
-    // Special handling for Syscall namespace - translate to xxml_ prefixed runtime functions
-    if (className == "Syscall") {
-        return "xxml_" + std::string(method);
-    }
-
-    std::string combined(className);
-    combined += "_";
-    combined += method;
-
-    // Use TypeNormalizer for consistent mangling with legacy code
-    return TypeNormalizer::mangleForLLVM(combined);
+    return NameMangler::mangleFunctionName(className, method);
 }
 
 std::string CodegenContext::mangleTypeName(std::string_view typeName) const {
-    // Use TypeNormalizer for consistent name mangling
-    return TypeNormalizer::mangleForLLVM(typeName);
+    return NameMangler::mangleForLLVM(typeName);
 }
 
 // === Method Signature Lookup ===
 
+void CodegenContext::registerMethodReturnType(const std::string& mangledFuncName, const std::string& returnType) {
+    methodReturnTypes_[mangledFuncName] = returnType;
+}
+
 std::string CodegenContext::lookupMethodReturnType(const std::string& mangledName) const {
+    // Check our local registry first (populated by DeclCodegen)
+    // This handles template-instantiated classes correctly without lossy demangling
+    auto registryIt = methodReturnTypes_.find(mangledName);
+    if (registryIt != methodReturnTypes_.end()) {
+        return registryIt->second;
+    }
+
     // Check preamble/runtime functions first
     // These are declared in PreambleGen but not registered in the module
     static const std::unordered_map<std::string, std::string> preambleFunctions = {
+        // Native type constructors - these allocate and return owned pointers
+        {"Bool_Constructor", "Bool^"},
+        {"Integer_Constructor", "Integer^"},
+        {"Float_Constructor", "Float^"},
+        {"Double_Constructor", "Double^"},
+        {"String_Constructor", "String^"},
+        {"Byte_Constructor", "Byte^"},
         // Integer methods that return NativeType
         {"Integer_getValue", "NativeType<int64>"},
         {"Integer_toInt64", "NativeType<int64>"},
@@ -318,6 +336,21 @@ std::string CodegenContext::lookupMethodReturnType(const std::string& mangledNam
         {"xxml_reflection_method_isStatic", "NativeType<int64>"},
         {"xxml_reflection_method_isConstructor", "NativeType<int64>"},
         {"xxml_reflection_parameter_getOwnership", "NativeType<int64>"},
+        // Language::Reflection::Type methods (used in reflection API)
+        {"Language_Reflection_Type_getName", "String"},
+        {"Language_Reflection_Type_getFullName", "String"},
+        {"Language_Reflection_Type_getNamespace", "String"},
+        {"Language_Reflection_Type_isTemplate", "Bool"},
+        {"Language_Reflection_Type_getTemplateParameterCount", "Integer"},
+        {"Language_Reflection_Type_getPropertyCount", "Integer"},
+        {"Language_Reflection_Type_getPropertyAt", "Language::Reflection::PropertyInfo"},
+        {"Language_Reflection_Type_getProperty", "Language::Reflection::PropertyInfo"},
+        {"Language_Reflection_Type_getMethodCount", "Integer"},
+        {"Language_Reflection_Type_getMethodAt", "Language::Reflection::MethodInfo"},
+        {"Language_Reflection_Type_getMethod", "Language::Reflection::MethodInfo"},
+        {"Language_Reflection_Type_forName", "Language::Reflection::Type"},
+        {"Language_Reflection_Type_getInstanceSize", "Integer"},
+        {"Language_Reflection_GetType_String_get", "Language::Reflection::Type"},
     };
 
     auto preambleIt = preambleFunctions.find(mangledName);
@@ -389,6 +422,18 @@ std::string CodegenContext::lookupMethodReturnType(const std::string& mangledNam
     return "";
 }
 
+void CodegenContext::registerMethodParameterTypes(const std::string& mangledFuncName, const std::vector<std::string>& paramTypes) {
+    methodParameterTypes_[mangledFuncName] = paramTypes;
+}
+
+std::vector<std::string> CodegenContext::lookupMethodParameterTypes(const std::string& mangledName) const {
+    auto it = methodParameterTypes_.find(mangledName);
+    if (it != methodParameterTypes_.end()) {
+        return it->second;
+    }
+    return {};
+}
+
 std::string CodegenContext::lookupMethodReturnTypeDirect(const std::string& className, const std::string& methodName) const {
     if (!semanticAnalyzer_) {
         return "";
@@ -411,33 +456,108 @@ std::string CodegenContext::lookupMethodReturnTypeDirect(const std::string& clas
             // We need to substitute it with the actual type argument
             std::string returnType = methodInfo->returnType;
 
-            // Extract template argument from className (e.g., "Integer" from "MyClass<Integer>")
+            // Extract template arguments from className (e.g., "Integer, String" from "HashMap<Integer, String>")
             size_t templateEnd = className.rfind('>');
             if (templateEnd != std::string::npos && templateEnd > templateStart) {
-                std::string templateArg = className.substr(templateStart + 1, templateEnd - templateStart - 1);
+                std::string templateArgStr = className.substr(templateStart + 1, templateEnd - templateStart - 1);
+
+                // Parse multiple template arguments (split by comma, respecting nested <>)
+                std::vector<std::string> templateArgs;
+                int depth = 0;
+                std::string currentArg;
+                for (char c : templateArgStr) {
+                    if (c == '<') depth++;
+                    else if (c == '>') depth--;
+                    else if (c == ',' && depth == 0) {
+                        // Trim whitespace
+                        size_t start = currentArg.find_first_not_of(" \t");
+                        size_t end = currentArg.find_last_not_of(" \t");
+                        if (start != std::string::npos) {
+                            templateArgs.push_back(currentArg.substr(start, end - start + 1));
+                        }
+                        currentArg.clear();
+                        continue;
+                    }
+                    currentArg += c;
+                }
+                // Don't forget the last argument
+                if (!currentArg.empty()) {
+                    size_t start = currentArg.find_first_not_of(" \t");
+                    size_t end = currentArg.find_last_not_of(" \t");
+                    if (start != std::string::npos) {
+                        templateArgs.push_back(currentArg.substr(start, end - start + 1));
+                    }
+                }
 
                 // Get the template parameter names from the base class via public getClassRegistry()
                 const auto& classRegistry = semanticAnalyzer_->getClassRegistry();
                 auto classIt = classRegistry.find(baseClass);
                 if (classIt != classRegistry.end() && !classIt->second.templateParams.empty()) {
-                    // Simple case: single template parameter T
-                    const std::string& templateParam = classIt->second.templateParams[0].name;
-                    if (returnType == templateParam || returnType == templateParam + "^" ||
-                        returnType == templateParam + "&" || returnType == templateParam + "%") {
-                        // Substitute T with the actual type argument
-                        char ownershipMarker = '\0';
-                        if (!returnType.empty() && (returnType.back() == '^' ||
-                            returnType.back() == '&' || returnType.back() == '%')) {
-                            ownershipMarker = returnType.back();
-                        }
-                        returnType = templateArg;
-                        if (ownershipMarker != '\0') {
-                            returnType += ownershipMarker;
+                    // Check all template parameters, not just the first
+                    for (size_t i = 0; i < classIt->second.templateParams.size() && i < templateArgs.size(); i++) {
+                        const std::string& templateParam = classIt->second.templateParams[i].name;
+                        if (returnType == templateParam || returnType == templateParam + "^" ||
+                            returnType == templateParam + "&" || returnType == templateParam + "%") {
+                            // Substitute template param with the actual type argument
+                            char ownershipMarker = '\0';
+                            if (!returnType.empty() && (returnType.back() == '^' ||
+                                returnType.back() == '&' || returnType.back() == '%')) {
+                                ownershipMarker = returnType.back();
+                            }
+                            returnType = templateArgs[i];
+                            if (ownershipMarker != '\0') {
+                                returnType += ownershipMarker;
+                            }
+                            break;  // Found the match, stop searching
                         }
                     }
                 }
             }
             return returnType;
+        }
+    }
+
+    // Fallback: Check for Language::Reflection intrinsic methods
+    // These are implemented via syscalls and aren't in classRegistry_
+    static const std::unordered_map<std::string, std::unordered_map<std::string, std::string>> reflectionMethods = {
+        {"Language::Reflection::Type", {
+            {"getName", "String"},
+            {"getFullName", "String"},
+            {"getNamespace", "String"},
+            {"isTemplate", "Bool"},
+            {"getTemplateParameterCount", "Integer"},
+            {"getPropertyCount", "Integer"},
+            {"getPropertyAt", "Language::Reflection::PropertyInfo"},
+            {"getProperty", "Language::Reflection::PropertyInfo"},
+            {"getMethodCount", "Integer"},
+            {"getMethodAt", "Language::Reflection::MethodInfo"},
+            {"getMethod", "Language::Reflection::MethodInfo"},
+            {"forName", "Language::Reflection::Type"},
+            {"getInstanceSize", "Integer"},
+        }},
+        {"Language::Reflection::GetType", {
+            {"get", "Language::Reflection::Type"},
+        }},
+    };
+
+    // Check Language::Reflection methods first
+    auto classIt = reflectionMethods.find(className);
+    if (classIt != reflectionMethods.end()) {
+        auto methodIt = classIt->second.find(methodName);
+        if (methodIt != classIt->second.end()) {
+            return methodIt->second;
+        }
+    }
+
+    // Also check with stripped template args for GetType<T> etc.
+    if (templateStart != std::string::npos) {
+        std::string baseClass = className.substr(0, templateStart);
+        auto baseClassIt = reflectionMethods.find(baseClass);
+        if (baseClassIt != reflectionMethods.end()) {
+            auto methodIt = baseClassIt->second.find(methodName);
+            if (methodIt != baseClassIt->second.end()) {
+                return methodIt->second;
+            }
         }
     }
 
@@ -590,37 +710,43 @@ bool CodegenContext::needsDestruction(const std::string& typeName) const {
     // Strip ownership markers using TypeNormalizer
     std::string baseType = TypeNormalizer::stripOwnershipMarker(typeName);
 
-    // Primitive types don't need destruction
-    if (baseType == "Integer" || baseType == "Int" || baseType == "Int64" ||
-        baseType == "Int32" || baseType == "Int16" || baseType == "Int8" ||
-        baseType == "Bool" || baseType == "Boolean" ||
-        baseType == "Float" || baseType == "Double" ||
-        baseType == "Void" || baseType == "None" || baseType == "void" ||
-        baseType == "Byte" || baseType == "ptr") {
+    // Only true primitives don't need destruction - these are stack-allocated
+    // NativeType wrappers around raw CPU primitives (i64, i32, i1, f64, etc.)
+    if (baseType == "Void" || baseType == "None" || baseType == "void" || baseType == "ptr") {
         return false;
     }
 
-    // NativeType doesn't need destruction
+    // NativeType doesn't need destruction (raw primitive wrapper)
     if (baseType.find("NativeType") == 0) {
         return false;
     }
 
-    // Check if the type is a class with a Destructor defined
+    // IMPORTANT: In XXML, Bool, Integer, Float, Double, Byte, String are
+    // heap-allocated wrapper objects created via *_Constructor functions.
+    // They DO need cleanup via xxml_free!
+
+    // All class types need destruction (at minimum, xxml_free must be called)
+    // The destructor emission code will call the destructor if it exists,
+    // then always call xxml_free to release the object memory
     auto* classInfo = getClass(baseType);
     if (classInfo) {
-        // Check if destructor is defined for this class
-        std::string qualifiedType = resolveToQualifiedName(baseType);
-        std::string dtorName = mangleFunctionName(qualifiedType, "Destructor");
-        return isFunctionDefined(dtorName);
+        return true;  // All classes need cleanup (xxml_free at minimum)
     }
 
-    // For generic template types, check if we have a destructor
-    // Handle types like Collections::List<Integer>
+    // For generic template types like Collections::List<Integer>,
+    // they also need cleanup
     size_t ltPos = baseType.find('<');
     if (ltPos != std::string::npos) {
-        std::string qualifiedType = resolveToQualifiedName(baseType);
-        std::string dtorName = mangleFunctionName(qualifiedType, "Destructor");
-        return isFunctionDefined(dtorName);
+        return true;  // All template instantiations need cleanup
+    }
+
+    // Native wrapper types always need destruction - they are heap-allocated
+    // and created by *_Constructor functions (Integer_Constructor, Bool_Constructor, etc.)
+    static const std::unordered_set<std::string> nativeWrapperTypes = {
+        "String", "Integer", "Bool", "Float", "Double", "Byte"
+    };
+    if (nativeWrapperTypes.count(baseType) > 0) {
+        return true;
     }
 
     return false;
@@ -640,26 +766,31 @@ void CodegenContext::emitScopeDestructors() {
                 it->varName + ".dtor_load"
             );
 
-            // Get destructor function name - strip ownership and resolve
+            // Get destructor/dispose function name - strip ownership and resolve
             std::string typeName = TypeNormalizer::stripOwnershipMarker(it->typeName);
             typeName = resolveToQualifiedName(typeName);
-            std::string dtorName = mangleFunctionName(typeName, "Destructor");
 
-            // Get or declare the destructor
-            auto* dtorFunc = module_->getFunction(dtorName);
-            if (!dtorFunc) {
-                // Declare destructor if not found
-                std::vector<LLVMIR::Type*> paramTypes = { builder_->getPtrTy() };
-                auto* funcType = module_->getContext().getFunctionTy(
-                    module_->getContext().getVoidTy(), paramTypes, false);
-                dtorFunc = module_->createFunction(funcType, dtorName,
-                    LLVMIR::Function::Linkage::External);
+            // Try Destructor first, then dispose (XXML standard library convention)
+            std::string dtorName = mangleFunctionName(typeName, "Destructor");
+            std::string disposeName = mangleFunctionName(typeName, "dispose");
+
+            // Get or declare the destructor/dispose function
+            auto* cleanupFunc = module_->getFunction(dtorName);
+            if (!cleanupFunc) {
+                cleanupFunc = module_->getFunction(disposeName);
             }
 
-            if (dtorFunc) {
-                // Call destructor
+            if (cleanupFunc) {
+                // Call cleanup function to release internal resources
                 std::vector<LLVMIR::AnyValue> args = { LLVMIR::AnyValue(objPtr) };
-                builder_->createCall(dtorFunc, args);
+                builder_->createCall(cleanupFunc, args);
+            }
+
+            // Always free the object memory itself (not just internal resources)
+            auto* freeFunc = module_->getFunction("xxml_free");
+            if (freeFunc) {
+                std::vector<LLVMIR::AnyValue> freeArgs = { LLVMIR::AnyValue(objPtr) };
+                builder_->createCall(freeFunc, freeArgs);
             }
         }
     }
@@ -678,24 +809,140 @@ void CodegenContext::emitAllDestructors() {
                 // Strip ownership and resolve to fully qualified name
                 std::string typeName = TypeNormalizer::stripOwnershipMarker(it->typeName);
                 typeName = resolveToQualifiedName(typeName);
-                std::string dtorName = mangleFunctionName(typeName, "Destructor");
 
-                auto* dtorFunc = module_->getFunction(dtorName);
-                if (!dtorFunc) {
-                    std::vector<LLVMIR::Type*> paramTypes = { builder_->getPtrTy() };
-                    auto* funcType = module_->getContext().getFunctionTy(
-                        module_->getContext().getVoidTy(), paramTypes, false);
-                    dtorFunc = module_->createFunction(funcType, dtorName,
-                        LLVMIR::Function::Linkage::External);
+                // Try Destructor first, then dispose (XXML standard library convention)
+                std::string dtorName = mangleFunctionName(typeName, "Destructor");
+                std::string disposeName = mangleFunctionName(typeName, "dispose");
+
+                auto* cleanupFunc = module_->getFunction(dtorName);
+                if (!cleanupFunc) {
+                    cleanupFunc = module_->getFunction(disposeName);
                 }
 
-                if (dtorFunc) {
+                if (cleanupFunc) {
+                    // Call cleanup function to release internal resources
                     std::vector<LLVMIR::AnyValue> args = { LLVMIR::AnyValue(objPtr) };
-                    builder_->createCall(dtorFunc, args);
+                    builder_->createCall(cleanupFunc, args);
+                }
+
+                // Always free the object memory itself (not just internal resources)
+                auto* freeFunc = module_->getFunction("xxml_free");
+                if (freeFunc) {
+                    std::vector<LLVMIR::AnyValue> freeArgs = { LLVMIR::AnyValue(objPtr) };
+                    builder_->createCall(freeFunc, freeArgs);
                 }
             }
         }
     }
+}
+
+void CodegenContext::emitAllDestructorsExcept(const std::string& excludeVar) {
+    // Emit all scopes in reverse order, but skip the returned variable
+    // This prevents destroying an object that's being returned (ownership transfer)
+    for (auto scopeIt = destructorScopes_.rbegin(); scopeIt != destructorScopes_.rend(); ++scopeIt) {
+        for (auto it = scopeIt->rbegin(); it != scopeIt->rend(); ++it) {
+            // Skip the variable being returned (ownership transfers to caller)
+            if (it->varName == excludeVar) {
+                continue;
+            }
+
+            if (it->alloca) {
+                auto objPtr = builder_->createLoadPtr(
+                    LLVMIR::PtrValue(it->alloca),
+                    it->varName + ".dtor_load"
+                );
+
+                // Strip ownership and resolve to fully qualified name
+                std::string typeName = TypeNormalizer::stripOwnershipMarker(it->typeName);
+                typeName = resolveToQualifiedName(typeName);
+
+                // Try Destructor first, then dispose (XXML standard library convention)
+                std::string dtorName = mangleFunctionName(typeName, "Destructor");
+                std::string disposeName = mangleFunctionName(typeName, "dispose");
+
+                auto* cleanupFunc = module_->getFunction(dtorName);
+                if (!cleanupFunc) {
+                    cleanupFunc = module_->getFunction(disposeName);
+                }
+
+                if (cleanupFunc) {
+                    // Call cleanup function to release internal resources
+                    std::vector<LLVMIR::AnyValue> args = { LLVMIR::AnyValue(objPtr) };
+                    builder_->createCall(cleanupFunc, args);
+                }
+
+                // Always free the object memory itself (not just internal resources)
+                auto* freeFunc = module_->getFunction("xxml_free");
+                if (freeFunc) {
+                    std::vector<LLVMIR::AnyValue> freeArgs = { LLVMIR::AnyValue(objPtr) };
+                    builder_->createCall(freeFunc, freeArgs);
+                }
+            }
+        }
+    }
+}
+
+// === Temporary Object Management ===
+
+void CodegenContext::registerTemporary(const std::string& typeName, LLVMIR::AnyValue value) {
+    // Only track temporaries that need destruction
+    if (needsDestruction(typeName)) {
+        temporaries_.push_back({typeName, value});
+    }
+}
+
+void CodegenContext::unregisterTemporary(LLVMIR::AnyValue value) {
+    // Remove the temporary from the list when ownership transfers to another function
+    // This prevents double-free when a value is passed to a method that takes ownership
+    auto it = std::remove_if(temporaries_.begin(), temporaries_.end(),
+        [&value](const TemporaryInfo& info) {
+            // Compare the underlying LLVM values
+            return info.value.raw() == value.raw();
+        });
+    temporaries_.erase(it, temporaries_.end());
+}
+
+void CodegenContext::emitTemporaryCleanup() {
+    if (temporaries_.empty()) return;
+
+    // Clean up temporaries in reverse order (LIFO)
+    for (auto it = temporaries_.rbegin(); it != temporaries_.rend(); ++it) {
+        // Get the temporary's pointer value
+        auto objPtr = it->value;
+
+        // Strip ownership and resolve to fully qualified name
+        std::string typeName = TypeNormalizer::stripOwnershipMarker(it->typeName);
+        typeName = resolveToQualifiedName(typeName);
+
+        // Try Destructor first, then dispose
+        std::string dtorName = mangleFunctionName(typeName, "Destructor");
+        std::string disposeName = mangleFunctionName(typeName, "dispose");
+
+        auto* cleanupFunc = module_->getFunction(dtorName);
+        if (!cleanupFunc) {
+            cleanupFunc = module_->getFunction(disposeName);
+        }
+
+        if (cleanupFunc) {
+            // Call cleanup function to release internal resources
+            std::vector<LLVMIR::AnyValue> args = { objPtr };
+            builder_->createCall(cleanupFunc, args);
+        }
+
+        // Always free the object memory itself
+        auto* freeFunc = module_->getFunction("xxml_free");
+        if (freeFunc) {
+            std::vector<LLVMIR::AnyValue> freeArgs = { objPtr };
+            builder_->createCall(freeFunc, freeArgs);
+        }
+    }
+
+    // Clear the temporaries list
+    temporaries_.clear();
+}
+
+void CodegenContext::clearTemporaries() {
+    temporaries_.clear();
 }
 
 // === Scope Management ===
@@ -709,6 +956,16 @@ void CodegenContext::popScope() {
     // Emit destructors for this scope before popping
     emitScopeDestructors();
 
+    if (variableScopes_.size() > 1) {
+        variableScopes_.pop_back();
+    }
+    if (!destructorScopes_.empty()) {
+        destructorScopes_.pop_back();
+    }
+}
+
+void CodegenContext::popScopeWithoutDestructors() {
+    // Pop scope without emitting destructors (use when already emitted via emitAllDestructors)
     if (variableScopes_.size() > 1) {
         variableScopes_.pop_back();
     }

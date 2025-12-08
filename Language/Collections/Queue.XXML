@@ -151,8 +151,8 @@
 				Set tail = zero;
 			}
 
-			// Free the queue memory
-			Method <dispose> Returns None Parameters () Do
+			// Free the queue memory - called automatically by RAII
+			Destructor Parameters () ->
 			{
 				If (dataPtr != 0) -> {
 					Run Syscall::free(dataPtr);

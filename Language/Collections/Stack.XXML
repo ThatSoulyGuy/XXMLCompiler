@@ -109,8 +109,8 @@
 				Set count = zero;
 			}
 
-			// Free the stack memory
-			Method <dispose> Returns None Parameters () Do
+			// Free the stack memory - called automatically by RAII
+			Destructor Parameters () ->
 			{
 				If (dataPtr != 0) -> {
 					Run Syscall::free(dataPtr);

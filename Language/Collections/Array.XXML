@@ -59,11 +59,11 @@
 				Instantiate NativeType<"int64">^ As <idx> = index.toInt64();
 
 				If (idx < zero) -> {
-					Return None::Constructor();
+					Return;
 				}
 
 				If (idx >= arraySize) -> {
-					Return None::Constructor();
+					Return;
 				}
 
 				Instantiate NativeType<"ptr">^ As <offset> = dataPtr + (idx * 8);
@@ -95,8 +95,8 @@
 				Return Bool::Constructor(idx >= zero && idx < arraySize);
 			}
 
-			// Free the array memory
-			Method <dispose> Returns None Parameters () Do
+			// Free the array memory - called automatically by RAII
+			Destructor Parameters () ->
 			{
 				If (dataPtr != 0) -> {
 					Run Syscall::free(dataPtr);

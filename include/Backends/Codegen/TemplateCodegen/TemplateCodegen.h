@@ -6,6 +6,7 @@
 #include <set>
 #include <unordered_map>
 #include <memory>
+#include <vector>
 
 namespace XXML {
 
@@ -17,6 +18,59 @@ namespace Codegen {
 // Forward declarations
 class CodegenContext;
 class DeclCodegen;
+
+/**
+ * @brief Analysis result for a template method
+ *
+ * Determines how a method uses type parameters, which affects
+ * whether it can be shared across instantiations.
+ */
+struct TemplateMethodAnalysis {
+    std::string methodName;
+
+    // Method doesn't use T at all (e.g., size(), isEmpty())
+    bool isTypeIndependent = false;
+
+    // Method only needs sizeof(T) at runtime (most operations)
+    bool usesOnlySize = false;
+
+    // Method needs type-specific operations (comparison, hashing, etc.)
+    bool usesComparison = false;
+    bool usesHashing = false;
+    bool usesToString = false;
+
+    // Method returns a type dependent on T (e.g., get() returns T^)
+    bool hasTypeDependentReturn = false;
+
+    // Method has parameters of type T (e.g., add() takes T^)
+    bool hasTypeDependentParams = false;
+
+    // Method references other templates with T (e.g., ListIterator<T>)
+    bool usesNestedTemplates = false;
+
+    // Can this method use a shared base implementation?
+    bool canShareImplementation() const {
+        return isTypeIndependent || (usesOnlySize && !usesComparison &&
+               !usesHashing && !usesToString && !usesNestedTemplates);
+    }
+};
+
+/**
+ * @brief Analysis results for an entire template class
+ */
+struct TemplateClassAnalysis {
+    std::string templateName;
+    std::vector<std::string> typeParams;
+    std::vector<TemplateMethodAnalysis> methods;
+
+    // Does this class have any methods that can share implementation?
+    bool hasShareableMethods() const {
+        for (const auto& m : methods) {
+            if (m.canShareImplementation()) return true;
+        }
+        return false;
+    }
+};
 
 /**
  * @brief Handles template instantiation (monomorphization) for classes and methods
@@ -100,6 +154,68 @@ private:
     bool hasUnboundTemplateParams(
         const std::vector<Parser::TemplateArgument>& args,
         Semantic::SemanticAnalyzer& analyzer);
+
+    /**
+     * Pre-register method return types from a cloned class.
+     * Called during Phase 1 before code generation to ensure all return types are known.
+     */
+    void preRegisterMethodReturnTypes(Parser::ClassDecl* classDecl, const std::string& fullClassName);
+
+    // ===== Template Deduplication (Type-Erasure Sharing) =====
+
+    /**
+     * Analyze a template class to determine which methods can be shared.
+     */
+    TemplateClassAnalysis analyzeTemplateClass(
+        Parser::ClassDecl* classDecl,
+        const std::vector<Parser::TemplateParameter>& templateParams);
+
+    /**
+     * Analyze a single method to determine its type parameter usage.
+     */
+    TemplateMethodAnalysis analyzeMethod(
+        Parser::MethodDecl* method,
+        const std::set<std::string>& typeParams);
+
+    /**
+     * Check if a type reference uses any type parameter.
+     */
+    bool usesTypeParam(Parser::TypeRef* typeRef, const std::set<std::string>& typeParams);
+
+    /**
+     * Check if an expression uses any type parameter.
+     */
+    bool exprUsesTypeParam(Parser::Expression* expr, const std::set<std::string>& typeParams);
+
+    /**
+     * Check if a statement uses any type parameter.
+     */
+    bool stmtUsesTypeParam(Parser::Statement* stmt, const std::set<std::string>& typeParams);
+
+    /**
+     * Generate a shared base implementation for a template class.
+     * Returns the mangled name of the generated base class.
+     */
+    std::string generateSharedBase(
+        Parser::ClassDecl* classDecl,
+        const std::string& templateName,
+        const TemplateClassAnalysis& analysis);
+
+    /**
+     * Generate a thin type-specific wrapper that calls the shared base.
+     */
+    void generateTypeWrapper(
+        Parser::ClassDecl* originalClass,
+        const std::string& mangledClassName,
+        const std::string& sharedBaseName,
+        const TemplateClassAnalysis& analysis,
+        const ASTCloner::TypeMap& typeMap);
+
+    // Track which shared bases have been generated
+    std::set<std::string> generatedSharedBases_;
+
+    // Map from template name to its analysis result
+    std::unordered_map<std::string, TemplateClassAnalysis> templateAnalysisCache_;
 };
 
 } // namespace Codegen

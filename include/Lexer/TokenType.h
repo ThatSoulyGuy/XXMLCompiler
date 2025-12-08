@@ -13,6 +13,7 @@ enum class TokenType {
     Import,           // import
     Namespace,        // Namespace
     Class,            // Class
+    Structure,        // Structure (stack-allocated value type)
     Final,            // Final
     Extends,          // Extends
     None,             // None

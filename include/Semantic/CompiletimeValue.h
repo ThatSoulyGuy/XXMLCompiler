@@ -25,7 +25,8 @@ public:
         Bool,
         Null,
         Object,
-        Lambda
+        Lambda,
+        TypeInfo  // For compile-time reflection
     };
 
     Kind kind;
@@ -49,6 +50,7 @@ public:
     bool isNull() const { return kind == Kind::Null; }
     bool isObject() const { return kind == Kind::Object; }
     bool isLambda() const { return kind == Kind::Lambda; }
+    bool isTypeInfo() const { return kind == Kind::TypeInfo; }
 };
 
 class CompiletimeInteger : public CompiletimeValue {
@@ -162,16 +164,114 @@ class CompiletimeLambda : public CompiletimeValue {
 public:
     Parser::LambdaExpr* lambdaExpr;  // AST reference for execution
     std::unordered_map<std::string, std::unique_ptr<CompiletimeValue>> captures;
-    
+
     explicit CompiletimeLambda(Parser::LambdaExpr* expr)
         : CompiletimeValue(Kind::Lambda), lambdaExpr(expr) {}
-    
+
     std::unique_ptr<CompiletimeValue> clone() const override {
         auto cloned = std::make_unique<CompiletimeLambda>(lambdaExpr);
         for (const auto& [name, value] : captures) {
             cloned->captures[name] = value->clone();
         }
         return cloned;
+    }
+};
+
+/**
+ * @brief Compile-time type information for reflection
+ *
+ * Represents metadata about a type that can be queried at compile time.
+ * This allows reflection queries like GetType<T>::get().getPropertyCount()
+ * to be evaluated at compile time and folded to constants.
+ */
+class CompiletimeTypeInfo : public CompiletimeValue {
+public:
+    std::string typeName;           // Full qualified type name
+    std::string simpleName;         // Simple name without namespace
+    std::string namespaceName;      // Namespace portion
+
+    // Type metadata
+    std::vector<std::pair<std::string, std::string>> properties;  // name, type
+    std::vector<std::string> propertyOwnerships;                   // ^, &, %
+    std::vector<std::pair<std::string, std::string>> methods;     // name, returnType
+    std::vector<std::string> methodReturnOwnerships;
+
+    bool isValueType = false;       // True for Structure, false for Class
+    bool isTemplate = false;
+    std::vector<std::string> templateParams;
+    size_t instanceSize = 0;
+
+    explicit CompiletimeTypeInfo(const std::string& name)
+        : CompiletimeValue(Kind::TypeInfo), typeName(name) {
+        // Extract simple name and namespace
+        size_t lastSep = name.rfind("::");
+        if (lastSep != std::string::npos) {
+            namespaceName = name.substr(0, lastSep);
+            simpleName = name.substr(lastSep + 2);
+        } else {
+            simpleName = name;
+        }
+    }
+
+    std::unique_ptr<CompiletimeValue> clone() const override {
+        auto cloned = std::make_unique<CompiletimeTypeInfo>(typeName);
+        cloned->simpleName = simpleName;
+        cloned->namespaceName = namespaceName;
+        cloned->properties = properties;
+        cloned->propertyOwnerships = propertyOwnerships;
+        cloned->methods = methods;
+        cloned->methodReturnOwnerships = methodReturnOwnerships;
+        cloned->isValueType = isValueType;
+        cloned->isTemplate = isTemplate;
+        cloned->templateParams = templateParams;
+        cloned->instanceSize = instanceSize;
+        return cloned;
+    }
+
+    // Compile-time queryable methods
+    int64_t getPropertyCount() const { return static_cast<int64_t>(properties.size()); }
+    int64_t getMethodCount() const { return static_cast<int64_t>(methods.size()); }
+
+    std::string getPropertyNameAt(int64_t idx) const {
+        if (idx >= 0 && static_cast<size_t>(idx) < properties.size()) {
+            return properties[idx].first;
+        }
+        return "";
+    }
+
+    std::string getPropertyTypeAt(int64_t idx) const {
+        if (idx >= 0 && static_cast<size_t>(idx) < properties.size()) {
+            return properties[idx].second;
+        }
+        return "";
+    }
+
+    std::string getMethodNameAt(int64_t idx) const {
+        if (idx >= 0 && static_cast<size_t>(idx) < methods.size()) {
+            return methods[idx].first;
+        }
+        return "";
+    }
+
+    std::string getMethodReturnTypeAt(int64_t idx) const {
+        if (idx >= 0 && static_cast<size_t>(idx) < methods.size()) {
+            return methods[idx].second;
+        }
+        return "";
+    }
+
+    bool hasProperty(const std::string& name) const {
+        for (const auto& [propName, _] : properties) {
+            if (propName == name) return true;
+        }
+        return false;
+    }
+
+    bool hasMethod(const std::string& name) const {
+        for (const auto& [methodName, _] : methods) {
+            if (methodName == name) return true;
+        }
+        return false;
     }
 };
 

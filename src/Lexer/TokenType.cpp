@@ -8,6 +8,7 @@ static const std::unordered_map<std::string, TokenType> keywords = {
     {"import", TokenType::Import},
     {"Namespace", TokenType::Namespace},
     {"Class", TokenType::Class},
+    {"Structure", TokenType::Structure},
     {"Final", TokenType::Final},
     {"Extends", TokenType::Extends},
     {"None", TokenType::None},
@@ -72,6 +73,7 @@ std::string tokenTypeToString(TokenType type) {
         case TokenType::Import: return "Import";
         case TokenType::Namespace: return "Namespace";
         case TokenType::Class: return "Class";
+        case TokenType::Structure: return "Structure";
         case TokenType::Final: return "Final";
         case TokenType::Extends: return "Extends";
         case TokenType::None: return "None";

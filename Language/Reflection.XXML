@@ -32,14 +32,7 @@
 // - AnnotationInfo.XXML - Annotation metadata class
 // - AnnotationArg.XXML - Annotation argument value class
 //
-// Annotation Usage:
-//   // Define an annotation with Retain to make it available at runtime:
-//   [ Annotation <Serializable> Allows (AnnotationAllow::Classes) Retain
-//       Annotate (String^)(format) = "json";
-//   ]
-//
-//   // Use the annotation on a class:
-//   @Serializable(format = "xml")
-//   [ Class <MyClass> ... ]
-//
-//   // Query annotations at runtime (via Annotation_* C functions)
+// NOTE: Since both Reflection.XXML and Reflection/ directory exist, the file takes precedence.
+// To use the reflection API, import specific files:
+//   #import Language::Reflection::GetType;
+//   #import Language::Reflection::Type;

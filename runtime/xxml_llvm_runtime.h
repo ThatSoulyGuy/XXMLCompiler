@@ -98,6 +98,9 @@ void* String_concat(void* self, void* other);
 void* String_append(void* self, void* other);
 bool String_equals(void* self, void* other);
 void String_destroy(void* self);
+void* String_copy(void* self);
+void* String_charAt(void* self, void* indexObj);
+void String_setCharAt(void* self, void* indexObj, void* charStr);
 int64_t xxml_string_hash(void* self);
 
 // ============================================
@@ -429,6 +432,27 @@ void* xxml_string_create(const char* cstr);
 
 // Concatenate two XXML String objects and return a new String
 void* xxml_string_concat(void* str1, void* str2);
+
+// Get the C string pointer from an XXML String
+const char* xxml_string_cstr(void* str);
+
+// Get the length of an XXML String
+int64_t xxml_string_length(void* str);
+
+// Copy an XXML String
+void* xxml_string_copy(void* str);
+
+// Check if two XXML Strings are equal
+int64_t xxml_string_equals(void* str1, void* str2);
+
+// Get character at index as a new single-character string
+const char* xxml_string_charAt(void* str, int64_t index);
+
+// Set character at index from another string (uses first character)
+void xxml_string_setCharAt(void* str, int64_t index, void* charStr);
+
+// Destroy an XXML String
+void xxml_string_destroy(void* str);
 
 // Check if a pointer is null (returns 1 if null, 0 otherwise)
 int64_t xxml_ptr_is_null(void* ptr);

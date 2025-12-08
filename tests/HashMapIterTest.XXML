@@ -1,0 +1,33 @@
+#import Language::Core;
+#import Language::Collections;
+
+[ Entrypoint
+    {
+        Instantiate HashMap<Integer, String>^ As <maze> = HashMap@Integer, String::Constructor();
+
+        Run maze.put(Integer::Constructor(0), String::Constructor("Row 0"));
+        Run maze.put(Integer::Constructor(1), String::Constructor("Row 1"));
+        Run maze.put(Integer::Constructor(2), String::Constructor("Row 2"));
+        Run maze.put(Integer::Constructor(3), String::Constructor("Row 3"));
+        Run maze.put(Integer::Constructor(4), String::Constructor("Row 4"));
+        Run maze.put(Integer::Constructor(5), String::Constructor("Row 5"));
+        Run maze.put(Integer::Constructor(6), String::Constructor("Row 6"));
+        Run maze.put(Integer::Constructor(7), String::Constructor("Row 7"));
+
+        Run Console::printLine(String::Constructor("Starting iteration..."));
+        Run Console::printLine(maze.size().toString());
+
+        Instantiate HashMapIterator<Integer, String>^ As <iterator> = maze.begin();
+        Instantiate Integer^ As <count> = Integer::Constructor(0);
+
+        While (iterator.hasNext()) ->
+        {
+            Instantiate KeyValuePair<Integer, String>^ As <pair> = iterator.next();
+            Run Console::printLine(pair.value());
+            Set count = count.add(Integer::Constructor(1));
+        }
+
+        Run Console::printLine(String::Constructor("Done! Visited:"));
+        Run Console::printLine(count.toString());
+    }
+]

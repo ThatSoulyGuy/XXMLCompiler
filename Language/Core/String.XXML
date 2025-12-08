@@ -117,13 +117,26 @@
 			) ->
 			{
 				Instantiate NativeType<"string_ptr">^ As <ptr> = data;
-				Instantiate NativeType<"int64">^ As <idx> = index;
+				Instantiate NativeType<"int64">^ As <idx> = index.toInt64();
 				Instantiate NativeType<"cstr">^ As <charCStr> = Syscall::string_charAt(ptr, idx);
 				Return String::Constructor(charCStr);
 			}
 
-			// Destructor (cleanup)
-			Method <dispose> Returns None Parameters () ->
+			// Set character at index from a string (uses first character)
+			Method <setCharAt> Returns None Parameters (
+				Parameter <index> Types Integer&,
+				Parameter <ch> Types String&
+			) ->
+			{
+				Instantiate NativeType<"string_ptr">^ As <ptr> = data;
+				Instantiate NativeType<"int64">^ As <idx> = index.toInt64();
+				// Pass the character string to the runtime (it will extract the first char)
+				Instantiate NativeType<"string_ptr">^ As <chPtr> = ch.data;
+				Run Syscall::string_setCharAt(ptr, idx, chPtr);
+			}
+
+			// Destructor - called automatically by RAII
+			Destructor Parameters () ->
 			{
 				Instantiate NativeType<"string_ptr">^ As <ptr> = data;
 				If (ptr != 0) -> {

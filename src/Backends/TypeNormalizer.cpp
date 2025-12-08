@@ -1,4 +1,5 @@
 #include "Backends/TypeNormalizer.h"
+#include "Backends/NameMangler.h"
 #include <algorithm>
 #include <sstream>
 #include <cctype>
@@ -138,53 +139,14 @@ std::string TypeNormalizer::getQualifier(std::string_view typeName) {
 }
 
 // ========== Name Mangling for LLVM ==========
+// NOTE: These delegate to NameMangler for centralized, consistent mangling.
 
 std::string TypeNormalizer::mangleForLLVM(std::string_view name) {
-    std::string result(name);
-
-    // Replace special characters with underscores
-    for (char& c : result) {
-        if (c == ':' || c == '<' || c == '>' || c == ',' || c == ' ' || c == '"') {
-            c = '_';
-        }
-    }
-
-    // Remove consecutive underscores
-    auto newEnd = std::unique(result.begin(), result.end(),
-        [](char a, char b) { return a == '_' && b == '_'; });
-    result.erase(newEnd, result.end());
-
-    // Remove trailing underscore if present
-    while (!result.empty() && result.back() == '_') {
-        result.pop_back();
-    }
-
-    return result;
+    return NameMangler::mangleForLLVM(name);
 }
 
 std::string TypeNormalizer::demangleFromLLVM(std::string_view mangledName) {
-    // Basic demangling - this is a best-effort reversal
-    // In practice, full demangling would require more context
-    std::string result(mangledName);
-
-    // Replace underscores with :: for common patterns
-    // This is a simplified version - real demangling is complex
-    size_t pos = 0;
-    while ((pos = result.find('_', pos)) != std::string::npos) {
-        // Check if this looks like a namespace separator
-        // (between two identifiers, not at start/end or adjacent to numbers)
-        if (pos > 0 && pos < result.length() - 1) {
-            char before = result[pos - 1];
-            char after = result[pos + 1];
-            if (std::isalpha(before) && std::isalpha(after)) {
-                // This could be a namespace separator, but we can't be sure
-                // For safety, we'll just return as-is
-            }
-        }
-        pos++;
-    }
-
-    return result;
+    return NameMangler::demangleFromLLVM(mangledName);
 }
 
 // ========== NativeType Format Utilities ==========

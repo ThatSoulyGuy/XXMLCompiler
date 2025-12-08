@@ -102,6 +102,15 @@ private:
     std::unique_ptr<CompiletimeValue> evalMethodCall(
         CompiletimeValue* receiver, const std::string& methodName,
         const std::vector<CompiletimeValue*>& args);
+
+    // Compile-time reflection support
+    // Creates a CompiletimeTypeInfo from a class name by looking up the class registry
+    std::unique_ptr<CompiletimeTypeInfo> createTypeInfo(const std::string& className);
+
+    // Evaluates reflection method calls on CompiletimeTypeInfo
+    std::unique_ptr<CompiletimeValue> evalTypeInfoMethod(
+        CompiletimeTypeInfo* typeInfo, const std::string& methodName,
+        const std::vector<CompiletimeValue*>& args);
 };
 
 } // namespace Semantic

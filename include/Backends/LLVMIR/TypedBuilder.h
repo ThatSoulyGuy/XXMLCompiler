@@ -137,6 +137,58 @@ public:
         return inst->result();
     }
 
+    /// Create an alloca in the entry block of the current function.
+    /// This is the correct way to create allocas for local variables to avoid
+    /// stack growth when allocas are placed inside loops.
+    PtrValue createEntryBlockAlloca(Type* type, std::string_view name = "") {
+        if (!insertBlock_) {
+            // Fallback to regular alloca if no insert block
+            return createAlloca(type, name);
+        }
+
+        Function* func = insertBlock_->getParent();
+        if (!func) {
+            return createAlloca(type, name);
+        }
+
+        BasicBlock* entryBlock = func->getEntryBlock();
+        if (!entryBlock) {
+            return createAlloca(type, name);
+        }
+
+        // Save current insert point
+        BasicBlock* savedBlock = insertBlock_;
+        Instruction* savedPoint = insertPoint_;
+
+        // Find first non-alloca instruction in entry block
+        Instruction* firstNonAlloca = nullptr;
+        for (Instruction* inst = entryBlock->getFirstInstruction(); inst; inst = inst->getNext()) {
+            if (inst->getOpcode() != Opcode::Alloca) {
+                firstNonAlloca = inst;
+                break;
+            }
+        }
+
+        // Set insert point to entry block
+        if (firstNonAlloca) {
+            setInsertPoint(entryBlock, firstNonAlloca);
+        } else {
+            setInsertPoint(entryBlock);
+        }
+
+        // Create the alloca
+        auto result = createAlloca(type, name);
+
+        // Restore original insert point
+        if (savedPoint) {
+            setInsertPoint(savedBlock, savedPoint);
+        } else {
+            setInsertPoint(savedBlock);
+        }
+
+        return result;
+    }
+
     /// Load an integer value from a pointer.
     IntValue createLoadInt(IntegerType* type, PtrValue ptr, std::string_view name = "") {
         auto* inst = createInst<LoadInst>(type, ptr, name);

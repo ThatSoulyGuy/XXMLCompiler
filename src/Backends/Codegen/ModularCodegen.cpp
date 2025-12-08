@@ -56,6 +56,8 @@ void ModularCodegen::generateProgram(const std::vector<std::unique_ptr<Parser::A
         // Handle top-level declarations
         if (auto* classDecl = dynamic_cast<Parser::ClassDecl*>(node.get())) {
             generateDecl(classDecl);
+        } else if (auto* structDecl = dynamic_cast<Parser::StructureDecl*>(node.get())) {
+            generateDecl(structDecl);
         } else if (auto* nsDecl = dynamic_cast<Parser::NamespaceDecl*>(node.get())) {
             generateDecl(nsDecl);
         } else if (auto* entryDecl = dynamic_cast<Parser::EntrypointDecl*>(node.get())) {
@@ -73,6 +75,8 @@ void ModularCodegen::generateProgramDecls(const std::vector<std::unique_ptr<Pars
         // Handle top-level declarations
         if (auto* classDecl = dynamic_cast<Parser::ClassDecl*>(decl.get())) {
             generateDecl(classDecl);
+        } else if (auto* structDecl = dynamic_cast<Parser::StructureDecl*>(decl.get())) {
+            generateDecl(structDecl);
         } else if (auto* nsDecl = dynamic_cast<Parser::NamespaceDecl*>(decl.get())) {
             generateDecl(nsDecl);
         } else if (auto* entryDecl = dynamic_cast<Parser::EntrypointDecl*>(decl.get())) {
@@ -124,19 +128,6 @@ void ModularCodegen::generateTemplates(Semantic::SemanticAnalyzer& analyzer) {
         templateCodegen_->generateClassTemplates(analyzer);
         templateCodegen_->generateMethodTemplates(analyzer);
     }
-
-    // Verify that all Deferred types have been resolved after template instantiation
-    // This is a debug check to ensure templates are properly instantiated
-    #ifndef NDEBUG
-    auto stats = ctx_.getTypeVerificationStats();
-    if (stats.deferredTypes > 0 || stats.unknownTypes > 0) {
-        std::cerr << "[DEBUG] After template generation: "
-                  << stats.deferredTypes << " Deferred types, "
-                  << stats.unknownTypes << " Unknown types still present\n";
-        // Note: Some Deferred types may be resolved later during actual codegen
-        // Full verification happens at the end of compilation
-    }
-    #endif
 }
 
 void ModularCodegen::collectReflectionMetadata(Parser::Program& program) {

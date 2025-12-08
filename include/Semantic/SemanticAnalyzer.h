@@ -66,6 +66,30 @@ public:
         std::vector<Parser::ClassDecl*> userClasses;  // User-defined classes from the same file
     };
 
+    // Template instantiation tracking - public for TemplateCodegen access
+    struct TemplateInstantiation {
+        std::string templateName;
+        std::vector<Parser::TemplateArgument> arguments;  // Can be type or value arguments
+        std::vector<int64_t> evaluatedValues;  // Evaluated constant values for non-type parameters
+
+        bool operator<(const TemplateInstantiation& other) const {
+            if (templateName != other.templateName) return templateName < other.templateName;
+            if (arguments.size() != other.arguments.size()) return arguments.size() < other.arguments.size();
+            // Compare arguments (simplified - just compare types for now)
+            for (size_t i = 0; i < arguments.size(); ++i) {
+                if (arguments[i].kind != other.arguments[i].kind) return arguments[i].kind < other.arguments[i].kind;
+                if (arguments[i].kind == Parser::TemplateArgument::Kind::Type) {
+                    if (arguments[i].typeArg != other.arguments[i].typeArg)
+                        return arguments[i].typeArg < other.arguments[i].typeArg;
+                } else if (i < evaluatedValues.size() && i < other.evaluatedValues.size()) {
+                    if (evaluatedValues[i] != other.evaluatedValues[i])
+                        return evaluatedValues[i] < other.evaluatedValues[i];
+                }
+            }
+            return false;
+        }
+    };
+
 private:
     SymbolTable* symbolTable_;  // Now points to context's symbol table
     Core::CompilationContext* context_;  // ✅ Use context instead of static state
@@ -116,30 +140,7 @@ private:
     std::unordered_map<Parser::Expression*, std::string> expressionTypes;
     std::unordered_map<Parser::Expression*, Parser::OwnershipType> expressionOwnerships;
 
-    // Template tracking
-    struct TemplateInstantiation {
-        std::string templateName;
-        std::vector<Parser::TemplateArgument> arguments;  // Can be type or value arguments
-        std::vector<int64_t> evaluatedValues;  // Evaluated constant values for non-type parameters
-
-        bool operator<(const TemplateInstantiation& other) const {
-            if (templateName != other.templateName) return templateName < other.templateName;
-            if (arguments.size() != other.arguments.size()) return arguments.size() < other.arguments.size();
-            // Compare arguments (simplified - just compare types for now)
-            for (size_t i = 0; i < arguments.size(); ++i) {
-                if (arguments[i].kind != other.arguments[i].kind) return arguments[i].kind < other.arguments[i].kind;
-                if (arguments[i].kind == Parser::TemplateArgument::Kind::Type) {
-                    if (arguments[i].typeArg != other.arguments[i].typeArg)
-                        return arguments[i].typeArg < other.arguments[i].typeArg;
-                } else if (i < evaluatedValues.size() && i < other.evaluatedValues.size()) {
-                    if (evaluatedValues[i] != other.evaluatedValues[i])
-                        return evaluatedValues[i] < other.evaluatedValues[i];
-                }
-            }
-            return false;
-        }
-    };
-
+    // Template tracking (TemplateInstantiation is public, defined above)
     struct MethodTemplateInstantiation {
         std::string className;  // Base class containing the method (e.g., "Holder")
         std::string instantiatedClassName;  // Full instantiated class name (e.g., "Holder_Integer")
@@ -553,6 +554,7 @@ public:
     void visit(Parser::ImportDecl& node) override;
     void visit(Parser::NamespaceDecl& node) override;
     void visit(Parser::ClassDecl& node) override;
+    void visit(Parser::StructureDecl& node) override;
     void visit(Parser::NativeStructureDecl& node) override;
     void visit(Parser::CallbackTypeDecl& node) override;
     void visit(Parser::EnumValueDecl& node) override;

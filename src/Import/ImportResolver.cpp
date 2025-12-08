@@ -180,7 +180,30 @@ std::vector<Module*> ImportResolver::resolveImport(const std::string& importPath
         }
         fullPath += dirPath;
 
-        // Find all XXML files in this directory
+        // First, check if a directory with this name exists (for namespace imports)
+        // Directory imports take precedence over file imports for namespaces like "Language::Reflection"
+        bool isDirectoryImport = fs::exists(fullPath) && fs::is_directory(fullPath);
+
+        // If no directory exists, check if this is a specific file import (e.g., "Language::Collections::HashMapIterator")
+        if (!isDirectoryImport) {
+            std::string specificFilePath = fullPath + ".XXML";
+            if (fs::exists(specificFilePath) && fs::is_regular_file(specificFilePath)) {
+                // This is a specific file import, not a directory
+                if (hasModule(importPath)) {
+                    modules.push_back(moduleCache[importPath].get());
+                } else {
+                    auto module = std::make_unique<Module>(importPath, specificFilePath);
+                    if (module->loadFromFile()) {
+                        Module* modulePtr = module.get();
+                        moduleCache[importPath] = std::move(module);
+                        modules.push_back(modulePtr);
+                    }
+                }
+                continue;
+            }
+        }
+
+        // Directory import - find all XXML files in this directory
         auto files = findXXMLFilesInDirectory(fullPath);
 
         for (const auto& filePath : files) {

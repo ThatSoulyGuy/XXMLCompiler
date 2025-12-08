@@ -19,6 +19,7 @@ LayoutComputationResult LayoutComputer::run(
     const std::unordered_map<std::string, ClassInfo>& classRegistry) {
 
     result_ = LayoutComputationResult{};
+    classRegistry_ = &classRegistry;
 
     // Build dependency graph for layout order
     buildDependencyGraph(classRegistry);
@@ -74,7 +75,13 @@ size_t LayoutComputer::getTypeSize(const std::string& typeName) const {
     const ClassLayout* layout = getLayout(typeName);
     if (layout) return layout->totalSize;
 
-    // Default to pointer size (objects are heap-allocated)
+    // For value types without a layout yet, return 0 to indicate it needs computation
+    // (This should not happen if dependency order is correct)
+    if (isValueType(typeName)) {
+        return 0;  // Layout should be computed first for value types
+    }
+
+    // Default to pointer size (reference types/classes are heap-allocated)
     return getPointerSize();
 }
 
@@ -87,7 +94,12 @@ size_t LayoutComputer::getTypeAlignment(const std::string& typeName) const {
     const ClassLayout* layout = getLayout(typeName);
     if (layout) return layout->alignment;
 
-    // Default to pointer alignment
+    // For value types without a layout yet, return 0 to indicate it needs computation
+    if (isValueType(typeName)) {
+        return 0;  // Layout should be computed first for value types
+    }
+
+    // Default to pointer alignment (reference types/classes are heap-allocated)
     return getPointerAlignment();
 }
 
@@ -107,6 +119,12 @@ size_t LayoutComputer::getPrimitiveAlignment(const std::string& typeName) const 
     if (typeName == "Bool" || typeName == "Language::Core::Bool") return 1;
     if (typeName == "String" || typeName == "Language::Core::String") return 8;
     return 0;
+}
+
+bool LayoutComputer::isValueType(const std::string& typeName) const {
+    if (!classRegistry_) return false;
+    auto it = classRegistry_->find(typeName);
+    return it != classRegistry_->end() && it->second.isValueType;
 }
 
 //==============================================================================
@@ -252,9 +270,26 @@ void LayoutComputer::buildDependencyGraph(
 
         // Property types that are value types are dependencies
         for (const auto& [propName, propInfo] : info.properties) {
-            if (propInfo.second == Parser::OwnershipType::Copy) {
-                // Only value types need their layout computed first
-                deps.push_back(propInfo.first);
+            const std::string& propType = propInfo.first;
+            Parser::OwnershipType ownership = propInfo.second;
+
+            if (ownership == Parser::OwnershipType::Copy) {
+                // Copy types need their layout computed first
+                deps.push_back(propType);
+            }
+
+            // Value types (Structures) also need their layout computed first
+            // when they are embedded (non-owned, non-reference)
+            auto it = classRegistry.find(propType);
+            if (it != classRegistry.end() && it->second.isValueType) {
+                // Value types used as non-pointer properties need layout computed first
+                if (ownership != Parser::OwnershipType::Owned &&
+                    ownership != Parser::OwnershipType::Reference) {
+                    // Avoid duplicate deps
+                    if (ownership != Parser::OwnershipType::Copy) {
+                        deps.push_back(propType);
+                    }
+                }
             }
         }
 

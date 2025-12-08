@@ -1,6 +1,7 @@
 #include "Backends/Codegen/DeclCodegen/DeclCodegen.h"
 #include "Backends/Codegen/NativeCodegen/NativeCodegen.h"
 #include "Backends/TypeNormalizer.h"
+#include "Backends/NameMangler.h"
 #include "Parser/AST.h"
 #include <iostream>
 
@@ -21,17 +22,6 @@ std::string ownershipToString(Parser::OwnershipType ownership) {
     }
 }
 
-// Sanitize name for LLVM IR (replace :: with .)
-std::string sanitizeIRName(const std::string& name) {
-    std::string result = name;
-    size_t pos = 0;
-    while ((pos = result.find("::", pos)) != std::string::npos) {
-        result.replace(pos, 2, ".");
-        pos += 1;
-    }
-    return result;
-}
-
 } // anonymous namespace
 
 void DeclCodegen::generate(Parser::ASTNode* decl) {
@@ -40,6 +30,8 @@ void DeclCodegen::generate(Parser::ASTNode* decl) {
     // Dispatch based on declaration type
     if (auto* classDecl = dynamic_cast<Parser::ClassDecl*>(decl)) {
         visitClass(classDecl);
+    } else if (auto* structDecl = dynamic_cast<Parser::StructureDecl*>(decl)) {
+        visitStructure(structDecl);
     } else if (auto* nativeDecl = dynamic_cast<Parser::NativeStructureDecl*>(decl)) {
         visitNativeStruct(nativeDecl);
     } else if (auto* ctorDecl = dynamic_cast<Parser::ConstructorDecl*>(decl)) {
@@ -74,10 +66,8 @@ void DeclCodegen::visitClass(Parser::ClassDecl* decl) {
 
     // Skip template class declarations - only generate instantiated versions
     if (!decl->templateParams.empty()) {
-        std::cerr << "[DEBUG DeclCodegen] Skipping template class (has templateParams): " << decl->name << "\n";
         return;
     }
-    std::cerr << "[DEBUG DeclCodegen] Processing class: " << decl->name << " (namespace: " << ctx_.currentNamespace() << ")\n";
 
     // Collect retained annotations for this class
     collectRetainedAnnotations(decl);
@@ -102,7 +92,7 @@ void DeclCodegen::visitClass(Parser::ClassDecl* decl) {
     // Create struct type if not already registered
     if (!ctx_.hasClass(fullClassName)) {
         // Create struct type in LLVMIR module - use sanitized name for LLVM IR
-        std::string irStructName = sanitizeIRName(fullClassName);
+        std::string irStructName = NameMangler::sanitizeForIRStruct(fullClassName);
         auto* structType = ctx_.module().createStruct(irStructName);
 
         // Collect property types for struct body
@@ -113,10 +103,11 @@ void DeclCodegen::visitClass(Parser::ClassDecl* decl) {
         for (const auto& section : decl->sections) {
             for (const auto& memberDecl : section->declarations) {
                 if (auto* prop = dynamic_cast<Parser::PropertyDecl*>(memberDecl.get())) {
-                    std::string propTypeName = ctx_.resolveToQualifiedName(prop->type->typeName);
+                    // Use toString() to include template arguments
+                    std::string propTypeName = ctx_.resolveToQualifiedName(prop->type->toString());
                     // NativeType is never stored as pointer - use actual LLVM type
                     bool isNativeType = propTypeName.find("NativeType<") == 0 ||
-                                        prop->type->typeName.find("NativeType<") == 0;
+                                        prop->type->toString().find("NativeType<") == 0;
                     // Object types (owned/reference/copy) are stored as pointers, except NativeType
                     bool isObjectType = !isNativeType &&
                                         (prop->type->ownership == Parser::OwnershipType::Owned ||
@@ -131,9 +122,6 @@ void DeclCodegen::visitClass(Parser::ClassDecl* decl) {
                     propInfo.isObjectType = isObjectType;
                     propInfo.index = propIndex++;
                     properties.push_back(propInfo);
-                    std::cerr << "[DEBUG DeclCodegen]   Property '" << prop->name << "' type: " << propTypeName
-                              << " (orig: " << prop->type->typeName << "), isNativeType=" << isNativeType
-                              << ", isObjectType=" << isObjectType << "\n";
                 }
             }
         }
@@ -180,6 +168,60 @@ void DeclCodegen::visitClass(Parser::ClassDecl* decl) {
         }
     }
 
+    // Pre-register all method return types BEFORE generating any code
+    // This is critical because constructors may call methods that haven't been processed yet
+    for (const auto& section : decl->sections) {
+        for (const auto& memberDecl : section->declarations) {
+            if (auto* method = dynamic_cast<Parser::MethodDecl*>(memberDecl.get())) {
+                if (!method->templateParams.empty()) continue;  // Skip template methods
+                if (method->isNative) continue;  // Skip native methods
+
+                std::string methodReturnType = method->returnType ? method->returnType->toString() : "void";
+                // Preserve ownership markers - they are critical for determining
+                // whether to free return values (& = reference, should NOT free)
+                // resolveToQualifiedName strips ownership markers, so save and restore them
+                char ownershipMarker = '\0';
+                if (!methodReturnType.empty()) {
+                    char last = methodReturnType.back();
+                    if (last == '^' || last == '&' || last == '%') {
+                        ownershipMarker = last;
+                    }
+                }
+                methodReturnType = ctx_.resolveToQualifiedName(methodReturnType);
+                // Re-attach ownership marker if it was present
+                if (ownershipMarker != '\0') {
+                    methodReturnType += ownershipMarker;
+                }
+
+                std::string mangledClassName = TypeNormalizer::mangleForLLVM(fullClassName);
+                std::string mangledFuncName = mangledClassName + "_" + method->name;
+
+                ctx_.registerMethodReturnType(mangledFuncName, methodReturnType);
+
+                // Also register parameter types for ownership transfer detection
+                std::vector<std::string> paramTypes;
+                for (const auto& param : method->parameters) {
+                    if (param->type) {
+                        std::string paramType = param->type->toString();
+                        char paramOwnership = '\0';
+                        if (!paramType.empty()) {
+                            char last = paramType.back();
+                            if (last == '^' || last == '&' || last == '%') {
+                                paramOwnership = last;
+                            }
+                        }
+                        paramType = ctx_.resolveToQualifiedName(paramType);
+                        if (paramOwnership != '\0') {
+                            paramType += paramOwnership;
+                        }
+                        paramTypes.push_back(paramType);
+                    }
+                }
+                ctx_.registerMethodParameterTypes(mangledFuncName, paramTypes);
+            }
+        }
+    }
+
     // Collect methods for metadata and generate code
     for (const auto& section : decl->sections) {
         for (const auto& memberDecl : section->declarations) {
@@ -222,6 +264,211 @@ void DeclCodegen::visitClass(Parser::ClassDecl* decl) {
     ctx_.setCurrentClassName(previousClass);
 }
 
+// === Structure Declaration (Value Type) ===
+
+void DeclCodegen::visitStructure(Parser::StructureDecl* decl) {
+    if (!decl) return;
+
+    // Skip template structure declarations - only generate instantiated versions
+    if (!decl->templateParams.empty()) {
+        return;
+    }
+
+    // Build full structure name
+    std::string fullStructName;
+    if (!ctx_.currentNamespace().empty()) {
+        fullStructName = std::string(ctx_.currentNamespace()) + "::" + decl->name;
+    } else {
+        fullStructName = decl->name;
+    }
+
+    // Skip if already generated
+    if (ctx_.isClassGenerated(fullStructName)) {
+        return;
+    }
+
+    // Save and set current class context
+    std::string previousClass = std::string(ctx_.currentClassName());
+    ctx_.setCurrentClassName(fullStructName);
+
+    // Create struct type if not already registered
+    if (!ctx_.hasClass(fullStructName)) {
+        // Create struct type in LLVMIR module - use sanitized name for LLVM IR
+        std::string irStructName = NameMangler::sanitizeForIRStruct(fullStructName);
+        auto* structType = ctx_.module().createStruct(irStructName);
+
+        // Collect property types for struct body
+        // DIFFERENCE FROM CLASS: For structures, properties store values directly, not pointers
+        std::vector<LLVMIR::Type*> fieldTypes;
+        std::vector<PropertyInfo> properties;
+        size_t propIndex = 0;
+
+        for (const auto& section : decl->sections) {
+            for (const auto& memberDecl : section->declarations) {
+                if (auto* prop = dynamic_cast<Parser::PropertyDecl*>(memberDecl.get())) {
+                    // Use toString() to include template arguments
+                    std::string propTypeName = ctx_.resolveToQualifiedName(prop->type->toString());
+
+                    // For value types, properties store values directly (not pointers)
+                    // unless the property type itself is a reference type
+                    bool isNativeType = propTypeName.find("NativeType<") == 0 ||
+                                        prop->type->toString().find("NativeType<") == 0;
+
+                    // Check if the property type is also a value type
+                    auto* propClassInfo = ctx_.getClass(propTypeName);
+                    bool propIsValueType = propClassInfo && propClassInfo->isValueType;
+
+                    // For value types storing other value types, embed directly
+                    // For value types storing reference types (Integer^, etc.), still use ptr
+                    bool isObjectType = !isNativeType && !propIsValueType &&
+                                        (prop->type->ownership == Parser::OwnershipType::Owned ||
+                                         prop->type->ownership == Parser::OwnershipType::Reference ||
+                                         prop->type->ownership == Parser::OwnershipType::Copy);
+
+                    auto* propType = isObjectType ? ctx_.module().getContext().getPtrTy() : ctx_.mapType(propTypeName);
+                    fieldTypes.push_back(propType);
+
+                    PropertyInfo propInfo;
+                    propInfo.name = prop->name;
+                    propInfo.xxmlType = propTypeName;
+                    propInfo.isObjectType = isObjectType;
+                    propInfo.index = propIndex++;
+                    properties.push_back(propInfo);
+                }
+            }
+        }
+
+        // Set struct body (empty structs get a single i8 field)
+        if (fieldTypes.empty()) {
+            fieldTypes.push_back(ctx_.module().getContext().getInt8Ty());
+        }
+        structType->setBody(fieldTypes);
+
+        // Register class info in context with isValueType = true
+        ClassInfo classInfo;
+        classInfo.name = fullStructName;
+        classInfo.mangledName = fullStructName;
+        classInfo.structType = structType;
+        classInfo.properties = properties;
+        classInfo.instanceSize = structType->getSizeInBits() / 8;
+        classInfo.isValueType = true;  // KEY DIFFERENCE: This is a value type
+        ctx_.registerClass(fullStructName, classInfo);
+    }
+
+    ctx_.markClassGenerated(fullStructName);
+
+    // Collect reflection metadata
+    ReflectionClassMetadata metadata;
+    metadata.name = decl->name;
+    metadata.namespaceName = std::string(ctx_.currentNamespace());
+    metadata.fullName = fullStructName;
+    metadata.isTemplate = false;
+    metadata.astNode = nullptr;  // Structure has no ClassDecl*
+
+    auto* classInfo = ctx_.getClass(fullStructName);
+    if (classInfo) {
+        metadata.instanceSize = classInfo->instanceSize;
+    }
+
+    // Collect properties for metadata
+    for (const auto& section : decl->sections) {
+        for (const auto& memberDecl : section->declarations) {
+            if (auto* prop = dynamic_cast<Parser::PropertyDecl*>(memberDecl.get())) {
+                metadata.properties.push_back({prop->name, prop->type->typeName});
+                metadata.propertyOwnerships.push_back(ownershipToString(prop->type->ownership));
+            }
+        }
+    }
+
+    // Pre-register all method return types BEFORE generating any code
+    for (const auto& section : decl->sections) {
+        for (const auto& memberDecl : section->declarations) {
+            if (auto* method = dynamic_cast<Parser::MethodDecl*>(memberDecl.get())) {
+                if (!method->templateParams.empty()) continue;
+                if (method->isNative) continue;
+
+                std::string methodReturnType = method->returnType ? method->returnType->toString() : "void";
+                // Preserve ownership markers - they are critical for determining
+                // whether to free return values (& = reference, should NOT free)
+                char ownershipMarker = '\0';
+                if (!methodReturnType.empty()) {
+                    char last = methodReturnType.back();
+                    if (last == '^' || last == '&' || last == '%') {
+                        ownershipMarker = last;
+                    }
+                }
+                methodReturnType = ctx_.resolveToQualifiedName(methodReturnType);
+                if (ownershipMarker != '\0') {
+                    methodReturnType += ownershipMarker;
+                }
+
+                std::string mangledClassName = TypeNormalizer::mangleForLLVM(fullStructName);
+                std::string mangledFuncName = mangledClassName + "_" + method->name;
+
+                ctx_.registerMethodReturnType(mangledFuncName, methodReturnType);
+
+                // Also register parameter types for ownership transfer detection
+                std::vector<std::string> paramTypes;
+                for (const auto& param : method->parameters) {
+                    if (param->type) {
+                        std::string paramType = param->type->toString();
+                        char paramOwnership = '\0';
+                        if (!paramType.empty()) {
+                            char last = paramType.back();
+                            if (last == '^' || last == '&' || last == '%') {
+                                paramOwnership = last;
+                            }
+                        }
+                        paramType = ctx_.resolveToQualifiedName(paramType);
+                        if (paramOwnership != '\0') {
+                            paramType += paramOwnership;
+                        }
+                        paramTypes.push_back(paramType);
+                    }
+                }
+                ctx_.registerMethodParameterTypes(mangledFuncName, paramTypes);
+            }
+        }
+    }
+
+    // Generate methods, constructors, destructors
+    for (const auto& section : decl->sections) {
+        for (const auto& memberDecl : section->declarations) {
+            if (auto* method = dynamic_cast<Parser::MethodDecl*>(memberDecl.get())) {
+                metadata.methods.push_back({method->name, method->returnType ? method->returnType->typeName : "None"});
+                metadata.methodReturnOwnerships.push_back(method->returnType ? ownershipToString(method->returnType->ownership) : "");
+
+                std::vector<std::tuple<std::string, std::string, std::string>> params;
+                for (const auto& param : method->parameters) {
+                    params.push_back(std::make_tuple(param->name, param->type->typeName, ownershipToString(param->type->ownership)));
+                }
+                metadata.methodParameters.push_back(params);
+
+                visitMethod(method);
+            } else if (auto* ctor = dynamic_cast<Parser::ConstructorDecl*>(memberDecl.get())) {
+                metadata.methods.push_back({"Constructor", decl->name});
+                metadata.methodReturnOwnerships.push_back("^");
+
+                std::vector<std::tuple<std::string, std::string, std::string>> params;
+                for (const auto& param : ctor->parameters) {
+                    params.push_back(std::make_tuple(param->name, param->type->typeName, ownershipToString(param->type->ownership)));
+                }
+                metadata.methodParameters.push_back(params);
+
+                visitConstructor(ctor);
+            } else if (auto* dtor = dynamic_cast<Parser::DestructorDecl*>(memberDecl.get())) {
+                visitDestructor(dtor);
+            }
+        }
+    }
+
+    // Store metadata
+    ctx_.addReflectionMetadata(fullStructName, metadata);
+
+    // Restore class context
+    ctx_.setCurrentClassName(previousClass);
+}
+
 void DeclCodegen::visitNativeStruct(Parser::NativeStructureDecl* decl) {
     if (!decl) return;
 
@@ -245,7 +492,6 @@ void DeclCodegen::visitConstructor(Parser::ConstructorDecl* decl) {
     if (!decl) return;
 
     std::string className = std::string(ctx_.currentClassName());
-    std::cerr << "[DEBUG DeclCodegen] visitConstructor (class: " << className << ", isDefault: " << decl->isDefault << ")\n";
     if (className.empty()) return;
 
     // Build function name: ClassName_Constructor_N (N = param count)
@@ -261,7 +507,8 @@ void DeclCodegen::visitConstructor(Parser::ConstructorDecl* decl) {
     paramTypes.push_back(ctx_.module().getContext().getPtrTy());  // 'this' pointer
 
     for (const auto& param : decl->parameters) {
-        std::string paramTypeName = ctx_.resolveToQualifiedName(param->type->typeName);
+        // Use toString() to include template arguments (e.g., "ListIterator<Integer>")
+        std::string paramTypeName = ctx_.resolveToQualifiedName(param->type->toString());
         bool isObjectParam = param->type->ownership == Parser::OwnershipType::Owned ||
                              param->type->ownership == Parser::OwnershipType::Reference ||
                              param->type->ownership == Parser::OwnershipType::Copy;
@@ -296,7 +543,8 @@ void DeclCodegen::visitConstructor(Parser::ConstructorDecl* decl) {
     // Register user parameters
     for (size_t i = 0; i < decl->parameters.size(); ++i) {
         auto& param = decl->parameters[i];
-        std::string paramTypeName = ctx_.resolveToQualifiedName(param->type->typeName);
+        // Use toString() to include template arguments (e.g., "ListIterator<Integer>")
+        std::string paramTypeName = ctx_.resolveToQualifiedName(param->type->toString());
         if (func->getArg(i + 1)) {
             func->getArg(i + 1)->setName(param->name);
             ctx_.declareParameter(param->name, paramTypeName, LLVMIR::AnyValue(func->getArg(i + 1)));
@@ -333,8 +581,10 @@ void DeclCodegen::visitConstructor(Parser::ConstructorDecl* decl) {
     // Generate body statements
     generateFunctionBody(decl->body);
 
-    // Return 'this' if no explicit return
+    // Return 'this' if no explicit return (with RAII cleanup)
     if (!ctx_.currentBlock() || !ctx_.currentBlock()->getTerminator()) {
+        // Emit destructors for all local variables before the implicit return
+        ctx_.emitAllDestructors();
         auto* thisArg = func->getArg(0);
         if (thisArg) {
             ctx_.builder().createRet(LLVMIR::AnyValue(thisArg));
@@ -343,8 +593,8 @@ void DeclCodegen::visitConstructor(Parser::ConstructorDecl* decl) {
         }
     }
 
-    // Pop scope
-    ctx_.popScope();
+    // Pop scope (don't emit destructors again - already done before return)
+    ctx_.popScopeWithoutDestructors();
     ctx_.setCurrentFunction(nullptr);
 }
 
@@ -394,13 +644,14 @@ void DeclCodegen::visitDestructor(Parser::DestructorDecl* decl) {
     // Generate body statements
     generateFunctionBody(decl->body);
 
-    // Add return void if needed
+    // Add return void if needed (with RAII cleanup)
     if (!ctx_.currentBlock() || !ctx_.currentBlock()->getTerminator()) {
+        ctx_.emitAllDestructors();
         ctx_.builder().createRetVoid();
     }
 
-    // Pop scope
-    ctx_.popScope();
+    // Pop scope (don't emit destructors again - already done before return)
+    ctx_.popScopeWithoutDestructors();
     ctx_.setCurrentFunction(nullptr);
 }
 
@@ -426,9 +677,6 @@ void DeclCodegen::visitMethod(Parser::MethodDecl* decl) {
             simpleClassName = fullClassName.substr(lastColon + 2);
         }
 
-        std::cerr << "[DEBUG DeclCodegen] Generating native thunk for: " << decl->name
-                  << " (class: " << simpleClassName << ", fullClass: " << fullClassName << ")\n";
-
         // Create a NativeCodegen instance and generate the thunk
         NativeCodegen nativeCodegen(ctx_, ctx_.compilationContext());
         nativeCodegen.generateNativeThunk(*decl, simpleClassName, namespaceName);
@@ -436,7 +684,6 @@ void DeclCodegen::visitMethod(Parser::MethodDecl* decl) {
     }
 
     std::string className = std::string(ctx_.currentClassName());
-    std::cerr << "[DEBUG DeclCodegen] visitMethod: " << decl->name << " (class: " << className << ")\n";
     bool isInstanceMethod = !className.empty();
 
     // Build function name using TypeNormalizer for valid LLVM identifiers
@@ -458,7 +705,8 @@ void DeclCodegen::visitMethod(Parser::MethodDecl* decl) {
     }
 
     for (const auto& param : decl->parameters) {
-        std::string paramTypeName = ctx_.resolveToQualifiedName(param->type->typeName);
+        // Use toString() to include template arguments (e.g., "ListIterator<Integer>")
+        std::string paramTypeName = ctx_.resolveToQualifiedName(param->type->toString());
         bool isObjectParam = param->type->ownership == Parser::OwnershipType::Owned ||
                              param->type->ownership == Parser::OwnershipType::Reference ||
                              param->type->ownership == Parser::OwnershipType::Copy;
@@ -466,21 +714,29 @@ void DeclCodegen::visitMethod(Parser::MethodDecl* decl) {
     }
 
     // Build return type - owned/reference/copy types are pointers (except NativeType)
-    std::string returnTypeName = decl->returnType ? decl->returnType->typeName : "void";
-    std::cerr << "[DEBUG DeclCodegen]   Original return type: '" << returnTypeName << "'\n";
+    // Use toString() to include template arguments
+    std::string returnTypeName = decl->returnType ? decl->returnType->toString() : "void";
+    // Preserve ownership markers - they are critical for determining
+    // whether to free return values (& = reference, should NOT free)
+    char ownershipMarker = '\0';
+    if (!returnTypeName.empty()) {
+        char last = returnTypeName.back();
+        if (last == '^' || last == '&' || last == '%') {
+            ownershipMarker = last;
+        }
+    }
     returnTypeName = ctx_.resolveToQualifiedName(returnTypeName);
-    std::cerr << "[DEBUG DeclCodegen]   Resolved return type: '" << returnTypeName << "'\n";
+    if (ownershipMarker != '\0') {
+        returnTypeName += ownershipMarker;
+    }
 
     // NativeType should NEVER be treated as object type - it maps directly to LLVM primitives
     bool isNativeType = returnTypeName.find("NativeType<") != std::string::npos;
-    std::cerr << "[DEBUG DeclCodegen]   isNativeType=" << isNativeType
-              << ", ownership=" << static_cast<int>(decl->returnType ? decl->returnType->ownership : Parser::OwnershipType::None) << "\n";
 
     bool isObjectReturnType = decl->returnType && !isNativeType &&
         (decl->returnType->ownership == Parser::OwnershipType::Owned ||
          decl->returnType->ownership == Parser::OwnershipType::Reference ||
          decl->returnType->ownership == Parser::OwnershipType::Copy);
-    std::cerr << "[DEBUG DeclCodegen]   isObjectReturnType=" << isObjectReturnType << "\n";
     auto* returnType = isObjectReturnType ? ctx_.module().getContext().getPtrTy() : ctx_.mapType(returnTypeName);
 
     auto* funcType = ctx_.module().getContext().getFunctionTy(returnType, paramTypes);
@@ -492,6 +748,31 @@ void DeclCodegen::visitMethod(Parser::MethodDecl* decl) {
     ctx_.markFunctionDefined(funcName);
     ctx_.setCurrentFunction(func);
     ctx_.setCurrentReturnType(returnTypeName);
+
+    // Register method return type for lookup during call generation
+    // This is critical for template-instantiated classes where demangling is lossy
+    ctx_.registerMethodReturnType(funcName, returnTypeName);
+
+    // Also register parameter types (with ownership markers) for ownership transfer detection
+    std::vector<std::string> paramTypesList;
+    for (const auto& param : decl->parameters) {
+        if (param->type) {
+            std::string paramType = param->type->toString();
+            char ownershipMarker = '\0';
+            if (!paramType.empty()) {
+                char last = paramType.back();
+                if (last == '^' || last == '&' || last == '%') {
+                    ownershipMarker = last;
+                }
+            }
+            paramType = ctx_.resolveToQualifiedName(paramType);
+            if (ownershipMarker != '\0') {
+                paramType += ownershipMarker;
+            }
+            paramTypesList.push_back(paramType);
+        }
+    }
+    ctx_.registerMethodParameterTypes(funcName, paramTypesList);
 
     // Create entry block
     auto* entryBB = func->createBasicBlock("entry");
@@ -511,7 +792,8 @@ void DeclCodegen::visitMethod(Parser::MethodDecl* decl) {
     }
 
     for (const auto& param : decl->parameters) {
-        std::string paramTypeName = ctx_.resolveToQualifiedName(param->type->typeName);
+        // Use toString() to include template arguments (e.g., "ListIterator<Integer>")
+        std::string paramTypeName = ctx_.resolveToQualifiedName(param->type->toString());
         if (func->getArg(argIdx)) {
             func->getArg(argIdx)->setName(param->name);
             ctx_.declareParameter(param->name, paramTypeName, LLVMIR::AnyValue(func->getArg(argIdx)));
@@ -522,8 +804,10 @@ void DeclCodegen::visitMethod(Parser::MethodDecl* decl) {
     // Generate body statements
     generateFunctionBody(decl->body);
 
-    // Add default return if needed
+    // Add default return if needed (with RAII cleanup)
     if (!ctx_.currentBlock() || !ctx_.currentBlock()->getTerminator()) {
+        // Emit destructors for all variables before the implicit return
+        ctx_.emitAllDestructors();
         if (returnTypeName == "void" || returnTypeName.empty()) {
             ctx_.builder().createRetVoid();
         } else {
@@ -532,8 +816,8 @@ void DeclCodegen::visitMethod(Parser::MethodDecl* decl) {
         }
     }
 
-    // Pop scope
-    ctx_.popScope();
+    // Pop scope (don't emit destructors again - already done before return)
+    ctx_.popScopeWithoutDestructors();
     ctx_.setCurrentFunction(nullptr);
 }
 
@@ -612,14 +896,17 @@ void DeclCodegen::visitEntrypoint(Parser::EntrypointDecl* decl) {
     // Generate body statements
     generateFunctionBody(decl->body);
 
-    // Add default return 0 if needed
+    // Add default return 0 if needed (with RAII cleanup)
     if (!ctx_.currentBlock() || !ctx_.currentBlock()->getTerminator()) {
+        // Emit destructors for all variables before the implicit return
+        ctx_.emitAllDestructors();
         auto zero = ctx_.builder().getInt32(0);
         ctx_.builder().createRet(LLVMIR::AnyValue(zero));
     }
 
-    // Pop scope
-    ctx_.popScope();
+    // Pop scope (don't emit destructors again - already done before return)
+    // Just clean up the scope tracking without emitting code
+    ctx_.popScopeWithoutDestructors();
     ctx_.setCurrentFunction(nullptr);
 }
 

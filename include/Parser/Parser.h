@@ -34,6 +34,7 @@ private:
     std::unique_ptr<ImportDecl> parseImport();
     std::unique_ptr<NamespaceDecl> parseNamespace();
     std::unique_ptr<ClassDecl> parseClass();
+    std::unique_ptr<StructureDecl> parseStructure();
     std::unique_ptr<NativeStructureDecl> parseNativeStructure();
     std::unique_ptr<CallbackTypeDecl> parseCallbackType();
     std::unique_ptr<EnumerationDecl> parseEnumeration();

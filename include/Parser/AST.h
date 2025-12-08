@@ -15,6 +15,7 @@ class AnnotationUsage;
 class AnnotationDecl;
 class AnnotateDecl;
 class ProcessorDecl;
+class StructureDecl;
 class NativeStructureDecl;
 class CallbackTypeDecl;
 class EnumerationDecl;
@@ -713,6 +714,26 @@ public:
     void accept(ASTVisitor& visitor) override;    std::unique_ptr<ASTNode> clone() const override;    std::unique_ptr<Declaration> cloneDecl() const override;
 };
 
+// Structure declaration - stack-allocated value type with methods and constructors
+// Unlike Class, Structure types are allocated on the stack, not heap
+// They don't support inheritance but can have methods, constructors, and properties
+class StructureDecl : public Declaration {
+public:
+    std::string name;
+    std::vector<TemplateParameter> templateParams;  // Template parameters if this is a template structure
+    std::vector<std::unique_ptr<AccessSection>> sections;
+    std::vector<std::unique_ptr<AnnotationUsage>> annotations;  // Applied annotations
+    bool isCompiletime = false;  // Compile-time structure
+
+    StructureDecl(const std::string& n, const std::vector<TemplateParameter>& tparams,
+                  const Common::SourceLocation& loc)
+        : Declaration(loc), name(n), templateParams(tparams) {}
+
+    void accept(ASTVisitor& visitor) override;
+    std::unique_ptr<ASTNode> clone() const override;
+    std::unique_ptr<Declaration> cloneDecl() const override;
+};
+
 // Native structure for FFI (C-compatible struct with fixed alignment)
 class NativeStructureDecl : public Declaration {
 public:
@@ -966,6 +987,7 @@ public:
     virtual void visit(ImportDecl& node) = 0;
     virtual void visit(NamespaceDecl& node) = 0;
     virtual void visit(ClassDecl& node) = 0;
+    virtual void visit(StructureDecl& node) = 0;
     virtual void visit(NativeStructureDecl& node) = 0;
     virtual void visit(CallbackTypeDecl& node) = 0;
     virtual void visit(EnumValueDecl& node) = 0;

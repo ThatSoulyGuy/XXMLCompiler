@@ -2,6 +2,8 @@
 // Hash-based implementation for O(1) average operations
 // T must implement hash() and equals() methods
 
+#import Language::Collections::SetIterator;
+
 [ Namespace <Language::Collections>
 	[ Class <Set> <T Constrains (Hashable, Equatable)> Final Extends None
 
@@ -234,8 +236,8 @@
 				Set count = zero;
 			}
 
-			// Free the set memory
-			Method <dispose> Returns None Parameters () Do
+			// Free the set memory - called automatically by RAII
+			Destructor Parameters () ->
 			{
 				// Free each bucket
 				Instantiate NativeType<"int64">^ As <i> = 0;
@@ -267,6 +269,14 @@
 				Set numBuckets = zero;
 				Set count = zero;
 			}
+
+			// Iterator support - C++ style begin
+			// Returns an iterator pointing to the first element
+			Method <begin> Returns SetIterator<T>^ Parameters () Do
+			{
+				Return SetIterator@T::Constructor(buckets, bucketCounts, numBuckets, count);
+			}
+
 		]
 	]
 ]

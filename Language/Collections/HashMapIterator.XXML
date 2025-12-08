@@ -1,0 +1,160 @@
+// Generic HashMapIterator<K, V> - Forward iterator for HashMap<K, V>
+// Satisfies the Iterator constraint
+// Iterates over key-value pairs in the hash map
+
+[ Namespace <Language::Collections>
+	[ Class <HashMapIterator> <K Constrains None, V Constrains None> Final Extends None
+
+		[ Private <>
+			// Pointer to bucket keys array
+			Property <keysPtr> Types NativeType<"ptr">^;
+			// Pointer to bucket values array
+			Property <valuesPtr> Types NativeType<"ptr">^;
+			// Pointer to bucket counts array
+			Property <countsPtr> Types NativeType<"ptr">^;
+			// Number of buckets
+			Property <numBuckets> Types NativeType<"int64">^;
+			// Current bucket index
+			Property <bucketIdx> Types NativeType<"int64">^;
+			// Current position within the bucket
+			Property <posInBucket> Types NativeType<"int64">^;
+			// Total elements visited (for end detection)
+			Property <totalVisited> Types NativeType<"int64">^;
+			// Total elements in map
+			Property <totalElements> Types NativeType<"int64">^;
+		]
+
+		[ Public <>
+			// Constructor - creates iterator from HashMap's internal data
+			Constructor Parameters (
+				Parameter <keys> Types NativeType<"ptr">^,
+				Parameter <values> Types NativeType<"ptr">^,
+				Parameter <counts> Types NativeType<"ptr">^,
+				Parameter <numBkts> Types NativeType<"int64">^,
+				Parameter <total> Types NativeType<"int64">^
+			) ->
+			{
+				Set keysPtr = keys;
+				Set valuesPtr = values;
+				Set countsPtr = counts;
+				Set numBuckets = numBkts;
+				Set totalElements = total;
+				Instantiate NativeType<"int64">^ As <zero> = 0;
+				Set bucketIdx = zero;
+				Set posInBucket = zero;
+				Set totalVisited = zero;
+
+				// Find first non-empty bucket
+				Run this.findNextElement();
+			}
+
+			// Internal helper: advance to next valid position
+			Method <findNextElement> Returns None Parameters () Do
+			{
+				While (bucketIdx < numBuckets) -> {
+					Instantiate NativeType<"ptr">^ As <countOffset> = countsPtr + (bucketIdx * 8);
+					Instantiate NativeType<"int64">^ As <bucketCount> = Syscall::int64_read(countOffset);
+
+					If (posInBucket < bucketCount) -> {
+						// Found valid position
+						Return;
+					}
+
+					// Move to next bucket
+					Instantiate NativeType<"int64">^ As <one> = 1;
+					Set bucketIdx = bucketIdx + one;
+					Instantiate NativeType<"int64">^ As <zero> = 0;
+					Set posInBucket = zero;
+				}
+				// No more elements found
+				Return;
+			}
+
+			// Check if there are more elements
+			Method <hasNext> Returns Bool^ Parameters () Do
+			{
+				Return Bool::Constructor(totalVisited < totalElements);
+			}
+
+			// Get current key-value pair without advancing
+			Method <current> Returns KeyValuePair<K, V>^ Parameters () Do
+			{
+				If (totalVisited >= totalElements) -> {
+					Return KeyValuePair@K, V::Constructor();
+				}
+
+				// Get bucket data pointers
+				Instantiate NativeType<"ptr">^ As <keyPtrOffset> = keysPtr + (bucketIdx * 8);
+				Instantiate NativeType<"ptr">^ As <valuePtrOffset> = valuesPtr + (bucketIdx * 8);
+
+				Instantiate NativeType<"ptr">^ As <keyData> = Syscall::ptr_read(keyPtrOffset);
+				Instantiate NativeType<"ptr">^ As <valueData> = Syscall::ptr_read(valuePtrOffset);
+
+				If (keyData == 0) -> {
+					Return KeyValuePair@K, V::Constructor();
+				}
+
+				// Get key and value at position
+				Instantiate NativeType<"ptr">^ As <keyOffset> = keyData + (posInBucket * 8);
+				Instantiate NativeType<"ptr">^ As <valueOffset> = valueData + (posInBucket * 8);
+
+				Instantiate K^ As <k> = Syscall::ptr_read(keyOffset);
+				Instantiate V^ As <v> = Syscall::ptr_read(valueOffset);
+
+				Instantiate KeyValuePair<K, V>^ As <result> = KeyValuePair@K, V::Constructor(k, v);
+
+				// Null out k and v to prevent RAII from freeing HashMap's internal data
+				// k and v were passed to KeyValuePair which holds non-owning references
+				Instantiate NativeType<"ptr">^ As <nullPtr> = 0;
+				Run Syscall::memcpy(&k, &nullPtr, 8);
+				Run Syscall::memcpy(&v, &nullPtr, 8);
+
+				Return result;
+			}
+
+			// Get current key without advancing
+			// Returns reference to key in HashMap's internal storage
+			Method <currentKey> Returns K& Parameters () Do
+			{
+				// KeyValuePair's destructor nulls its pointers, so it won't free HashMap data
+				Instantiate KeyValuePair<K, V>^ As <pair> = this.current();
+				Return pair.key();
+			}
+
+			// Get current value without advancing
+			// Returns reference to value in HashMap's internal storage
+			Method <currentValue> Returns V& Parameters () Do
+			{
+				// KeyValuePair's destructor nulls its pointers, so it won't free HashMap data
+				Instantiate KeyValuePair<K, V>^ As <pair> = this.current();
+				Return pair.value();
+			}
+
+			// Advance and return the current key-value pair
+			Method <next> Returns KeyValuePair<K, V>^ Parameters () Do
+			{
+				Instantiate KeyValuePair<K, V>^ As <pair> = this.current();
+
+				// Advance position
+				Instantiate NativeType<"int64">^ As <one> = 1;
+				Set posInBucket = posInBucket + one;
+				Set totalVisited = totalVisited + one;
+
+				// Find next valid position
+				Run this.findNextElement();
+
+				Return pair;
+			}
+
+			// Reset to beginning
+			Method <reset> Returns None Parameters () Do
+			{
+				Instantiate NativeType<"int64">^ As <zero> = 0;
+				Set bucketIdx = zero;
+				Set posInBucket = zero;
+				Set totalVisited = zero;
+				Run this.findNextElement();
+			}
+		]
+	]
+]

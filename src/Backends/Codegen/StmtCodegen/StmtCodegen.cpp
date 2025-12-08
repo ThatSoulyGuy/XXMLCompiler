@@ -41,6 +41,8 @@ void StmtCodegen::visitRun(Parser::RunStmt* stmt) {
     if (!stmt || !stmt->expression) return;
     // Simply evaluate the expression for side effects
     exprCodegen_.generate(stmt->expression.get());
+    // Clean up any temporary objects created during expression evaluation
+    ctx_.emitTemporaryCleanup();
 }
 
 // === Return Statement ===
@@ -49,16 +51,37 @@ void StmtCodegen::visitReturn(Parser::ReturnStmt* stmt) {
     if (!stmt) return;
 
     if (stmt->value) {
-        // Check for void return (None return type)
+        // Check for void return (None is treated as void at IR level)
         std::string returnType = std::string(ctx_.currentReturnType());
         if (returnType == "void" || returnType == "None" || returnType.empty()) {
-            // Don't generate the return value - just return void
+            // Void/None return - evaluate expression for side effects, then return void
+            exprCodegen_.generate(stmt->value.get());
+            // Emit destructors for all variables in scope before returning
+            ctx_.emitAllDestructors();
             ctx_.builder().createRetVoid();
         } else {
+            // Non-void return - save value, emit destructors, then return
             auto returnValue = exprCodegen_.generate(stmt->value.get());
+
+            // Check if we're returning a simple variable - if so, skip its destructor
+            // because ownership is being transferred to the caller
+            std::string excludeVar;
+            if (auto* identExpr = dynamic_cast<Parser::IdentifierExpr*>(stmt->value.get())) {
+                excludeVar = identExpr->name;
+            }
+
+            // Emit destructors for all variables in scope before returning
+            // Skip the returned variable to prevent destroying what we're returning
+            if (!excludeVar.empty()) {
+                ctx_.emitAllDestructorsExcept(excludeVar);
+            } else {
+                ctx_.emitAllDestructors();
+            }
             ctx_.builder().createRet(returnValue);
         }
     } else {
+        // No return value provided - emit destructors, then return void
+        ctx_.emitAllDestructors();
         ctx_.builder().createRetVoid();
     }
 }
@@ -71,6 +94,8 @@ void StmtCodegen::visitExit(Parser::ExitStmt* stmt) {
     // Exit is like return but typically from Entrypoint
     if (stmt->exitCode) {
         auto exitValue = exprCodegen_.generate(stmt->exitCode.get());
+        // Emit destructors for all variables in scope before exiting
+        ctx_.emitAllDestructors();
         // main() returns i32, so truncate if necessary
         if (exitValue.isInt() && exitValue.asInt().getBitWidth() > 32) {
             auto truncated = ctx_.builder().createTrunc(exitValue.asInt(), ctx_.module().getContext().getInt32Ty(), "");
@@ -79,6 +104,8 @@ void StmtCodegen::visitExit(Parser::ExitStmt* stmt) {
             ctx_.builder().createRet(exitValue);
         }
     } else {
+        // Emit destructors for all variables in scope before exiting
+        ctx_.emitAllDestructors();
         // Return 0 for success
         auto zero = ctx_.builder().getInt32(0);
         ctx_.builder().createRet(LLVMIR::AnyValue(zero));
@@ -114,6 +141,9 @@ void StmtCodegen::visitAssignment(Parser::AssignmentStmt* stmt) {
             storeToObjectProperty(objIdent->name, memberExpr->member, valueResult);
         }
     }
+
+    // Clear temporaries without cleanup - the assigned value is now owned by the variable
+    ctx_.clearTemporaries();
 }
 
 // === Instantiate Statement ===
@@ -151,11 +181,29 @@ void StmtCodegen::visitInstantiate(Parser::InstantiateStmt* stmt) {
         isObjectType = false;
     }
 
+    // Check if this is a value type (Structure)
+    // Value types are stack-allocated directly, not as pointers
+    auto* classInfo = ctx_.getClass(typeName);
+    bool isValueType = classInfo && classInfo->isValueType;
+
     // Create alloca for the variable
-    // For object types (Integer^, Bool^, etc.), always use ptr type since they're heap-allocated
-    // But NativeType always stores the actual value type, not a pointer
-    auto* allocaType = isObjectType ? ctx_.builder().getPtrTy() : ctx_.mapType(typeName);
-    auto allocaPtr = ctx_.builder().createAlloca(allocaType, varName);
+    // For value types: allocate the struct type directly (stack-allocated)
+    // For object types (Integer^, Bool^, etc.): use ptr type since they're heap-allocated
+    // For NativeType: use the actual value type
+    LLVMIR::Type* allocaType;
+    if (isValueType) {
+        // Value types: allocate the actual struct type on the stack
+        allocaType = classInfo->structType;
+    } else if (isObjectType) {
+        // Reference types: allocate a pointer (object lives on heap)
+        allocaType = ctx_.builder().getPtrTy();
+    } else {
+        // Primitive types or NativeType: allocate the actual type
+        allocaType = ctx_.mapType(typeName);
+    }
+    // Use createEntryBlockAlloca to place alloca in the entry block
+    // This prevents stack overflow from allocas inside loops
+    auto allocaPtr = ctx_.builder().createEntryBlockAlloca(allocaType, varName);
 
     // Get raw AllocaInst* from PtrValue for registration
     auto* allocaInst = static_cast<LLVMIR::AllocaInst*>(allocaPtr.raw());
@@ -163,10 +211,43 @@ void StmtCodegen::visitInstantiate(Parser::InstantiateStmt* stmt) {
     // Register the variable using declareVariable
     ctx_.declareVariable(varName, typeName, LLVMIR::AnyValue(allocaPtr), allocaInst);
 
+    // Register for RAII destruction if this is an object type
+    // This ensures automatic cleanup when the variable goes out of scope
+    if (isObjectType && !isNativeType) {
+        ctx_.registerForDestruction(varName, typeName, allocaInst);
+    }
+
     // If there's an initializer, generate it and store
     if (stmt->initializer) {
         auto initValue = exprCodegen_.generate(stmt->initializer.get());
-        ctx_.builder().createStore(initValue, allocaPtr);
+
+        // For value types (Structures), the constructor returns a pointer to a temp alloca.
+        // We need to copy the struct from the temp to our variable's alloca.
+        if (isValueType && initValue.isPtr()) {
+            // Use memcpy to copy the struct from temp to our alloca
+            auto* memcpyFunc = ctx_.module().getFunction("xxml_memcpy");
+            if (!memcpyFunc) {
+                std::vector<LLVMIR::Type*> memcpyParams = {
+                    ctx_.builder().getPtrTy(),
+                    ctx_.builder().getPtrTy(),
+                    ctx_.module().getContext().getInt64Ty()
+                };
+                auto* memcpyType = ctx_.module().getContext().getFunctionTy(
+                    ctx_.builder().getPtrTy(), memcpyParams, false);
+                memcpyFunc = ctx_.module().createFunction(memcpyType, "xxml_memcpy",
+                    LLVMIR::Function::Linkage::External);
+            }
+            auto sizeVal = ctx_.builder().getInt64(classInfo->instanceSize);
+            std::vector<LLVMIR::AnyValue> memcpyArgs = {
+                LLVMIR::AnyValue(allocaPtr),
+                initValue,
+                LLVMIR::AnyValue(sizeVal)
+            };
+            ctx_.builder().createCall(memcpyFunc, memcpyArgs, "");
+        } else {
+            // For reference types, store the pointer
+            ctx_.builder().createStore(initValue, allocaPtr);
+        }
 
         // Register compiletime variables in the interpreter for constant folding
         if (stmt->isCompiletime && ctx_.hasCompiletimeInterpreter()) {
@@ -177,6 +258,9 @@ void StmtCodegen::visitInstantiate(Parser::InstantiateStmt* stmt) {
                 interp->setVariable(varName, std::move(ctValue));
             }
         }
+
+        // Clear temporaries without cleanup - the initialized value is now owned by the variable
+        ctx_.clearTemporaries();
     }
 }
 
@@ -202,6 +286,10 @@ void StmtCodegen::visitIf(Parser::IfStmt* stmt) {
     // Convert to i1 if needed (condition might be a Bool object)
     auto condI1 = ensureBoolCondition(condValue);
 
+    // Clean up temporaries from condition evaluation (e.g., Bool from comparisons)
+    // Safe to do here because condI1 is a primitive i1, not the Bool object
+    ctx_.emitTemporaryCleanup();
+
     // Create conditional branch
     if (elseBB) {
         ctx_.builder().createCondBr(condI1, thenBB, elseBB);
@@ -211,9 +299,11 @@ void StmtCodegen::visitIf(Parser::IfStmt* stmt) {
 
     // Emit then block
     ctx_.setInsertPoint(thenBB);
+    ctx_.pushScope();  // Push scope for then branch
     for (const auto& thenStmt : stmt->thenBranch) {
         generate(thenStmt.get());
     }
+    ctx_.popScope();  // Pop scope - emits destructors/dispose calls
     // Only add branch to merge if block doesn't have a terminator
     if (ctx_.currentBlock() && !ctx_.currentBlock()->getTerminator()) {
         ctx_.builder().createBr(mergeBB);
@@ -222,9 +312,11 @@ void StmtCodegen::visitIf(Parser::IfStmt* stmt) {
     // Emit else block if present
     if (elseBB) {
         ctx_.setInsertPoint(elseBB);
+        ctx_.pushScope();  // Push scope for else branch
         for (const auto& elseStmt : stmt->elseBranch) {
             generate(elseStmt.get());
         }
+        ctx_.popScope();  // Pop scope - emits destructors/dispose calls
         if (ctx_.currentBlock() && !ctx_.currentBlock()->getTerminator()) {
             ctx_.builder().createBr(mergeBB);
         }
@@ -257,13 +349,24 @@ void StmtCodegen::visitWhile(Parser::WhileStmt* stmt) {
     ctx_.setInsertPoint(condBB);
     auto condValue = exprCodegen_.generate(stmt->condition.get());
     auto condI1 = ensureBoolCondition(condValue);
+    // Clean up temporaries from condition evaluation (e.g., Bool from hasNext())
+    // Safe to do here because condI1 is a primitive i1, not the Bool object
+    ctx_.emitTemporaryCleanup();
     ctx_.builder().createCondBr(condI1, bodyBB, endBB);
 
     // Emit body block
     ctx_.setInsertPoint(bodyBB);
+
+    // Push scope for loop body - ensures cleanup of variables each iteration
+    ctx_.pushScope();
+
     for (const auto& bodyStmt : stmt->body) {
         generate(bodyStmt.get());
     }
+
+    // Pop scope before branching back - this emits destructors/dispose calls
+    ctx_.popScope();
+
     if (ctx_.currentBlock() && !ctx_.currentBlock()->getTerminator()) {
         ctx_.builder().createBr(condBB);
     }
@@ -314,7 +417,8 @@ void StmtCodegen::visitFor(Parser::ForStmt* stmt) {
 
             // Use ptr type for object types, mapped type for primitives
             auto* allocaType = isObjectType ? ctx_.builder().getPtrTy() : ctx_.mapType(typeName);
-            auto allocaPtr = ctx_.builder().createAlloca(allocaType, iterName);
+            // Use createEntryBlockAlloca to prevent stack overflow from allocas inside loops
+            auto allocaPtr = ctx_.builder().createEntryBlockAlloca(allocaType, iterName);
             auto* allocaInst = static_cast<LLVMIR::AllocaInst*>(allocaPtr.raw());
             ctx_.declareVariable(iterName, typeName, LLVMIR::AnyValue(allocaPtr), allocaInst);
 
@@ -331,6 +435,8 @@ void StmtCodegen::visitFor(Parser::ForStmt* stmt) {
     if (stmt->isCStyleLoop && stmt->condition) {
         auto condValue = exprCodegen_.generate(stmt->condition.get());
         auto condI1 = ensureBoolCondition(condValue);
+        // Clean up temporaries from condition evaluation (e.g., Bool from comparisons)
+        ctx_.emitTemporaryCleanup();
         ctx_.builder().createCondBr(condI1, bodyBB, endBB);
     } else if (!stmt->isCStyleLoop && stmt->rangeEnd) {
         // Range-based: iterator < rangeEnd
@@ -376,6 +482,9 @@ void StmtCodegen::visitFor(Parser::ForStmt* stmt) {
                 }
                 std::vector<LLVMIR::AnyValue> boolArgs = { ltResult };
                 auto condVal = ctx_.builder().createCall(boolGetFunc, boolArgs, "for.cond");
+                // Register the Bool* from Integer_lessThan as a temporary and clean it up
+                ctx_.registerTemporary("Bool^", ltResult);
+                ctx_.emitTemporaryCleanup();
                 ctx_.builder().createCondBr(condVal.asInt(), bodyBB, endBB);
             } else if (iterVal.isInt() && endVal.isInt()) {
                 // Raw integer comparison
@@ -393,9 +502,17 @@ void StmtCodegen::visitFor(Parser::ForStmt* stmt) {
 
     // Emit body block
     ctx_.setInsertPoint(bodyBB);
+
+    // Push scope for loop body - ensures cleanup of variables each iteration
+    ctx_.pushScope();
+
     for (const auto& bodyStmt : stmt->body) {
         generate(bodyStmt.get());
     }
+
+    // Pop scope before branching to increment - this emits destructors/dispose calls
+    ctx_.popScope();
+
     if (ctx_.currentBlock() && !ctx_.currentBlock()->getTerminator()) {
         ctx_.builder().createBr(incBB);
     }

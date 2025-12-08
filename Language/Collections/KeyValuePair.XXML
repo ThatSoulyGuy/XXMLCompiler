@@ -1,0 +1,63 @@
+// Generic KeyValuePair<K, V> - Represents a key-value pair from HashMap
+// Used by HashMapIterator to return both key and value
+// NOTE: This is a non-owning view - it does NOT own the key/value data
+
+[ Namespace <Language::Collections>
+	[ Class <KeyValuePair> <K Constrains None, V Constrains None> Final Extends None
+
+		[ Private <>
+			Property <keyValue> Types K^;
+			Property <valueValue> Types V^;
+		]
+
+		[ Public <>
+			// Default constructor
+			Constructor () ->
+			{
+				Instantiate NativeType<"ptr">^ As <nullPtr> = 0;
+				Instantiate K^ As <nullK> = Syscall::ptr_read(nullPtr);
+				Instantiate V^ As <nullV> = Syscall::ptr_read(nullPtr);
+				Set keyValue = nullK;
+				Set valueValue = nullV;
+			}
+
+			// Constructor with key and value
+			// Note: Takes ownership markers but this is a non-owning view
+			Constructor Parameters (
+				Parameter <k> Types K^,
+				Parameter <v> Types V^
+			) ->
+			{
+				Set keyValue = k;
+				Set valueValue = v;
+			}
+
+			// Destructor - null out pointers to prevent RAII from freeing HashMap's data
+			// KeyValuePair is a VIEW into HashMap data, it doesn't own the data
+			Destructor Parameters () ->
+			{
+				Instantiate NativeType<"ptr">^ As <nullPtr> = 0;
+				Run Syscall::memcpy(&keyValue, &nullPtr, 8);
+				Run Syscall::memcpy(&valueValue, &nullPtr, 8);
+			}
+
+			// Get the key (returns reference - don't free!)
+			Method <key> Returns K& Parameters () Do
+			{
+				Return keyValue;
+			}
+
+			// Get the value (returns reference - don't free!)
+			Method <value> Returns V& Parameters () Do
+			{
+				Return valueValue;
+			}
+
+			// Convert to string for debugging
+			Method <toString> Returns String^ Parameters () Do
+			{
+				Return String::Constructor("KeyValuePair");
+			}
+		]
+	]
+]

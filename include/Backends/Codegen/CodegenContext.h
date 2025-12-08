@@ -45,6 +45,7 @@ struct ClassInfo {
     std::vector<PropertyInfo> properties;
     LLVMIR::StructType* structType = nullptr;
     size_t instanceSize = 0;
+    bool isValueType = false;  // true for Structure (stack-allocated), false for Class (heap-allocated)
 };
 
 // Variable tracking information
@@ -94,6 +95,14 @@ struct ScopeDestructorInfo {
     std::string varName;
     std::string typeName;
     LLVMIR::AllocaInst* alloca;
+};
+
+// Temporary object tracking for statement-level cleanup
+// Temporaries are objects created during expression evaluation that need
+// cleanup at the end of the statement (e.g., String::Constructor("X") passed as argument)
+struct TemporaryInfo {
+    std::string typeName;
+    LLVMIR::AnyValue value;  // The pointer to the temporary object
 };
 
 // Reflection metadata for classes (moved from LLVMBackend)
@@ -151,7 +160,7 @@ public:
 
     // === Current Scope ===
     LLVMIR::Function* currentFunction() const { return currentFunction_; }
-    void setCurrentFunction(LLVMIR::Function* func) { currentFunction_ = func; }
+    void setCurrentFunction(LLVMIR::Function* func);
 
     LLVMIR::BasicBlock* currentBlock() const { return currentBlock_; }
     void setInsertPoint(LLVMIR::BasicBlock* bb);
@@ -201,6 +210,15 @@ public:
     // Look up return type directly with unmangled class and method names
     // This avoids the lossy mangling/demangling process for template types
     std::string lookupMethodReturnTypeDirect(const std::string& className, const std::string& methodName) const;
+
+    // Register a method's return type using the mangled function name
+    // This is called by DeclCodegen when processing method declarations
+    void registerMethodReturnType(const std::string& mangledFuncName, const std::string& returnType);
+
+    // Register a method's parameter types (including ownership markers)
+    // Used to determine ownership transfer during method calls
+    void registerMethodParameterTypes(const std::string& mangledFuncName, const std::vector<std::string>& paramTypes);
+    std::vector<std::string> lookupMethodParameterTypes(const std::string& mangledName) const;
 
     // === Name Mangling ===
     std::string mangleFunctionName(std::string_view className, std::string_view method) const;
@@ -284,11 +302,20 @@ public:
     void registerForDestruction(const std::string& varName, const std::string& typeName, LLVMIR::AllocaInst* alloca);
     void emitScopeDestructors();    // Emit destructors for current scope (LIFO order)
     void emitAllDestructors();      // Emit all scope destructors (before return)
+    void emitAllDestructorsExcept(const std::string& excludeVar);  // Emit all except returned variable
     bool needsDestruction(const std::string& typeName) const;
+
+    // === Temporary Object Management ===
+    // Track temporary objects created during expression evaluation for cleanup
+    void registerTemporary(const std::string& typeName, LLVMIR::AnyValue value);
+    void unregisterTemporary(LLVMIR::AnyValue value);  // Remove temp when ownership transfers
+    void emitTemporaryCleanup();    // Emit cleanup for all temporaries (call at end of statement)
+    void clearTemporaries();        // Clear temporaries without emitting cleanup
 
     // === Scope Management ===
     void pushScope();
     void popScope();
+    void popScopeWithoutDestructors();  // Pop scope without emitting destructors (use when already emitted)
 
     // === Reflection Metadata ===
     void addReflectionMetadata(const std::string& fullName, const ReflectionClassMetadata& metadata);
@@ -373,6 +400,14 @@ private:
     // Class info
     std::unordered_map<std::string, ClassInfo> classes_;
 
+    // Method return type registry (mangled function name -> XXML return type)
+    // Used for looking up return types without lossy demangling
+    std::unordered_map<std::string, std::string> methodReturnTypes_;
+
+    // Method parameter types registry (mangled function name -> list of param types with ownership markers)
+    // Used to determine ownership transfer during method calls
+    std::unordered_map<std::string, std::vector<std::string>> methodParameterTypes_;
+
     // NativeStructure names (opaque pointer types)
     std::unordered_set<std::string> nativeStructs_;
 
@@ -416,6 +451,9 @@ private:
 
     // RAII destructor scopes (stack of scope destructor lists)
     std::vector<std::vector<ScopeDestructorInfo>> destructorScopes_;
+
+    // Temporary objects created during expression evaluation (cleaned up after statement)
+    std::vector<TemporaryInfo> temporaries_;
 
     // Reflection metadata for classes
     std::unordered_map<std::string, ReflectionClassMetadata> reflectionMetadata_;

@@ -1,0 +1,70 @@
+// Iterator Test - Tests C++ style iterators for collections
+#import Language::Core;
+#import Language::Collections;
+
+[ Entrypoint
+{
+	Run System::Console::printLine(String::Constructor("=== Iterator Test ==="));
+
+	// Test 1: ListIterator basic traversal
+	Run System::Console::printLine(String::Constructor(""));
+	Run System::Console::printLine(String::Constructor("Test 1: ListIterator basic traversal"));
+
+	Instantiate List<Integer>^ As <list> = List@Integer::Constructor();
+	Run list.add(Integer::Constructor(10));
+	Run list.add(Integer::Constructor(20));
+	Run list.add(Integer::Constructor(30));
+	Run list.add(Integer::Constructor(40));
+	Run list.add(Integer::Constructor(50));
+
+	Instantiate ListIterator<Integer>^ As <iter> = list.begin();
+
+	Run System::Console::print(String::Constructor("Forward iteration: "));
+	While (iter.hasNext()) -> {
+		Instantiate Integer^ As <val> = iter.next();
+		Run System::Console::print(val.toString());
+		Run System::Console::print(String::Constructor(" "));
+	}
+	Run System::Console::printLine(String::Constructor(""));
+
+	// Test 2: ListIterator random access
+	Run System::Console::printLine(String::Constructor(""));
+	Run System::Console::printLine(String::Constructor("Test 2: ListIterator random access"));
+
+	Instantiate ListIterator<Integer>^ As <iter2> = list.begin();
+	Run System::Console::print(String::Constructor("Element at index 2: "));
+	Instantiate Integer^ As <atTwo> = iter2.at(Integer::Constructor(2));
+	Run System::Console::printLine(atTwo.toString());
+
+	// Test 3: ListIterator bidirectional
+	Run System::Console::printLine(String::Constructor(""));
+	Run System::Console::printLine(String::Constructor("Test 3: ListIterator bidirectional"));
+
+	Instantiate ListIterator<Integer>^ As <iter3> = list.end();
+	Run System::Console::print(String::Constructor("Backward iteration: "));
+	While (iter3.hasPrevious()) -> {
+		Instantiate Integer^ As <val> = iter3.previous();
+		Run System::Console::print(val.toString());
+		Run System::Console::print(String::Constructor(" "));
+	}
+	Run System::Console::printLine(String::Constructor(""));
+
+	// Test 4: Iterator index() and distance()
+	Run System::Console::printLine(String::Constructor(""));
+	Run System::Console::printLine(String::Constructor("Test 4: Iterator index and distance"));
+
+	Instantiate ListIterator<Integer>^ As <startIter> = list.begin();
+	Instantiate ListIterator<Integer>^ As <endIter> = list.end();
+	Run System::Console::print(String::Constructor("Start index: "));
+	Run System::Console::printLine(startIter.index().toString());
+	Run System::Console::print(String::Constructor("End index: "));
+	Run System::Console::printLine(endIter.index().toString());
+	Run System::Console::print(String::Constructor("Distance from start to end: "));
+	Run System::Console::printLine(startIter.distance(endIter).toString());
+
+	Run System::Console::printLine(String::Constructor(""));
+	Run System::Console::printLine(String::Constructor("=== Iterator Test Complete ==="));
+
+	Exit(0);
+}
+]

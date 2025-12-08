@@ -1,6 +1,8 @@
 // Generic List<T> - Dynamic resizable list for any type
 // Replaces IntegerList, StringList, etc.
 
+#import Language::Collections::ListIterator;
+
 [ Namespace <Language::Collections>
 	[ Class <List> <T Constrains None> Final Extends None
 
@@ -138,8 +140,8 @@
 				}
 			}
 
-			// Free the list memory
-			Method <dispose> Returns None Parameters () Do
+			// Free the list memory - called automatically by RAII
+			Destructor Parameters () ->
 			{
 				If (dataPtr != 0) -> {
 					Run Syscall::free(dataPtr);
@@ -150,6 +152,21 @@
 				Set count = zero;
 				Set capacity = zero;
 			}
+
+			// Iterator support - C++ style begin/end
+			// Returns an iterator pointing to the first element
+			Method <begin> Returns ListIterator<T>^ Parameters () Do
+			{
+				Instantiate NativeType<"int64">^ As <zero> = 0;
+				Return ListIterator@T::Constructor(dataPtr, count, zero);
+			}
+
+			// Returns an iterator pointing past the last element
+			Method <end> Returns ListIterator<T>^ Parameters () Do
+			{
+				Return ListIterator@T::Constructor(dataPtr, count, count);
+			}
+
 		]
 	]
 ]

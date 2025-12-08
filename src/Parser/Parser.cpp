@@ -136,6 +136,12 @@ std::unique_ptr<Declaration> Parser::parseDeclaration() {
                 classDecl->annotations = std::move(annotations);
             }
             return classDecl;
+        } else if (check(Lexer::TokenType::Structure)) {
+            auto structDecl = parseStructure();
+            if (structDecl) {
+                structDecl->annotations = std::move(annotations);
+            }
+            return structDecl;
         } else if (check(Lexer::TokenType::NativeStructure)) {
             return parseNativeStructure();
         } else if (check(Lexer::TokenType::CallbackType)) {
@@ -238,6 +244,42 @@ std::unique_ptr<ClassDecl> Parser::parseClass() {
     consume(Lexer::TokenType::RightBracket, "Expected ']' after class");
 
     return classDecl;
+}
+
+std::unique_ptr<StructureDecl> Parser::parseStructure() {
+    auto loc = peek().location;
+    consume(Lexer::TokenType::Structure, "Expected 'Structure'");
+
+    std::string structName = parseAngleBracketIdentifier();
+
+    // Parse template parameters if present
+    std::vector<TemplateParameter> templateParams;
+    if (check(Lexer::TokenType::LeftAngle)) {
+        templateParams = parseTemplateParameters();
+    }
+
+    // Parse optional Compiletime modifier
+    bool isCompiletime = match(Lexer::TokenType::Compiletime);
+
+    auto structDecl = std::make_unique<StructureDecl>(structName, templateParams, loc);
+    structDecl->isCompiletime = isCompiletime;
+
+    // Parse access sections
+    while (!check(Lexer::TokenType::RightBracket) && !isAtEnd()) {
+        if (check(Lexer::TokenType::LeftBracket)) {
+            auto accessSection = parseAccessSection();
+            if (accessSection) {
+                structDecl->sections.push_back(std::move(accessSection));
+            }
+        } else {
+            error("Expected access section in structure");
+            synchronize();
+        }
+    }
+
+    consume(Lexer::TokenType::RightBracket, "Expected ']' after structure");
+
+    return structDecl;
 }
 
 std::unique_ptr<NativeStructureDecl> Parser::parseNativeStructure() {

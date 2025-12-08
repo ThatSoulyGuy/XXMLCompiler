@@ -210,6 +210,24 @@ std::unique_ptr<CompiletimeValue> CompiletimeInterpreter::evalCall(Parser::CallE
     // First, check if this is a static constructor call (Class::Constructor)
     std::string className, methodName;
     if (extractCalleeInfo(expr->callee.get(), className, methodName)) {
+        // Handle GetType<T>::Constructor() or GetType<T>::get() for compile-time reflection
+        // GetType<SomeClass>::Constructor() returns a CompiletimeTypeInfo for SomeClass
+        if ((className.find("GetType<") == 0 || className.find("Language::Reflection::GetType<") == 0) &&
+            (methodName == "Constructor" || methodName == "get")) {
+            // Extract the type parameter from GetType<TypeName>
+            size_t start = className.find('<');
+            size_t end = className.rfind('>');
+            if (start != std::string::npos && end != std::string::npos && end > start) {
+                std::string targetTypeName = className.substr(start + 1, end - start - 1);
+                // Strip ownership markers if present
+                if (!targetTypeName.empty() &&
+                    (targetTypeName.back() == '^' || targetTypeName.back() == '&' || targetTypeName.back() == '%')) {
+                    targetTypeName.pop_back();
+                }
+                return createTypeInfo(targetTypeName);
+            }
+        }
+
         // Handle built-in type constructors
         if (methodName == "Constructor") {
             // Evaluate all arguments
@@ -331,6 +349,12 @@ std::unique_ptr<CompiletimeValue> CompiletimeInterpreter::evalMethodCall(
     if (receiver->isObject()) {
         auto* ctObj = static_cast<CompiletimeObject*>(receiver);
         return executeMethod(ctObj->className, methodName, ctObj, args);
+    }
+
+    // Handle compile-time type info reflection
+    if (receiver->isTypeInfo()) {
+        auto* typeInfo = static_cast<CompiletimeTypeInfo*>(receiver);
+        return evalTypeInfoMethod(typeInfo, methodName, args);
     }
 
     return nullptr;
@@ -1027,6 +1051,149 @@ std::unique_ptr<CompiletimeValue> CompiletimeInterpreter::evalUserDefinedConstru
     popScope();
 
     return success ? std::move(result) : nullptr;
+}
+
+// ============================================================================
+// Compile-Time Reflection Support
+// ============================================================================
+
+std::unique_ptr<CompiletimeTypeInfo> CompiletimeInterpreter::createTypeInfo(const std::string& className) {
+    const auto& classRegistry = analyzer_.getClassRegistry();
+
+    // Try various name resolution strategies
+    auto it = classRegistry.find(className);
+    if (it == classRegistry.end()) {
+        it = classRegistry.find("Language::Core::" + className);
+    }
+    if (it == classRegistry.end()) {
+        it = classRegistry.find("Language::Collections::" + className);
+    }
+
+    if (it == classRegistry.end()) {
+        return nullptr;  // Class not found
+    }
+
+    const auto& classInfo = it->second;
+    auto typeInfo = std::make_unique<CompiletimeTypeInfo>(classInfo.qualifiedName);
+
+    // Populate properties
+    for (const auto& [propName, propData] : classInfo.properties) {
+        const std::string& propType = propData.first;
+        Parser::OwnershipType ownership = propData.second;
+
+        typeInfo->properties.push_back({propName, propType});
+
+        std::string ownershipStr;
+        switch (ownership) {
+            case Parser::OwnershipType::Owned: ownershipStr = "^"; break;
+            case Parser::OwnershipType::Reference: ownershipStr = "&"; break;
+            case Parser::OwnershipType::Copy: ownershipStr = "%"; break;
+            default: ownershipStr = ""; break;
+        }
+        typeInfo->propertyOwnerships.push_back(ownershipStr);
+    }
+
+    // Populate methods
+    for (const auto& [methodName, methodInfo] : classInfo.methods) {
+        typeInfo->methods.push_back({methodName, methodInfo.returnType});
+
+        std::string returnOwnershipStr;
+        switch (methodInfo.returnOwnership) {
+            case Parser::OwnershipType::Owned: returnOwnershipStr = "^"; break;
+            case Parser::OwnershipType::Reference: returnOwnershipStr = "&"; break;
+            case Parser::OwnershipType::Copy: returnOwnershipStr = "%"; break;
+            default: returnOwnershipStr = ""; break;
+        }
+        typeInfo->methodReturnOwnerships.push_back(returnOwnershipStr);
+    }
+
+    // Populate other metadata
+    typeInfo->isValueType = classInfo.isValueType;
+    typeInfo->isTemplate = classInfo.isTemplate;
+    for (const auto& param : classInfo.templateParams) {
+        typeInfo->templateParams.push_back(param.name);
+    }
+
+    return typeInfo;
+}
+
+std::unique_ptr<CompiletimeValue> CompiletimeInterpreter::evalTypeInfoMethod(
+    CompiletimeTypeInfo* typeInfo, const std::string& methodName,
+    const std::vector<CompiletimeValue*>& args) {
+
+    if (!typeInfo) return nullptr;
+
+    // No-argument methods
+    if (args.empty()) {
+        if (methodName == "getName" || methodName == "getFullName") {
+            return std::make_unique<CompiletimeString>(typeInfo->typeName);
+        }
+        if (methodName == "getSimpleName") {
+            return std::make_unique<CompiletimeString>(typeInfo->simpleName);
+        }
+        if (methodName == "getNamespace") {
+            return std::make_unique<CompiletimeString>(typeInfo->namespaceName);
+        }
+        if (methodName == "getPropertyCount") {
+            return std::make_unique<CompiletimeInteger>(typeInfo->getPropertyCount());
+        }
+        if (methodName == "getMethodCount") {
+            return std::make_unique<CompiletimeInteger>(typeInfo->getMethodCount());
+        }
+        if (methodName == "isValueType") {
+            return std::make_unique<CompiletimeBool>(typeInfo->isValueType);
+        }
+        if (methodName == "isReferenceType") {
+            return std::make_unique<CompiletimeBool>(!typeInfo->isValueType);
+        }
+        if (methodName == "isTemplate") {
+            return std::make_unique<CompiletimeBool>(typeInfo->isTemplate);
+        }
+        if (methodName == "getTemplateParamCount") {
+            return std::make_unique<CompiletimeInteger>(static_cast<int64_t>(typeInfo->templateParams.size()));
+        }
+        if (methodName == "getInstanceSize") {
+            return std::make_unique<CompiletimeInteger>(static_cast<int64_t>(typeInfo->instanceSize));
+        }
+    }
+
+    // Single Integer argument methods
+    if (args.size() == 1 && args[0]->isInteger()) {
+        int64_t idx = static_cast<CompiletimeInteger*>(args[0])->value;
+
+        if (methodName == "getPropertyNameAt") {
+            return std::make_unique<CompiletimeString>(typeInfo->getPropertyNameAt(idx));
+        }
+        if (methodName == "getPropertyTypeAt") {
+            return std::make_unique<CompiletimeString>(typeInfo->getPropertyTypeAt(idx));
+        }
+        if (methodName == "getMethodNameAt") {
+            return std::make_unique<CompiletimeString>(typeInfo->getMethodNameAt(idx));
+        }
+        if (methodName == "getMethodReturnTypeAt") {
+            return std::make_unique<CompiletimeString>(typeInfo->getMethodReturnTypeAt(idx));
+        }
+        if (methodName == "getTemplateParamAt") {
+            if (idx >= 0 && static_cast<size_t>(idx) < typeInfo->templateParams.size()) {
+                return std::make_unique<CompiletimeString>(typeInfo->templateParams[idx]);
+            }
+            return std::make_unique<CompiletimeString>("");
+        }
+    }
+
+    // Single String argument methods
+    if (args.size() == 1 && args[0]->isString()) {
+        const std::string& name = static_cast<CompiletimeString*>(args[0])->value;
+
+        if (methodName == "hasProperty") {
+            return std::make_unique<CompiletimeBool>(typeInfo->hasProperty(name));
+        }
+        if (methodName == "hasMethod") {
+            return std::make_unique<CompiletimeBool>(typeInfo->hasMethod(name));
+        }
+    }
+
+    return nullptr;
 }
 
 } // namespace Semantic
