@@ -63,6 +63,52 @@
 				Return String::Constructor("Unknown");
 			}
 
+			// Check if property has owned (^) ownership - caller owns the value
+			Method <isOwned> Returns Bool^ Parameters () ->
+			{
+				Instantiate Integer^ As <ownership> = getOwnership();
+				Instantiate NativeType<"int64">^ As <ownershipValue> = ownership.toInt64();
+				Instantiate NativeType<"bool">^ As <result> = ownershipValue == 1;
+				Return Bool::Constructor(result);
+			}
+
+			// Check if property has reference (&) ownership - borrowed, not owned
+			Method <isReference> Returns Bool^ Parameters () ->
+			{
+				Instantiate Integer^ As <ownership> = getOwnership();
+				Instantiate NativeType<"int64">^ As <ownershipValue> = ownership.toInt64();
+				Instantiate NativeType<"bool">^ As <result> = ownershipValue == 2;
+				Return Bool::Constructor(result);
+			}
+
+			// Check if property has copy (%) ownership - value semantics
+			Method <isCopy> Returns Bool^ Parameters () ->
+			{
+				Instantiate Integer^ As <ownership> = getOwnership();
+				Instantiate NativeType<"int64">^ As <ownershipValue> = ownership.toInt64();
+				Instantiate NativeType<"bool">^ As <result> = ownershipValue == 3;
+				Return Bool::Constructor(result);
+			}
+
+			// Check if property is move-only (owned but not copyable)
+			// For now, owned properties are considered move-only by default
+			Method <isMoveOnly> Returns Bool^ Parameters () ->
+			{
+				Return isOwned();
+			}
+
+			// Check if property supports copy semantics
+			Method <isCopyable> Returns Bool^ Parameters () ->
+			{
+				Return isCopy();
+			}
+
+			// Check if property is borrow-only (reference that cannot be stored)
+			Method <isBorrowOnly> Returns Bool^ Parameters () ->
+			{
+				Return isReference();
+			}
+
 			// Get offset in bytes from object start
 			Method <getOffset> Returns Integer^ Parameters () ->
 			{
@@ -70,6 +116,32 @@
 				Instantiate NativeType<"int64">^ As <offset> =
 					Syscall::reflection_property_getOffset(ptr);
 				Return Integer::Constructor(offset);
+			}
+
+			// Get value pointer from an instance (ownership-aware field access)
+			// Returns the pointer stored at this property's location in the instance
+			// For owned (^) properties, this returns the owned pointer
+			// For reference (&) properties, this returns the borrowed reference
+			Method <getValuePtr> Returns NativeType<"ptr">% Parameters (
+				Parameter <instance> Types NativeType<"ptr">%
+			) ->
+			{
+				Instantiate NativeType<"ptr">^ As <ptr> = propertyInfoPtr;
+				Return Syscall::reflection_property_getValuePtr(ptr, instance);
+			}
+
+			// Set value pointer in an instance (ownership-aware field access)
+			// WARNING: This is a low-level operation. Caller is responsible for:
+			// - Ensuring proper ownership transfer
+			// - Freeing previous value if owned
+			// - Type safety
+			Method <setValuePtr> Returns None Parameters (
+				Parameter <instance> Types NativeType<"ptr">%,
+				Parameter <value> Types NativeType<"ptr">%
+			) ->
+			{
+				Instantiate NativeType<"ptr">^ As <ptr> = propertyInfoPtr;
+				Run Syscall::reflection_property_setValuePtr(ptr, instance, value);
 			}
 		]
 	]

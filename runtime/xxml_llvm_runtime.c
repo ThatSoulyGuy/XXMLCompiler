@@ -845,6 +845,30 @@ int64_t Syscall_reflection_type_getInstanceSize(void* typeInfo) {
     return info ? (int64_t)info->instanceSize : 0;
 }
 
+// Constructor reflection syscalls
+int64_t Syscall_reflection_type_getConstructorCount(void* typeInfo) {
+    ReflectionTypeInfo* info = (ReflectionTypeInfo*)typeInfo;
+    return info ? info->constructorCount : 0;
+}
+
+void* Syscall_reflection_type_getConstructor(void* typeInfo, int64_t index) {
+    ReflectionTypeInfo* info = (ReflectionTypeInfo*)typeInfo;
+    if (!info || index < 0 || index >= info->constructorCount) {
+        return NULL;
+    }
+    return &info->constructors[index];
+}
+
+const char* Syscall_reflection_type_getBaseClassName(void* typeInfo) {
+    ReflectionTypeInfo* info = (ReflectionTypeInfo*)typeInfo;
+    return info ? (info->baseClassName ? info->baseClassName : "") : "";
+}
+
+int64_t Syscall_reflection_type_hasBaseClass(void* typeInfo) {
+    ReflectionTypeInfo* info = (ReflectionTypeInfo*)typeInfo;
+    return info && info->baseClassName && info->baseClassName[0] != '\0' ? 1 : 0;
+}
+
 // Method reflection syscalls
 const char* Syscall_reflection_method_getName(void* methodInfo) {
     ReflectionMethodInfo* info = (ReflectionMethodInfo*)methodInfo;
@@ -903,6 +927,29 @@ int64_t Syscall_reflection_property_getOwnership(void* propInfo) {
 int64_t Syscall_reflection_property_getOffset(void* propInfo) {
     ReflectionPropertyInfo* info = (ReflectionPropertyInfo*)propInfo;
     return info ? (int64_t)info->offset : 0;
+}
+
+// Dynamic field access syscalls
+void* Syscall_reflection_property_getValuePtr(void* propInfo, void* instance) {
+    ReflectionPropertyInfo* info = (ReflectionPropertyInfo*)propInfo;
+    if (!info || !instance) {
+        return NULL;
+    }
+    // Calculate field address: instance base + field offset
+    // The field stores a pointer (void*), so we read and return that pointer
+    void** fieldPtr = (void**)((char*)instance + info->offset);
+    return *fieldPtr;
+}
+
+void Syscall_reflection_property_setValuePtr(void* propInfo, void* instance, void* value) {
+    ReflectionPropertyInfo* info = (ReflectionPropertyInfo*)propInfo;
+    if (!info || !instance) {
+        return;
+    }
+    // Calculate field address: instance base + field offset
+    // Write the new pointer value to the field
+    void** fieldPtr = (void**)((char*)instance + info->offset);
+    *fieldPtr = value;
 }
 
 // Parameter reflection syscalls
@@ -991,6 +1038,29 @@ void* Language_Reflection_Type_getPropertyCount(void* self) {
     return Integer_Constructor(count);
 }
 
+// Forward declaration for PropertyInfo constructor
+void* Language_Reflection_PropertyInfo_Constructor(void* infoPtr);
+
+// Language::Reflection::Type::getProperty (by name)
+void* Language_Reflection_Type_getProperty(void* self, void* nameStr) {
+    Language_Reflection_Type* type = (Language_Reflection_Type*)self;
+    if (!type || !nameStr) return NULL;
+    const char* cstr = String_toCString(nameStr);
+    void* propInfo = Syscall_reflection_type_getPropertyByName(type->typeInfoPtr, cstr);
+    if (!propInfo) return NULL;
+    return Language_Reflection_PropertyInfo_Constructor(propInfo);
+}
+
+// Language::Reflection::Type::getPropertyAt (by index)
+void* Language_Reflection_Type_getPropertyAt(void* self, void* indexObj) {
+    Language_Reflection_Type* type = (Language_Reflection_Type*)self;
+    if (!type || !indexObj) return NULL;
+    int64_t index = Integer_getValue(indexObj);
+    void* propInfo = Syscall_reflection_type_getProperty(type->typeInfoPtr, index);
+    if (!propInfo) return NULL;
+    return Language_Reflection_PropertyInfo_Constructor(propInfo);
+}
+
 // Language::Reflection::Type::getMethodCount
 void* Language_Reflection_Type_getMethodCount(void* self) {
     Language_Reflection_Type* type = (Language_Reflection_Type*)self;
@@ -1005,6 +1075,62 @@ void* Language_Reflection_Type_getInstanceSize(void* self) {
     if (!type) return Integer_Constructor(0);
     int64_t size = xxml_reflection_type_getInstanceSize(type->typeInfoPtr);
     return Integer_Constructor(size);
+}
+
+// Language::Reflection::Type::hasBaseType
+void* Language_Reflection_Type_hasBaseType(void* self) {
+    Language_Reflection_Type* type = (Language_Reflection_Type*)self;
+    if (!type) return Bool_Constructor(false);
+    int64_t hasBase = Syscall_reflection_type_hasBaseClass(type->typeInfoPtr);
+    return Bool_Constructor(hasBase != 0);
+}
+
+// Language::Reflection::Type::getBaseTypeName
+void* Language_Reflection_Type_getBaseTypeName(void* self) {
+    Language_Reflection_Type* type = (Language_Reflection_Type*)self;
+    if (!type) return String_Constructor("");
+    const char* baseName = Syscall_reflection_type_getBaseClassName(type->typeInfoPtr);
+    return String_Constructor(baseName ? baseName : "");
+}
+
+// Language::Reflection::Type::getBaseType
+void* Language_Reflection_Type_getBaseType(void* self) {
+    Language_Reflection_Type* type = (Language_Reflection_Type*)self;
+    if (!type) return NULL;
+
+    // Check if there's a base class
+    int64_t hasBase = Syscall_reflection_type_hasBaseClass(type->typeInfoPtr);
+    if (!hasBase) return NULL;
+
+    // Get base class name and look it up
+    const char* baseName = Syscall_reflection_type_getBaseClassName(type->typeInfoPtr);
+    if (!baseName || baseName[0] == '\0') return NULL;
+
+    void* baseTypeInfo = Reflection_getTypeInfo(baseName);
+    if (!baseTypeInfo) return NULL;
+
+    return Language_Reflection_Type_Constructor(baseTypeInfo);
+}
+
+// Language::Reflection::Type::getConstructorCount
+void* Language_Reflection_Type_getConstructorCount(void* self) {
+    Language_Reflection_Type* type = (Language_Reflection_Type*)self;
+    if (!type) return Integer_Constructor(0);
+    int64_t count = Syscall_reflection_type_getConstructorCount(type->typeInfoPtr);
+    return Integer_Constructor(count);
+}
+
+// Forward declaration for MethodInfo constructor
+void* Language_Reflection_MethodInfo_Constructor(void* infoPtr);
+
+// Language::Reflection::Type::getConstructorAt
+void* Language_Reflection_Type_getConstructorAt(void* self, void* indexObj) {
+    Language_Reflection_Type* type = (Language_Reflection_Type*)self;
+    if (!type || !indexObj) return NULL;
+    int64_t index = Integer_getValue(indexObj);
+    void* ctorInfo = Syscall_reflection_type_getConstructor(type->typeInfoPtr, index);
+    if (!ctorInfo) return NULL;
+    return Language_Reflection_MethodInfo_Constructor(ctorInfo);
 }
 
 // Internal PropertyInfo structure
@@ -1035,6 +1161,38 @@ void* Language_Reflection_PropertyInfo_getTypeName(void* self) {
     if (!info) return String_Constructor("");
     const char* typeName = xxml_reflection_property_getTypeName(info->propInfoPtr);
     return String_Constructor(typeName);
+}
+
+// Language::Reflection::PropertyInfo::getOwnership
+void* Language_Reflection_PropertyInfo_getOwnership(void* self) {
+    Language_Reflection_PropertyInfo* info = (Language_Reflection_PropertyInfo*)self;
+    if (!info) return Integer_Constructor(0);
+    int64_t ownership = Syscall_reflection_property_getOwnership(info->propInfoPtr);
+    return Integer_Constructor(ownership);
+}
+
+// Language::Reflection::PropertyInfo::getOffset
+void* Language_Reflection_PropertyInfo_getOffset(void* self) {
+    Language_Reflection_PropertyInfo* info = (Language_Reflection_PropertyInfo*)self;
+    if (!info) return Integer_Constructor(0);
+    int64_t offset = Syscall_reflection_property_getOffset(info->propInfoPtr);
+    return Integer_Constructor(offset);
+}
+
+// Language::Reflection::PropertyInfo::getValuePtr
+// Returns the pointer stored at this property's location in the instance
+void* Language_Reflection_PropertyInfo_getValuePtr(void* self, void* instance) {
+    Language_Reflection_PropertyInfo* info = (Language_Reflection_PropertyInfo*)self;
+    if (!info || !instance) return NULL;
+    return Syscall_reflection_property_getValuePtr(info->propInfoPtr, instance);
+}
+
+// Language::Reflection::PropertyInfo::setValuePtr
+// Sets the pointer value at this property's location in the instance
+void Language_Reflection_PropertyInfo_setValuePtr(void* self, void* instance, void* value) {
+    Language_Reflection_PropertyInfo* info = (Language_Reflection_PropertyInfo*)self;
+    if (!info || !instance) return;
+    Syscall_reflection_property_setValuePtr(info->propInfoPtr, instance, value);
 }
 
 // Internal MethodInfo structure
@@ -1075,14 +1233,12 @@ void* Language_Reflection_MethodInfo_getParameterCount(void* self) {
     return Integer_Constructor(count);
 }
 
-// Language::Reflection::Type::getPropertyAt
-void* Language_Reflection_Type_getPropertyAt(void* self, void* index) {
-    Language_Reflection_Type* type = (Language_Reflection_Type*)self;
-    if (!type) return NULL;
-    int64_t idx = Integer_getValue(index);
-    void* propPtr = xxml_reflection_type_getProperty(type->typeInfoPtr, idx);
-    if (!propPtr) return NULL;
-    return Language_Reflection_PropertyInfo_Constructor(propPtr);
+// Language::Reflection::MethodInfo::isConstructor
+void* Language_Reflection_MethodInfo_isConstructor(void* self) {
+    Language_Reflection_MethodInfo* info = (Language_Reflection_MethodInfo*)self;
+    if (!info) return Bool_Constructor(false);
+    int64_t result = Syscall_reflection_method_isConstructor(info->methodInfoPtr);
+    return Bool_Constructor(result != 0);
 }
 
 // Language::Reflection::Type::getMethodAt

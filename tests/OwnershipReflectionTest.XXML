@@ -1,0 +1,122 @@
+#import Language::Core;
+#import Language::Reflection;
+#import System;
+
+// Test classes with different ownership patterns
+
+[ Class <OwnedFields> Extends None
+	[ Public<>
+		Property <ownedInt> Types Integer^;
+		Property <ownedStr> Types String^;
+
+		Constructor Parameters () -> {
+			Set ownedInt = Integer::Constructor(0);
+			Set ownedStr = String::Constructor("");
+		}
+	]
+]
+
+[ Class <RefFields> Extends None
+	[ Public<>
+		Property <refInt> Types Integer&;
+		Property <refStr> Types String&;
+	]
+]
+
+[ Class <CopyFields> Extends None
+	[ Public<>
+		Property <copyInt> Types Integer%;
+		Property <copyStr> Types String%;
+	]
+]
+
+[ Entrypoint
+{
+	Instantiate Integer^ As <passed> = Integer::Constructor(0);
+	Instantiate Integer^ As <failed> = Integer::Constructor(0);
+
+	Run System::Console::printLine(String::Constructor("=== Ownership Reflection Test ==="));
+	Run System::Console::printLine(String::Constructor(""));
+
+	// ===== Test 1: Property ownership detection for Owned =====
+	Run System::Console::printLine(String::Constructor("--- Property Ownership Detection ---"));
+
+	Instantiate Type^ As <ownedType> = Type::forName(String::Constructor("OwnedFields"));
+	Instantiate PropertyInfo^ As <ownedIntProp> = ownedType.getProperty(String::Constructor("ownedInt"));
+
+	Instantiate Integer^ As <ownership1> = ownedIntProp.getOwnership();
+	Instantiate NativeType<"int64">^ As <own1Val> = ownership1.toInt64();
+
+	Run System::Console::print(String::Constructor("OwnedFields.ownedInt ownership value: "));
+	Run System::Console::printLine(ownership1.toString());
+
+	If (own1Val == 1) -> {
+		Run System::Console::printLine(String::Constructor("PASS: OwnedFields.ownedInt ownership is Owned (1)"));
+		Set passed = Integer::Constructor(passed.toInt64() + 1);
+	} Else -> {
+		Run System::Console::printLine(String::Constructor("FAIL: OwnedFields.ownedInt ownership incorrect"));
+		Set failed = Integer::Constructor(failed.toInt64() + 1);
+	}
+
+	// ===== Test 2: Reference ownership =====
+	Instantiate Type^ As <refType> = Type::forName(String::Constructor("RefFields"));
+	Instantiate PropertyInfo^ As <refIntProp> = refType.getProperty(String::Constructor("refInt"));
+
+	Instantiate Integer^ As <ownership2> = refIntProp.getOwnership();
+	Instantiate NativeType<"int64">^ As <own2Val> = ownership2.toInt64();
+
+	Run System::Console::print(String::Constructor("RefFields.refInt ownership value: "));
+	Run System::Console::printLine(ownership2.toString());
+
+	If (own2Val == 2) -> {
+		Run System::Console::printLine(String::Constructor("PASS: RefFields.refInt ownership is Reference (2)"));
+		Set passed = Integer::Constructor(passed.toInt64() + 1);
+	} Else -> {
+		Run System::Console::printLine(String::Constructor("FAIL: RefFields.refInt ownership incorrect"));
+		Set failed = Integer::Constructor(failed.toInt64() + 1);
+	}
+
+	// ===== Test 3: Copy ownership =====
+	Instantiate Type^ As <copyType> = Type::forName(String::Constructor("CopyFields"));
+	Instantiate PropertyInfo^ As <copyIntProp> = copyType.getProperty(String::Constructor("copyInt"));
+
+	Instantiate Integer^ As <ownership3> = copyIntProp.getOwnership();
+	Instantiate NativeType<"int64">^ As <own3Val> = ownership3.toInt64();
+
+	Run System::Console::print(String::Constructor("CopyFields.copyInt ownership value: "));
+	Run System::Console::printLine(ownership3.toString());
+
+	If (own3Val == 3) -> {
+		Run System::Console::printLine(String::Constructor("PASS: CopyFields.copyInt ownership is Copy (3)"));
+		Set passed = Integer::Constructor(passed.toInt64() + 1);
+	} Else -> {
+		Run System::Console::printLine(String::Constructor("FAIL: CopyFields.copyInt ownership incorrect"));
+		Set failed = Integer::Constructor(failed.toInt64() + 1);
+	}
+
+	// ===== Test 4: Method return ownership =====
+	Run System::Console::printLine(String::Constructor(""));
+	Run System::Console::printLine(String::Constructor("--- Method Return Ownership ---"));
+
+	Instantiate Type^ As <ownedType2> = Type::forName(String::Constructor("OwnedFields"));
+	Instantiate Integer^ As <methodCount> = ownedType2.getMethodCount();
+	Run System::Console::print(String::Constructor("OwnedFields method count: "));
+	Run System::Console::printLine(methodCount.toString());
+
+	// ===== Summary =====
+	Run System::Console::printLine(String::Constructor(""));
+	Run System::Console::printLine(String::Constructor("================================="));
+	Run System::Console::print(String::Constructor("Passed: "));
+	Run System::Console::printLine(passed.toString());
+	Run System::Console::print(String::Constructor("Failed: "));
+	Run System::Console::printLine(failed.toString());
+
+	If (failed.toInt64() == 0) -> {
+		Run System::Console::printLine(String::Constructor("ALL OWNERSHIP REFLECTION TESTS PASSED!"));
+	} Else -> {
+		Run System::Console::printLine(String::Constructor("SOME TESTS FAILED"));
+	}
+
+	Exit(0);
+}
+]

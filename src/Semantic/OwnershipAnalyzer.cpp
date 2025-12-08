@@ -440,6 +440,19 @@ void OwnershipAnalyzer::reportUseAfterMove(const std::string& varName,
         violation.message,
         useLoc
     );
+
+    // Add note showing where variable was moved
+    errorReporter_.reportNote(
+        "Variable '" + varName + "' was moved here",
+        moveLoc
+    );
+
+    // Add suggested fix
+    errorReporter_.reportNote(
+        "Suggestion: Use a reference (&) instead of owned (^) to borrow without moving, "
+        "or use copy (%) to create a duplicate",
+        useLoc
+    );
 }
 
 void OwnershipAnalyzer::reportDoubleMove(const std::string& varName,
@@ -457,6 +470,19 @@ void OwnershipAnalyzer::reportDoubleMove(const std::string& varName,
     errorReporter_.reportError(
         Common::ErrorCode::InvalidReference,
         violation.message,
+        secondMove
+    );
+
+    // Add note showing first move location
+    errorReporter_.reportNote(
+        "Variable '" + varName + "' was first moved here",
+        firstMove
+    );
+
+    // Add suggested fix
+    errorReporter_.reportNote(
+        "Suggestion: Clone the value before the first move if you need to use it twice, "
+        "or restructure code to avoid multiple moves",
         secondMove
     );
 }
@@ -477,6 +503,19 @@ void OwnershipAnalyzer::reportDanglingReference(const std::string& refName,
         violation.message,
         loc
     );
+
+    // Add explanation
+    errorReporter_.reportNote(
+        "The referenced variable '" + targetName + "' goes out of scope while '" + refName + "' is still alive",
+        loc
+    );
+
+    // Add suggested fix
+    errorReporter_.reportNote(
+        "Suggestion: Use owned (^) to take ownership instead of borrowing, "
+        "or ensure the reference doesn't escape its scope",
+        loc
+    );
 }
 
 void OwnershipAnalyzer::reportInvalidCapture(const std::string& varName,
@@ -495,6 +534,26 @@ void OwnershipAnalyzer::reportInvalidCapture(const std::string& varName,
         violation.message,
         loc
     );
+
+    // Add suggested fix based on the reason
+    if (reason.find("moved") != std::string::npos) {
+        errorReporter_.reportNote(
+            "Suggestion: Capture by reference (&) instead of by value, "
+            "or clone the value before the lambda",
+            loc
+        );
+    } else if (reason.find("reference") != std::string::npos || reason.find("borrow") != std::string::npos) {
+        errorReporter_.reportNote(
+            "Suggestion: Capture by value (^) instead of by reference to extend the lifetime, "
+            "or ensure the lambda doesn't outlive the referenced value",
+            loc
+        );
+    } else {
+        errorReporter_.reportNote(
+            "Suggestion: Review the lambda capture list and ensure ownership rules are honored",
+            loc
+        );
+    }
 }
 
 } // namespace Semantic

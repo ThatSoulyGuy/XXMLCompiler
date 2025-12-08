@@ -38,15 +38,17 @@ void MetadataBuilder::initializeReflectionTypes() {
 
     TypeContext& ctx = module_.getContext();
 
-    // %ReflectionPropertyInfo = type { ptr, ptr, i32, i64 }
-    // (name, type, ownership, offset)
+    // %ReflectionPropertyInfo = type { ptr, ptr, i32, i64, i32, ptr }
+    // (name, type, ownership, offset, annotationCount, annotations)
     propertyInfoType_ = globalBuilder_.getOrCreateStruct("ReflectionPropertyInfo");
     if (propertyInfoType_->isOpaque()) {
         std::vector<Type*> fields = {
             ctx.getPtrTy(),   // name
             ctx.getPtrTy(),   // type
             ctx.getInt32Ty(), // ownership
-            ctx.getInt64Ty()  // offset
+            ctx.getInt64Ty(), // offset
+            ctx.getInt32Ty(), // annotationCount
+            ctx.getPtrTy()    // annotations
         };
         propertyInfoType_->setBody(std::move(fields));
     }
@@ -63,8 +65,8 @@ void MetadataBuilder::initializeReflectionTypes() {
         parameterInfoType_->setBody(std::move(fields));
     }
 
-    // %ReflectionMethodInfo = type { ptr, ptr, i32, i32, ptr, ptr, i1, i1 }
-    // (name, returnType, returnOwnership, paramCount, params, funcPtr, isStatic, isCtor)
+    // %ReflectionMethodInfo = type { ptr, ptr, i32, i32, ptr, ptr, i1, i1, i32, ptr }
+    // (name, returnType, returnOwnership, paramCount, params, funcPtr, isStatic, isCtor, annotationCount, annotations)
     methodInfoType_ = globalBuilder_.getOrCreateStruct("ReflectionMethodInfo");
     if (methodInfoType_->isOpaque()) {
         std::vector<Type*> fields = {
@@ -75,28 +77,34 @@ void MetadataBuilder::initializeReflectionTypes() {
             ctx.getPtrTy(),   // params
             ctx.getPtrTy(),   // funcPtr
             ctx.getInt1Ty(),  // isStatic
-            ctx.getInt1Ty()   // isCtor
+            ctx.getInt1Ty(),  // isCtor
+            ctx.getInt32Ty(), // annotationCount
+            ctx.getPtrTy()    // annotations
         };
         methodInfoType_->setBody(std::move(fields));
     }
 
-    // %ReflectionTemplateParamInfo = type { ptr }
-    // (name)
+    // %ReflectionTemplateParamInfo = type { ptr, i1, ptr }
+    // (name, isTypeParameter, valueType)
     templateParamInfoType_ = globalBuilder_.getOrCreateStruct("ReflectionTemplateParamInfo");
     if (templateParamInfoType_->isOpaque()) {
         std::vector<Type*> fields = {
-            ctx.getPtrTy()  // name
+            ctx.getPtrTy(),   // name
+            ctx.getInt1Ty(),  // isTypeParameter
+            ctx.getPtrTy()    // valueType
         };
         templateParamInfoType_->setBody(std::move(fields));
     }
 
-    // %ReflectionTypeInfo = type { ptr, ptr, ptr, i1, i32, ptr, i32, ptr, i32, ptr, i32, ptr, ptr, i64 }
-    // (name, namespace, fullName, isTemplate, tparamCount, tparams, propCount, props, methodCount, methods, baseCount, bases, createInstance, instanceSize)
+    // %ReflectionTypeInfo = type { ptr, ptr, ptr, i1, i32, ptr, i32, ptr, i32, ptr, i32, ptr, ptr, i64, i32, ptr }
+    // (name, namespaceName, fullName, isTemplate, templateParamCount, templateParams,
+    //  propertyCount, properties, methodCount, methods, constructorCount, constructors,
+    //  baseClassName, instanceSize, annotationCount, annotations)
     typeInfoType_ = globalBuilder_.getOrCreateStruct("ReflectionTypeInfo");
     if (typeInfoType_->isOpaque()) {
         std::vector<Type*> fields = {
             ctx.getPtrTy(),   // name
-            ctx.getPtrTy(),   // namespace
+            ctx.getPtrTy(),   // namespaceName
             ctx.getPtrTy(),   // fullName
             ctx.getInt1Ty(),  // isTemplate
             ctx.getInt32Ty(), // templateParamCount
@@ -105,10 +113,12 @@ void MetadataBuilder::initializeReflectionTypes() {
             ctx.getPtrTy(),   // properties
             ctx.getInt32Ty(), // methodCount
             ctx.getPtrTy(),   // methods
-            ctx.getInt32Ty(), // baseCount
-            ctx.getPtrTy(),   // bases
-            ctx.getPtrTy(),   // createInstance
-            ctx.getInt64Ty()  // instanceSize
+            ctx.getInt32Ty(), // constructorCount
+            ctx.getPtrTy(),   // constructors
+            ctx.getPtrTy(),   // baseClassName
+            ctx.getInt64Ty(), // instanceSize
+            ctx.getInt32Ty(), // annotationCount
+            ctx.getPtrTy()    // annotations
         };
         typeInfoType_->setBody(std::move(fields));
     }

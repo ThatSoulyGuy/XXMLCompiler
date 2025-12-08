@@ -1,0 +1,81 @@
+// Test edge cases for Derive<ToString> functionality
+
+#import Language::Core;
+
+// Test 1: Class with no public properties
+@Derive(trait = "Stringable")
+[ Class <Empty> Final Extends None
+    [ Private <>
+        Property <hiddenValue> Types Integer^;
+    ]
+    [ Public <>
+        Constructor = default;
+    ]
+]
+
+// Test 2: Class with single property
+@Derive(trait = "Stringable")
+[ Class <SingleProp> Final Extends None
+    [ Public <>
+        Property <value> Types Integer^;
+        Constructor = default;
+
+        Method <init> Returns SingleProp^ Parameters (Parameter <v> Types Integer^) Do
+        {
+            Set value = v;
+            Return this;
+        }
+    ]
+]
+
+// Test 3: Class with three properties
+@Derive(trait = "Stringable")
+[ Class <Triple> Final Extends None
+    [ Public <>
+        Property <x> Types Integer^;
+        Property <y> Types Integer^;
+        Property <z> Types Integer^;
+        Constructor = default;
+
+        Method <init> Returns Triple^ Parameters (
+            Parameter <a> Types Integer^,
+            Parameter <b> Types Integer^,
+            Parameter <c> Types Integer^
+        ) Do
+        {
+            Set x = a;
+            Set y = b;
+            Set z = c;
+            Return this;
+        }
+    ]
+]
+
+[ Entrypoint
+{
+    Run System::Console::printLine(String::Constructor("=== Derive ToString Edge Cases ==="));
+
+    // Test 1: Empty class (no public properties)
+    Run System::Console::printLine(String::Constructor("Test 1: Empty class"));
+    Instantiate Empty^ As <empty> = Empty::Constructor();
+    Instantiate String^ As <emptyStr> = empty.toString();
+    Run System::Console::printLine(emptyStr);
+
+    // Test 2: Single property class
+    Run System::Console::printLine(String::Constructor("Test 2: Single property"));
+    Instantiate SingleProp^ As <single> = SingleProp::Constructor();
+    Run single.init(Integer::Constructor(42));
+    Instantiate String^ As <singleStr> = single.toString();
+    Run System::Console::printLine(singleStr);
+
+    // Test 3: Three properties class
+    Run System::Console::printLine(String::Constructor("Test 3: Triple"));
+    Instantiate Triple^ As <triple> = Triple::Constructor();
+    Run triple.init(Integer::Constructor(1), Integer::Constructor(2), Integer::Constructor(3));
+    Instantiate String^ As <tripleStr> = triple.toString();
+    Run System::Console::printLine(tripleStr);
+
+    Run System::Console::printLine(String::Constructor("=== All Edge Case Tests Passed ==="));
+    Exit(0);
+}
+]

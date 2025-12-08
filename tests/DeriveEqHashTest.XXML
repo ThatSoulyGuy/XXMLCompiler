@@ -1,0 +1,115 @@
+// Test for Derive<Eq> and Derive<Hash> functionality
+
+#import Language::Core;
+
+// Test class with Eq and Hash derives
+@Derive(trait = "Equatable")
+@Derive(trait = "Hashable")
+@Derive(trait = "Stringable")
+[ Class <Point> Final Extends None
+    [ Public <>
+        Property <x> Types Integer^;
+        Property <y> Types Integer^;
+
+        Constructor = default;
+
+        Method <init> Returns Point^ Parameters (Parameter <px> Types Integer^, Parameter <py> Types Integer^) Do
+        {
+            Set x = px;
+            Set y = py;
+            Return this;
+        }
+    ]
+]
+
+// Test class with single property
+@Derive(trait = "Equatable")
+@Derive(trait = "Hashable")
+[ Class <Wrapper> Final Extends None
+    [ Public <>
+        Property <value> Types Integer^;
+
+        Constructor = default;
+
+        Method <init> Returns Wrapper^ Parameters (Parameter <v> Types Integer^) Do
+        {
+            Set value = v;
+            Return this;
+        }
+    ]
+]
+
+[ Entrypoint
+{
+    Run System::Console::printLine(String::Constructor("=== Derive Eq and Hash Test ==="));
+
+    // Test 1: Eq - equal points
+    Run System::Console::printLine(String::Constructor("Test 1: Equal points"));
+    Instantiate Point^ As <p1> = Point::Constructor();
+    Run p1.init(Integer::Constructor(10), Integer::Constructor(20));
+    Instantiate Point^ As <p2> = Point::Constructor();
+    Run p2.init(Integer::Constructor(10), Integer::Constructor(20));
+
+    Instantiate Bool^ As <eq1> = p1.equals(p2);
+    If (eq1) -> {
+        Run System::Console::printLine(String::Constructor("  PASS: p1 equals p2"));
+    }
+    Else -> {
+        Run System::Console::printLine(String::Constructor("  FAIL: p1 should equal p2"));
+    }
+
+    // Test 2: Eq - unequal points
+    Run System::Console::printLine(String::Constructor("Test 2: Unequal points"));
+    Instantiate Point^ As <p3> = Point::Constructor();
+    Run p3.init(Integer::Constructor(10), Integer::Constructor(30));
+
+    Instantiate Bool^ As <eq2> = p1.equals(p3);
+    If (eq2.not()) -> {
+        Run System::Console::printLine(String::Constructor("  PASS: p1 does not equal p3"));
+    }
+    Else -> {
+        Run System::Console::printLine(String::Constructor("  FAIL: p1 should not equal p3"));
+    }
+
+    // Test 3: Hash - equal points have equal hashes
+    Run System::Console::printLine(String::Constructor("Test 3: Equal points have equal hashes"));
+    Instantiate NativeType<"int64">^ As <h1> = p1.hash();
+    Instantiate NativeType<"int64">^ As <h2> = p2.hash();
+
+    If (h1 == h2) -> {
+        Run System::Console::printLine(String::Constructor("  PASS: hash(p1) == hash(p2)"));
+    }
+    Else -> {
+        Run System::Console::printLine(String::Constructor("  FAIL: hash(p1) should equal hash(p2)"));
+    }
+
+    // Test 4: Hash - unequal points may have different hashes
+    Run System::Console::printLine(String::Constructor("Test 4: Different points have different hashes"));
+    Instantiate NativeType<"int64">^ As <h3> = p3.hash();
+
+    If (h1 != h3) -> {
+        Run System::Console::printLine(String::Constructor("  PASS: hash(p1) != hash(p3)"));
+    }
+    Else -> {
+        Run System::Console::printLine(String::Constructor("  INFO: hash collision (ok but uncommon)"));
+    }
+
+    // Test 5: Wrapper class
+    Run System::Console::printLine(String::Constructor("Test 5: Wrapper equals"));
+    Instantiate Wrapper^ As <w1> = Wrapper::Constructor();
+    Run w1.init(Integer::Constructor(42));
+    Instantiate Wrapper^ As <w2> = Wrapper::Constructor();
+    Run w2.init(Integer::Constructor(42));
+
+    Instantiate Bool^ As <weq> = w1.equals(w2);
+    If (weq) -> {
+        Run System::Console::printLine(String::Constructor("  PASS: w1 equals w2"));
+    }
+    Else -> {
+        Run System::Console::printLine(String::Constructor("  FAIL: w1 should equal w2"));
+    }
+
+    Run System::Console::printLine(String::Constructor("=== All Eq/Hash Tests Complete ==="));
+    Exit(0);
+}
+]

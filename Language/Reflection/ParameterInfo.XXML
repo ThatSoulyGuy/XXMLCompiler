@@ -62,6 +62,51 @@
 
 				Return String::Constructor("Unknown");
 			}
+
+			// Check if parameter has owned (^) ownership - takes ownership of value
+			Method <isOwned> Returns Bool^ Parameters () ->
+			{
+				Instantiate Integer^ As <ownership> = getOwnership();
+				Instantiate NativeType<"int64">^ As <ownershipValue> = ownership.toInt64();
+				Instantiate NativeType<"bool">^ As <result> = ownershipValue == 1;
+				Return Bool::Constructor(result);
+			}
+
+			// Check if parameter has reference (&) ownership - borrows value
+			Method <isReference> Returns Bool^ Parameters () ->
+			{
+				Instantiate Integer^ As <ownership> = getOwnership();
+				Instantiate NativeType<"int64">^ As <ownershipValue> = ownership.toInt64();
+				Instantiate NativeType<"bool">^ As <result> = ownershipValue == 2;
+				Return Bool::Constructor(result);
+			}
+
+			// Check if parameter has copy (%) ownership - receives copy
+			Method <isCopy> Returns Bool^ Parameters () ->
+			{
+				Instantiate Integer^ As <ownership> = getOwnership();
+				Instantiate NativeType<"int64">^ As <ownershipValue> = ownership.toInt64();
+				Instantiate NativeType<"bool">^ As <result> = ownershipValue == 3;
+				Return Bool::Constructor(result);
+			}
+
+			// Check if parameter takes ownership (move semantics)
+			Method <takesOwnership> Returns Bool^ Parameters () ->
+			{
+				Return isOwned();
+			}
+
+			// Check if parameter borrows the value (does not take ownership)
+			Method <borrows> Returns Bool^ Parameters () ->
+			{
+				Return isReference();
+			}
+
+			// Check if parameter receives a copy (value semantics)
+			Method <receivesCopy> Returns Bool^ Parameters () ->
+			{
+				Return isCopy();
+			}
 		]
 	]
 ]

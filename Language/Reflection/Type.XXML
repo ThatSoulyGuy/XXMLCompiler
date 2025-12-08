@@ -171,6 +171,68 @@
 					Syscall::reflection_type_getInstanceSize(ptr);
 				Return Integer::Constructor(size);
 			}
+
+			// Check if this type has a base type
+			Method <hasBaseType> Returns Bool^ Parameters () ->
+			{
+				Instantiate NativeType<"ptr">^ As <ptr> = typeInfoPtr;
+				Instantiate NativeType<"int64">^ As <result> =
+					Syscall::reflection_type_hasBaseClass(ptr);
+				Instantiate NativeType<"bool">^ As <b> = result != 0;
+				Return Bool::Constructor(b);
+			}
+
+			// Get the base type name (returns empty string if no base)
+			Method <getBaseTypeName> Returns String^ Parameters () ->
+			{
+				Instantiate NativeType<"ptr">^ As <ptr> = typeInfoPtr;
+				Instantiate NativeType<"cstr">^ As <baseNamePtr> =
+					Syscall::reflection_type_getBaseClassName(ptr);
+				Return String::FromCString(baseNamePtr);
+			}
+
+			// Get the base Type object (returns None if no base)
+			Method <getBaseType> Returns Type^ Parameters () ->
+			{
+				Instantiate NativeType<"ptr">^ As <ptr> = typeInfoPtr;
+				Instantiate NativeType<"int64">^ As <hasBase> =
+					Syscall::reflection_type_hasBaseClass(ptr);
+
+				If (hasBase == 0) -> {
+					Return None::Constructor();
+				}
+
+				Instantiate NativeType<"cstr">^ As <baseNamePtr> =
+					Syscall::reflection_type_getBaseClassName(ptr);
+				Instantiate String^ As <baseName> = String::FromCString(baseNamePtr);
+				Return Type::forName(baseName);
+			}
+
+			// Get number of constructors
+			Method <getConstructorCount> Returns Integer^ Parameters () ->
+			{
+				Instantiate NativeType<"ptr">^ As <ptr> = typeInfoPtr;
+				Instantiate NativeType<"int64">^ As <count> =
+					Syscall::reflection_type_getConstructorCount(ptr);
+				Return Integer::Constructor(count);
+			}
+
+			// Get constructor by index (returns MethodInfo)
+			Method <getConstructorAt> Returns MethodInfo^ Parameters (
+				Parameter <index> Types Integer&
+			) ->
+			{
+				Instantiate NativeType<"ptr">^ As <ptr> = typeInfoPtr;
+				Instantiate NativeType<"int64">^ As <idx> = index.toInt64();
+				Instantiate NativeType<"ptr">^ As <ctorPtr> =
+					Syscall::reflection_type_getConstructor(ptr, idx);
+
+				If (ctorPtr == 0) -> {
+					Return None::Constructor();
+				}
+
+				Return MethodInfo::Constructor(ctorPtr);
+			}
 		]
 	]
 ]

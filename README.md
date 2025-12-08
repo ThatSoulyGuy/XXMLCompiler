@@ -2,6 +2,49 @@
 
 A production-ready compiler for the XXML programming language that compiles to LLVM IR with native executable generation.
 
+## Philosophy
+
+> **"The more explicit the syntax, the greater one's conceptual understanding is. The more implicit the syntax, the lesser one's conceptual understanding is."**
+
+XXML is designed around **radical explicitness**. Every ownership transfer, every memory allocation, every type relationship is visible in the syntax. This is not verbosity for its own sake—it is clarity that builds understanding.
+
+When you read XXML code, you see exactly what happens:
+- `String^` tells you this value is **owned** and will be freed when it goes out of scope
+- `String&` tells you this is a **borrowed reference** that must not outlive its owner
+- `String%` tells you this is a **copy** with independent lifetime
+- `MyClass::Constructor(...)` tells you a constructor is being called, not hidden behind syntactic sugar
+
+This explicitness serves a deeper purpose: **code that teaches**. A developer reading XXML code doesn't just learn what the program does—they learn *how* memory, ownership, and types work. The syntax is the documentation.
+
+## Why XXML?
+
+### The Gap We Fill
+
+Modern programming languages force uncomfortable tradeoffs:
+
+| Language | Memory Safety | Reflection | Compile-Time Meta | Explicitness |
+|----------|--------------|------------|-------------------|--------------|
+| **C++** | Manual | Limited RTTI | Templates (complex) | Low |
+| **Rust** | Ownership | None | Macros (DSL) | Medium |
+| **Java/C#** | GC | Rich | Limited | Low |
+| **Zig** | Manual | None | comptime | High |
+| **XXML** | **Ownership** | **Rich + Safe** | **Reflection-based** | **Very High** |
+
+XXML is the first language to unify:
+1. **Explicit ownership semantics** for memory safety without garbage collection
+2. **Rich runtime reflection** that respects ownership rules
+3. **Compile-time metaprogramming** using reflection APIs (not macros or DSLs)
+
+### Why Adopt XXML?
+
+**For Learning**: XXML's explicit syntax teaches memory management, ownership, and type systems. Code written in XXML serves as its own tutorial.
+
+**For Safety**: Ownership rules are enforced at compile time. Reflection operations that would violate ownership are rejected. Thread-safety constraints (`Sendable`, `Sharable`) prevent data races.
+
+**For Productivity**: Derive implementations (like JSON serialization, equality, hashing) are generated at compile time using normal language constructs—no macro languages to learn.
+
+**For Introspection**: Runtime reflection lets you build plugin systems, serializers, debuggers, and test frameworks that work with any type while still respecting ownership.
+
 ## Features
 
 - **Complete Compiler Pipeline**: Lexer → Parser → Semantic Analyzer → LLVM IR Code Generator
@@ -376,6 +419,25 @@ See [Limitations](docs/LIMITATIONS.md) for a complete list including:
 - No operator overloading (use methods like `.add()`)
 - No pattern matching or switch statements
 - Reflection: dynamic method invocation not yet implemented
+
+## Roadmap
+
+XXML is evolving toward **Safe Reflective Metaprogramming**—the ability to introspect and generate code at compile-time while respecting ownership rules. See [ROADMAP.md](docs/ROADMAP.md) for the full plan.
+
+### Current Focus
+
+| Phase | Goal | Status |
+|-------|------|--------|
+| **Phase 0** | Groundwork & Codebase Triage | In Progress |
+| **Phase 1** | Runtime Reflection Completion | Planned |
+| **Phase 2** | Compile-Time Reflection & Metaprogramming | Planned |
+| **Phase 3** | Ownership Introspection & Diagnostics | Planned |
+
+### Vision
+
+- **Derive macros without macros**: Generate `Eq`, `Hash`, `ToString`, `JSON` implementations using compile-time reflection
+- **Ownership-aware introspection**: Reflection APIs that enforce `^`/`&`/`%` semantics
+- **Sendable/Sharable constraints**: Compiler-enforced thread-safety guarantees
 
 ## License
 

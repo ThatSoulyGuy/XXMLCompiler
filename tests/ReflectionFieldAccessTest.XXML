@@ -1,0 +1,100 @@
+#import Language::Core;
+#import Language::Reflection;
+#import System;
+
+// Test class for dynamic field access via reflection
+[ Class <Person>
+    [ Public<>
+        Property <name> Types String^;
+        Property <age> Types Integer^;
+
+        Constructor Parameters () -> {
+            Set name = String::Constructor("Alice");
+            Set age = Integer::Constructor(30);
+        }
+
+        Method <getName> Returns String& Parameters () -> {
+            Return name;
+        }
+
+        Method <getAge> Returns Integer& Parameters () -> {
+            Return age;
+        }
+    ]
+]
+
+[ Entrypoint
+{
+    Run System::Console::printLine(String::Constructor("=== Reflection Field Access Test ==="));
+
+    // Create a Person instance
+    Instantiate Person^ As <person> = Person::Constructor();
+
+    Run System::Console::print(String::Constructor("Initial name: "));
+    Run System::Console::printLine(person.getName());
+    Run System::Console::print(String::Constructor("Initial age: "));
+    Run System::Console::printLine(person.getAge().toString());
+
+    // Get the type info for Person
+    Instantiate Type^ As <personType> = Type::forName(String::Constructor("Person"));
+
+    // Test 1: Read 'name' property via reflection
+    Run System::Console::printLine(String::Constructor("\n--- Test 1: Read field via reflection ---"));
+
+    Instantiate PropertyInfo^ As <nameProp> = personType.getProperty(String::Constructor("name"));
+    Run System::Console::print(String::Constructor("Property name: "));
+    Run System::Console::printLine(nameProp.getName());
+    Run System::Console::print(String::Constructor("Property type: "));
+    Run System::Console::printLine(nameProp.getTypeName());
+    Run System::Console::print(String::Constructor("Property offset: "));
+    Run System::Console::printLine(nameProp.getOffset().toString());
+
+    // Get the value pointer - this returns the String pointer stored in the field
+    // Pass the instance pointer directly (not &person which gives address of stack variable)
+    Instantiate NativeType<"ptr">% As <personPtr> = person;
+    Instantiate NativeType<"ptr">^ As <namePtr> = nameProp.getValuePtr(personPtr);
+
+    // Cast the ptr to String and print
+    Instantiate String& As <nameValue> = namePtr;
+    Run System::Console::print(String::Constructor("Read via reflection: "));
+    Run System::Console::printLine(nameValue);
+
+    // Test 2: Read 'age' property via reflection
+    Run System::Console::printLine(String::Constructor("\n--- Test 2: Read Integer field ---"));
+
+    Instantiate PropertyInfo^ As <ageProp> = personType.getProperty(String::Constructor("age"));
+    Instantiate NativeType<"ptr">^ As <agePtr> = ageProp.getValuePtr(personPtr);
+    Instantiate Integer& As <ageValue> = agePtr;
+    Run System::Console::print(String::Constructor("Age via reflection: "));
+    Run System::Console::printLine(ageValue.toString());
+
+    // Test 3: Write field via reflection
+    Run System::Console::printLine(String::Constructor("\n--- Test 3: Write field via reflection ---"));
+
+    // Create a new String value
+    Instantiate String^ As <newName> = String::Constructor("Bob");
+    // Pass the String pointer directly (not &newName which gives address of stack variable)
+    Instantiate NativeType<"ptr">% As <newNamePtr> = newName;
+
+    // Set the field value
+    Run nameProp.setValuePtr(personPtr, newNamePtr);
+
+    // Verify the change via normal accessor
+    Run System::Console::print(String::Constructor("Name after setValuePtr: "));
+    Run System::Console::printLine(person.getName());
+
+    // Test 4: Write Integer field via reflection
+    Run System::Console::printLine(String::Constructor("\n--- Test 4: Write Integer field ---"));
+
+    Instantiate Integer^ As <newAge> = Integer::Constructor(42);
+    // Pass the Integer pointer directly
+    Instantiate NativeType<"ptr">% As <newAgePtr> = newAge;
+    Run ageProp.setValuePtr(personPtr, newAgePtr);
+
+    Run System::Console::print(String::Constructor("Age after setValuePtr: "));
+    Run System::Console::printLine(person.getAge().toString());
+
+    Run System::Console::printLine(String::Constructor("\n=== Test Complete ==="));
+    Exit(0);
+}
+]

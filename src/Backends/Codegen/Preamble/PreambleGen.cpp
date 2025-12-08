@@ -124,6 +124,22 @@ void PreambleGen::emitBuiltinTypes(std::stringstream& out) const {
     out << "%Float = type { float }\n";
     out << "%Double = type { double }\n";
     out << "\n";
+
+    // Reflection metadata struct types (must match xxml_reflection_runtime.h)
+    out << "; Reflection metadata types\n";
+    // ReflectionPropertyInfo: name, typeName, ownership, offset, annotationCount, annotations
+    out << "%ReflectionPropertyInfo = type { ptr, ptr, i32, i64, i32, ptr }\n";
+    // ReflectionParameterInfo: name, typeName, ownership
+    out << "%ReflectionParameterInfo = type { ptr, ptr, i32 }\n";
+    // ReflectionMethodInfo: name, returnType, returnOwnership, paramCount, params, funcPtr, isStatic, isCtor, annotationCount, annotations
+    out << "%ReflectionMethodInfo = type { ptr, ptr, i32, i32, ptr, ptr, i1, i1, i32, ptr }\n";
+    // ReflectionTemplateParamInfo: name, isTypeParameter, valueType
+    out << "%ReflectionTemplateParamInfo = type { ptr, i1, ptr }\n";
+    // ReflectionTypeInfo: name, namespaceName, fullName, isTemplate, templateParamCount, templateParams,
+    //   propertyCount, properties, methodCount, methods, constructorCount, constructors,
+    //   baseClassName, instanceSize, annotationCount, annotations
+    out << "%ReflectionTypeInfo = type { ptr, ptr, ptr, i1, i32, ptr, i32, ptr, i32, ptr, i32, ptr, ptr, i64, i32, ptr }\n";
+    out << "\n";
 }
 
 void PreambleGen::emitMemoryManagement(std::stringstream& out) const {
@@ -288,7 +304,7 @@ void PreambleGen::emitSystemFunctions(std::stringstream& out) const {
 
 void PreambleGen::emitReflectionRuntime(std::stringstream& out) const {
     out << "; Reflection Runtime Functions\n";
-    out << "declare void @Reflection_registerType(ptr)\n";
+    out << "declare ptr @Reflection_registerType(ptr)\n";
     out << "declare ptr @Reflection_getTypeInfo(ptr)\n";
     out << "declare i32 @Reflection_getTypeCount()\n";
     out << "declare ptr @Reflection_getAllTypeNames()\n";
@@ -308,10 +324,16 @@ void PreambleGen::emitReflectionRuntime(std::stringstream& out) const {
     out << "declare ptr @xxml_reflection_type_getMethod(ptr, i64)\n";
     out << "declare ptr @xxml_reflection_type_getMethodByName(ptr, ptr)\n";
     out << "declare i64 @xxml_reflection_type_getInstanceSize(ptr)\n";
+    out << "declare ptr @Syscall_reflection_type_getBaseClassName(ptr)\n";
+    out << "declare i64 @Syscall_reflection_type_hasBaseClass(ptr)\n";
+    out << "declare i64 @Syscall_reflection_type_getConstructorCount(ptr)\n";
+    out << "declare ptr @Syscall_reflection_type_getConstructor(ptr, i64)\n";
     out << "declare ptr @xxml_reflection_property_getName(ptr)\n";
     out << "declare ptr @xxml_reflection_property_getTypeName(ptr)\n";
     out << "declare i64 @xxml_reflection_property_getOwnership(ptr)\n";
     out << "declare i64 @xxml_reflection_property_getOffset(ptr)\n";
+    out << "declare ptr @Syscall_reflection_property_getValuePtr(ptr, ptr)\n";
+    out << "declare void @Syscall_reflection_property_setValuePtr(ptr, ptr, ptr)\n";
     out << "declare ptr @xxml_reflection_method_getName(ptr)\n";
     out << "declare ptr @xxml_reflection_method_getReturnType(ptr)\n";
     out << "declare i64 @xxml_reflection_method_getReturnOwnership(ptr)\n";

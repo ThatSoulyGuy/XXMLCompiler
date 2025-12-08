@@ -1,0 +1,73 @@
+#import Language::Core;
+#import Language::Reflection;
+#import System;
+
+// Test class for reflection
+[ Class <TestPerson>
+    [ Public<>
+        Property <name> Types String^;
+        Property <age> Types Integer^;
+
+        Constructor Parameters () -> {
+            Set name = String::Constructor("Alice");
+            Set age = Integer::Constructor(30);
+        }
+    ]
+]
+
+[ Entrypoint
+{
+    Run System::Console::printLine(String::Constructor("=== Reflection Debug Test ==="));
+
+    // Test 1: Try to find the type
+    Run System::Console::printLine(String::Constructor("Looking up type 'TestPerson'..."));
+    Instantiate Type^ As <personType> = Type::forName(String::Constructor("TestPerson"));
+
+    If (personType == 0) -> {
+        Run System::Console::printLine(String::Constructor("ERROR: Type not found!"));
+        Exit(1);
+    }
+
+    Run System::Console::printLine(String::Constructor("Type found!"));
+    Run System::Console::print(String::Constructor("Type name: "));
+    Run System::Console::printLine(personType.getName());
+
+    // Test 2: Get property count
+    Instantiate Integer^ As <propCount> = personType.getPropertyCount();
+    Run System::Console::print(String::Constructor("Property count: "));
+    Run System::Console::printLine(propCount.toString());
+
+    // Test 3: Get first property by index
+    If (propCount.toInt64() > 0) -> {
+        Run System::Console::printLine(String::Constructor("\nGetting property by index 0..."));
+        Instantiate PropertyInfo^ As <prop0> = personType.getPropertyAt(Integer::Constructor(0));
+
+        If (prop0 == 0) -> {
+            Run System::Console::printLine(String::Constructor("ERROR: Property at index 0 is null!"));
+        } Else -> {
+            Run System::Console::print(String::Constructor("Property[0] name: "));
+            Run System::Console::printLine(prop0.getName());
+            Run System::Console::print(String::Constructor("Property[0] type: "));
+            Run System::Console::printLine(prop0.getTypeName());
+        }
+    }
+
+    // Test 4: Get property by name
+    Run System::Console::printLine(String::Constructor("\nGetting property 'name' by name..."));
+    Instantiate PropertyInfo^ As <nameProp> = personType.getProperty(String::Constructor("name"));
+
+    If (nameProp == 0) -> {
+        Run System::Console::printLine(String::Constructor("ERROR: Property 'name' not found!"));
+    } Else -> {
+        Run System::Console::print(String::Constructor("Property 'name' name: "));
+        Run System::Console::printLine(nameProp.getName());
+        Run System::Console::print(String::Constructor("Property 'name' type: "));
+        Run System::Console::printLine(nameProp.getTypeName());
+        Run System::Console::print(String::Constructor("Property 'name' offset: "));
+        Run System::Console::printLine(nameProp.getOffset().toString());
+    }
+
+    Run System::Console::printLine(String::Constructor("\n=== Test Complete ==="));
+    Exit(0);
+}
+]

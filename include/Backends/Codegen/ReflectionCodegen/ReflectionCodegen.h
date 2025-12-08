@@ -32,14 +32,21 @@ public:
     /// Metadata is added directly to the Module and will be emitted via LLVMEmitter.
     void generate();
 
+    /// Generate calls to Reflection_registerType for all generated type metadata.
+    /// This must be called after generate() and after the main function exists.
+    /// Inserts registration calls at the beginning of main().
+    void generateRegistrationCalls();
+
     /**
      * Get generated IR as string.
-     * @deprecated Metadata is now part of the Module, use LLVMEmitter instead.
-     * Returns empty string for backwards compatibility.
+     * Returns string-based IR for reflection metadata.
      */
-    std::string getIR() const { return ""; }
+    std::string getIR() const;
 
 private:
+    // String IR buffer for emission
+    mutable std::string stringIR_;
+
     CodegenContext& ctx_;
 
     // Type-safe builders

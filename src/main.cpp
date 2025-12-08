@@ -9,6 +9,7 @@
 #include "Parser/Parser.h"
 #include "Semantic/SemanticAnalyzer.h"
 #include "Semantic/SemanticVerifier.h"
+#include "Semantic/PassResults.h"
 #include "Core/CompilationContext.h"
 #include "Core/TypeRegistry.h"
 #include "Core/BackendRegistry.h"
@@ -84,9 +85,11 @@ void printUsage(const char* programName) {
     std::cerr << "Options:\n";
     std::cerr << "  -o <file>              Output file (.ll for IR, .exe/.dll for binary)\n";
     std::cerr << "  --ir                   Generate LLVM IR only (same as mode 2)\n";
+    std::cerr << "  --emit-llvm            Alias for --ir\n";
     std::cerr << "  --processor            Compile annotation processor to DLL\n";
     std::cerr << "  --use-processor=<dll>  Load annotation processor DLL (can be used multiple times)\n";
     std::cerr << "  --stl-warnings         Show warnings for standard library files (off by default)\n";
+    std::cerr << "  --dump-ownership       Dump ownership analysis information for debugging\n";
     std::cerr << "  2                      Legacy mode: LLVM IR only\n\n";
     std::cerr << "Examples:\n";
     std::cerr << "  " << programName << " Hello.XXML -o hello.exe                    # Compile to executable\n";
@@ -109,6 +112,7 @@ int main(int argc, char* argv[]) {
     bool llvmIROnly = false;
     bool processorMode = false;
     bool showSTLWarnings = false;
+    bool dumpOwnership = false;
     std::vector<std::string> processorDLLs;
 
     // Parse command-line arguments
@@ -129,6 +133,8 @@ int main(int argc, char* argv[]) {
             }
         } else if (arg == "--stl-warnings") {
             showSTLWarnings = true;
+        } else if (arg == "--dump-ownership") {
+            dumpOwnership = true;
         } else if (arg[0] != '-') {
             // Positional argument - input file
             if (inputFile.empty()) {
@@ -530,6 +536,78 @@ int main(int argc, char* argv[]) {
         // Run the full multi-stage pipeline (TypeCanonicalizer -> SemanticAnalysis ->
         // TemplateExpander -> OwnershipAnalyzer -> LayoutComputer -> ABILowering)
         auto passResults = mainAnalyzer->runPipeline(*mainModule->ast);
+
+        // Dump ownership information if requested
+        if (dumpOwnership) {
+            std::cout << "\n=== Ownership Analysis Dump ===\n\n";
+
+            // Dump variable states
+            const auto& ownershipResult = passResults.ownershipAnalysis;
+            std::cout << "Variable States:\n";
+            for (const auto& [varName, state] : ownershipResult.variableStates) {
+                std::string stateStr;
+                switch (state) {
+                    case XXML::Semantic::OwnershipState::Owned: stateStr = "Owned"; break;
+                    case XXML::Semantic::OwnershipState::Moved: stateStr = "Moved"; break;
+                    case XXML::Semantic::OwnershipState::Borrowed: stateStr = "Borrowed"; break;
+                    case XXML::Semantic::OwnershipState::Invalid: stateStr = "Invalid"; break;
+                }
+                std::cout << "  " << varName << " -> " << stateStr << "\n";
+            }
+
+            // Dump violations if any
+            if (!ownershipResult.violations.empty()) {
+                std::cout << "\nOwnership Violations (" << ownershipResult.violations.size() << "):\n";
+                for (const auto& violation : ownershipResult.violations) {
+                    std::string kindStr;
+                    switch (violation.kind) {
+                        case XXML::Semantic::OwnershipViolation::Kind::UseAfterMove:
+                            kindStr = "UseAfterMove"; break;
+                        case XXML::Semantic::OwnershipViolation::Kind::DoubleMoveViolation:
+                            kindStr = "DoubleMove"; break;
+                        case XXML::Semantic::OwnershipViolation::Kind::DanglingReference:
+                            kindStr = "DanglingReference"; break;
+                        case XXML::Semantic::OwnershipViolation::Kind::InvalidCapture:
+                            kindStr = "InvalidCapture"; break;
+                        case XXML::Semantic::OwnershipViolation::Kind::BorrowWhileMoved:
+                            kindStr = "BorrowWhileMoved"; break;
+                    }
+                    std::cout << "  [" << kindStr << "] " << violation.variableName
+                              << ": " << violation.message << "\n";
+                    if (!violation.useLocation.filename.empty()) {
+                        std::cout << "    at " << violation.useLocation.filename
+                                  << ":" << violation.useLocation.line
+                                  << ":" << violation.useLocation.column << "\n";
+                    }
+                    if (!violation.moveLocation.filename.empty()) {
+                        std::cout << "    (moved at " << violation.moveLocation.filename
+                                  << ":" << violation.moveLocation.line << ")\n";
+                    }
+                }
+            } else {
+                std::cout << "\nNo ownership violations detected.\n";
+            }
+
+            // Dump layout information with ownership
+            std::cout << "\nClass Layouts with Ownership:\n";
+            for (const auto& [className, layout] : passResults.layoutComputation.layouts) {
+                std::cout << "  " << className << " (" << layout.totalSize << " bytes, align " << layout.alignment << "):\n";
+                for (const auto& field : layout.fields) {
+                    std::string ownershipStr;
+                    switch (field.ownership) {
+                        case XXML::Parser::OwnershipType::None: ownershipStr = ""; break;
+                        case XXML::Parser::OwnershipType::Owned: ownershipStr = "^"; break;
+                        case XXML::Parser::OwnershipType::Reference: ownershipStr = "&"; break;
+                        case XXML::Parser::OwnershipType::Copy: ownershipStr = "%"; break;
+                    }
+                    std::cout << "    +" << field.offset << ": " << field.name
+                              << " : " << field.typeName << ownershipStr
+                              << " (" << field.size << " bytes)\n";
+                }
+            }
+            std::cout << "\n=== End Ownership Dump ===\n\n";
+        }
+
         if (errorReporter.hasErrors() || !passResults.allSuccessful()) {
             errorReporter.printErrors();
             return 1;

@@ -1,0 +1,203 @@
+#import Language::Core;
+
+// Ownership utility class for reflection
+// Provides constants and helper methods for working with XXML ownership types
+
+[ Namespace <Language::Reflection>
+	[ Class <Ownership> Final Extends None
+		[ Public <>
+			// Ownership type constants
+			// These match the values used by the reflection runtime:
+			// 0 = None/Unknown
+			// 1 = Owned (^) - caller owns the value, responsible for cleanup
+			// 2 = Reference (&) - borrowed reference, no ownership transfer
+			// 3 = Copy (%) - value semantics, receives a copy
+
+			// Get the integer value for "None/Unknown" ownership
+			Method <Unknown> Returns Integer^ Parameters () ->
+			{
+				Return Integer::Constructor(0);
+			}
+
+			// Get the integer value for "Owned" ownership (^)
+			Method <Owned> Returns Integer^ Parameters () ->
+			{
+				Return Integer::Constructor(1);
+			}
+
+			// Get the integer value for "Reference" ownership (&)
+			Method <Reference> Returns Integer^ Parameters () ->
+			{
+				Return Integer::Constructor(2);
+			}
+
+			// Get the integer value for "Copy" ownership (%)
+			Method <Copy> Returns Integer^ Parameters () ->
+			{
+				Return Integer::Constructor(3);
+			}
+
+			// Convert ownership integer to string
+			Method <toString> Returns String^ Parameters (
+				Parameter <ownership> Types Integer&
+			) ->
+			{
+				Instantiate NativeType<"int64">^ As <value> = ownership.toInt64();
+
+				If (value == 0) -> {
+					Return String::Constructor("None");
+				}
+				If (value == 1) -> {
+					Return String::Constructor("Owned(^)");
+				}
+				If (value == 2) -> {
+					Return String::Constructor("Reference(&)");
+				}
+				If (value == 3) -> {
+					Return String::Constructor("Copy(%)");
+				}
+
+				Return String::Constructor("Unknown");
+			}
+
+			// Convert ownership integer to symbol (^, &, %, or empty)
+			Method <toSymbol> Returns String^ Parameters (
+				Parameter <ownership> Types Integer&
+			) ->
+			{
+				Instantiate NativeType<"int64">^ As <value> = ownership.toInt64();
+
+				If (value == 1) -> {
+					Return String::Constructor("^");
+				}
+				If (value == 2) -> {
+					Return String::Constructor("&");
+				}
+				If (value == 3) -> {
+					Return String::Constructor("%");
+				}
+
+				Return String::Constructor("");
+			}
+
+			// Check if ownership value represents owned (^)
+			Method <isOwned> Returns Bool^ Parameters (
+				Parameter <ownership> Types Integer&
+			) ->
+			{
+				Instantiate NativeType<"int64">^ As <value> = ownership.toInt64();
+				Instantiate NativeType<"bool">^ As <result> = value == 1;
+				Return Bool::Constructor(result);
+			}
+
+			// Check if ownership value represents reference (&)
+			Method <isReference> Returns Bool^ Parameters (
+				Parameter <ownership> Types Integer&
+			) ->
+			{
+				Instantiate NativeType<"int64">^ As <value> = ownership.toInt64();
+				Instantiate NativeType<"bool">^ As <result> = value == 2;
+				Return Bool::Constructor(result);
+			}
+
+			// Check if ownership value represents copy (%)
+			Method <isCopy> Returns Bool^ Parameters (
+				Parameter <ownership> Types Integer&
+			) ->
+			{
+				Instantiate NativeType<"int64">^ As <value> = ownership.toInt64();
+				Instantiate NativeType<"bool">^ As <result> = value == 3;
+				Return Bool::Constructor(result);
+			}
+
+			// Check if ownership implies the value can be safely stored
+			// Owned and Copy values can be stored; References cannot
+			Method <canStore> Returns Bool^ Parameters (
+				Parameter <ownership> Types Integer&
+			) ->
+			{
+				Instantiate NativeType<"int64">^ As <value> = ownership.toInt64();
+				// Owned (1) and Copy (3) can be stored
+				Instantiate NativeType<"bool">^ As <result> = (value == 1) || (value == 3);
+				Return Bool::Constructor(result);
+			}
+
+			// Check if ownership implies the value must be returned/released
+			// Only owned values require explicit handling
+			Method <requiresCleanup> Returns Bool^ Parameters (
+				Parameter <ownership> Types Integer&
+			) ->
+			{
+				Instantiate NativeType<"int64">^ As <value> = ownership.toInt64();
+				Instantiate NativeType<"bool">^ As <result> = value == 1;
+				Return Bool::Constructor(result);
+			}
+
+			// Check if two ownership values are compatible for assignment
+			// Rules:
+			// - Owned can receive Owned (move) or Copy (copy)
+			// - Reference can receive any (borrow)
+			// - Copy can receive Copy
+			Method <isAssignmentCompatible> Returns Bool^ Parameters (
+				Parameter <targetOwnership> Types Integer&,
+				Parameter <sourceOwnership> Types Integer&
+			) ->
+			{
+				Instantiate NativeType<"int64">^ As <target> = targetOwnership.toInt64();
+				Instantiate NativeType<"int64">^ As <source> = sourceOwnership.toInt64();
+
+				// Reference can borrow from anything
+				If (target == 2) -> {
+					Return Bool::Constructor(true);
+				}
+
+				// Owned can receive owned (move) or copy
+				If (target == 1) -> {
+					Instantiate NativeType<"bool">^ As <compatible> = (source == 1) || (source == 3);
+					Return Bool::Constructor(compatible);
+				}
+
+				// Copy can only receive copy
+				If (target == 3) -> {
+					Instantiate NativeType<"bool">^ As <compatible> = source == 3;
+					Return Bool::Constructor(compatible);
+				}
+
+				// Unknown/None - be permissive
+				Return Bool::Constructor(true);
+			}
+
+			// Get a description of what happens during ownership transfer
+			Method <describeTransfer> Returns String^ Parameters (
+				Parameter <fromOwnership> Types Integer&,
+				Parameter <toOwnership> Types Integer&
+			) ->
+			{
+				Instantiate NativeType<"int64">^ As <from> = fromOwnership.toInt64();
+				Instantiate NativeType<"int64">^ As <to> = toOwnership.toInt64();
+
+				// Owned to Owned = Move
+				If ((from == 1) && (to == 1)) -> {
+					Return String::Constructor("Move (ownership transferred)");
+				}
+
+				// Owned to Reference = Borrow
+				If ((from == 1) && (to == 2)) -> {
+					Return String::Constructor("Borrow (temporary reference)");
+				}
+
+				// Copy to anything = Copy
+				If (from == 3) -> {
+					Return String::Constructor("Copy (value duplicated)");
+				}
+
+				// Reference to Reference = Reborrow
+				If ((from == 2) && (to == 2)) -> {
+					Return String::Constructor("Reborrow (reference passed along)");
+				}
+
+				Return String::Constructor("Transfer");
+			}
+		]
+	]
+]

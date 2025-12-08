@@ -1,0 +1,36 @@
+// Test for Derive<ToString> functionality
+// Tests automatic toString() method generation
+
+#import Language::Core;
+
+@Derive(trait = "Stringable")
+[ Class <Person> Final Extends None
+    [ Public <>
+        Property <name> Types String^;
+        Property <age> Types Integer^;
+
+        Constructor = default;
+
+        Method <init> Returns Person^ Parameters (Parameter <n> Types String^, Parameter <a> Types Integer^) Do
+        {
+            Set name = n;
+            Set age = a;
+            Return this;
+        }
+    ]
+]
+
+[ Entrypoint
+{
+    Run System::Console::printLine(String::Constructor("=== Derive ToString Test ==="));
+
+    Instantiate Person^ As <person> = Person::Constructor();
+    Run person.init(String::Constructor("Alice"), Integer::Constructor(30));
+
+    Instantiate String^ As <output> = person.toString();
+    Run System::Console::printLine(output);
+
+    Run System::Console::printLine(String::Constructor("=== Done ==="));
+    Exit(0);
+}
+]

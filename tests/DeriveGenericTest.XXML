@@ -1,0 +1,114 @@
+// Test for derives with various class configurations
+// Tests: single property, multiple properties, different types
+
+#import Language::Core;
+
+// Non-template class with derives - single property
+@Derive(trait = "Equatable")
+@Derive(trait = "Hashable")
+@Derive(trait = "Stringable")
+[ Class <IntBox> Final Extends None
+    [ Public <>
+        Property <value> Types Integer^;
+
+        Constructor = default;
+
+        Method <init> Returns IntBox^ Parameters (Parameter <val> Types Integer^) Do
+        {
+            Set value = val;
+            Return this;
+        }
+    ]
+]
+
+// Test class with multiple Integer properties
+@Derive(trait = "Equatable")
+@Derive(trait = "Stringable")
+[ Class <Point2D> Final Extends None
+    [ Public <>
+        Property <x> Types Integer^;
+        Property <y> Types Integer^;
+
+        Constructor = default;
+
+        Method <init> Returns Point2D^ Parameters (Parameter <px> Types Integer^, Parameter <py> Types Integer^) Do
+        {
+            Set x = px;
+            Set y = py;
+            Return this;
+        }
+    ]
+]
+
+[ Entrypoint
+{
+    Run System::Console::printLine(String::Constructor("=== Derive Generic Test ==="));
+
+    // Test 1: IntBox equality (non-template with derive)
+    Run System::Console::printLine(String::Constructor("Test 1: IntBox equality"));
+    Instantiate IntBox^ As <ib1> = IntBox::Constructor();
+    Run ib1.init(Integer::Constructor(42));
+    Instantiate IntBox^ As <ib2> = IntBox::Constructor();
+    Run ib2.init(Integer::Constructor(42));
+
+    Instantiate Bool^ As <eq1> = ib1.equals(ib2);
+    If (eq1) -> {
+        Run System::Console::printLine(String::Constructor("  PASS: ib1 equals ib2"));
+    }
+    Else -> {
+        Run System::Console::printLine(String::Constructor("  FAIL: ib1 should equal ib2"));
+    }
+
+    // Test 2: IntBox inequality
+    Run System::Console::printLine(String::Constructor("Test 2: IntBox inequality"));
+    Instantiate IntBox^ As <ib3> = IntBox::Constructor();
+    Run ib3.init(Integer::Constructor(99));
+
+    Instantiate Bool^ As <neq1> = ib1.equals(ib3).not();
+    If (neq1) -> {
+        Run System::Console::printLine(String::Constructor("  PASS: ib1 does not equal ib3"));
+    }
+    Else -> {
+        Run System::Console::printLine(String::Constructor("  FAIL: ib1 should not equal ib3"));
+    }
+
+    // Test 3: IntBox hash
+    Run System::Console::printLine(String::Constructor("Test 3: IntBox hash"));
+    Instantiate NativeType<"int64">^ As <h1> = ib1.hash();
+    Instantiate NativeType<"int64">^ As <h2> = ib2.hash();
+
+    If (h1 == h2) -> {
+        Run System::Console::printLine(String::Constructor("  PASS: hash(ib1) == hash(ib2)"));
+    }
+    Else -> {
+        Run System::Console::printLine(String::Constructor("  FAIL: hash(ib1) should equal hash(ib2)"));
+    }
+
+    // Test 4: IntBox toString
+    Run System::Console::printLine(String::Constructor("Test 4: IntBox toString"));
+    Instantiate String^ As <str1> = ib1.toString();
+    Run System::Console::printLine(String::Constructor("  IntBox toString: ").append(str1));
+
+    // Test 5: Point2D with multiple properties
+    Run System::Console::printLine(String::Constructor("Test 5: Point2D equality"));
+    Instantiate Point2D^ As <p1> = Point2D::Constructor();
+    Run p1.init(Integer::Constructor(100), Integer::Constructor(200));
+    Instantiate Point2D^ As <p2> = Point2D::Constructor();
+    Run p2.init(Integer::Constructor(100), Integer::Constructor(200));
+
+    Instantiate Bool^ As <eq2> = p1.equals(p2);
+    If (eq2) -> {
+        Run System::Console::printLine(String::Constructor("  PASS: p1 equals p2"));
+    }
+    Else -> {
+        Run System::Console::printLine(String::Constructor("  FAIL: p1 should equal p2"));
+    }
+
+    // Test 6: Point2D toString
+    Run System::Console::printLine(String::Constructor("Test 6: Point2D toString"));
+    Instantiate String^ As <str2> = p1.toString();
+    Run System::Console::printLine(String::Constructor("  Point2D toString: ").append(str2));
+
+    Run System::Console::printLine(String::Constructor("=== All Generic Derive Tests Complete ==="));
+    Exit(0);
+}]

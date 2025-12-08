@@ -41,6 +41,108 @@
 				Return Integer::Constructor(ownership);
 			}
 
+			// Get return ownership as human-readable string
+			Method <getReturnOwnershipString> Returns String^ Parameters () ->
+			{
+				Instantiate Integer^ As <ownership> = getReturnOwnership();
+				Instantiate NativeType<"int64">^ As <ownershipValue> = ownership.toInt64();
+
+				If (ownershipValue == 0) -> {
+					Return String::Constructor("None");
+				}
+				If (ownershipValue == 1) -> {
+					Return String::Constructor("Owned(^)");
+				}
+				If (ownershipValue == 2) -> {
+					Return String::Constructor("Reference(&)");
+				}
+				If (ownershipValue == 3) -> {
+					Return String::Constructor("Copy(%)");
+				}
+
+				Return String::Constructor("Unknown");
+			}
+
+			// Check if return type is owned (^)
+			Method <isReturnOwned> Returns Bool^ Parameters () ->
+			{
+				Instantiate Integer^ As <ownership> = getReturnOwnership();
+				Instantiate NativeType<"int64">^ As <ownershipValue> = ownership.toInt64();
+				Instantiate NativeType<"bool">^ As <result> = ownershipValue == 1;
+				Return Bool::Constructor(result);
+			}
+
+			// Check if return type is a reference (&)
+			Method <isReturnReference> Returns Bool^ Parameters () ->
+			{
+				Instantiate Integer^ As <ownership> = getReturnOwnership();
+				Instantiate NativeType<"int64">^ As <ownershipValue> = ownership.toInt64();
+				Instantiate NativeType<"bool">^ As <result> = ownershipValue == 2;
+				Return Bool::Constructor(result);
+			}
+
+			// Check if return type is copy (%)
+			Method <isReturnCopy> Returns Bool^ Parameters () ->
+			{
+				Instantiate Integer^ As <ownership> = getReturnOwnership();
+				Instantiate NativeType<"int64">^ As <ownershipValue> = ownership.toInt64();
+				Instantiate NativeType<"bool">^ As <result> = ownershipValue == 3;
+				Return Bool::Constructor(result);
+			}
+
+			// Check if this method mutates the object (non-static, non-constructor)
+			// In XXML, non-static methods that aren't getters typically mutate state
+			// This is a heuristic: methods with "set", "add", "remove", "clear", "init" in name
+			// are considered mutating, along with constructors
+			Method <isMutating> Returns Bool^ Parameters () ->
+			{
+				// Constructors mutate (initialize) the object
+				Instantiate Bool^ As <isCtor> = isConstructor();
+				If (isCtor) -> {
+					Return Bool::Constructor(true);
+				}
+
+				// Static methods don't mutate 'this'
+				Instantiate Bool^ As <staticCheck> = isStatic();
+				If (staticCheck) -> {
+					Return Bool::Constructor(false);
+				}
+
+				// Heuristic: check method name for common mutation patterns
+				Instantiate String^ As <name> = getName();
+				Instantiate NativeType<"cstr">^ As <nameStr> = name.toCString();
+
+				// Methods returning None typically mutate state
+				Instantiate String^ As <retType> = getReturnType();
+				If (retType.equals(String::Constructor("None"))) -> {
+					Return Bool::Constructor(true);
+				}
+
+				// Methods returning the same type (builder pattern) likely mutate
+				// For now, assume non-getter methods with side effects are mutating
+				// A more precise analysis would require semantic information
+
+				Return Bool::Constructor(false);
+			}
+
+			// Get ownership of parameter at given index
+			Method <getParameterOwnership> Returns Integer^ Parameters (
+				Parameter <index> Types Integer&
+			) ->
+			{
+				Instantiate ParameterInfo^ As <param> = getParameterAt(index);
+				Return param.getOwnership();
+			}
+
+			// Get ownership string of parameter at given index
+			Method <getParameterOwnershipString> Returns String^ Parameters (
+				Parameter <index> Types Integer&
+			) ->
+			{
+				Instantiate ParameterInfo^ As <param> = getParameterAt(index);
+				Return param.getOwnershipString();
+			}
+
 			// Get parameter count
 			Method <getParameterCount> Returns Integer^ Parameters () ->
 			{

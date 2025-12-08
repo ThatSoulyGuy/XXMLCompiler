@@ -110,11 +110,13 @@ struct ReflectionClassMetadata {
     std::string name;
     std::string namespaceName;
     std::string fullName;
+    std::string baseClassName;  // Base class name, empty if no base
     std::vector<std::pair<std::string, std::string>> properties;  // name, type
     std::vector<std::string> propertyOwnerships;  // ownership chars (^, &, %)
     std::vector<std::pair<std::string, std::string>> methods;  // name, return type
     std::vector<std::string> methodReturnOwnerships;  // ownership for return types
     std::vector<std::vector<std::tuple<std::string, std::string, std::string>>> methodParameters;  // name, type, ownership
+    std::vector<bool> methodIsStatic;  // whether each method is static (reserved for future use)
     bool isTemplate = false;
     std::vector<std::string> templateParams;
     size_t instanceSize = 0;

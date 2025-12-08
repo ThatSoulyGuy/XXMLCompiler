@@ -158,6 +158,10 @@ void* Syscall_reflection_type_getMethod(void* typeInfo, int64_t index);
 void* Syscall_reflection_type_getMethodByName(void* typeInfo, const char* name);
 void* Syscall_reflection_getTypeByName(const char* typeName);
 int64_t Syscall_reflection_type_getInstanceSize(void* typeInfo);
+const char* Syscall_reflection_type_getBaseClassName(void* typeInfo);
+int64_t Syscall_reflection_type_hasBaseClass(void* typeInfo);
+int64_t Syscall_reflection_type_getConstructorCount(void* typeInfo);
+void* Syscall_reflection_type_getConstructor(void* typeInfo, int64_t index);
 
 // Method reflection syscalls
 const char* Syscall_reflection_method_getName(void* methodInfo);
@@ -173,6 +177,12 @@ const char* Syscall_reflection_property_getName(void* propInfo);
 const char* Syscall_reflection_property_getTypeName(void* propInfo);
 int64_t Syscall_reflection_property_getOwnership(void* propInfo);
 int64_t Syscall_reflection_property_getOffset(void* propInfo);
+
+// Dynamic field access syscalls (ownership-aware)
+// Gets pointer to the field value within an instance
+void* Syscall_reflection_property_getValuePtr(void* propInfo, void* instance);
+// Sets the pointer value at the field within an instance
+void Syscall_reflection_property_setValuePtr(void* propInfo, void* instance, void* value);
 
 // Parameter reflection syscalls
 const char* Syscall_reflection_parameter_getName(void* paramInfo);

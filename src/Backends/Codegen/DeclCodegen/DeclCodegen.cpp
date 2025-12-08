@@ -151,6 +151,10 @@ void DeclCodegen::visitClass(Parser::ClassDecl* decl) {
     metadata.fullName = fullClassName;
     metadata.isTemplate = false;
     metadata.astNode = decl;
+    // Set base class name (resolving to fully qualified name)
+    if (!decl->baseClass.empty() && decl->baseClass != "None") {
+        metadata.baseClassName = ctx_.resolveToQualifiedName(decl->baseClass);
+    }
 
     auto* classInfo = ctx_.getClass(fullClassName);
     if (classInfo) {
@@ -228,6 +232,7 @@ void DeclCodegen::visitClass(Parser::ClassDecl* decl) {
             if (auto* method = dynamic_cast<Parser::MethodDecl*>(memberDecl.get())) {
                 metadata.methods.push_back({method->name, method->returnType ? method->returnType->typeName : "None"});
                 metadata.methodReturnOwnerships.push_back(method->returnType ? ownershipToString(method->returnType->ownership) : "");
+                metadata.methodIsStatic.push_back(false);  // XXML has no static keyword; reserved for future use
 
                 std::vector<std::tuple<std::string, std::string, std::string>> params;
                 for (const auto& param : method->parameters) {
@@ -241,6 +246,7 @@ void DeclCodegen::visitClass(Parser::ClassDecl* decl) {
             } else if (auto* ctor = dynamic_cast<Parser::ConstructorDecl*>(memberDecl.get())) {
                 metadata.methods.push_back({"Constructor", decl->name});
                 metadata.methodReturnOwnerships.push_back("^");
+                metadata.methodIsStatic.push_back(false);  // Constructors are never static
 
                 std::vector<std::tuple<std::string, std::string, std::string>> params;
                 for (const auto& param : ctor->parameters) {

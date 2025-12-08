@@ -1,0 +1,137 @@
+#import Language::Core;
+#import Language::Reflection;
+#import System;
+
+// Test class with multiple constructors
+[ Class <Point> Extends None
+    [ Public<>
+        Property <x> Types Integer^;
+        Property <y> Types Integer^;
+
+        // Default constructor
+        Constructor Parameters () -> {
+            Set x = Integer::Constructor(0);
+            Set y = Integer::Constructor(0);
+        }
+
+        // Constructor with one parameter
+        Constructor Parameters (
+            Parameter <value> Types Integer&
+        ) -> {
+            Set x = Integer::Constructor(value.toInt64());
+            Set y = Integer::Constructor(value.toInt64());
+        }
+
+        // Constructor with two parameters
+        Constructor Parameters (
+            Parameter <xVal> Types Integer&,
+            Parameter <yVal> Types Integer&
+        ) -> {
+            Set x = Integer::Constructor(xVal.toInt64());
+            Set y = Integer::Constructor(yVal.toInt64());
+        }
+
+        // Regular method (not a constructor)
+        Method <toString> Returns String^ Parameters () -> {
+            Return String::Constructor("Point");
+        }
+    ]
+]
+
+// Simple class with single constructor
+[ Class <Simple> Extends None
+    [ Public<>
+        Property <name> Types String^;
+
+        Constructor Parameters () -> {
+            Set name = String::Constructor("default");
+        }
+
+        Method <getName> Returns String^ Parameters () -> {
+            Return name;
+        }
+    ]
+]
+
+// Class with no explicit constructor (will get default)
+[ Class <Empty> Extends None
+    [ Public<>
+        Property <value> Types Integer^;
+    ]
+]
+
+[ Entrypoint
+{
+    Run System::Console::printLine(String::Constructor("=== Reflection Constructor Test ==="));
+
+    // Test 1: Point class - should have 3 constructors
+    Run System::Console::printLine(String::Constructor("\n--- Test 1: Point constructors ---"));
+    Instantiate Type^ As <pointType> = Type::forName(String::Constructor("Point"));
+    Run System::Console::print(String::Constructor("Point type found: "));
+    Run System::Console::printLine(pointType.getName());
+
+    Instantiate Integer^ As <ctorCount> = pointType.getConstructorCount();
+    Run System::Console::print(String::Constructor("Constructor count: "));
+    Run System::Console::printLine(ctorCount.toString());
+
+    // List all constructors
+    Instantiate NativeType<"int64">^ As <i> = 0;
+    Instantiate NativeType<"int64">^ As <n> = ctorCount.toInt64();
+    While (i < n) -> {
+        Run System::Console::print(String::Constructor("  Constructor #"));
+        Run System::Console::print(Integer::Constructor(i).toString());
+        Run System::Console::print(String::Constructor(": "));
+
+        Instantiate MethodInfo^ As <ctor> = pointType.getConstructorAt(Integer::Constructor(i));
+        Instantiate Integer^ As <paramCount> = ctor.getParameterCount();
+        Run System::Console::print(paramCount.toString());
+        Run System::Console::printLine(String::Constructor(" parameters"));
+
+        // Check isConstructor flag
+        Instantiate Bool^ As <isCtor> = ctor.isConstructor();
+        If (isCtor) -> {
+            Run System::Console::printLine(String::Constructor("    (isConstructor: true)"));
+        } Else -> {
+            Run System::Console::printLine(String::Constructor("    (isConstructor: false - ERROR!)"));
+        }
+
+        Set i = i + 1;
+    }
+
+    // Test 2: Point methods (should NOT include constructors)
+    Run System::Console::printLine(String::Constructor("\n--- Test 2: Point methods (non-constructor) ---"));
+    Instantiate Integer^ As <methodCount> = pointType.getMethodCount();
+    Run System::Console::print(String::Constructor("Method count: "));
+    Run System::Console::printLine(methodCount.toString());
+
+    Set i = 0;
+    Set n = methodCount.toInt64();
+    While (i < n) -> {
+        Instantiate MethodInfo^ As <method> = pointType.getMethodAt(Integer::Constructor(i));
+        Run System::Console::print(String::Constructor("  Method: "));
+        Run System::Console::printLine(method.getName());
+        Set i = i + 1;
+    }
+
+    // Test 3: Simple class - 1 constructor
+    Run System::Console::printLine(String::Constructor("\n--- Test 3: Simple class ---"));
+    Instantiate Type^ As <simpleType> = Type::forName(String::Constructor("Simple"));
+    Instantiate Integer^ As <simpleCtorCount> = simpleType.getConstructorCount();
+    Run System::Console::print(String::Constructor("Simple constructor count: "));
+    Run System::Console::printLine(simpleCtorCount.toString());
+
+    Instantiate Integer^ As <simpleMethodCount> = simpleType.getMethodCount();
+    Run System::Console::print(String::Constructor("Simple method count: "));
+    Run System::Console::printLine(simpleMethodCount.toString());
+
+    // Test 4: Empty class - should have 0 constructors if no explicit constructor
+    Run System::Console::printLine(String::Constructor("\n--- Test 4: Empty class ---"));
+    Instantiate Type^ As <emptyType> = Type::forName(String::Constructor("Empty"));
+    Instantiate Integer^ As <emptyCtorCount> = emptyType.getConstructorCount();
+    Run System::Console::print(String::Constructor("Empty constructor count: "));
+    Run System::Console::printLine(emptyCtorCount.toString());
+
+    Run System::Console::printLine(String::Constructor("\n=== Test Complete ==="));
+    Exit(0);
+}
+]

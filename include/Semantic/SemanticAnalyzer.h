@@ -7,6 +7,7 @@
 #include "../Core/TypeContext.h"
 #include "../AnnotationProcessor/AnnotationProcessor.h"
 #include "PassResults.h"
+#include "DeriveHandler.h"
 
 namespace XXML {
 
@@ -96,6 +97,10 @@ private:
     Common::ErrorReporter& errorReporter;
     Core::TypeContext typeContext_;  // Type information for code generation
     AnnotationProcessor::AnnotationProcessor annotationProcessor_;  // Annotation processor
+    DeriveRegistry deriveRegistry_;  // Registry for derive handlers (ToString, Eq, etc.)
+
+    // Initialize built-in derive handlers
+    void registerBuiltinDerives();
     std::string currentClass;
     std::string currentNamespace;
     bool enableValidation;  // Controls whether to do full validation
@@ -377,6 +382,14 @@ public:
     const std::unordered_map<std::string, ClassInfo>& getClassRegistry() const {
         return classRegistry_;
     }
+
+    // Derive system access
+    DeriveRegistry& getDeriveRegistry() { return deriveRegistry_; }
+    const DeriveRegistry& getDeriveRegistry() const { return deriveRegistry_; }
+
+    // Process derive annotations for a class (called during semantic analysis)
+    bool processClassDerives(Parser::ClassDecl* classDecl);
+
     bool hasUnknownTypes() const {
         for (const auto& [expr, type] : expressionTypes) {
             if (type == "Unknown") return true;

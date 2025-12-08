@@ -1,0 +1,98 @@
+#import Language::Core;
+#import Language::Reflection;
+#import System;
+
+// Base class
+[ Class <Animal> Extends None
+    [ Public<>
+        Property <name> Types String^;
+
+        Constructor Parameters () -> {
+            Set name = String::Constructor("Unknown");
+        }
+    ]
+]
+
+// Derived class
+[ Class <Dog> Extends Animal
+    [ Public<>
+        Property <breed> Types String^;
+
+        Constructor Parameters () -> {
+            // Just set our own property for now (inherited property access is a separate feature)
+            Set breed = String::Constructor("Golden Retriever");
+        }
+    ]
+]
+
+// Another derived class
+[ Class <Cat> Extends Animal
+    [ Public<>
+        Property <indoor> Types Bool^;
+
+        Constructor Parameters () -> {
+            Set indoor = Bool::Constructor(true);
+        }
+    ]
+]
+
+[ Entrypoint
+{
+    Run System::Console::printLine(String::Constructor("=== Reflection Inheritance Test ==="));
+
+    // Test 1: Check base class of Animal (should be None)
+    Run System::Console::printLine(String::Constructor("\n--- Test 1: Animal base type ---"));
+    Instantiate Type^ As <animalType> = Type::forName(String::Constructor("Animal"));
+    Run System::Console::print(String::Constructor("Animal type found: "));
+    Run System::Console::printLine(animalType.getName());
+    Run System::Console::print(String::Constructor("Has base type: "));
+    Instantiate Bool^ As <animalHasBase> = animalType.hasBaseType();
+    If (animalHasBase) -> {
+        Run System::Console::printLine(String::Constructor("true"));
+        Run System::Console::print(String::Constructor("Base type name: "));
+        Run System::Console::printLine(animalType.getBaseTypeName());
+    } Else -> {
+        Run System::Console::printLine(String::Constructor("false (no base)"));
+    }
+
+    // Test 2: Check base class of Dog (should be Animal)
+    Run System::Console::printLine(String::Constructor("\n--- Test 2: Dog base type ---"));
+    Instantiate Type^ As <dogType> = Type::forName(String::Constructor("Dog"));
+    Run System::Console::print(String::Constructor("Dog type found: "));
+    Run System::Console::printLine(dogType.getName());
+    Run System::Console::print(String::Constructor("Has base type: "));
+    Instantiate Bool^ As <dogHasBase> = dogType.hasBaseType();
+    If (dogHasBase) -> {
+        Run System::Console::printLine(String::Constructor("true"));
+        Run System::Console::print(String::Constructor("Base type name: "));
+        Run System::Console::printLine(dogType.getBaseTypeName());
+
+        // Get the actual base Type object
+        Instantiate Type^ As <baseType> = dogType.getBaseType();
+        Run System::Console::print(String::Constructor("Base Type object name: "));
+        Run System::Console::printLine(baseType.getName());
+        Run System::Console::print(String::Constructor("Base Type property count: "));
+        Run System::Console::printLine(baseType.getPropertyCount().toString());
+    } Else -> {
+        Run System::Console::printLine(String::Constructor("false (ERROR: Dog should have base!)"));
+    }
+
+    // Test 3: Check base class of Cat (should be Animal)
+    Run System::Console::printLine(String::Constructor("\n--- Test 3: Cat base type ---"));
+    Instantiate Type^ As <catType> = Type::forName(String::Constructor("Cat"));
+    Run System::Console::print(String::Constructor("Cat type found: "));
+    Run System::Console::printLine(catType.getName());
+    Run System::Console::print(String::Constructor("Has base type: "));
+    Instantiate Bool^ As <catHasBase> = catType.hasBaseType();
+    If (catHasBase) -> {
+        Run System::Console::printLine(String::Constructor("true"));
+        Run System::Console::print(String::Constructor("Base type name: "));
+        Run System::Console::printLine(catType.getBaseTypeName());
+    } Else -> {
+        Run System::Console::printLine(String::Constructor("false (ERROR: Cat should have base!)"));
+    }
+
+    Run System::Console::printLine(String::Constructor("\n=== Test Complete ==="));
+    Exit(0);
+}
+]

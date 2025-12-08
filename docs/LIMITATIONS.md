@@ -156,23 +156,25 @@ Type lookups by name use linear search through the registry.
 
 **Future**: Hash map implementation planned for O(1) lookup.
 
-### Static Method Tracking Incomplete
+### Static Method Detection Not Implemented
 
-The `isStatic` flag in `MethodInfo` is not reliably populated.
+The `isStatic` flag in `MethodInfo` always returns `false`. XXML does not have a `static` keyword - methods are conventionally "static" when called via `Class::methodName` syntax but this is a calling convention, not a declaration modifier.
 
-**Source**: `src/Backends/LLVMBackend.cpp:5326`
+**Status**: By design. Infrastructure is in place for future language extension.
 
-### Constructor Metadata Not Populated
+**Workaround**: Methods that don't access instance state can be treated as static by the programmer.
 
-Constructor count and constructor metadata arrays are always empty in reflection data.
+### Constructor Metadata - RESOLVED
 
-**Source**: `src/Backends/LLVMBackend.cpp:5375-5376`
+~~Constructor count and constructor metadata arrays are always empty in reflection data.~~
 
-### Base Class Name Not Populated
+**Status**: Fixed. Use `Type.getConstructorCount()` and `Type.getConstructorAt(index)` to enumerate constructors.
 
-The `baseClassName` field in reflection type info is always null.
+### Base Class Name - RESOLVED
 
-**Source**: `src/Backends/LLVMBackend.cpp:5377`
+~~The `baseClassName` field in reflection type info is always null.~~
+
+**Status**: Fixed. Use `Type.hasBaseType()` and `Type.getBaseType()` to query inheritance.
 
 ---
 

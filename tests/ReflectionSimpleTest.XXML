@@ -1,0 +1,62 @@
+#import Language::Core;
+#import System;
+
+// Test class for reflection
+[ Class <Person> Final Extends None
+    [ Public<>
+        Property <name> Types String^;
+        Property <age> Types Integer^;
+
+        Constructor Parameters () -> {
+            Set name = String::Constructor("Alice");
+            Set age = Integer::Constructor(30);
+        }
+
+        Method <getName> Returns String& Parameters () -> {
+            Return name;
+        }
+
+        Method <getAge> Returns Integer& Parameters () -> {
+            Return age;
+        }
+    ]
+]
+
+[ Entrypoint
+{
+    Run System::Console::printLine(String::Constructor("=== Simple Reflection Test ==="));
+
+    // Create a Person instance
+    Instantiate Person^ As <person> = Person::Constructor();
+    Run System::Console::print(String::Constructor("Name: "));
+    Run System::Console::printLine(person.getName());
+    Run System::Console::print(String::Constructor("Age: "));
+    Run System::Console::printLine(person.getAge().toString());
+
+    // Try to get the type info using reflection syscall directly
+    Instantiate NativeType<"cstr">^ As <typeName> = "Person";
+    Instantiate NativeType<"ptr">^ As <typePtr> =
+        Syscall::reflection_getTypeByName(typeName);
+
+    If (typePtr == 0) -> {
+        Run System::Console::printLine(String::Constructor("Type pointer is null!"));
+    } Else -> {
+        Run System::Console::printLine(String::Constructor("Type pointer found!"));
+
+        // Get the type name
+        Instantiate NativeType<"cstr">^ As <name> =
+            Syscall::reflection_type_getName(typePtr);
+        Run System::Console::print(String::Constructor("Reflected type name: "));
+        Run System::Console::printLine(String::FromCString(name));
+
+        // Get property count
+        Instantiate NativeType<"int64">^ As <propCount> =
+            Syscall::reflection_type_getPropertyCount(typePtr);
+        Run System::Console::print(String::Constructor("Property count: "));
+        Run System::Console::printLine(Integer::Constructor(propCount).toString());
+    }
+
+    Run System::Console::printLine(String::Constructor("\n=== Test Complete ==="));
+    Exit(0);
+}
+]

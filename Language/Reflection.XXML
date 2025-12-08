@@ -7,6 +7,7 @@
 // - ParameterInfo - Parameter information
 // - AnnotationInfo - Annotation metadata (for retained annotations)
 // - AnnotationArg - Annotation argument value
+// - Ownership - Ownership type utilities and constants
 
 // Usage:
 //   #import Language::Reflection;
@@ -31,6 +32,7 @@
 // - ParameterInfo.XXML - Parameter information class
 // - AnnotationInfo.XXML - Annotation metadata class
 // - AnnotationArg.XXML - Annotation argument value class
+// - Ownership.XXML - Ownership type utilities and constants
 //
 // NOTE: Since both Reflection.XXML and Reflection/ directory exist, the file takes precedence.
 // To use the reflection API, import specific files:

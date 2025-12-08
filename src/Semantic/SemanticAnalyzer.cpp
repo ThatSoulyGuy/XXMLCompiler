@@ -6,6 +6,9 @@
 #include "../../include/Semantic/ABILowering.h"
 #include "../../include/Semantic/SemanticVerifier.h"
 #include "../../include/Semantic/SemanticError.h"
+#include "../../include/Semantic/Derives/ToStringDerive.h"
+#include "../../include/Semantic/Derives/EqDerive.h"
+#include "../../include/Semantic/Derives/HashDerive.h"
 #include "../../include/Core/CompilationContext.h"
 #include "../../include/Core/TypeRegistry.h"
 #include "../../include/Core/FormatCompat.h"
@@ -52,6 +55,17 @@ SemanticAnalyzer::SemanticAnalyzer(Core::CompilationContext& context, Common::Er
     nativeFuncAnnotation.retainAtRuntime = false;
     nativeFuncAnnotation.astNode = nullptr;  // Built-in, no AST node
     annotationRegistry_["NativeFunction"] = nativeFuncAnnotation;
+
+    // Register @Derive annotation for compile-time code generation
+    AnnotationInfo deriveAnnotation;
+    deriveAnnotation.name = "Derive";
+    deriveAnnotation.allowedTargets = {Parser::AnnotationTarget::Classes};
+    deriveAnnotation.parameters = {
+        {"trait", "String", Parser::OwnershipType::Owned, false}  // Required: trait to derive
+    };
+    deriveAnnotation.retainAtRuntime = false;
+    deriveAnnotation.astNode = nullptr;  // Built-in, no AST node
+    annotationRegistry_["Derive"] = deriveAnnotation;
 
     // Initialize intrinsic method return types for Console, Mem, Syscall
     // These methods bypass normal validation but still need type information
@@ -124,8 +138,12 @@ SemanticAnalyzer::SemanticAnalyzer(Core::CompilationContext& context, Common::Er
     intrinsicMethods_["Syscall::reflection_type_getMethodCount"] = {"NativeType<\"int64\">", Parser::OwnershipType::Owned};
     intrinsicMethods_["Syscall::reflection_type_getMethod"] = {"NativeType<\"ptr\">", Parser::OwnershipType::Owned};
     intrinsicMethods_["Syscall::reflection_type_getInstanceSize"] = {"NativeType<\"int64\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::reflection_type_getBaseClassName"] = {"NativeType<\"cstr\">", Parser::OwnershipType::Copy};
+    intrinsicMethods_["Syscall::reflection_type_hasBaseClass"] = {"NativeType<\"int64\">", Parser::OwnershipType::Owned};
     intrinsicMethods_["Syscall::reflection_type_getMethodByName"] = {"NativeType<\"ptr\">", Parser::OwnershipType::Owned};
     intrinsicMethods_["Syscall::reflection_getTypeByName"] = {"NativeType<\"ptr\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::reflection_type_getConstructorCount"] = {"NativeType<\"int64\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::reflection_type_getConstructor"] = {"NativeType<\"ptr\">", Parser::OwnershipType::Owned};
 
     // Language::Reflection template class methods
     intrinsicMethods_["Language::Reflection::GetType::get"] = {"Language::Reflection::Type", Parser::OwnershipType::Owned};
@@ -144,6 +162,21 @@ SemanticAnalyzer::SemanticAnalyzer(Core::CompilationContext& context, Common::Er
     intrinsicMethods_["Language::Reflection::Type::getMethod"] = {"Language::Reflection::MethodInfo", Parser::OwnershipType::Owned};
     intrinsicMethods_["Language::Reflection::Type::forName"] = {"Language::Reflection::Type", Parser::OwnershipType::Owned};
     intrinsicMethods_["Language::Reflection::Type::getInstanceSize"] = {"Integer", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Language::Reflection::Type::hasBaseType"] = {"Bool", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Language::Reflection::Type::getBaseTypeName"] = {"String", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Language::Reflection::Type::getBaseType"] = {"Language::Reflection::Type", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Language::Reflection::Type::getConstructorCount"] = {"Integer", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Language::Reflection::Type::getConstructorAt"] = {"Language::Reflection::MethodInfo", Parser::OwnershipType::Owned};
+
+    // Language::Reflection::MethodInfo methods
+    intrinsicMethods_["Language::Reflection::MethodInfo::getName"] = {"String", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Language::Reflection::MethodInfo::getReturnType"] = {"String", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Language::Reflection::MethodInfo::getReturnOwnership"] = {"Integer", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Language::Reflection::MethodInfo::getParameterCount"] = {"Integer", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Language::Reflection::MethodInfo::getParameterAt"] = {"Language::Reflection::ParameterInfo", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Language::Reflection::MethodInfo::isStatic"] = {"Bool", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Language::Reflection::MethodInfo::isConstructor"] = {"Bool", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Language::Reflection::MethodInfo::getSignature"] = {"String", Parser::OwnershipType::Owned};
 
     // Syscall - runtime reflection AnnotationArg methods
     intrinsicMethods_["Syscall::Language_Reflection_AnnotationArg_getName"] = {"NativeType<\"ptr\">", Parser::OwnershipType::Owned};
@@ -179,6 +212,8 @@ SemanticAnalyzer::SemanticAnalyzer(Core::CompilationContext& context, Common::Er
     intrinsicMethods_["Syscall::reflection_property_getTypeName"] = {"NativeType<\"cstr\">", Parser::OwnershipType::Owned};
     intrinsicMethods_["Syscall::reflection_property_getOwnership"] = {"NativeType<\"int64\">", Parser::OwnershipType::Owned};
     intrinsicMethods_["Syscall::reflection_property_getOffset"] = {"NativeType<\"int64\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::reflection_property_getValuePtr"] = {"NativeType<\"ptr\">", Parser::OwnershipType::Copy};
+    intrinsicMethods_["Syscall::reflection_property_setValuePtr"] = {"None", Parser::OwnershipType::None};
 
     // Syscall - annotation processor argument access
     intrinsicMethods_["Syscall::Processor_argGetName"] = {"NativeType<\"ptr\">", Parser::OwnershipType::Owned};
@@ -217,6 +252,26 @@ SemanticAnalyzer::SemanticAnalyzer(Core::CompilationContext& context, Common::Er
     // Integer constructors
     intrinsicMethods_["Integer::Constructor"] = {"Integer", Parser::OwnershipType::Owned};
     intrinsicMethods_["Language::Core::Integer::Constructor"] = {"Integer", Parser::OwnershipType::Owned};
+
+    // Register built-in derive handlers
+    registerBuiltinDerives();
+}
+
+// Register built-in derive handlers (ToString, Eq, etc.)
+void SemanticAnalyzer::registerBuiltinDerives() {
+    // ToString derive - generates toString() method
+    deriveRegistry_.registerHandler(std::make_unique<Derives::ToStringDeriveHandler>());
+
+    // Eq derive - generates equals() method for structural equality
+    deriveRegistry_.registerHandler(std::make_unique<Derives::EqDeriveHandler>());
+
+    // Hash derive - generates hash() method
+    deriveRegistry_.registerHandler(std::make_unique<Derives::HashDeriveHandler>());
+}
+
+// Process derive annotations for a class
+bool SemanticAnalyzer::processClassDerives(Parser::ClassDecl* classDecl) {
+    return deriveRegistry_.processClassDerives(classDecl, *this);
 }
 
 // Legacy constructor (deprecated but kept for compatibility)
@@ -819,6 +874,15 @@ void SemanticAnalyzer::visit(Parser::ClassDecl& node) {
     for (auto& annotation : node.annotations) {
         annotation->accept(*this);
         validateAnnotationUsage(*annotation, Parser::AnnotationTarget::Classes, node.name, node.location, &node);
+    }
+
+    // Process derive annotations - generates methods like toString(), equals(), etc.
+    // This must happen before class registration so generated methods are included
+    if (!node.templateParams.empty()) {
+        // Defer derive processing for template classes until instantiation
+        // The generated methods would need type-specific implementations
+    } else {
+        processClassDerives(&node);
     }
 
     // Record template class if it has template parameters
