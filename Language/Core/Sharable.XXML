@@ -1,0 +1,19 @@
+// XXML Standard Library - Sharable Constraint
+// Types that satisfy this constraint can be safely shared (referenced) across threads
+// This is a marker constraint - satisfaction is determined by semantic analysis
+
+[ Namespace <Language::Core>
+    [ Constraint <Sharable> <T Constrains None> (T a)
+        // A type is Sharable if:
+        // - Immutable (no mutable state, or state is only set during construction)
+        // - OR all mutable state is protected by synchronization primitives
+        //
+        // Immutable types (Integer, Bool, Float, Double, String, Char) are Sharable
+        // Atomic<T> is Sharable (provides atomic access)
+        // Mutex-protected types can be Sharable
+        // Types with unprotected mutable state are NOT Sharable
+        //
+        // Marker constraint - no method requirements
+        // Satisfaction is computed by the semantic analyzer based on mutability analysis
+    ]
+]

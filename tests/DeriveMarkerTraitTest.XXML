@@ -1,0 +1,87 @@
+// Test for Sendable and Sharable derive handlers
+// Verifies that @Derive(trait = "Sendable") and @Derive(trait = "Sharable") work correctly
+
+#import Language::Core;
+
+// A simple class that should successfully derive both Sendable and Sharable
+// (only owned fields of primitive types)
+@Derive(trait = "Sendable")
+@Derive(trait = "Sharable")
+[ Class <SafeData> Final Extends None
+    [ Private <>
+        Property <value> Types Integer^;
+        Property <name> Types String^;
+    ]
+    [ Public <>
+        Constructor Parameters (Parameter <v> Types Integer^, Parameter <n> Types String^) -> {
+            Set value = v;
+            Set name = n;
+        }
+        Method <getValue> Returns Integer^ Parameters () Do {
+            Return value;
+        }
+        Method <getName> Returns String^ Parameters () Do {
+            Return name;
+        }
+    ]
+]
+
+// Another simple Sendable class
+@Derive(trait = "Sendable")
+[ Class <Message> Final Extends None
+    [ Private <>
+        Property <content> Types String^;
+    ]
+    [ Public <>
+        Constructor Parameters (Parameter <c> Types String^) -> {
+            Set content = c;
+        }
+        Method <getContent> Returns String^ Parameters () Do {
+            Return content;
+        }
+    ]
+]
+
+// A Sharable immutable configuration class
+@Derive(trait = "Sharable")
+[ Class <Config> Final Extends None
+    [ Private <>
+        Property <maxConnections> Types Integer^;
+        Property <timeout> Types Integer^;
+    ]
+    [ Public <>
+        Constructor Parameters (Parameter <max> Types Integer^, Parameter <t> Types Integer^) -> {
+            Set maxConnections = max;
+            Set timeout = t;
+        }
+        Method <getMaxConnections> Returns Integer^ Parameters () Do {
+            Return maxConnections;
+        }
+    ]
+]
+
+[ Entrypoint
+    {
+        // Test SafeData - derived both Sendable and Sharable
+        Instantiate SafeData^ As <data> = SafeData::Constructor(
+            Integer::Constructor(42),
+            String::Constructor("test")
+        );
+        Run Console::printLine(String::Constructor("SafeData created with value: ").append(data.getValue().toString()));
+        Run Console::printLine(String::Constructor("SafeData name: ").append(data.getName()));
+
+        // Test Message - derived Sendable
+        Instantiate Message^ As <msg> = Message::Constructor(String::Constructor("Hello, World!"));
+        Run Console::printLine(String::Constructor("Message content: ").append(msg.getContent()));
+
+        // Test Config - derived Sharable
+        Instantiate Config^ As <cfg> = Config::Constructor(
+            Integer::Constructor(100),
+            Integer::Constructor(30)
+        );
+        Run Console::printLine(String::Constructor("Config max connections: ").append(cfg.getMaxConnections().toString()));
+
+        Run Console::printLine(String::Constructor("Derive marker trait test passed!"));
+        Exit(0);
+    }
+]

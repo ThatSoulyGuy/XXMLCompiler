@@ -1,0 +1,24 @@
+// Negative test for Sendable derive
+// This should FAIL to compile because RefHolder has a reference field
+
+#import Language::Core;
+
+// This class should NOT be able to derive Sendable because it has a reference field
+@Derive(trait = "Sendable")
+[ Class <RefHolder> Final Extends None
+    [ Private <>
+        Property <ref> Types Integer&;  // Reference field - not Sendable!
+    ]
+    [ Public <>
+        Constructor Parameters (Parameter <r> Types Integer&) -> {
+            Set ref = r;
+        }
+    ]
+]
+
+[ Entrypoint
+    {
+        Run Console::printLine(String::Constructor("This should not compile!"));
+        Exit(0);
+    }
+]

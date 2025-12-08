@@ -27,11 +27,6 @@
 				Return value;
 			}
 
-			Method <getValue> Returns NativeType<"double">% Parameters () ->
-			{
-				Return value;
-			}
-
 			// Arithmetic operations
 			Method <add> Returns Double^ Parameters (
 				Parameter <other> Types Double&

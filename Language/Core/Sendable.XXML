@@ -1,0 +1,19 @@
+// XXML Standard Library - Sendable Constraint
+// Types that satisfy this constraint can be safely moved across thread boundaries
+// This is a marker constraint - satisfaction is determined by ownership analysis
+
+[ Namespace <Language::Core>
+    [ Constraint <Sendable> <T Constrains None> (T a)
+        // A type is Sendable if:
+        // - All owned (^) fields are of Sendable types (recursively)
+        // - No reference (&) fields (would become dangling across threads)
+        // - Copy (%) values are implicitly Sendable
+        //
+        // Primitive types (Integer, Bool, Float, Double, String, Char) are Sendable
+        // Atomic<T> is Sendable
+        // Thread-local types are NOT Sendable
+        //
+        // Marker constraint - no method requirements
+        // Satisfaction is computed by the semantic analyzer based on field ownership
+    ]
+]

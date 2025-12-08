@@ -1,134 +1,575 @@
-// XXML Standard Library - JSON Class
-// JSON parsing and generation functionality
-// Provides simple JSON object and array manipulation
+// XXML Standard Library - JSON
+// Comprehensive JSON parsing and serialization
+// Supports derive-based automatic serialization
 
-[ Namespace <Language::Format>
+#import Language::Core;
+#import Language::Collections;
 
-	[ Class <JSONObject> Final Extends None
-
-		[ Private <>
-			// Implementation note: JSON is represented as String internally
-			// Parsing and generation use C++ runtime string manipulation
-		]
-
-		[ Public <>
-			// Constructor
-			Constructor = default;
-
-			// Parsing
-
-			// Generation
-			Method <stringify> Returns String^ Parameters () Do {
-				// Convert JSONObject to JSON string
-				// Backed by C++ runtime
-				Return String::Constructor("");
-			}
-
-			// Object Operations
-			Method <get> Returns String^ Parameters (
-				Parameter <key> Types String^
-			) Do {
-				// Get value for key (returns empty string if not found)
-				// Backed by C++ runtime
-				Return String::Constructor("");
-			}
-
-			Method <set> Returns None Parameters (
-				Parameter <key> Types String^,
-				Parameter <value> Types String^
-			) Do {
-				// Set value for key
-				// Backed by C++ runtime
-			}
-
-			Method <has> Returns Bool^ Parameters (
-				Parameter <key> Types String^
-			) Do {
-				// Check if key exists
-				// Backed by C++ runtime
-				Return Bool::Constructor(false);
-			}
-
-			Method <remove> Returns None Parameters (
-				Parameter <key> Types String^
-			) Do {
-				// Remove key-value pair
-				// Backed by C++ runtime
-			}
-
-			Method <size> Returns Integer^ Parameters () Do {
-				// Get number of key-value pairs
-				// Backed by C++ runtime
-				Return Integer::Constructor(0);
-			}
-
-			// Type-specific getters
-			Method <getInteger> Returns Integer^ Parameters (
-				Parameter <key> Types String^
-			) Do {
-				// Get integer value for key
-				// Backed by C++ runtime
-				Return Integer::Constructor(0);
-			}
-
-			Method <getBool> Returns Bool^ Parameters (
-				Parameter <key> Types String^
-			) Do {
-				// Get boolean value for key
-				// Backed by C++ runtime
-				Return Bool::Constructor(false);
-			}
-
-		]
+// JSONValue - Represents any JSON value (null, bool, number, string, array, object)
+[ Class <JSONValue> Final Extends None
+	[ Private <>
+		Property <valueType> Types Integer^;      // 0=null, 1=bool, 2=number, 3=string, 4=array, 5=object
+		Property <stringVal> Types String^;
+		Property <numberVal> Types Double^;
+		Property <boolVal> Types Bool^;
+		Property <objectPtr> Types NativeType<"ptr">^;
+		Property <arrayPtr> Types NativeType<"ptr">^;
 	]
 
-	[ Class <JSONArray> Final Extends None
+	[ Public <>
+		Constructor Parameters () -> {
+			Set valueType = Integer::Constructor(0);
+			Set stringVal = String::Constructor("");
+			Set numberVal = Double::Constructor(0.0);
+			Set boolVal = Bool::Constructor(False);
+		}
 
-		[ Private <>
-			// Implementation: Array of JSON values as strings
-		]
+		// Factory methods
+		Method <null> Returns JSONValue^ Parameters () Do {
+			Instantiate JSONValue^ As <v> = JSONValue::Constructor();
+			Set v.valueType = Integer::Constructor(0);
+			Return v;
+		}
 
-		[ Public <>
-			Constructor = default;
+		Method <fromBool> Returns JSONValue^ Parameters (Parameter <b> Types Bool&) Do {
+			Instantiate JSONValue^ As <v> = JSONValue::Constructor();
+			Set v.valueType = Integer::Constructor(1);
+			Set v.boolVal = b.copy();
+			Return v;
+		}
 
-			// Parsing
+		Method <fromNumber> Returns JSONValue^ Parameters (Parameter <n> Types Double&) Do {
+			Instantiate JSONValue^ As <v> = JSONValue::Constructor();
+			Set v.valueType = Integer::Constructor(2);
+			Set v.numberVal = n.copy();
+			Return v;
+		}
 
-			// Generation
-			Method <stringify> Returns String^ Parameters () Do {
-				// Convert JSONArray to JSON string
-				// Backed by C++ runtime
-				Return String::Constructor("");
+		Method <fromInteger> Returns JSONValue^ Parameters (Parameter <n> Types Integer&) Do {
+			Instantiate JSONValue^ As <v> = JSONValue::Constructor();
+			Set v.valueType = Integer::Constructor(2);
+			Set v.numberVal = Double::Constructor(n.toDouble());
+			Return v;
+		}
+
+		Method <fromString> Returns JSONValue^ Parameters (Parameter <s> Types String&) Do {
+			Instantiate JSONValue^ As <v> = JSONValue::Constructor();
+			Set v.valueType = Integer::Constructor(3);
+			Set v.stringVal = s.copy();
+			Return v;
+		}
+
+		// Type checking
+		Method <isNull> Returns Bool^ Parameters () Do {
+			Return valueType.equals(Integer::Constructor(0));
+		}
+
+		Method <isBool> Returns Bool^ Parameters () Do {
+			Return valueType.equals(Integer::Constructor(1));
+		}
+
+		Method <isNumber> Returns Bool^ Parameters () Do {
+			Return valueType.equals(Integer::Constructor(2));
+		}
+
+		Method <isString> Returns Bool^ Parameters () Do {
+			Return valueType.equals(Integer::Constructor(3));
+		}
+
+		Method <isArray> Returns Bool^ Parameters () Do {
+			Return valueType.equals(Integer::Constructor(4));
+		}
+
+		Method <isObject> Returns Bool^ Parameters () Do {
+			Return valueType.equals(Integer::Constructor(5));
+		}
+
+		Method <getType> Returns String^ Parameters () Do {
+			If (valueType.equals(Integer::Constructor(0))) -> { Return String::Constructor("null"); }
+			If (valueType.equals(Integer::Constructor(1))) -> { Return String::Constructor("boolean"); }
+			If (valueType.equals(Integer::Constructor(2))) -> { Return String::Constructor("number"); }
+			If (valueType.equals(Integer::Constructor(3))) -> { Return String::Constructor("string"); }
+			If (valueType.equals(Integer::Constructor(4))) -> { Return String::Constructor("array"); }
+			If (valueType.equals(Integer::Constructor(5))) -> { Return String::Constructor("object"); }
+			Return String::Constructor("unknown");
+		}
+
+		// Value getters
+		Method <asBool> Returns Bool^ Parameters () Do { Return boolVal.copy(); }
+		Method <asNumber> Returns Double^ Parameters () Do { Return numberVal.copy(); }
+		Method <asInteger> Returns Integer^ Parameters () Do { Return Integer::Constructor(numberVal.toInteger()); }
+		Method <asString> Returns String^ Parameters () Do { Return stringVal.copy(); }
+
+		// Internal setters for object/array
+		Method <setObject> Returns None Parameters (Parameter <ptr> Types NativeType<"ptr">&) Do {
+			Set valueType = Integer::Constructor(5);
+			Set objectPtr = ptr;
+		}
+
+		Method <setArray> Returns None Parameters (Parameter <ptr> Types NativeType<"ptr">&) Do {
+			Set valueType = Integer::Constructor(4);
+			Set arrayPtr = ptr;
+		}
+
+		Method <getObjectPtr> Returns NativeType<"ptr">^ Parameters () Do { Return objectPtr; }
+		Method <getArrayPtr> Returns NativeType<"ptr">^ Parameters () Do { Return arrayPtr; }
+
+		// Stringify
+		Method <stringify> Returns String^ Parameters () Do {
+			If (valueType.equals(Integer::Constructor(0))) -> { Return String::Constructor("null"); }
+			If (valueType.equals(Integer::Constructor(1))) -> {
+				If (boolVal.equals(Bool::Constructor(True))) -> { Return String::Constructor("true"); }
+				Return String::Constructor("false");
 			}
-
-			// Array Operations
-			Method <get> Returns String^ Parameters (
-				Parameter <index> Types Integer^
-			) Do {
-				// Get value at index
-				// Backed by C++ runtime
-				Return String::Constructor("");
+			If (valueType.equals(Integer::Constructor(2))) -> { Return numberVal.toString(); }
+			If (valueType.equals(Integer::Constructor(3))) -> {
+				Return String::Constructor("\"").concat(escapeString(stringVal)).concat(String::Constructor("\""));
 			}
+			Return String::Constructor("null");
+		}
 
-			Method <add> Returns None Parameters (
-				Parameter <value> Types String^
-			) Do {
-				// Add value to end of array
-				// Backed by C++ runtime
+		Method <escapeString> Returns String^ Parameters (Parameter <s> Types String&) Do {
+			Instantiate String^ As <result> = String::Constructor("");
+			Instantiate Integer^ As <i> = Integer::Constructor(0);
+			While (i.lessThan(s.length())) -> {
+				Instantiate Char^ As <c> = s.charAt(i);
+				If (c.equals(Char::Constructor('"'))) -> { Set result = result.concat(String::Constructor("\\\"")); }
+				Else { If (c.equals(Char::Constructor('\\'))) -> { Set result = result.concat(String::Constructor("\\\\")); }
+				Else { If (c.equals(Char::Constructor('\n'))) -> { Set result = result.concat(String::Constructor("\\n")); }
+				Else { If (c.equals(Char::Constructor('\r'))) -> { Set result = result.concat(String::Constructor("\\r")); }
+				Else { If (c.equals(Char::Constructor('\t'))) -> { Set result = result.concat(String::Constructor("\\t")); }
+				Else { Set result = result.concat(c.toString()); } } } } }
+				Set i = i.add(Integer::Constructor(1));
 			}
+			Return result;
+		}
+	]
+]
 
-			Method <remove> Returns None Parameters (
-				Parameter <index> Types Integer^
-			) Do {
-				// Remove value at index
-				// Backed by C++ runtime
+// JSONObject - Key-value map
+[ Class <JSONObject> Final Extends None
+	[ Private <>
+		Property <keys> Types List<String>^;
+		Property <values> Types List<JSONValue>^;
+	]
+
+	[ Public <>
+		Constructor Parameters () -> {
+			Set keys = List<String>::Constructor();
+			Set values = List<JSONValue>::Constructor();
+		}
+
+		// Put methods
+		Method <put> Returns JSONObject^ Parameters (Parameter <key> Types String&, Parameter <value> Types JSONValue^) Do {
+			Instantiate Integer^ As <i> = Integer::Constructor(0);
+			While (i.lessThan(keys.size())) -> {
+				If (keys.get(i).equals(key)) -> {
+					Run values.set(i, value);
+					Return this;
+				}
+				Set i = i.add(Integer::Constructor(1));
 			}
+			Run keys.add(key.copy());
+			Run values.add(value);
+			Return this;
+		}
 
-			Method <size> Returns Integer^ Parameters () Do {
-				// Get number of elements
-				// Backed by C++ runtime
-				Return Integer::Constructor(0);
+		Method <putString> Returns JSONObject^ Parameters (Parameter <key> Types String&, Parameter <value> Types String&) Do {
+			Return put(key, JSONValue::fromString(value));
+		}
+
+		Method <putInteger> Returns JSONObject^ Parameters (Parameter <key> Types String&, Parameter <value> Types Integer&) Do {
+			Return put(key, JSONValue::fromInteger(value));
+		}
+
+		Method <putNumber> Returns JSONObject^ Parameters (Parameter <key> Types String&, Parameter <value> Types Double&) Do {
+			Return put(key, JSONValue::fromNumber(value));
+		}
+
+		Method <putBool> Returns JSONObject^ Parameters (Parameter <key> Types String&, Parameter <value> Types Bool&) Do {
+			Return put(key, JSONValue::fromBool(value));
+		}
+
+		Method <putNull> Returns JSONObject^ Parameters (Parameter <key> Types String&) Do {
+			Return put(key, JSONValue::null());
+		}
+
+		Method <putObject> Returns JSONObject^ Parameters (Parameter <key> Types String&, Parameter <obj> Types JSONObject^) Do {
+			Instantiate JSONValue^ As <v> = JSONValue::Constructor();
+			Run v.setObject(Syscall::ptr_cast(obj));
+			Return put(key, v);
+		}
+
+		Method <putArray> Returns JSONObject^ Parameters (Parameter <key> Types String&, Parameter <arr> Types JSONArray^) Do {
+			Instantiate JSONValue^ As <v> = JSONValue::Constructor();
+			Run v.setArray(Syscall::ptr_cast(arr));
+			Return put(key, v);
+		}
+
+		// Get methods
+		Method <get> Returns JSONValue^ Parameters (Parameter <key> Types String&) Do {
+			Instantiate Integer^ As <i> = Integer::Constructor(0);
+			While (i.lessThan(keys.size())) -> {
+				If (keys.get(i).equals(key)) -> { Return values.get(i); }
+				Set i = i.add(Integer::Constructor(1));
 			}
+			Return JSONValue::null();
+		}
 
-		]
+		Method <getString> Returns String^ Parameters (Parameter <key> Types String&) Do { Return get(key).asString(); }
+		Method <getInteger> Returns Integer^ Parameters (Parameter <key> Types String&) Do { Return get(key).asInteger(); }
+		Method <getNumber> Returns Double^ Parameters (Parameter <key> Types String&) Do { Return get(key).asNumber(); }
+		Method <getBool> Returns Bool^ Parameters (Parameter <key> Types String&) Do { Return get(key).asBool(); }
+
+		Method <getObject> Returns JSONObject^ Parameters (Parameter <key> Types String&) Do {
+			Instantiate JSONValue^ As <v> = get(key);
+			If (v.isObject()) -> { Return Syscall::ptr_cast_to<JSONObject>(v.getObjectPtr()); }
+			Return JSONObject::Constructor();
+		}
+
+		Method <getArray> Returns JSONArray^ Parameters (Parameter <key> Types String&) Do {
+			Instantiate JSONValue^ As <v> = get(key);
+			If (v.isArray()) -> { Return Syscall::ptr_cast_to<JSONArray>(v.getArrayPtr()); }
+			Return JSONArray::Constructor();
+		}
+
+		Method <has> Returns Bool^ Parameters (Parameter <key> Types String&) Do {
+			Instantiate Integer^ As <i> = Integer::Constructor(0);
+			While (i.lessThan(keys.size())) -> {
+				If (keys.get(i).equals(key)) -> { Return Bool::Constructor(True); }
+				Set i = i.add(Integer::Constructor(1));
+			}
+			Return Bool::Constructor(False);
+		}
+
+		Method <getKeys> Returns List<String>^ Parameters () Do { Return keys.copy(); }
+		Method <size> Returns Integer^ Parameters () Do { Return keys.size(); }
+
+		// Stringify
+		Method <stringify> Returns String^ Parameters () Do {
+			Instantiate String^ As <result> = String::Constructor("{");
+			Instantiate Integer^ As <i> = Integer::Constructor(0);
+			While (i.lessThan(keys.size())) -> {
+				If (i.greaterThan(Integer::Constructor(0))) -> { Set result = result.concat(String::Constructor(",")); }
+				Set result = result.concat(String::Constructor("\"")).concat(keys.get(i)).concat(String::Constructor("\":"));
+				Instantiate JSONValue^ As <v> = values.get(i);
+				If (v.isObject()) -> {
+					Set result = result.concat(Syscall::ptr_cast_to<JSONObject>(v.getObjectPtr()).stringify());
+				} Else { If (v.isArray()) -> {
+					Set result = result.concat(Syscall::ptr_cast_to<JSONArray>(v.getArrayPtr()).stringify());
+				} Else {
+					Set result = result.concat(v.stringify());
+				} }
+				Set i = i.add(Integer::Constructor(1));
+			}
+			Return result.concat(String::Constructor("}"));
+		}
+
+		Method <stringifyPretty> Returns String^ Parameters () Do { Return stringifyIndent(Integer::Constructor(0)); }
+
+		Method <stringifyIndent> Returns String^ Parameters (Parameter <level> Types Integer&) Do {
+			Instantiate String^ As <pad> = indent(level.add(Integer::Constructor(1)));
+			Instantiate String^ As <result> = String::Constructor("{\n");
+			Instantiate Integer^ As <i> = Integer::Constructor(0);
+			While (i.lessThan(keys.size())) -> {
+				If (i.greaterThan(Integer::Constructor(0))) -> { Set result = result.concat(String::Constructor(",\n")); }
+				Set result = result.concat(pad).concat(String::Constructor("\"")).concat(keys.get(i)).concat(String::Constructor("\": "));
+				Instantiate JSONValue^ As <v> = values.get(i);
+				If (v.isObject()) -> {
+					Set result = result.concat(Syscall::ptr_cast_to<JSONObject>(v.getObjectPtr()).stringifyIndent(level.add(Integer::Constructor(1))));
+				} Else { If (v.isArray()) -> {
+					Set result = result.concat(Syscall::ptr_cast_to<JSONArray>(v.getArrayPtr()).stringifyIndent(level.add(Integer::Constructor(1))));
+				} Else {
+					Set result = result.concat(v.stringify());
+				} }
+				Set i = i.add(Integer::Constructor(1));
+			}
+			Return result.concat(String::Constructor("\n")).concat(indent(level)).concat(String::Constructor("}"));
+		}
+
+		Method <indent> Returns String^ Parameters (Parameter <n> Types Integer&) Do {
+			Instantiate String^ As <r> = String::Constructor("");
+			Instantiate Integer^ As <i> = Integer::Constructor(0);
+			While (i.lessThan(n)) -> { Set r = r.concat(String::Constructor("  ")); Set i = i.add(Integer::Constructor(1)); }
+			Return r;
+		}
+	]
+]
+
+// JSONArray - Ordered list of values
+[ Class <JSONArray> Final Extends None
+	[ Private <>
+		Property <items> Types List<JSONValue>^;
+	]
+
+	[ Public <>
+		Constructor Parameters () -> { Set items = List<JSONValue>::Constructor(); }
+
+		Method <add> Returns JSONArray^ Parameters (Parameter <value> Types JSONValue^) Do { Run items.add(value); Return this; }
+		Method <addString> Returns JSONArray^ Parameters (Parameter <v> Types String&) Do { Return add(JSONValue::fromString(v)); }
+		Method <addInteger> Returns JSONArray^ Parameters (Parameter <v> Types Integer&) Do { Return add(JSONValue::fromInteger(v)); }
+		Method <addNumber> Returns JSONArray^ Parameters (Parameter <v> Types Double&) Do { Return add(JSONValue::fromNumber(v)); }
+		Method <addBool> Returns JSONArray^ Parameters (Parameter <v> Types Bool&) Do { Return add(JSONValue::fromBool(v)); }
+		Method <addNull> Returns JSONArray^ Parameters () Do { Return add(JSONValue::null()); }
+
+		Method <addObject> Returns JSONArray^ Parameters (Parameter <obj> Types JSONObject^) Do {
+			Instantiate JSONValue^ As <v> = JSONValue::Constructor();
+			Run v.setObject(Syscall::ptr_cast(obj));
+			Return add(v);
+		}
+
+		Method <addArray> Returns JSONArray^ Parameters (Parameter <arr> Types JSONArray^) Do {
+			Instantiate JSONValue^ As <v> = JSONValue::Constructor();
+			Run v.setArray(Syscall::ptr_cast(arr));
+			Return add(v);
+		}
+
+		Method <get> Returns JSONValue^ Parameters (Parameter <idx> Types Integer&) Do {
+			If (idx.lessThan(Integer::Constructor(0))) -> { Return JSONValue::null(); }
+			If (idx.greaterThanOrEquals(items.size())) -> { Return JSONValue::null(); }
+			Return items.get(idx);
+		}
+
+		Method <getString> Returns String^ Parameters (Parameter <idx> Types Integer&) Do { Return get(idx).asString(); }
+		Method <getInteger> Returns Integer^ Parameters (Parameter <idx> Types Integer&) Do { Return get(idx).asInteger(); }
+		Method <getNumber> Returns Double^ Parameters (Parameter <idx> Types Integer&) Do { Return get(idx).asNumber(); }
+		Method <getBool> Returns Bool^ Parameters (Parameter <idx> Types Integer&) Do { Return get(idx).asBool(); }
+
+		Method <getObject> Returns JSONObject^ Parameters (Parameter <idx> Types Integer&) Do {
+			Instantiate JSONValue^ As <v> = get(idx);
+			If (v.isObject()) -> { Return Syscall::ptr_cast_to<JSONObject>(v.getObjectPtr()); }
+			Return JSONObject::Constructor();
+		}
+
+		Method <getArray> Returns JSONArray^ Parameters (Parameter <idx> Types Integer&) Do {
+			Instantiate JSONValue^ As <v> = get(idx);
+			If (v.isArray()) -> { Return Syscall::ptr_cast_to<JSONArray>(v.getArrayPtr()); }
+			Return JSONArray::Constructor();
+		}
+
+		Method <size> Returns Integer^ Parameters () Do { Return items.size(); }
+
+		Method <stringify> Returns String^ Parameters () Do {
+			Instantiate String^ As <result> = String::Constructor("[");
+			Instantiate Integer^ As <i> = Integer::Constructor(0);
+			While (i.lessThan(items.size())) -> {
+				If (i.greaterThan(Integer::Constructor(0))) -> { Set result = result.concat(String::Constructor(",")); }
+				Instantiate JSONValue^ As <v> = items.get(i);
+				If (v.isObject()) -> {
+					Set result = result.concat(Syscall::ptr_cast_to<JSONObject>(v.getObjectPtr()).stringify());
+				} Else { If (v.isArray()) -> {
+					Set result = result.concat(Syscall::ptr_cast_to<JSONArray>(v.getArrayPtr()).stringify());
+				} Else {
+					Set result = result.concat(v.stringify());
+				} }
+				Set i = i.add(Integer::Constructor(1));
+			}
+			Return result.concat(String::Constructor("]"));
+		}
+
+		Method <stringifyPretty> Returns String^ Parameters () Do { Return stringifyIndent(Integer::Constructor(0)); }
+
+		Method <stringifyIndent> Returns String^ Parameters (Parameter <level> Types Integer&) Do {
+			If (items.size().equals(Integer::Constructor(0))) -> { Return String::Constructor("[]"); }
+			Instantiate String^ As <pad> = indent(level.add(Integer::Constructor(1)));
+			Instantiate String^ As <result> = String::Constructor("[\n");
+			Instantiate Integer^ As <i> = Integer::Constructor(0);
+			While (i.lessThan(items.size())) -> {
+				If (i.greaterThan(Integer::Constructor(0))) -> { Set result = result.concat(String::Constructor(",\n")); }
+				Set result = result.concat(pad);
+				Instantiate JSONValue^ As <v> = items.get(i);
+				If (v.isObject()) -> {
+					Set result = result.concat(Syscall::ptr_cast_to<JSONObject>(v.getObjectPtr()).stringifyIndent(level.add(Integer::Constructor(1))));
+				} Else { If (v.isArray()) -> {
+					Set result = result.concat(Syscall::ptr_cast_to<JSONArray>(v.getArrayPtr()).stringifyIndent(level.add(Integer::Constructor(1))));
+				} Else {
+					Set result = result.concat(v.stringify());
+				} }
+				Set i = i.add(Integer::Constructor(1));
+			}
+			Return result.concat(String::Constructor("\n")).concat(indent(level)).concat(String::Constructor("]"));
+		}
+
+		Method <indent> Returns String^ Parameters (Parameter <n> Types Integer&) Do {
+			Instantiate String^ As <r> = String::Constructor("");
+			Instantiate Integer^ As <i> = Integer::Constructor(0);
+			While (i.lessThan(n)) -> { Set r = r.concat(String::Constructor("  ")); Set i = i.add(Integer::Constructor(1)); }
+			Return r;
+		}
+	]
+]
+
+// JSON Parser
+[ Class <JSONParser> Final Extends None
+	[ Private <>
+		Property <input> Types String^;
+		Property <pos> Types Integer^;
+	]
+
+	[ Public <>
+		Constructor Parameters (Parameter <json> Types String&) -> {
+			Set input = json.copy();
+			Set pos = Integer::Constructor(0);
+		}
+
+		Method <parse> Returns JSONValue^ Parameters () Do {
+			Run skipWS();
+			Return parseValue();
+		}
+
+		Method <parseObject> Returns JSONObject^ Parameters () Do {
+			Instantiate JSONObject^ As <obj> = JSONObject::Constructor();
+			Run expect('{');
+			Run skipWS();
+			If (peek().equals(Char::Constructor('}'))) -> { Run advance(); Return obj; }
+			While (True) -> {
+				Run skipWS();
+				Instantiate String^ As <key> = parseStr();
+				Run skipWS();
+				Run expect(':');
+				Run skipWS();
+				Instantiate JSONValue^ As <val> = parseValue();
+				Run obj.put(key, val);
+				Run skipWS();
+				If (peek().equals(Char::Constructor('}'))) -> { Run advance(); Return obj; }
+				Run expect(',');
+			}
+			Return obj;
+		}
+
+		Method <parseArray> Returns JSONArray^ Parameters () Do {
+			Instantiate JSONArray^ As <arr> = JSONArray::Constructor();
+			Run expect('[');
+			Run skipWS();
+			If (peek().equals(Char::Constructor(']'))) -> { Run advance(); Return arr; }
+			While (True) -> {
+				Run skipWS();
+				Run arr.add(parseValue());
+				Run skipWS();
+				If (peek().equals(Char::Constructor(']'))) -> { Run advance(); Return arr; }
+				Run expect(',');
+			}
+			Return arr;
+		}
+	]
+
+	[ Private <>
+		Method <parseValue> Returns JSONValue^ Parameters () Do {
+			Instantiate Char^ As <c> = peek();
+			If (c.equals(Char::Constructor('"'))) -> { Return JSONValue::fromString(parseStr()); }
+			If (c.equals(Char::Constructor('{'))) -> {
+				Instantiate JSONObject^ As <o> = parseObject();
+				Instantiate JSONValue^ As <v> = JSONValue::Constructor();
+				Run v.setObject(Syscall::ptr_cast(o));
+				Return v;
+			}
+			If (c.equals(Char::Constructor('['))) -> {
+				Instantiate JSONArray^ As <a> = parseArray();
+				Instantiate JSONValue^ As <v> = JSONValue::Constructor();
+				Run v.setArray(Syscall::ptr_cast(a));
+				Return v;
+			}
+			If (c.equals(Char::Constructor('t'))) -> { Run expectKW("true"); Return JSONValue::fromBool(Bool::Constructor(True)); }
+			If (c.equals(Char::Constructor('f'))) -> { Run expectKW("false"); Return JSONValue::fromBool(Bool::Constructor(False)); }
+			If (c.equals(Char::Constructor('n'))) -> { Run expectKW("null"); Return JSONValue::null(); }
+			If (c.equals(Char::Constructor('-'))) -> { Return parseNum(); }
+			If (c.isDigit()) -> { Return parseNum(); }
+			Return JSONValue::null();
+		}
+
+		Method <parseStr> Returns String^ Parameters () Do {
+			Run expect('"');
+			Instantiate String^ As <r> = String::Constructor("");
+			While (True) -> {
+				Instantiate Char^ As <c> = peek();
+				If (c.equals(Char::Constructor('"'))) -> { Run advance(); Return r; }
+				If (c.equals(Char::Constructor('\\'))) -> {
+					Run advance();
+					Instantiate Char^ As <e> = advance();
+					If (e.equals(Char::Constructor('"'))) -> { Set r = r.concat(String::Constructor("\"")); }
+					Else { If (e.equals(Char::Constructor('\\'))) -> { Set r = r.concat(String::Constructor("\\")); }
+					Else { If (e.equals(Char::Constructor('n'))) -> { Set r = r.concat(String::Constructor("\n")); }
+					Else { If (e.equals(Char::Constructor('r'))) -> { Set r = r.concat(String::Constructor("\r")); }
+					Else { If (e.equals(Char::Constructor('t'))) -> { Set r = r.concat(String::Constructor("\t")); }
+					Else { Set r = r.concat(e.toString()); } } } } }
+				} Else {
+					Set r = r.concat(c.toString());
+					Run advance();
+				}
+			}
+			Return r;
+		}
+
+		Method <parseNum> Returns JSONValue^ Parameters () Do {
+			Instantiate String^ As <s> = String::Constructor("");
+			If (peek().equals(Char::Constructor('-'))) -> { Set s = s.concat(String::Constructor("-")); Run advance(); }
+			While (peek().isDigit()) -> { Set s = s.concat(advance().toString()); }
+			If (peek().equals(Char::Constructor('.'))) -> {
+				Set s = s.concat(String::Constructor("."));
+				Run advance();
+				While (peek().isDigit()) -> { Set s = s.concat(advance().toString()); }
+			}
+			If (peek().equals(Char::Constructor('e'))) -> {
+				Set s = s.concat(String::Constructor("e"));
+				Run advance();
+				If (peek().equals(Char::Constructor('-'))) -> { Set s = s.concat(String::Constructor("-")); Run advance(); }
+				Else { If (peek().equals(Char::Constructor('+'))) -> { Run advance(); } }
+				While (peek().isDigit()) -> { Set s = s.concat(advance().toString()); }
+			}
+			If (peek().equals(Char::Constructor('E'))) -> {
+				Set s = s.concat(String::Constructor("e"));
+				Run advance();
+				If (peek().equals(Char::Constructor('-'))) -> { Set s = s.concat(String::Constructor("-")); Run advance(); }
+				Else { If (peek().equals(Char::Constructor('+'))) -> { Run advance(); } }
+				While (peek().isDigit()) -> { Set s = s.concat(advance().toString()); }
+			}
+			Return JSONValue::fromNumber(Double::parse(s));
+		}
+
+		Method <skipWS> Returns None Parameters () Do {
+			While (pos.lessThan(input.length())) -> {
+				Instantiate Char^ As <c> = input.charAt(pos);
+				If (c.equals(Char::Constructor(' '))) -> { Set pos = pos.add(Integer::Constructor(1)); }
+				Else { If (c.equals(Char::Constructor('\t'))) -> { Set pos = pos.add(Integer::Constructor(1)); }
+				Else { If (c.equals(Char::Constructor('\n'))) -> { Set pos = pos.add(Integer::Constructor(1)); }
+				Else { If (c.equals(Char::Constructor('\r'))) -> { Set pos = pos.add(Integer::Constructor(1)); }
+				Else { Return; } } } }
+			}
+		}
+
+		Method <peek> Returns Char^ Parameters () Do {
+			If (pos.greaterThanOrEquals(input.length())) -> { Return Char::Constructor('\0'); }
+			Return input.charAt(pos);
+		}
+
+		Method <advance> Returns Char^ Parameters () Do {
+			Instantiate Char^ As <c> = peek();
+			Set pos = pos.add(Integer::Constructor(1));
+			Return c;
+		}
+
+		Method <expect> Returns None Parameters (Parameter <ch> Types Char%) Do { Run advance(); }
+
+		Method <expectKW> Returns None Parameters (Parameter <kw> Types String%) Do {
+			Instantiate Integer^ As <i> = Integer::Constructor(0);
+			While (i.lessThan(kw.length())) -> { Run advance(); Set i = i.add(Integer::Constructor(1)); }
+		}
+	]
+]
+
+// Convenience class for parsing
+[ Class <JSON> Final Extends None
+	[ Public <>
+		Method <parse> Returns JSONValue^ Parameters (Parameter <json> Types String&) Do {
+			Return JSONParser::Constructor(json).parse();
+		}
+
+		Method <parseObject> Returns JSONObject^ Parameters (Parameter <json> Types String&) Do {
+			Return JSONParser::Constructor(json).parseObject();
+		}
+
+		Method <parseArray> Returns JSONArray^ Parameters (Parameter <json> Types String&) Do {
+			Return JSONParser::Constructor(json).parseArray();
+		}
 	]
 ]

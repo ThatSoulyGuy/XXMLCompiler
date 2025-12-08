@@ -1,0 +1,66 @@
+// Test for Sendable marker constraint
+// Verifies that types can be checked for thread-safe movability
+
+#import Language::Core;
+
+// A simple class with only owned fields - should be Sendable
+[ Class <SendableClass> Final Extends None
+    [ Private <>
+        Property <value> Types Integer^;
+        Property <name> Types String^;
+    ]
+    [ Public <>
+        Constructor Parameters (Parameter <v> Types Integer^, Parameter <n> Types String^) -> {
+            Set value = v;
+            Set name = n;
+        }
+        Method <getValue> Returns Integer^ Parameters () Do {
+            Return value;
+        }
+        Method <getName> Returns String^ Parameters () Do {
+            Return name;
+        }
+    ]
+]
+
+// A class with a reference field - should NOT be Sendable
+// (We'll test negative case in a separate file that expects compile error)
+
+// Container that requires Sendable constraint on T
+[ Class <SendableContainer> <T Constrains Sendable> Final Extends None
+    [ Private <>
+        Property <item> Types T^;
+    ]
+    [ Public <>
+        Constructor Parameters (Parameter <i> Types T^) -> {
+            Set item = i;
+        }
+        Method <getItem> Returns T^ Parameters () Do {
+            Return item;
+        }
+    ]
+]
+
+[ Entrypoint
+    {
+        // Test 1: Create a sendable class instance
+        Instantiate SendableClass^ As <sendable> = SendableClass::Constructor(
+            Integer::Constructor(42),
+            String::Constructor("test")
+        );
+
+        // Test 2: Create container with sendable type - should compile
+        Instantiate SendableContainer<SendableClass>^ As <container> = SendableContainer@SendableClass::Constructor(sendable);
+
+        // Test 3: Get item back
+        Instantiate SendableClass^ As <retrieved> = container.getItem();
+
+        // Test 4: Verify value
+        Run Console::printLine(retrieved.getName());
+        Run Console::printLine(retrieved.getValue().toString());
+
+        Run Console::printLine(String::Constructor("Sendable constraint test passed!"));
+
+        Exit(0);
+    }
+]

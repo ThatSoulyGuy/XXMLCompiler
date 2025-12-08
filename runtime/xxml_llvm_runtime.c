@@ -869,6 +869,141 @@ int64_t Syscall_reflection_type_hasBaseClass(void* typeInfo) {
     return info && info->baseClassName && info->baseClassName[0] != '\0' ? 1 : 0;
 }
 
+// Helper function to check if a type name is a known Sendable primitive
+static int is_sendable_primitive(const char* typeName) {
+    if (!typeName) return 0;
+    // Check common primitive types that are always Sendable
+    if (strcmp(typeName, "Integer") == 0 ||
+        strcmp(typeName, "Bool") == 0 ||
+        strcmp(typeName, "Float") == 0 ||
+        strcmp(typeName, "Double") == 0 ||
+        strcmp(typeName, "String") == 0 ||
+        strcmp(typeName, "Char") == 0 ||
+        strcmp(typeName, "Language::Core::Integer") == 0 ||
+        strcmp(typeName, "Language::Core::Bool") == 0 ||
+        strcmp(typeName, "Language::Core::Float") == 0 ||
+        strcmp(typeName, "Language::Core::Double") == 0 ||
+        strcmp(typeName, "Language::Core::String") == 0 ||
+        strcmp(typeName, "Language::Core::Char") == 0) {
+        return 1;
+    }
+    // NativeType is assumed Sendable (user responsibility for FFI)
+    if (strncmp(typeName, "NativeType", 10) == 0) {
+        return 1;
+    }
+    // Atomic<T> is always Sendable
+    if (strncmp(typeName, "Atomic<", 7) == 0 ||
+        strncmp(typeName, "Language::Concurrent::Atomic<", 29) == 0) {
+        return 1;
+    }
+    return 0;
+}
+
+// Helper function to check if a type name is a known Sharable type
+static int is_sharable_primitive(const char* typeName) {
+    if (!typeName) return 0;
+    // Immutable primitives are Sharable
+    if (strcmp(typeName, "Integer") == 0 ||
+        strcmp(typeName, "Bool") == 0 ||
+        strcmp(typeName, "Float") == 0 ||
+        strcmp(typeName, "Double") == 0 ||
+        strcmp(typeName, "String") == 0 ||
+        strcmp(typeName, "Char") == 0 ||
+        strcmp(typeName, "Language::Core::Integer") == 0 ||
+        strcmp(typeName, "Language::Core::Bool") == 0 ||
+        strcmp(typeName, "Language::Core::Float") == 0 ||
+        strcmp(typeName, "Language::Core::Double") == 0 ||
+        strcmp(typeName, "Language::Core::String") == 0 ||
+        strcmp(typeName, "Language::Core::Char") == 0) {
+        return 1;
+    }
+    // Atomic<T> is thread-safe
+    if (strncmp(typeName, "Atomic<", 7) == 0 ||
+        strncmp(typeName, "Language::Concurrent::Atomic<", 29) == 0) {
+        return 1;
+    }
+    // Sync primitives are Sharable
+    if (strcmp(typeName, "Mutex") == 0 ||
+        strcmp(typeName, "LockGuard") == 0 ||
+        strcmp(typeName, "ConditionVariable") == 0 ||
+        strcmp(typeName, "Semaphore") == 0 ||
+        strcmp(typeName, "Language::Concurrent::Mutex") == 0 ||
+        strcmp(typeName, "Language::Concurrent::LockGuard") == 0 ||
+        strcmp(typeName, "Language::Concurrent::ConditionVariable") == 0 ||
+        strcmp(typeName, "Language::Concurrent::Semaphore") == 0) {
+        return 1;
+    }
+    return 0;
+}
+
+// Concurrency marker trait: isSendable
+// A type is Sendable if all fields are Sendable and no reference (&) fields exist
+int64_t Syscall_reflection_type_isSendable(void* typeInfo) {
+    ReflectionTypeInfo* info = (ReflectionTypeInfo*)typeInfo;
+    if (!info) return 0;
+
+    // Check if this type itself is a known Sendable primitive
+    if (is_sendable_primitive(info->fullName) || is_sendable_primitive(info->name)) {
+        return 1;
+    }
+
+    // Check all properties
+    for (int32_t i = 0; i < info->propertyCount; i++) {
+        ReflectionPropertyInfo* prop = &info->properties[i];
+
+        // Reference (&) fields are NOT Sendable - they could become dangling
+        // Ownership values: 0=None, 1=Owned(^), 2=Reference(&), 3=Copy(%)
+        if (prop->ownership == 2) {  // Reference
+            return 0;
+        }
+
+        // Check if the property's type is Sendable
+        if (!is_sendable_primitive(prop->typeName)) {
+            // Try to look up the type and check recursively
+            ReflectionTypeInfo* propType = Reflection_getTypeInfo(prop->typeName);
+            if (propType) {
+                if (!Syscall_reflection_type_isSendable(propType)) {
+                    return 0;
+                }
+            }
+            // If type not found in registry, assume it might be Sendable (be permissive)
+        }
+    }
+
+    return 1;
+}
+
+// Concurrency marker trait: isSharable
+// A type is Sharable if all fields are immutable/Sharable types
+int64_t Syscall_reflection_type_isSharable(void* typeInfo) {
+    ReflectionTypeInfo* info = (ReflectionTypeInfo*)typeInfo;
+    if (!info) return 0;
+
+    // Check if this type itself is a known Sharable type
+    if (is_sharable_primitive(info->fullName) || is_sharable_primitive(info->name)) {
+        return 1;
+    }
+
+    // Check all properties - all must be Sharable types
+    for (int32_t i = 0; i < info->propertyCount; i++) {
+        ReflectionPropertyInfo* prop = &info->properties[i];
+
+        // Check if the property's type is Sharable
+        if (!is_sharable_primitive(prop->typeName)) {
+            // Try to look up the type and check recursively
+            ReflectionTypeInfo* propType = Reflection_getTypeInfo(prop->typeName);
+            if (propType) {
+                if (!Syscall_reflection_type_isSharable(propType)) {
+                    return 0;
+                }
+            }
+            // If type not found in registry, assume it might be Sharable (be permissive)
+        }
+    }
+
+    return 1;
+}
+
 // Method reflection syscalls
 const char* Syscall_reflection_method_getName(void* methodInfo) {
     ReflectionMethodInfo* info = (ReflectionMethodInfo*)methodInfo;
@@ -1131,6 +1266,22 @@ void* Language_Reflection_Type_getConstructorAt(void* self, void* indexObj) {
     void* ctorInfo = Syscall_reflection_type_getConstructor(type->typeInfoPtr, index);
     if (!ctorInfo) return NULL;
     return Language_Reflection_MethodInfo_Constructor(ctorInfo);
+}
+
+// Language::Reflection::Type::isSendable
+void* Language_Reflection_Type_isSendable(void* self) {
+    Language_Reflection_Type* type = (Language_Reflection_Type*)self;
+    if (!type) return Bool_Constructor(false);
+    int64_t result = Syscall_reflection_type_isSendable(type->typeInfoPtr);
+    return Bool_Constructor(result != 0);
+}
+
+// Language::Reflection::Type::isSharable
+void* Language_Reflection_Type_isSharable(void* self) {
+    Language_Reflection_Type* type = (Language_Reflection_Type*)self;
+    if (!type) return Bool_Constructor(false);
+    int64_t result = Syscall_reflection_type_isSharable(type->typeInfoPtr);
+    return Bool_Constructor(result != 0);
 }
 
 // Internal PropertyInfo structure
@@ -2340,6 +2491,16 @@ int64_t xxml_string_equals(void* str1, void* str2) {
     if (!cstr1 && !cstr2) return 1;
     if (!cstr1 || !cstr2) return 0;
     return strcmp(cstr1, cstr2) == 0 ? 1 : 0;
+}
+
+// Check if string starts with prefix
+int64_t xxml_string_startsWith(void* str, void* prefix) {
+    const char* cstr = String_toCString(str);
+    const char* prefixCstr = String_toCString(prefix);
+    if (!cstr || !prefixCstr) return 0;
+    size_t prefixLen = strlen(prefixCstr);
+    if (prefixLen == 0) return 1;  // Empty prefix always matches
+    return strncmp(cstr, prefixCstr, prefixLen) == 0 ? 1 : 0;
 }
 
 // Get character at index as a new single-character string

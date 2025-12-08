@@ -39,8 +39,10 @@ public:
 
     /**
      * Get generated IR as string.
-     * Returns string-based IR for reflection metadata.
+     * @deprecated Use Module-based emission via LLVMEmitter instead.
+     * Returns string-based IR for backwards compatibility.
      */
+    [[deprecated("Use Module-based emission via LLVMEmitter instead")]]
     std::string getIR() const;
 
 private:

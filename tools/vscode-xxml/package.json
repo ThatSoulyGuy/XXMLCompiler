@@ -1,0 +1,80 @@
+{
+  "name": "xxml-language",
+  "displayName": "XXML Language Support",
+  "description": "Language support for the XXML programming language",
+  "version": "0.1.0",
+  "publisher": "xxml",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "activationEvents": [
+    "onLanguage:xxml"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "xxml",
+        "aliases": [
+          "XXML",
+          "xxml"
+        ],
+        "extensions": [
+          ".XXML",
+          ".xxml"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "xxml",
+        "scopeName": "source.xxml",
+        "path": "./syntaxes/xxml.tmLanguage.json"
+      }
+    ],
+    "configuration": {
+      "type": "object",
+      "title": "XXML",
+      "properties": {
+        "xxml.languageServer.path": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the XXML language server executable (xxml-lsp). If empty, searches PATH."
+        },
+        "xxml.languageServer.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable/disable the XXML language server."
+        },
+        "xxml.ownershipVisualization.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show ownership modifiers (^, &, %) as colored annotations."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src --ext ts",
+    "package": "vsce package"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.9.0",
+    "@types/vscode": "^1.75.0",
+    "@typescript-eslint/eslint-plugin": "^6.9.0",
+    "@typescript-eslint/parser": "^6.9.0",
+    "eslint": "^8.52.0",
+    "typescript": "^5.2.2",
+    "@vscode/vsce": "^2.22.0"
+  }
+}

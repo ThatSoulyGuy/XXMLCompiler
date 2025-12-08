@@ -1,0 +1,62 @@
+// Test for Sharable marker constraint
+// Verifies that types can be checked for thread-safe sharing
+
+#import Language::Core;
+
+// A simple immutable class - should be Sharable
+[ Class <ImmutableData> Final Extends None
+    [ Private <>
+        Property <value> Types Integer^;
+    ]
+    [ Public <>
+        Constructor Parameters (Parameter <v> Types Integer^) -> {
+            Set value = v;
+        }
+        Method <getValue> Returns Integer^ Parameters () Do {
+            Return value;
+        }
+    ]
+]
+
+// Container that requires Sharable constraint on T
+[ Class <SharedContainer> <T Constrains Sharable> Final Extends None
+    [ Private <>
+        Property <data> Types T^;
+    ]
+    [ Public <>
+        Constructor Parameters (Parameter <d> Types T^) -> {
+            Set data = d;
+        }
+        Method <getData> Returns T^ Parameters () Do {
+            Return data;
+        }
+    ]
+]
+
+[ Entrypoint
+    {
+        // Test 1: Create an immutable class instance
+        Instantiate ImmutableData^ As <immutable> = ImmutableData::Constructor(
+            Integer::Constructor(42)
+        );
+
+        // Test 2: Create container with sharable type - should compile
+        Instantiate SharedContainer<ImmutableData>^ As <container> = SharedContainer@ImmutableData::Constructor(immutable);
+
+        // Test 3: Get data back
+        Instantiate ImmutableData^ As <retrieved> = container.getData();
+
+        // Test 4: Verify value
+        Run Console::printLine(retrieved.getValue().toString());
+
+        // Test 5: Primitives are also Sharable
+        Instantiate SharedContainer<Integer>^ As <intContainer> = SharedContainer@Integer::Constructor(
+            Integer::Constructor(100)
+        );
+        Run Console::printLine(intContainer.getData().toString());
+
+        Run Console::printLine(String::Constructor("Sharable constraint test passed!"));
+
+        Exit(0);
+    }
+]

@@ -1,0 +1,66 @@
+// Test for @Unsafe annotation
+// Verifies that @Unsafe can be used to mark FFI types as thread-safe
+
+#import Language::Core;
+#import Language::Annotations::Unsafe;
+
+// Simulated FFI handle type that wraps a native pointer
+// We know it's thread-safe because the underlying C library guarantees it
+@Derive(trait = "Sendable")
+@Unsafe(reason = "Native handle wraps thread-safe C library mutex")
+[ Class <NativeHandle> Final Extends None
+    [ Private <>
+        Property <handle> Types NativeType<"ptr">^;
+    ]
+    [ Public <>
+        Constructor Parameters () -> {
+            Instantiate NativeType<"ptr">^ As <zero> = 0;
+            Run Syscall::memcpy(&handle, &zero, 8);
+        }
+        Method <isValid> Returns Bool^ Parameters () Do {
+            Instantiate NativeType<"ptr">^ As <h> = handle;
+            Return Bool::Constructor(h != 0);
+        }
+    ]
+]
+
+// Another FFI type - only deriving Sendable (not Sharable for simplicity)
+@Derive(trait = "Sendable")
+@Unsafe(reason = "Database driver provides internal synchronization")
+[ Class <DatabaseConnection> Final Extends None
+    [ Private <>
+        Property <connectionPtr> Types NativeType<"ptr">^;
+    ]
+    [ Public <>
+        Constructor Parameters () -> {
+            Instantiate NativeType<"ptr">^ As <zero> = 0;
+            Run Syscall::memcpy(&connectionPtr, &zero, 8);
+        }
+        Method <isConnected> Returns Bool^ Parameters () Do {
+            Instantiate NativeType<"ptr">^ As <ptr> = connectionPtr;
+            Return Bool::Constructor(ptr != 0);
+        }
+    ]
+]
+
+[ Entrypoint
+    {
+        // Create instances to verify the types compile correctly
+        Instantiate NativeHandle^ As <handle> = NativeHandle::Constructor();
+        If (handle.isValid()) -> {
+            Run Console::printLine(String::Constructor("NativeHandle is valid"));
+        } Else -> {
+            Run Console::printLine(String::Constructor("NativeHandle is not valid (expected - null handle)"));
+        }
+
+        Instantiate DatabaseConnection^ As <db> = DatabaseConnection::Constructor();
+        If (db.isConnected()) -> {
+            Run Console::printLine(String::Constructor("Database is connected"));
+        } Else -> {
+            Run Console::printLine(String::Constructor("Database is not connected (expected - null pointer)"));
+        }
+
+        Run Console::printLine(String::Constructor("@Unsafe annotation test passed!"));
+        Exit(0);
+    }
+]

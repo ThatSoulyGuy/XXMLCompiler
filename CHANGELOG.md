@@ -2,6 +2,46 @@
 
 All notable changes to the XXML Compiler project will be documented in this file.
 
+## [3.0.0] - 2025-12-08 - XXML 1.0 Stable Release
+
+### Overview
+
+This release marks the completion of all seven phases of the XXML roadmap, delivering the first stable release of the language with explicit ownership semantics, rich reflection capabilities, and compile-time metaprogramming.
+
+### Added
+
+#### Phase 6: Flagship Demos
+- **JSON Library** (`Language/Format/JSON.XXML`): Complete JSON serialization/parsing with `@Derive(trait="JSON")` support
+- **Test Framework** (`Language/Test/TestFramework.XXML`): Reflection-based test discovery and execution with `Assert` utilities
+- **ORM Demo** (`demos/ORM/SimpleORM.XXML`): SQL generation via reflection using `QueryBuilder` and `Repository` patterns
+- **RPC Framework** (`demos/RPC/SimpleRPC.XXML`): Client/server stub generation using reflection
+- **Plugin System** (`demos/Plugin/PluginSystem.XXML`): Runtime plugin discovery, lifecycle management, and introspection
+
+#### Phase 7: API Improvements
+- `String.concat()`: New non-mutating string concatenation (returns new String)
+- `String.startsWith()`: Check if string starts with a prefix
+- `Float.lessOrEqual()`, `Float.greaterOrEqual()`: Added missing comparison operators
+- `xxml_string_startsWith()`: New runtime function for string prefix checking
+
+### Changed
+
+#### API Cleanup
+- Standardized value accessors: Removed duplicate `getValue()` methods from `Bool` and `Double`
+  - Use `Bool.toBool()` instead of `Bool.getValue()`
+  - Use `Double.toDouble()` instead of `Double.getValue()`
+
+### Deprecated
+
+- `AnnotationCodegen.getIR()`: Use Module-based emission via LLVMEmitter instead
+- `ReflectionCodegen.getIR()`: Use Module-based emission via LLVMEmitter instead (now marked with `[[deprecated]]` attribute)
+
+### Documentation
+
+- Updated `docs/ROADMAP.md` to mark all phases complete
+- All version milestones (0.3.0 through 1.0.0) now marked as complete
+
+---
+
 ## [2.3.0] - 2025-12-07
 
 ### Added

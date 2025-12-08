@@ -1,0 +1,92 @@
+// JSON Library Test
+// Demonstrates JSON serialization and parsing
+
+#import Language::Core;
+#import Language::Format;
+#import Language::System;
+
+// Test class with JSON derive
+@Derive(trait = "JSON")
+[ Class <Person> Final Extends None
+	[ Public <>
+		Property <name> Types String^;
+		Property <age> Types Integer^;
+
+		Constructor Parameters () -> {
+			Set name = String::Constructor("");
+			Set age = Integer::Constructor(0);
+		}
+
+		Constructor Parameters (Parameter <n> Types String&, Parameter <a> Types Integer&) -> {
+			Set name = n.copy();
+			Set age = a.copy();
+		}
+	]
+]
+
+[ Entrypoint
+	{
+		Run Console::printLine(String::Constructor("=== JSON Library Test ==="));
+
+		// Test 1: Manual JSON construction
+		Run Console::printLine(String::Constructor("\n--- Test 1: Manual JSON construction ---"));
+
+		Instantiate JSONObject^ As <obj> = JSONObject::Constructor();
+		Run obj.putString(String::Constructor("name"), String::Constructor("Alice"));
+		Run obj.putInteger(String::Constructor("age"), Integer::Constructor(30));
+		Run obj.putBool(String::Constructor("active"), Bool::Constructor(True));
+
+		Run Console::printLine(String::Constructor("JSON: ").concat(obj.stringify()));
+		Run Console::printLine(String::Constructor("Pretty:"));
+		Run Console::printLine(obj.stringifyPretty());
+
+		// Test 2: JSON Array
+		Run Console::printLine(String::Constructor("\n--- Test 2: JSON Array ---"));
+
+		Instantiate JSONArray^ As <arr> = JSONArray::Constructor();
+		Run arr.addString(String::Constructor("apple"));
+		Run arr.addString(String::Constructor("banana"));
+		Run arr.addString(String::Constructor("cherry"));
+
+		Run Console::printLine(String::Constructor("Array: ").concat(arr.stringify()));
+
+		// Test 3: Nested JSON
+		Run Console::printLine(String::Constructor("\n--- Test 3: Nested JSON ---"));
+
+		Instantiate JSONObject^ As <address> = JSONObject::Constructor();
+		Run address.putString(String::Constructor("city"), String::Constructor("New York"));
+		Run address.putString(String::Constructor("zip"), String::Constructor("10001"));
+
+		Instantiate JSONObject^ As <person> = JSONObject::Constructor();
+		Run person.putString(String::Constructor("name"), String::Constructor("Bob"));
+		Run person.putObject(String::Constructor("address"), address);
+
+		Run Console::printLine(String::Constructor("Nested: ").concat(person.stringify()));
+		Run Console::printLine(String::Constructor("Pretty:"));
+		Run Console::printLine(person.stringifyPretty());
+
+		// Test 4: JSON Parsing
+		Run Console::printLine(String::Constructor("\n--- Test 4: JSON Parsing ---"));
+
+		Instantiate String^ As <jsonStr> = String::Constructor("{\"name\":\"Charlie\",\"age\":25,\"active\":true}");
+		Instantiate JSONObject^ As <parsed> = JSON::parseObject(jsonStr);
+
+		Run Console::printLine(String::Constructor("Parsed name: ").concat(parsed.getString(String::Constructor("name"))));
+		Run Console::printLine(String::Constructor("Parsed age: ").concat(parsed.getInteger(String::Constructor("age")).toString()));
+
+		// Test 5: Derive-based serialization (if Person has @Derive(trait = "JSON"))
+		Run Console::printLine(String::Constructor("\n--- Test 5: Derive-based serialization ---"));
+
+		Instantiate Person^ As <p> = Person::Constructor(String::Constructor("Diana"), Integer::Constructor(28));
+		Instantiate JSONObject^ As <pJson> = p.toJson();
+		Run Console::printLine(String::Constructor("Person JSON: ").concat(pJson.stringify()));
+
+		// Deserialize back
+		Instantiate Person^ As <p2> = Person::fromJson(pJson);
+		Run Console::printLine(String::Constructor("Deserialized name: ").concat(p2.name));
+		Run Console::printLine(String::Constructor("Deserialized age: ").concat(p2.age.toString()));
+
+		Run Console::printLine(String::Constructor("\n=== All JSON tests passed! ==="));
+		Exit(0);
+	}
+]

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(XXMLCompiler VERSION 2.0 LANGUAGES CXX C)
+project(XXMLCompiler VERSION 3.0.0 LANGUAGES CXX C)
 
 # Set C++23 standard for modern features
 set(CMAKE_CXX_STANDARD 23)
@@ -79,6 +79,12 @@ endif()
 # Main compiler executable
 add_executable(xxml ${CMAKE_SOURCE_DIR}/src/main.cpp)
 target_link_libraries(xxml PRIVATE XXMLLib)
+
+# LSP Server (optional tooling)
+option(XXML_BUILD_LSP "Build the XXML Language Server" ON)
+if(XXML_BUILD_LSP)
+    add_subdirectory(tools/lsp)
+endif()
 
 # Installation
 install(TARGETS xxml DESTINATION bin)

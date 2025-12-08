@@ -1,0 +1,407 @@
+// XXML Simple ORM Demo
+// Demonstrates reflection-based database mapping
+// This is a conceptual demo showing the ORM pattern
+
+#import Language::Core;
+#import Language::Collections;
+#import Language::Reflection;
+#import Language::Format;
+#import Language::System;
+
+// Table annotation to mark entity classes
+[ Annotation <Table>
+	Property <name> Types String^;
+]
+
+// Column annotation to customize column mapping
+[ Annotation <Column>
+	Property <name> Types String^;
+	Property <nullable> Types Bool^;
+]
+
+// Primary key annotation
+[ Annotation <Id>
+]
+
+// Entity base class
+[ Class <Entity> Final Extends None
+	[ Public <>
+		Property <id> Types Integer^;
+
+		Constructor Parameters () -> {
+			Set id = Integer::Constructor(0);
+		}
+	]
+]
+
+// SQL Query Builder using reflection
+[ Class <QueryBuilder> Final Extends None
+	[ Private <>
+		Property <tableName> Types String^;
+		Property <columns> Types List<String>^;
+		Property <conditions> Types List<String>^;
+	]
+
+	[ Public <>
+		Constructor Parameters (Parameter <table> Types String&) -> {
+			Set tableName = table.copy();
+			Set columns = List<String>::Constructor();
+			Set conditions = List<String>::Constructor();
+		}
+
+		// Generate SELECT query from type reflection
+		Method <selectAll> Returns QueryBuilder^ Parameters (Parameter <typeName> Types String&) Do {
+			Instantiate Type^ As <type> = Type::forName(typeName);
+
+			// Add all properties as columns
+			Instantiate Integer^ As <i> = Integer::Constructor(0);
+			While (i.lessThan(type.getPropertyCount())) -> {
+				Instantiate PropertyInfo^ As <prop> = type.getPropertyAt(i);
+				Run columns.add(prop.getName());
+				Set i = i.add(Integer::Constructor(1));
+			}
+
+			Return this;
+		}
+
+		Method <where> Returns QueryBuilder^ Parameters (
+			Parameter <column> Types String&,
+			Parameter <op> Types String&,
+			Parameter <value> Types String&
+		) Do {
+			Instantiate String^ As <cond> = column.concat(String::Constructor(" "))
+				.concat(op)
+				.concat(String::Constructor(" '"))
+				.concat(value)
+				.concat(String::Constructor("'"));
+			Run conditions.add(cond);
+			Return this;
+		}
+
+		Method <whereEquals> Returns QueryBuilder^ Parameters (
+			Parameter <column> Types String&,
+			Parameter <value> Types Integer&
+		) Do {
+			Instantiate String^ As <cond> = column.concat(String::Constructor(" = "))
+				.concat(value.toString());
+			Run conditions.add(cond);
+			Return this;
+		}
+
+		Method <buildSelect> Returns String^ Parameters () Do {
+			Instantiate String^ As <sql> = String::Constructor("SELECT ");
+
+			// Add columns
+			If (columns.size().equals(Integer::Constructor(0))) -> {
+				Set sql = sql.concat(String::Constructor("*"));
+			} Else {
+				Instantiate Integer^ As <i> = Integer::Constructor(0);
+				While (i.lessThan(columns.size())) -> {
+					If (i.greaterThan(Integer::Constructor(0))) -> {
+						Set sql = sql.concat(String::Constructor(", "));
+					}
+					Set sql = sql.concat(columns.get(i));
+					Set i = i.add(Integer::Constructor(1));
+				}
+			}
+
+			Set sql = sql.concat(String::Constructor(" FROM ")).concat(tableName);
+
+			// Add conditions
+			If (conditions.size().greaterThan(Integer::Constructor(0))) -> {
+				Set sql = sql.concat(String::Constructor(" WHERE "));
+				Instantiate Integer^ As <i> = Integer::Constructor(0);
+				While (i.lessThan(conditions.size())) -> {
+					If (i.greaterThan(Integer::Constructor(0))) -> {
+						Set sql = sql.concat(String::Constructor(" AND "));
+					}
+					Set sql = sql.concat(conditions.get(i));
+					Set i = i.add(Integer::Constructor(1));
+				}
+			}
+
+			Return sql;
+		}
+
+		Method <buildInsert> Returns String^ Parameters (Parameter <typeName> Types String&) Do {
+			Instantiate Type^ As <type> = Type::forName(typeName);
+			Instantiate String^ As <sql> = String::Constructor("INSERT INTO ").concat(tableName).concat(String::Constructor(" ("));
+
+			// Add column names
+			Instantiate Integer^ As <i> = Integer::Constructor(0);
+			While (i.lessThan(type.getPropertyCount())) -> {
+				Instantiate PropertyInfo^ As <prop> = type.getPropertyAt(i);
+				If (i.greaterThan(Integer::Constructor(0))) -> {
+					Set sql = sql.concat(String::Constructor(", "));
+				}
+				Set sql = sql.concat(prop.getName());
+				Set i = i.add(Integer::Constructor(1));
+			}
+
+			Set sql = sql.concat(String::Constructor(") VALUES ("));
+
+			// Add placeholders
+			Set i = Integer::Constructor(0);
+			While (i.lessThan(type.getPropertyCount())) -> {
+				If (i.greaterThan(Integer::Constructor(0))) -> {
+					Set sql = sql.concat(String::Constructor(", "));
+				}
+				Set sql = sql.concat(String::Constructor("?"));
+				Set i = i.add(Integer::Constructor(1));
+			}
+
+			Set sql = sql.concat(String::Constructor(")"));
+			Return sql;
+		}
+
+		Method <buildUpdate> Returns String^ Parameters (Parameter <typeName> Types String&) Do {
+			Instantiate Type^ As <type> = Type::forName(typeName);
+			Instantiate String^ As <sql> = String::Constructor("UPDATE ").concat(tableName).concat(String::Constructor(" SET "));
+
+			// Add column assignments
+			Instantiate Integer^ As <i> = Integer::Constructor(0);
+			While (i.lessThan(type.getPropertyCount())) -> {
+				Instantiate PropertyInfo^ As <prop> = type.getPropertyAt(i);
+				If (prop.getName().equals(String::Constructor("id")).equals(Bool::Constructor(False))) -> {
+					If (i.greaterThan(Integer::Constructor(1))) -> {
+						Set sql = sql.concat(String::Constructor(", "));
+					}
+					Set sql = sql.concat(prop.getName()).concat(String::Constructor(" = ?"));
+				}
+				Set i = i.add(Integer::Constructor(1));
+			}
+
+			Set sql = sql.concat(String::Constructor(" WHERE id = ?"));
+			Return sql;
+		}
+
+		Method <buildDelete> Returns String^ Parameters () Do {
+			Instantiate String^ As <sql> = String::Constructor("DELETE FROM ").concat(tableName);
+
+			If (conditions.size().greaterThan(Integer::Constructor(0))) -> {
+				Set sql = sql.concat(String::Constructor(" WHERE "));
+				Instantiate Integer^ As <i> = Integer::Constructor(0);
+				While (i.lessThan(conditions.size())) -> {
+					If (i.greaterThan(Integer::Constructor(0))) -> {
+						Set sql = sql.concat(String::Constructor(" AND "));
+					}
+					Set sql = sql.concat(conditions.get(i));
+					Set i = i.add(Integer::Constructor(1));
+				}
+			}
+
+			Return sql;
+		}
+
+		Method <buildCreateTable> Returns String^ Parameters (Parameter <typeName> Types String&) Do {
+			Instantiate Type^ As <type> = Type::forName(typeName);
+			Instantiate String^ As <sql> = String::Constructor("CREATE TABLE ").concat(tableName).concat(String::Constructor(" (\n"));
+
+			Instantiate Integer^ As <i> = Integer::Constructor(0);
+			While (i.lessThan(type.getPropertyCount())) -> {
+				Instantiate PropertyInfo^ As <prop> = type.getPropertyAt(i);
+				If (i.greaterThan(Integer::Constructor(0))) -> {
+					Set sql = sql.concat(String::Constructor(",\n"));
+				}
+				Set sql = sql.concat(String::Constructor("  ")).concat(prop.getName());
+
+				// Map XXML types to SQL types
+				Instantiate String^ As <propType> = prop.getTypeName();
+				If (propType.equals(String::Constructor("Integer"))) -> {
+					Set sql = sql.concat(String::Constructor(" INTEGER"));
+				} Else {
+					If (propType.equals(String::Constructor("String"))) -> {
+						Set sql = sql.concat(String::Constructor(" TEXT"));
+					} Else {
+						If (propType.equals(String::Constructor("Bool"))) -> {
+							Set sql = sql.concat(String::Constructor(" BOOLEAN"));
+						} Else {
+							If (propType.equals(String::Constructor("Double"))) -> {
+								Set sql = sql.concat(String::Constructor(" REAL"));
+							} Else {
+								Set sql = sql.concat(String::Constructor(" TEXT"));
+							}
+						}
+					}
+				}
+
+				// Mark id as primary key
+				If (prop.getName().equals(String::Constructor("id"))) -> {
+					Set sql = sql.concat(String::Constructor(" PRIMARY KEY"));
+				}
+
+				Set i = i.add(Integer::Constructor(1));
+			}
+
+			Set sql = sql.concat(String::Constructor("\n)"));
+			Return sql;
+		}
+	]
+]
+
+// Generic Repository pattern
+[ Class <Repository> Final Extends None
+	[ Private <>
+		Property <tableName> Types String^;
+		Property <entityTypeName> Types String^;
+	]
+
+	[ Public <>
+		Constructor Parameters (Parameter <table> Types String&, Parameter <entityType> Types String&) -> {
+			Set tableName = table.copy();
+			Set entityTypeName = entityType.copy();
+		}
+
+		Method <generateFindAll> Returns String^ Parameters () Do {
+			Instantiate QueryBuilder^ As <qb> = QueryBuilder::Constructor(tableName);
+			Run qb.selectAll(entityTypeName);
+			Return qb.buildSelect();
+		}
+
+		Method <generateFindById> Returns String^ Parameters (Parameter <id> Types Integer&) Do {
+			Instantiate QueryBuilder^ As <qb> = QueryBuilder::Constructor(tableName);
+			Run qb.selectAll(entityTypeName);
+			Run qb.whereEquals(String::Constructor("id"), id);
+			Return qb.buildSelect();
+		}
+
+		Method <generateInsert> Returns String^ Parameters () Do {
+			Instantiate QueryBuilder^ As <qb> = QueryBuilder::Constructor(tableName);
+			Return qb.buildInsert(entityTypeName);
+		}
+
+		Method <generateUpdate> Returns String^ Parameters () Do {
+			Instantiate QueryBuilder^ As <qb> = QueryBuilder::Constructor(tableName);
+			Return qb.buildUpdate(entityTypeName);
+		}
+
+		Method <generateDelete> Returns String^ Parameters (Parameter <id> Types Integer&) Do {
+			Instantiate QueryBuilder^ As <qb> = QueryBuilder::Constructor(tableName);
+			Run qb.whereEquals(String::Constructor("id"), id);
+			Return qb.buildDelete();
+		}
+
+		Method <generateSchema> Returns String^ Parameters () Do {
+			Instantiate QueryBuilder^ As <qb> = QueryBuilder::Constructor(tableName);
+			Return qb.buildCreateTable(entityTypeName);
+		}
+	]
+]
+
+// Example Entity: User
+@Table(name = "users")
+[ Class <User> Final Extends Entity
+	[ Public <>
+		@Column(name = "username", nullable = False)
+		Property <username> Types String^;
+
+		@Column(name = "email", nullable = False)
+		Property <email> Types String^;
+
+		@Column(name = "age", nullable = True)
+		Property <age> Types Integer^;
+
+		Constructor Parameters () -> {
+			Run Entity::Constructor();
+			Set username = String::Constructor("");
+			Set email = String::Constructor("");
+			Set age = Integer::Constructor(0);
+		}
+
+		Constructor Parameters (
+			Parameter <name> Types String&,
+			Parameter <mail> Types String&,
+			Parameter <userAge> Types Integer&
+		) -> {
+			Run Entity::Constructor();
+			Set username = name.copy();
+			Set email = mail.copy();
+			Set age = userAge.copy();
+		}
+	]
+]
+
+// Example Entity: Product
+@Table(name = "products")
+[ Class <Product> Final Extends Entity
+	[ Public <>
+		@Column(name = "name", nullable = False)
+		Property <name> Types String^;
+
+		@Column(name = "price", nullable = False)
+		Property <price> Types Double^;
+
+		@Column(name = "quantity", nullable = True)
+		Property <quantity> Types Integer^;
+
+		Constructor Parameters () -> {
+			Run Entity::Constructor();
+			Set name = String::Constructor("");
+			Set price = Double::Constructor(0.0);
+			Set quantity = Integer::Constructor(0);
+		}
+	]
+]
+
+[ Entrypoint
+	{
+		Run Console::printLine(String::Constructor("=== XXML ORM Demo ==="));
+		Run Console::printLine(String::Constructor("Demonstrating reflection-based SQL generation"));
+		Run Console::printLine(String::Constructor(""));
+
+		// Create repository for User entity
+		Run Console::printLine(String::Constructor("--- User Repository ---"));
+		Instantiate Repository^ As <userRepo> = Repository::Constructor(
+			String::Constructor("users"),
+			String::Constructor("User")
+		);
+
+		// Generate and display SQL statements
+		Run Console::printLine(String::Constructor("Schema (CREATE TABLE):"));
+		Run Console::printLine(userRepo.generateSchema());
+		Run Console::printLine(String::Constructor(""));
+
+		Run Console::printLine(String::Constructor("Find All (SELECT):"));
+		Run Console::printLine(userRepo.generateFindAll());
+		Run Console::printLine(String::Constructor(""));
+
+		Run Console::printLine(String::Constructor("Find By ID (SELECT WHERE):"));
+		Run Console::printLine(userRepo.generateFindById(Integer::Constructor(42)));
+		Run Console::printLine(String::Constructor(""));
+
+		Run Console::printLine(String::Constructor("Insert (INSERT INTO):"));
+		Run Console::printLine(userRepo.generateInsert());
+		Run Console::printLine(String::Constructor(""));
+
+		Run Console::printLine(String::Constructor("Update (UPDATE):"));
+		Run Console::printLine(userRepo.generateUpdate());
+		Run Console::printLine(String::Constructor(""));
+
+		Run Console::printLine(String::Constructor("Delete (DELETE):"));
+		Run Console::printLine(userRepo.generateDelete(Integer::Constructor(42)));
+		Run Console::printLine(String::Constructor(""));
+
+		// Create repository for Product entity
+		Run Console::printLine(String::Constructor("--- Product Repository ---"));
+		Instantiate Repository^ As <productRepo> = Repository::Constructor(
+			String::Constructor("products"),
+			String::Constructor("Product")
+		);
+
+		Run Console::printLine(String::Constructor("Schema:"));
+		Run Console::printLine(productRepo.generateSchema());
+		Run Console::printLine(String::Constructor(""));
+
+		// Demonstrate QueryBuilder directly
+		Run Console::printLine(String::Constructor("--- Direct QueryBuilder Usage ---"));
+		Instantiate QueryBuilder^ As <qb> = QueryBuilder::Constructor(String::Constructor("orders"));
+		Run qb.where(String::Constructor("status"), String::Constructor("="), String::Constructor("pending"));
+		Run qb.whereEquals(String::Constructor("customer_id"), Integer::Constructor(100));
+		Run Console::printLine(String::Constructor("Custom query:"));
+		Run Console::printLine(qb.buildSelect());
+
+		Run Console::printLine(String::Constructor(""));
+		Run Console::printLine(String::Constructor("=== ORM Demo Complete ==="));
+		Exit(0);
+	}
+]

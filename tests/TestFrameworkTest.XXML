@@ -1,0 +1,104 @@
+// Test Framework Demo
+// Shows how to use the reflection-based test framework
+
+#import Language::Core;
+#import Language::Test;
+#import Language::Reflection;
+#import Language::System;
+
+// A sample test class
+[ Class <MathTests> Final Extends None
+	[ Public <>
+		Constructor = default;
+
+		Method <testAddition> Returns None Parameters () Do {
+			Instantiate Integer^ As <result> = Integer::Constructor(2).add(Integer::Constructor(2));
+			Run Assert::equals(Integer::Constructor(4), result, String::Constructor("2+2 should equal 4"));
+		}
+
+		Method <testSubtraction> Returns None Parameters () Do {
+			Instantiate Integer^ As <result> = Integer::Constructor(5).subtract(Integer::Constructor(3));
+			Run Assert::equals(Integer::Constructor(2), result, String::Constructor("5-3 should equal 2"));
+		}
+
+		Method <testMultiplication> Returns None Parameters () Do {
+			Instantiate Integer^ As <result> = Integer::Constructor(3).multiply(Integer::Constructor(4));
+			Run Assert::equals(Integer::Constructor(12), result, String::Constructor("3*4 should equal 12"));
+		}
+
+		Method <helperMethod> Returns Integer^ Parameters () Do {
+			// This is NOT a test (doesn't start with "test")
+			Return Integer::Constructor(42);
+		}
+	]
+]
+
+// String test class
+[ Class <StringTests> Final Extends None
+	[ Public <>
+		Constructor = default;
+
+		Method <testConcat> Returns None Parameters () Do {
+			Instantiate String^ As <s> = String::Constructor("Hello").concat(String::Constructor(" World"));
+			Run Assert::equalsString(String::Constructor("Hello World"), s, String::Constructor("concat test"));
+		}
+
+		Method <testLength> Returns None Parameters () Do {
+			Instantiate String^ As <s> = String::Constructor("XXML");
+			Run Assert::equals(Integer::Constructor(4), s.length(), String::Constructor("length test"));
+		}
+	]
+]
+
+[ Entrypoint
+	{
+		Run Console::printLine(String::Constructor("=== Test Framework Demo ==="));
+		Run Console::printLine(String::Constructor(""));
+
+		// Use reflection to discover test methods
+		Run Console::printLine(String::Constructor("Discovering tests using reflection..."));
+		Run Console::printLine(String::Constructor(""));
+
+		// Get type info for MathTests
+		Instantiate Type^ As <mathType> = Type::forName(String::Constructor("MathTests"));
+		Run Console::printLine(String::Constructor("Test class: MathTests"));
+		Run Console::printLine(String::Constructor("Method count: ").concat(mathType.getMethodCount().toString()));
+
+		// List all methods
+		Instantiate Integer^ As <i> = Integer::Constructor(0);
+		While (i.lessThan(mathType.getMethodCount())) -> {
+			Instantiate MethodInfo^ As <method> = mathType.getMethodAt(i);
+			Instantiate String^ As <name> = method.getName();
+
+			If (name.startsWith(String::Constructor("test"))) -> {
+				Run Console::printLine(String::Constructor("  [TEST] ").concat(name));
+			} Else {
+				Run Console::printLine(String::Constructor("  [    ] ").concat(name));
+			}
+
+			Set i = i.add(Integer::Constructor(1));
+		}
+
+		Run Console::printLine(String::Constructor(""));
+
+		// Run test runner
+		Instantiate TestRunner^ As <runner> = TestRunner::Constructor();
+
+		Run Console::printLine(String::Constructor("Running MathTests..."));
+		Instantiate TestSummary^ As <mathSummary> = runner.runTestClass(String::Constructor("MathTests"));
+
+		Run Console::printLine(String::Constructor(""));
+		Run Console::printLine(String::Constructor("Running StringTests..."));
+		Instantiate TestSummary^ As <stringSummary> = runner.runTestClass(String::Constructor("StringTests"));
+
+		// Print combined summary
+		Run Console::printLine(String::Constructor(""));
+		Run Console::printLine(String::Constructor("=== Combined Summary ==="));
+		Run Console::printLine(String::Constructor("MathTests: ").concat(mathSummary.passedTests.toString()).concat(String::Constructor(" passed")));
+		Run Console::printLine(String::Constructor("StringTests: ").concat(stringSummary.passedTests.toString()).concat(String::Constructor(" passed")));
+
+		Run Console::printLine(String::Constructor(""));
+		Run Console::printLine(String::Constructor("=== Demo Complete ==="));
+		Exit(0);
+	}
+]

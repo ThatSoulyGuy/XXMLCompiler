@@ -1,0 +1,84 @@
+// Tests for Sendable and Sharable constraints in the type system
+// Verifies that the derive handlers correctly validate concurrency markers
+
+#import Language::Core;
+
+// A Sendable class - only owned fields of primitive types
+@Derive(trait = "Sendable")
+[ Class <SendableData> Final Extends None
+    [ Private <>
+        Property <value> Types Integer^;
+    ]
+    [ Public <>
+        Constructor Parameters (Parameter <v> Types Integer^) -> {
+            Set value = v;
+        }
+        Method <getValue> Returns Integer^ Parameters () Do {
+            Return value;
+        }
+    ]
+]
+
+// A Sharable class - immutable data
+@Derive(trait = "Sharable")
+[ Class <SharableConfig> Final Extends None
+    [ Private <>
+        Property <name> Types String^;
+    ]
+    [ Public <>
+        Constructor Parameters (Parameter <n> Types String^) -> {
+            Set name = n;
+        }
+        Method <getName> Returns String^ Parameters () Do {
+            Return name;
+        }
+    ]
+]
+
+// Class with both traits
+@Derive(trait = "Sendable")
+@Derive(trait = "Sharable")
+[ Class <ImmutablePoint> Final Extends None
+    [ Private <>
+        Property <x> Types Integer^;
+        Property <y> Types Integer^;
+    ]
+    [ Public <>
+        Constructor Parameters (Parameter <xVal> Types Integer^, Parameter <yVal> Types Integer^) -> {
+            Set x = xVal;
+            Set y = yVal;
+        }
+        Method <getX> Returns Integer^ Parameters () Do {
+            Return x;
+        }
+        Method <getY> Returns Integer^ Parameters () Do {
+            Return y;
+        }
+    ]
+]
+
+[ Entrypoint
+    {
+        // Test Sendable with SendableData
+        Instantiate SendableData^ As <sendData> = SendableData::Constructor(Integer::Constructor(42));
+        Run Console::printLine(String::Constructor("SendableData value: ").append(sendData.getValue().toString()));
+
+        // Test Sharable with SharableConfig
+        Instantiate SharableConfig^ As <shareConfig> = SharableConfig::Constructor(String::Constructor("test-config"));
+        Run Console::printLine(String::Constructor("SharableConfig name: ").append(shareConfig.getName()));
+
+        // Test both traits with ImmutablePoint
+        Instantiate ImmutablePoint^ As <point> = ImmutablePoint::Constructor(
+            Integer::Constructor(10),
+            Integer::Constructor(20)
+        );
+        Run Console::printLine(String::Constructor("ImmutablePoint: (")
+            .append(point.getX().toString())
+            .append(String::Constructor(", "))
+            .append(point.getY().toString())
+            .append(String::Constructor(")")));
+
+        Run Console::printLine(String::Constructor("Concurrency constraint test passed!"));
+        Exit(0);
+    }
+]

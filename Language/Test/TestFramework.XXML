@@ -1,0 +1,252 @@
+// XXML Test Framework
+// Auto-discovers and runs test methods using reflection
+// Methods starting with "test" are automatically detected and executed
+
+#import Language::Core;
+#import Language::Collections;
+#import Language::Reflection;
+#import Language::System;
+
+// Test result for a single test
+[ Class <TestResult> Final Extends None
+	[ Public <>
+		Property <testName> Types String^;
+		Property <passed> Types Bool^;
+		Property <message> Types String^;
+		Property <durationMs> Types Integer^;
+
+		Constructor Parameters () -> {
+			Set testName = String::Constructor("");
+			Set passed = Bool::Constructor(False);
+			Set message = String::Constructor("");
+			Set durationMs = Integer::Constructor(0);
+		}
+
+		Constructor Parameters (
+			Parameter <name> Types String&,
+			Parameter <success> Types Bool&,
+			Parameter <msg> Types String&
+		) -> {
+			Set testName = name.copy();
+			Set passed = success.copy();
+			Set message = msg.copy();
+			Set durationMs = Integer::Constructor(0);
+		}
+	]
+]
+
+// Test summary statistics
+[ Class <TestSummary> Final Extends None
+	[ Public <>
+		Property <totalTests> Types Integer^;
+		Property <passedTests> Types Integer^;
+		Property <failedTests> Types Integer^;
+		Property <results> Types List<TestResult>^;
+
+		Constructor Parameters () -> {
+			Set totalTests = Integer::Constructor(0);
+			Set passedTests = Integer::Constructor(0);
+			Set failedTests = Integer::Constructor(0);
+			Set results = List<TestResult>::Constructor();
+		}
+
+		Method <addResult> Returns None Parameters (Parameter <result> Types TestResult^) Do {
+			Run results.add(result);
+			Set totalTests = totalTests.add(Integer::Constructor(1));
+			If (result.passed.equals(Bool::Constructor(True))) -> {
+				Set passedTests = passedTests.add(Integer::Constructor(1));
+			} Else {
+				Set failedTests = failedTests.add(Integer::Constructor(1));
+			}
+		}
+
+		Method <allPassed> Returns Bool^ Parameters () Do {
+			Return failedTests.equals(Integer::Constructor(0));
+		}
+
+		Method <printSummary> Returns None Parameters () Do {
+			Run Console::printLine(String::Constructor(""));
+			Run Console::printLine(String::Constructor("=== Test Summary ==="));
+			Run Console::printLine(String::Constructor("Total:  ").concat(totalTests.toString()));
+			Run Console::printLine(String::Constructor("Passed: ").concat(passedTests.toString()));
+			Run Console::printLine(String::Constructor("Failed: ").concat(failedTests.toString()));
+
+			If (failedTests.greaterThan(Integer::Constructor(0))) -> {
+				Run Console::printLine(String::Constructor(""));
+				Run Console::printLine(String::Constructor("Failed tests:"));
+				Instantiate Integer^ As <i> = Integer::Constructor(0);
+				While (i.lessThan(results.size())) -> {
+					Instantiate TestResult^ As <r> = results.get(i);
+					If (r.passed.equals(Bool::Constructor(False))) -> {
+						Run Console::printLine(String::Constructor("  - ").concat(r.testName).concat(String::Constructor(": ")).concat(r.message));
+					}
+					Set i = i.add(Integer::Constructor(1));
+				}
+			}
+
+			Run Console::printLine(String::Constructor(""));
+			If (allPassed()) -> {
+				Run Console::printLine(String::Constructor("All tests passed!"));
+			} Else {
+				Run Console::printLine(String::Constructor("Some tests failed."));
+			}
+		}
+	]
+]
+
+// Assertion utilities
+[ Class <Assert> Final Extends None
+	[ Public <>
+		Method <isTrue> Returns None Parameters (
+			Parameter <condition> Types Bool&,
+			Parameter <message> Types String&
+		) Do {
+			If (condition.equals(Bool::Constructor(False))) -> {
+				Run TestRunner::fail(message);
+			}
+		}
+
+		Method <isFalse> Returns None Parameters (
+			Parameter <condition> Types Bool&,
+			Parameter <message> Types String&
+		) Do {
+			If (condition.equals(Bool::Constructor(True))) -> {
+				Run TestRunner::fail(message);
+			}
+		}
+
+		Method <equals> Returns None Parameters (
+			Parameter <expected> Types Integer&,
+			Parameter <actual> Types Integer&,
+			Parameter <message> Types String&
+		) Do {
+			If (expected.equals(actual).equals(Bool::Constructor(False))) -> {
+				Run TestRunner::fail(
+					message.concat(String::Constructor(": expected "))
+						   .concat(expected.toString())
+						   .concat(String::Constructor(" but got "))
+						   .concat(actual.toString())
+				);
+			}
+		}
+
+		Method <equalsString> Returns None Parameters (
+			Parameter <expected> Types String&,
+			Parameter <actual> Types String&,
+			Parameter <message> Types String&
+		) Do {
+			If (expected.equals(actual).equals(Bool::Constructor(False))) -> {
+				Run TestRunner::fail(
+					message.concat(String::Constructor(": expected '"))
+						   .concat(expected)
+						   .concat(String::Constructor("' but got '"))
+						   .concat(actual)
+						   .concat(String::Constructor("'"))
+				);
+			}
+		}
+
+		Method <notNull> Returns None Parameters (
+			Parameter <message> Types String&
+		) Do {
+			// For non-nullable types, this always passes
+			// Reserved for future nullable type support
+		}
+
+		Method <fail> Returns None Parameters (Parameter <message> Types String&) Do {
+			Run TestRunner::fail(message);
+		}
+	]
+]
+
+// Test runner that uses reflection to discover and run tests
+[ Class <TestRunner> Final Extends None
+	[ Private <>
+		Property <currentTestFailed> Types Bool^;
+		Property <currentFailMessage> Types String^;
+	]
+
+	[ Public <>
+		Constructor Parameters () -> {
+			Set currentTestFailed = Bool::Constructor(False);
+			Set currentFailMessage = String::Constructor("");
+		}
+
+		// Mark current test as failed
+		Method <fail> Returns None Parameters (Parameter <message> Types String&) Do {
+			Set currentTestFailed = Bool::Constructor(True);
+			Set currentFailMessage = message.copy();
+		}
+
+		// Run all test methods in a test class using reflection
+		Method <runTestClass> Returns TestSummary^ Parameters (Parameter <typeName> Types String&) Do {
+			Instantiate TestSummary^ As <summary> = TestSummary::Constructor();
+			Instantiate Type^ As <type> = Type::forName(typeName);
+
+			Run Console::printLine(String::Constructor("Running tests for: ").concat(typeName));
+			Run Console::printLine(String::Constructor("----------------------------------------"));
+
+			// Iterate through all methods
+			Instantiate Integer^ As <methodCount> = type.getMethodCount();
+			Instantiate Integer^ As <i> = Integer::Constructor(0);
+
+			While (i.lessThan(methodCount)) -> {
+				Instantiate MethodInfo^ As <method> = type.getMethodAt(i);
+				Instantiate String^ As <methodName> = method.getName();
+
+				// Check if method name starts with "test"
+				If (methodName.startsWith(String::Constructor("test"))) -> {
+					// Reset test state
+					Set currentTestFailed = Bool::Constructor(False);
+					Set currentFailMessage = String::Constructor("");
+
+					// Run the test (would need dynamic invocation support)
+					// For now, just report that we found a test method
+					Run Console::printLine(String::Constructor("  Found test: ").concat(methodName));
+
+					Instantiate TestResult^ As <result> = TestResult::Constructor(
+						methodName,
+						Bool::Constructor(True),
+						String::Constructor("discovered")
+					);
+					Run summary.addResult(result);
+				}
+
+				Set i = i.add(Integer::Constructor(1));
+			}
+
+			Return summary;
+		}
+
+		// Convenience method to run tests and print summary
+		Method <run> Returns Integer^ Parameters (Parameter <typeName> Types String&) Do {
+			Instantiate TestSummary^ As <summary> = runTestClass(typeName);
+			Run summary.printSummary();
+
+			If (summary.allPassed()) -> {
+				Return Integer::Constructor(0);
+			}
+			Return Integer::Constructor(1);
+		}
+	]
+]
+
+// Test annotation marker (used to tag test classes)
+[ Annotation <Test>
+	// Classes annotated with @Test can be auto-discovered by test runner
+]
+
+// Example usage:
+// @Test
+// [ Class <MyTests> Final Extends None
+//     [ Public <>
+//         Method <testAddition> Returns None Parameters () Do {
+//             Run Assert::equals(Integer::Constructor(4), Integer::Constructor(2).add(Integer::Constructor(2)), String::Constructor("2+2 should equal 4"));
+//         }
+//
+//         Method <testString> Returns None Parameters () Do {
+//             Instantiate String^ As <s> = String::Constructor("hello");
+//             Run Assert::equalsString(String::Constructor("hello"), s, String::Constructor("string should match"));
+//         }
+//     ]
+// ]

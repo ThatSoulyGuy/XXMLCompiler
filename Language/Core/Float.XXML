@@ -150,6 +150,30 @@
 				Return Bool::Constructor(false);
 			}
 
+			Method <lessOrEqual> Returns Bool^ Parameters (
+				Parameter <other> Types Float&
+			) ->
+			{
+				Instantiate NativeType<"float">^ As <v1> = value;
+				Instantiate NativeType<"float">^ As <v2> = other.value;
+				If (v1 <= v2) -> {
+					Return Bool::Constructor(true);
+				}
+				Return Bool::Constructor(false);
+			}
+
+			Method <greaterOrEqual> Returns Bool^ Parameters (
+				Parameter <other> Types Float&
+			) ->
+			{
+				Instantiate NativeType<"float">^ As <v1> = value;
+				Instantiate NativeType<"float">^ As <v2> = other.value;
+				If (v1 >= v2) -> {
+					Return Bool::Constructor(true);
+				}
+				Return Bool::Constructor(false);
+			}
+
 			// Unary operations
 			Method <negate> Returns Float^ Parameters () ->
 			{

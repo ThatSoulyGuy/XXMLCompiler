@@ -9,6 +9,9 @@
 #include "../../include/Semantic/Derives/ToStringDerive.h"
 #include "../../include/Semantic/Derives/EqDerive.h"
 #include "../../include/Semantic/Derives/HashDerive.h"
+#include "../../include/Semantic/Derives/SendableDerive.h"
+#include "../../include/Semantic/Derives/SharableDerive.h"
+#include "../../include/Semantic/Derives/JSONDerive.h"
 #include "../../include/Core/CompilationContext.h"
 #include "../../include/Core/TypeRegistry.h"
 #include "../../include/Core/FormatCompat.h"
@@ -116,6 +119,7 @@ SemanticAnalyzer::SemanticAnalyzer(Core::CompilationContext& context, Common::Er
     intrinsicMethods_["Syscall::string_concat"] = {"NativeType<\"string_ptr\">", Parser::OwnershipType::Owned};
     intrinsicMethods_["Syscall::string_copy"] = {"NativeType<\"string_ptr\">", Parser::OwnershipType::Owned};
     intrinsicMethods_["Syscall::string_equals"] = {"NativeType<\"int64\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::string_startsWith"] = {"NativeType<\"int64\">", Parser::OwnershipType::Owned};
     intrinsicMethods_["Syscall::string_hash"] = {"NativeType<\"int64\">", Parser::OwnershipType::Owned};
     intrinsicMethods_["Syscall::string_charAt"] = {"NativeType<\"cstr\">", Parser::OwnershipType::Owned};
     intrinsicMethods_["Syscall::string_setCharAt"] = {"None", Parser::OwnershipType::None};
@@ -144,6 +148,8 @@ SemanticAnalyzer::SemanticAnalyzer(Core::CompilationContext& context, Common::Er
     intrinsicMethods_["Syscall::reflection_getTypeByName"] = {"NativeType<\"ptr\">", Parser::OwnershipType::Owned};
     intrinsicMethods_["Syscall::reflection_type_getConstructorCount"] = {"NativeType<\"int64\">", Parser::OwnershipType::Owned};
     intrinsicMethods_["Syscall::reflection_type_getConstructor"] = {"NativeType<\"ptr\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::reflection_type_isSendable"] = {"NativeType<\"int64\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::reflection_type_isSharable"] = {"NativeType<\"int64\">", Parser::OwnershipType::Owned};
 
     // Language::Reflection template class methods
     intrinsicMethods_["Language::Reflection::GetType::get"] = {"Language::Reflection::Type", Parser::OwnershipType::Owned};
@@ -167,6 +173,8 @@ SemanticAnalyzer::SemanticAnalyzer(Core::CompilationContext& context, Common::Er
     intrinsicMethods_["Language::Reflection::Type::getBaseType"] = {"Language::Reflection::Type", Parser::OwnershipType::Owned};
     intrinsicMethods_["Language::Reflection::Type::getConstructorCount"] = {"Integer", Parser::OwnershipType::Owned};
     intrinsicMethods_["Language::Reflection::Type::getConstructorAt"] = {"Language::Reflection::MethodInfo", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Language::Reflection::Type::isSendable"] = {"Bool", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Language::Reflection::Type::isSharable"] = {"Bool", Parser::OwnershipType::Owned};
 
     // Language::Reflection::MethodInfo methods
     intrinsicMethods_["Language::Reflection::MethodInfo::getName"] = {"String", Parser::OwnershipType::Owned};
@@ -267,6 +275,15 @@ void SemanticAnalyzer::registerBuiltinDerives() {
 
     // Hash derive - generates hash() method
     deriveRegistry_.registerHandler(std::make_unique<Derives::HashDeriveHandler>());
+
+    // Sendable derive - marker trait for thread-safe move semantics
+    deriveRegistry_.registerHandler(std::make_unique<Derives::SendableDeriveHandler>());
+
+    // Sharable derive - marker trait for thread-safe sharing
+    deriveRegistry_.registerHandler(std::make_unique<Derives::SharableDeriveHandler>());
+
+    // JSON derive - generates toJson() and fromJson() methods for serialization
+    deriveRegistry_.registerHandler(std::make_unique<Derives::JSONDeriveHandler>());
 }
 
 // Process derive annotations for a class
@@ -2880,6 +2897,17 @@ void SemanticAnalyzer::visit(Parser::CallExpr& node) {
                     }
                 }
 
+                // Thread safety: validate lambda captures for Thread::Constructor and Thread::spawn
+                if (enableValidation && (className == "Thread" || className == "Concurrent::Thread") &&
+                    (methodName == "Constructor" || methodName == "spawn")) {
+                    // Check if any argument is a lambda expression
+                    for (const auto& arg : node.arguments) {
+                        if (auto* lambda = dynamic_cast<Parser::LambdaExpr*>(arg.get())) {
+                            validateThreadLambdaCaptures(lambda, node.location);
+                        }
+                    }
+                }
+
                 // For constructors, return the fully-qualified class name (with template args if present)
                 // instead of the generic return type from the method info
                 if (methodName == "Constructor" || methodName == "constructor") {
@@ -5020,6 +5048,140 @@ bool SemanticAnalyzer::isTypeCompatible(const std::string& actualType, const std
     return false;
 }
 
+//==============================================================================
+// CONCURRENCY MARKER CONSTRAINT HELPERS
+// Sendable and Sharable are "auto-traits" determined by structural analysis
+//==============================================================================
+
+bool SemanticAnalyzer::isSendable(const std::string& typeName, std::set<std::string>& visited) {
+    // Prevent infinite recursion for recursive types
+    if (visited.count(typeName)) {
+        return true;  // Assume sendable if we've already seen this type
+    }
+    visited.insert(typeName);
+
+    // Strip ownership qualifier if present
+    std::string baseType = typeName;
+    if (!baseType.empty() && (baseType.back() == '^' || baseType.back() == '&' || baseType.back() == '%')) {
+        baseType.pop_back();
+    }
+
+    // Primitive types are always Sendable
+    static const std::set<std::string> sendablePrimitives = {
+        "Integer", "Bool", "Float", "Double", "String", "Char",
+        "Language::Core::Integer", "Language::Core::Bool",
+        "Language::Core::Float", "Language::Core::Double",
+        "Language::Core::String", "Language::Core::Char",
+        "NativeType"  // Native types are assumed sendable (user responsibility)
+    };
+
+    if (sendablePrimitives.count(baseType)) {
+        return true;
+    }
+
+    // Check for NativeType<...> which is always sendable
+    if (baseType.find("NativeType<") == 0) {
+        return true;
+    }
+
+    // Atomic<T> is always Sendable
+    if (baseType.find("Atomic<") == 0 || baseType.find("Language::Concurrent::Atomic<") == 0) {
+        return true;
+    }
+
+    // Look up the class in the registry
+    ClassInfo* classInfo = findClass(baseType);
+    if (!classInfo) {
+        // If we can't find the class, check if it's a template parameter
+        if (templateTypeParameters.count(baseType)) {
+            return true;  // Template parameters are assumed sendable until instantiation
+        }
+        // Unknown type - be conservative and say not sendable
+        return false;
+    }
+
+    // A class is Sendable if ALL its properties are Sendable
+    for (const auto& [propName, propInfo] : classInfo->properties) {
+        const std::string& propType = propInfo.first;
+        Parser::OwnershipType ownership = propInfo.second;
+
+        // Reference (&) fields are NOT Sendable - they could become dangling across threads
+        if (ownership == Parser::OwnershipType::Reference) {
+            return false;
+        }
+
+        // For owned (^) and copy (%) fields, check if the type itself is Sendable
+        if (!isSendable(propType, visited)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool SemanticAnalyzer::isSharable(const std::string& typeName, std::set<std::string>& visited) {
+    // Prevent infinite recursion for recursive types
+    if (visited.count(typeName)) {
+        return true;  // Assume sharable if we've already seen this type
+    }
+    visited.insert(typeName);
+
+    // Strip ownership qualifier if present
+    std::string baseType = typeName;
+    if (!baseType.empty() && (baseType.back() == '^' || baseType.back() == '&' || baseType.back() == '%')) {
+        baseType.pop_back();
+    }
+
+    // Immutable primitive types are always Sharable
+    static const std::set<std::string> sharablePrimitives = {
+        "Integer", "Bool", "Float", "Double", "String", "Char",
+        "Language::Core::Integer", "Language::Core::Bool",
+        "Language::Core::Float", "Language::Core::Double",
+        "Language::Core::String", "Language::Core::Char"
+    };
+
+    if (sharablePrimitives.count(baseType)) {
+        return true;
+    }
+
+    // Atomic<T> is always Sharable (provides thread-safe access)
+    if (baseType.find("Atomic<") == 0 || baseType.find("Language::Concurrent::Atomic<") == 0) {
+        return true;
+    }
+
+    // Mutex, LockGuard, ConditionVariable are sync primitives - Sharable
+    static const std::set<std::string> syncPrimitives = {
+        "Mutex", "LockGuard", "ConditionVariable", "Semaphore",
+        "Language::Concurrent::Mutex", "Language::Concurrent::LockGuard",
+        "Language::Concurrent::ConditionVariable", "Language::Concurrent::Semaphore"
+    };
+    if (syncPrimitives.count(baseType)) {
+        return true;
+    }
+
+    // Look up the class in the registry
+    ClassInfo* classInfo = findClass(baseType);
+    if (!classInfo) {
+        // If we can't find the class, check if it's a template parameter
+        if (templateTypeParameters.count(baseType)) {
+            return true;  // Template parameters are assumed sharable until instantiation
+        }
+        // Unknown type - be conservative and say not sharable
+        return false;
+    }
+
+    // For now, a class is Sharable if ALL its properties are of Sharable types
+    // (Future: could also check for Mutex-protected mutable state patterns)
+    for (const auto& [propName, propInfo] : classInfo->properties) {
+        const std::string& propType = propInfo.first;
+        if (!isSharable(propType, visited)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 bool SemanticAnalyzer::validateConstraint(const std::string& typeName,
                                           const std::vector<Parser::ConstraintRef>& constraints,
                                           bool constraintsAreAnd,
@@ -5054,6 +5216,18 @@ bool SemanticAnalyzer::validateSingleConstraint(const std::string& typeName,
                                                 const Parser::ConstraintRef& constraint,
                                                 const std::unordered_map<std::string, std::string>& providedSubstitutions,
                                                 bool reportErrors) {
+    // Handle marker constraints (Sendable, Sharable) that don't have method requirements
+    // These are determined by structural analysis of the type's fields
+    if (constraint.name == "Sendable" || constraint.name == "Language::Core::Sendable") {
+        std::set<std::string> visited;
+        return isSendable(typeName, visited);
+    }
+
+    if (constraint.name == "Sharable" || constraint.name == "Language::Core::Sharable") {
+        std::set<std::string> visited;
+        return isSharable(typeName, visited);
+    }
+
     // Resolve template arguments in constraint
     // e.g., Hashable<T> where T=String becomes Hashable<String>
     std::vector<std::string> resolvedArgs;
@@ -5916,6 +6090,49 @@ void SemanticAnalyzer::checkVariableNotMoved(const std::string& varName, const C
 
 void SemanticAnalyzer::resetMovedVariables() {
     movedVariables_.clear();
+}
+
+void SemanticAnalyzer::validateThreadLambdaCaptures(Parser::LambdaExpr* lambda, const Common::SourceLocation& loc) {
+    if (!lambda) return;
+
+    // Check each capture in the lambda
+    for (const auto& capture : lambda->captures) {
+        // Resolve the captured variable's type
+        auto* symbol = symbolTable_->resolve(capture.varName);
+        if (!symbol) continue;  // Variable not found - already reported in lambda visitor
+
+        std::string capturedType = symbol->typeName;
+
+        // Strip ownership markers from type name for Sendable check
+        if (!capturedType.empty() &&
+            (capturedType.back() == '^' || capturedType.back() == '&' || capturedType.back() == '%')) {
+            capturedType.pop_back();
+        }
+
+        // Reference captures are never Sendable (could become dangling)
+        if (capture.mode == Parser::LambdaExpr::CaptureMode::Reference) {
+            errorReporter.reportError(
+                Common::ErrorCode::TypeMismatch,
+                "Cannot pass lambda with reference capture '" + capture.varName + "' to Thread::spawn. "
+                "References (&) cannot be safely sent across thread boundaries because they may become dangling. "
+                "Use owned (^) or copy (%) capture instead.",
+                loc
+            );
+            continue;
+        }
+
+        // For owned and copy captures, check if the captured type is Sendable
+        std::set<std::string> visited;
+        if (!isSendable(capturedType, visited)) {
+            errorReporter.reportError(
+                Common::ErrorCode::TypeMismatch,
+                "Cannot pass lambda to Thread::spawn: captured variable '" + capture.varName +
+                "' has type '" + capturedType + "' which is not Sendable. "
+                "All captured values must be Sendable to safely cross thread boundaries.",
+                loc
+            );
+        }
+    }
 }
 
 void SemanticAnalyzer::registerFunctionType(const std::string& varName, Parser::FunctionTypeRef* funcType) {

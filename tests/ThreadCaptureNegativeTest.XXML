@@ -1,0 +1,23 @@
+// Negative test for Thread lambda capture validation
+// This should FAIL to compile because the lambda captures a reference
+
+#import Language::Core;
+#import Language::Concurrent;
+
+[ Entrypoint
+    {
+        Instantiate Integer^ As <value> = Integer::Constructor(42);
+
+        // This should fail: capturing a reference in a thread lambda
+        // References cannot be safely sent across thread boundaries
+        Instantiate Thread^ As <t> = Thread::Constructor(
+            [ Lambda [&value] Returns None^ Parameters () {
+                Run Console::printLine(value.toString());
+            }]
+        );
+
+        Run t.join();
+        Run Console::printLine(String::Constructor("This should not compile!"));
+        Exit(0);
+    }
+]

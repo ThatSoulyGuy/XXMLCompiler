@@ -1,0 +1,82 @@
+// Test for isSendable() and isSharable() reflection methods on Type
+// Verifies that Type.isSendable() and Type.isSharable() work at runtime
+
+#import Language::Core;
+#import Language::Reflection;
+
+// A simple class with only owned fields - should be Sendable and Sharable
+[ Class <SimpleClass> Final Extends None
+    [ Private <>
+        Property <value> Types Integer^;
+    ]
+    [ Public <>
+        Constructor Parameters (Parameter <v> Types Integer^) -> {
+            Set value = v;
+        }
+        Method <getValue> Returns Integer^ Parameters () Do {
+            Return value;
+        }
+    ]
+]
+
+// A class with a reference field - should NOT be Sendable
+[ Class <RefClass> Final Extends None
+    [ Private <>
+        Property <ref> Types Integer&;
+    ]
+    [ Public <>
+        Constructor Parameters (Parameter <r> Types Integer&) -> {
+            Set ref = r;
+        }
+    ]
+]
+
+[ Entrypoint
+    {
+        // Test 1: Integer should be Sendable and Sharable
+        Instantiate Type^ As <intType> = Type::forName(String::Constructor("Language::Core::Integer"));
+        Run Console::printLine(String::Constructor("Testing Integer type:"));
+
+        If (intType.isSendable()) -> {
+            Run Console::printLine(String::Constructor("  Integer is Sendable: YES"));
+        } Else -> {
+            Run Console::printLine(String::Constructor("  Integer is Sendable: NO (UNEXPECTED)"));
+        }
+
+        If (intType.isSharable()) -> {
+            Run Console::printLine(String::Constructor("  Integer is Sharable: YES"));
+        } Else -> {
+            Run Console::printLine(String::Constructor("  Integer is Sharable: NO (UNEXPECTED)"));
+        }
+
+        // Test 2: SimpleClass should be Sendable and Sharable
+        Instantiate Type^ As <simpleType> = Type::forName(String::Constructor("SimpleClass"));
+        Run Console::printLine(String::Constructor("Testing SimpleClass type:"));
+
+        If (simpleType.isSendable()) -> {
+            Run Console::printLine(String::Constructor("  SimpleClass is Sendable: YES"));
+        } Else -> {
+            Run Console::printLine(String::Constructor("  SimpleClass is Sendable: NO"));
+        }
+
+        If (simpleType.isSharable()) -> {
+            Run Console::printLine(String::Constructor("  SimpleClass is Sharable: YES"));
+        } Else -> {
+            Run Console::printLine(String::Constructor("  SimpleClass is Sharable: NO"));
+        }
+
+        // Test 3: RefClass should NOT be Sendable (has reference field)
+        Instantiate Type^ As <refType> = Type::forName(String::Constructor("RefClass"));
+        Run Console::printLine(String::Constructor("Testing RefClass type (has reference field):"));
+
+        If (refType.isSendable()) -> {
+            Run Console::printLine(String::Constructor("  RefClass is Sendable: YES (UNEXPECTED)"));
+        } Else -> {
+            Run Console::printLine(String::Constructor("  RefClass is Sendable: NO (as expected)"));
+        }
+
+        Run Console::printLine(String::Constructor("Sendable/Sharable reflection test completed!"));
+
+        Exit(0);
+    }
+]

@@ -17,5 +17,6 @@
 //   @Negative            - Validate negative number value
 //   @Todo(task)          - Development reminder message
 //   @Experimental        - Mark API as experimental
+//   @Unsafe(reason)      - Override Sendable/Sharable checks for FFI types
 
 #import Language::Core;

@@ -1,0 +1,486 @@
+// XXML Plugin System Demo
+// Demonstrates reflection-based plugin discovery and management
+// This is a conceptual demo showing the plugin pattern
+
+#import Language::Core;
+#import Language::Collections;
+#import Language::Reflection;
+#import Language::System;
+
+// Plugin annotation to mark plugin classes
+[ Annotation <Plugin>
+	Property <name> Types String^;
+	Property <version> Types String^;
+	Property <author> Types String^;
+]
+
+// PluginDependency annotation to declare dependencies
+[ Annotation <PluginDependency>
+	Property <pluginName> Types String^;
+	Property <minVersion> Types String^;
+]
+
+// Plugin state enumeration
+[ Class <PluginState> Final Extends None
+	[ Public <>
+		Property <value> Types Integer^;
+
+		Constructor Parameters (Parameter <v> Types Integer&) -> {
+			Set value = v.copy();
+		}
+
+		Method <toString> Returns String^ Parameters () Do {
+			If (value.equals(Integer::Constructor(0))) -> {
+				Return String::Constructor("DISCOVERED");
+			}
+			If (value.equals(Integer::Constructor(1))) -> {
+				Return String::Constructor("LOADED");
+			}
+			If (value.equals(Integer::Constructor(2))) -> {
+				Return String::Constructor("ENABLED");
+			}
+			If (value.equals(Integer::Constructor(3))) -> {
+				Return String::Constructor("DISABLED");
+			}
+			Return String::Constructor("UNKNOWN");
+		}
+	]
+
+	// Static constants
+	[ Public <>
+		Method <DISCOVERED> Returns PluginState^ Parameters () Do {
+			Return PluginState::Constructor(Integer::Constructor(0));
+		}
+		Method <LOADED> Returns PluginState^ Parameters () Do {
+			Return PluginState::Constructor(Integer::Constructor(1));
+		}
+		Method <ENABLED> Returns PluginState^ Parameters () Do {
+			Return PluginState::Constructor(Integer::Constructor(2));
+		}
+		Method <DISABLED> Returns PluginState^ Parameters () Do {
+			Return PluginState::Constructor(Integer::Constructor(3));
+		}
+	]
+]
+
+// Plugin metadata extracted from annotations
+[ Class <PluginInfo> Final Extends None
+	[ Public <>
+		Property <typeName> Types String^;
+		Property <name> Types String^;
+		Property <version> Types String^;
+		Property <author> Types String^;
+		Property <state> Types PluginState^;
+		Property <dependencies> Types List<String>^;
+
+		Constructor Parameters () -> {
+			Set typeName = String::Constructor("");
+			Set name = String::Constructor("");
+			Set version = String::Constructor("");
+			Set author = String::Constructor("");
+			Set state = PluginState::DISCOVERED();
+			Set dependencies = List<String>::Constructor();
+		}
+
+		Method <toString> Returns String^ Parameters () Do {
+			Return name.concat(String::Constructor(" v"))
+				.concat(version)
+				.concat(String::Constructor(" by "))
+				.concat(author)
+				.concat(String::Constructor(" ["))
+				.concat(state.toString())
+				.concat(String::Constructor("]"));
+		}
+	]
+]
+
+// Plugin interface that all plugins must implement
+[ Class <IPlugin> Final Extends None
+	[ Public <>
+		Constructor = default;
+
+		// Called when plugin is loaded
+		Method <onLoad> Returns Bool^ Parameters () Do {
+			Return Bool::Constructor(True);
+		}
+
+		// Called when plugin is enabled
+		Method <onEnable> Returns None Parameters () Do {
+			// Override in subclass
+		}
+
+		// Called when plugin is disabled
+		Method <onDisable> Returns None Parameters () Do {
+			// Override in subclass
+		}
+
+		// Called when plugin is unloaded
+		Method <onUnload> Returns None Parameters () Do {
+			// Override in subclass
+		}
+
+		// Execute plugin functionality
+		Method <execute> Returns String^ Parameters (Parameter <command> Types String&) Do {
+			Return String::Constructor("Not implemented");
+		}
+	]
+]
+
+// Plugin manager that discovers, loads, and manages plugins
+[ Class <PluginManager> Final Extends None
+	[ Private <>
+		Property <plugins> Types List<PluginInfo>^;
+		Property <loadedPlugins> Types HashMap<String, IPlugin>^;
+	]
+
+	[ Public <>
+		Constructor Parameters () -> {
+			Set plugins = List<PluginInfo>::Constructor();
+			Set loadedPlugins = HashMap<String, IPlugin>::Constructor();
+		}
+
+		// Discover plugins by scanning type names
+		Method <discoverPlugin> Returns PluginInfo^ Parameters (Parameter <typeName> Types String&) Do {
+			Instantiate Type^ As <type> = Type::forName(typeName);
+			Instantiate PluginInfo^ As <info> = PluginInfo::Constructor();
+
+			Set info.typeName = typeName.copy();
+
+			// Extract metadata from type reflection
+			Set info.name = type.getName();
+			Set info.version = String::Constructor("1.0.0");
+			Set info.author = String::Constructor("Unknown");
+
+			// Get method count to understand plugin capabilities
+			Instantiate Integer^ As <methodCount> = type.getMethodCount();
+			Run Console::printLine(String::Constructor("  Methods found: ").concat(methodCount.toString()));
+
+			Run plugins.add(info);
+			Return info;
+		}
+
+		// Register a plugin by type name
+		Method <registerPlugin> Returns None Parameters (
+			Parameter <typeName> Types String&,
+			Parameter <name> Types String&,
+			Parameter <version> Types String&,
+			Parameter <author> Types String&
+		) Do {
+			Instantiate PluginInfo^ As <info> = PluginInfo::Constructor();
+			Set info.typeName = typeName.copy();
+			Set info.name = name.copy();
+			Set info.version = version.copy();
+			Set info.author = author.copy();
+			Set info.state = PluginState::DISCOVERED();
+
+			Run plugins.add(info);
+			Run Console::printLine(String::Constructor("Registered plugin: ").concat(info.toString()));
+		}
+
+		// Get all registered plugins
+		Method <getPlugins> Returns List<PluginInfo>^ Parameters () Do {
+			Return plugins;
+		}
+
+		// Get plugin by name
+		Method <getPlugin> Returns PluginInfo^ Parameters (Parameter <name> Types String&) Do {
+			Instantiate Integer^ As <i> = Integer::Constructor(0);
+			While (i.lessThan(plugins.size())) -> {
+				Instantiate PluginInfo^ As <info> = plugins.get(i);
+				If (info.name.equals(name)) -> {
+					Return info;
+				}
+				Set i = i.add(Integer::Constructor(1));
+			}
+			Return PluginInfo::Constructor(); // Return empty if not found
+		}
+
+		// Enable a plugin
+		Method <enablePlugin> Returns Bool^ Parameters (Parameter <name> Types String&) Do {
+			Instantiate PluginInfo^ As <info> = getPlugin(name);
+			If (info.name.equals(String::Constructor(""))) -> {
+				Run Console::printLine(String::Constructor("Plugin not found: ").concat(name));
+				Return Bool::Constructor(False);
+			}
+
+			// Check dependencies
+			If (info.dependencies.size().greaterThan(Integer::Constructor(0))) -> {
+				Run Console::printLine(String::Constructor("Checking dependencies for: ").concat(name));
+				Instantiate Integer^ As <d> = Integer::Constructor(0);
+				While (d.lessThan(info.dependencies.size())) -> {
+					Instantiate String^ As <dep> = info.dependencies.get(d);
+					Instantiate PluginInfo^ As <depInfo> = getPlugin(dep);
+					If (depInfo.state.value.lessThan(Integer::Constructor(2))) -> {
+						Run Console::printLine(String::Constructor("  Missing dependency: ").concat(dep));
+						Return Bool::Constructor(False);
+					}
+					Set d = d.add(Integer::Constructor(1));
+				}
+			}
+
+			Set info.state = PluginState::ENABLED();
+			Run Console::printLine(String::Constructor("Enabled plugin: ").concat(name));
+			Return Bool::Constructor(True);
+		}
+
+		// Disable a plugin
+		Method <disablePlugin> Returns Bool^ Parameters (Parameter <name> Types String&) Do {
+			Instantiate PluginInfo^ As <info> = getPlugin(name);
+			If (info.name.equals(String::Constructor(""))) -> {
+				Return Bool::Constructor(False);
+			}
+
+			Set info.state = PluginState::DISABLED();
+			Run Console::printLine(String::Constructor("Disabled plugin: ").concat(name));
+			Return Bool::Constructor(True);
+		}
+
+		// List all plugins with their states
+		Method <listPlugins> Returns None Parameters () Do {
+			Run Console::printLine(String::Constructor("Registered Plugins:"));
+			Run Console::printLine(String::Constructor("-------------------"));
+
+			Instantiate Integer^ As <i> = Integer::Constructor(0);
+			While (i.lessThan(plugins.size())) -> {
+				Instantiate PluginInfo^ As <info> = plugins.get(i);
+				Run Console::printLine(String::Constructor("  ").concat(info.toString()));
+				Set i = i.add(Integer::Constructor(1));
+			}
+		}
+
+		// Introspect a plugin using reflection
+		Method <introspect> Returns None Parameters (Parameter <typeName> Types String&) Do {
+			Run Console::printLine(String::Constructor("Introspecting: ").concat(typeName));
+			Run Console::printLine(String::Constructor(""));
+
+			Instantiate Type^ As <type> = Type::forName(typeName);
+
+			// Show properties
+			Run Console::printLine(String::Constructor("Properties (").concat(type.getPropertyCount().toString()).concat(String::Constructor("):")));
+			Instantiate Integer^ As <i> = Integer::Constructor(0);
+			While (i.lessThan(type.getPropertyCount())) -> {
+				Instantiate PropertyInfo^ As <prop> = type.getPropertyAt(i);
+				Run Console::printLine(String::Constructor("  - ")
+					.concat(prop.getName())
+					.concat(String::Constructor(": "))
+					.concat(prop.getTypeName()));
+				Set i = i.add(Integer::Constructor(1));
+			}
+
+			// Show methods
+			Run Console::printLine(String::Constructor(""));
+			Run Console::printLine(String::Constructor("Methods (").concat(type.getMethodCount().toString()).concat(String::Constructor("):")));
+			Set i = Integer::Constructor(0);
+			While (i.lessThan(type.getMethodCount())) -> {
+				Instantiate MethodInfo^ As <method> = type.getMethodAt(i);
+				Run Console::printLine(String::Constructor("  - ")
+					.concat(method.getName())
+					.concat(String::Constructor("() -> "))
+					.concat(method.getReturnTypeName()));
+				Set i = i.add(Integer::Constructor(1));
+			}
+		}
+	]
+]
+
+// Example plugin: Logger
+@Plugin(name = "LoggerPlugin", version = "1.0.0", author = "XXML Team")
+[ Class <LoggerPlugin> Final Extends IPlugin
+	[ Private <>
+		Property <logLevel> Types String^;
+		Property <logCount> Types Integer^;
+	]
+
+	[ Public <>
+		Constructor Parameters () -> {
+			Set logLevel = String::Constructor("INFO");
+			Set logCount = Integer::Constructor(0);
+		}
+
+		Method <onLoad> Returns Bool^ Parameters () Do {
+			Run Console::printLine(String::Constructor("[LoggerPlugin] Loading..."));
+			Return Bool::Constructor(True);
+		}
+
+		Method <onEnable> Returns None Parameters () Do {
+			Run Console::printLine(String::Constructor("[LoggerPlugin] Enabled"));
+		}
+
+		Method <onDisable> Returns None Parameters () Do {
+			Run Console::printLine(String::Constructor("[LoggerPlugin] Disabled"));
+		}
+
+		Method <execute> Returns String^ Parameters (Parameter <command> Types String&) Do {
+			Set logCount = logCount.add(Integer::Constructor(1));
+			Return String::Constructor("[LOG ").concat(logCount.toString())
+				.concat(String::Constructor("] "))
+				.concat(command);
+		}
+
+		Method <setLevel> Returns None Parameters (Parameter <level> Types String&) Do {
+			Set logLevel = level.copy();
+		}
+
+		Method <getStats> Returns String^ Parameters () Do {
+			Return String::Constructor("Level: ").concat(logLevel)
+				.concat(String::Constructor(", Count: "))
+				.concat(logCount.toString());
+		}
+	]
+]
+
+// Example plugin: Formatter
+@Plugin(name = "FormatterPlugin", version = "2.0.0", author = "XXML Team")
+[ Class <FormatterPlugin> Final Extends IPlugin
+	[ Public <>
+		Constructor = default;
+
+		Method <onLoad> Returns Bool^ Parameters () Do {
+			Run Console::printLine(String::Constructor("[FormatterPlugin] Loading..."));
+			Return Bool::Constructor(True);
+		}
+
+		Method <onEnable> Returns None Parameters () Do {
+			Run Console::printLine(String::Constructor("[FormatterPlugin] Enabled"));
+		}
+
+		Method <execute> Returns String^ Parameters (Parameter <command> Types String&) Do {
+			Return String::Constructor("=== ").concat(command).concat(String::Constructor(" ==="));
+		}
+
+		Method <formatBold> Returns String^ Parameters (Parameter <text> Types String&) Do {
+			Return String::Constructor("**").concat(text).concat(String::Constructor("**"));
+		}
+
+		Method <formatItalic> Returns String^ Parameters (Parameter <text> Types String&) Do {
+			Return String::Constructor("_").concat(text).concat(String::Constructor("_"));
+		}
+
+		Method <formatCode> Returns String^ Parameters (Parameter <text> Types String&) Do {
+			Return String::Constructor("`").concat(text).concat(String::Constructor("`"));
+		}
+	]
+]
+
+// Example plugin: Calculator with dependency
+@Plugin(name = "AdvancedCalc", version = "1.0.0", author = "XXML Team")
+@PluginDependency(pluginName = "LoggerPlugin", minVersion = "1.0.0")
+[ Class <AdvancedCalcPlugin> Final Extends IPlugin
+	[ Public <>
+		Constructor = default;
+
+		Method <onLoad> Returns Bool^ Parameters () Do {
+			Run Console::printLine(String::Constructor("[AdvancedCalc] Loading (requires LoggerPlugin)..."));
+			Return Bool::Constructor(True);
+		}
+
+		Method <execute> Returns String^ Parameters (Parameter <command> Types String&) Do {
+			Return String::Constructor("Calc: ").concat(command);
+		}
+
+		Method <calculate> Returns Integer^ Parameters (
+			Parameter <op> Types String&,
+			Parameter <a> Types Integer&,
+			Parameter <b> Types Integer&
+		) Do {
+			If (op.equals(String::Constructor("add"))) -> {
+				Return a.add(b);
+			}
+			If (op.equals(String::Constructor("sub"))) -> {
+				Return a.subtract(b);
+			}
+			If (op.equals(String::Constructor("mul"))) -> {
+				Return a.multiply(b);
+			}
+			Return Integer::Constructor(0);
+		}
+	]
+]
+
+[ Entrypoint
+	{
+		Run Console::printLine(String::Constructor("=== XXML Plugin System Demo ==="));
+		Run Console::printLine(String::Constructor("Demonstrating reflection-based plugin management"));
+		Run Console::printLine(String::Constructor(""));
+
+		// Create plugin manager
+		Instantiate PluginManager^ As <manager> = PluginManager::Constructor();
+
+		// Register plugins manually (simulating discovery)
+		Run Console::printLine(String::Constructor("--- Plugin Registration ---"));
+		Run manager.registerPlugin(
+			String::Constructor("LoggerPlugin"),
+			String::Constructor("LoggerPlugin"),
+			String::Constructor("1.0.0"),
+			String::Constructor("XXML Team")
+		);
+		Run manager.registerPlugin(
+			String::Constructor("FormatterPlugin"),
+			String::Constructor("FormatterPlugin"),
+			String::Constructor("2.0.0"),
+			String::Constructor("XXML Team")
+		);
+		Run manager.registerPlugin(
+			String::Constructor("AdvancedCalcPlugin"),
+			String::Constructor("AdvancedCalc"),
+			String::Constructor("1.0.0"),
+			String::Constructor("XXML Team")
+		);
+
+		// List all registered plugins
+		Run Console::printLine(String::Constructor(""));
+		Run manager.listPlugins();
+
+		// Enable some plugins
+		Run Console::printLine(String::Constructor(""));
+		Run Console::printLine(String::Constructor("--- Plugin Lifecycle ---"));
+		Run manager.enablePlugin(String::Constructor("LoggerPlugin"));
+		Run manager.enablePlugin(String::Constructor("FormatterPlugin"));
+
+		// List again to show state changes
+		Run Console::printLine(String::Constructor(""));
+		Run manager.listPlugins();
+
+		// Introspect plugins using reflection
+		Run Console::printLine(String::Constructor(""));
+		Run Console::printLine(String::Constructor("--- Plugin Introspection ---"));
+		Run manager.introspect(String::Constructor("LoggerPlugin"));
+
+		Run Console::printLine(String::Constructor(""));
+		Run manager.introspect(String::Constructor("FormatterPlugin"));
+
+		// Demonstrate plugin execution
+		Run Console::printLine(String::Constructor(""));
+		Run Console::printLine(String::Constructor("--- Plugin Execution Demo ---"));
+
+		Instantiate LoggerPlugin^ As <logger> = LoggerPlugin::Constructor();
+		Run logger.onLoad();
+		Run logger.onEnable();
+		Run Console::printLine(logger.execute(String::Constructor("User logged in")));
+		Run Console::printLine(logger.execute(String::Constructor("Processing request")));
+		Run Console::printLine(String::Constructor("Stats: ").concat(logger.getStats()));
+
+		Run Console::printLine(String::Constructor(""));
+
+		Instantiate FormatterPlugin^ As <formatter> = FormatterPlugin::Constructor();
+		Run formatter.onLoad();
+		Run formatter.onEnable();
+		Run Console::printLine(formatter.execute(String::Constructor("Hello World")));
+		Run Console::printLine(String::Constructor("Bold: ").concat(formatter.formatBold(String::Constructor("Important"))));
+		Run Console::printLine(String::Constructor("Code: ").concat(formatter.formatCode(String::Constructor("var x = 42"))));
+
+		// Disable a plugin
+		Run Console::printLine(String::Constructor(""));
+		Run Console::printLine(String::Constructor("--- Disabling Plugin ---"));
+		Run manager.disablePlugin(String::Constructor("LoggerPlugin"));
+		Run logger.onDisable();
+
+		// Final status
+		Run Console::printLine(String::Constructor(""));
+		Run manager.listPlugins();
+
+		Run Console::printLine(String::Constructor(""));
+		Run Console::printLine(String::Constructor("=== Plugin System Demo Complete ==="));
+		Exit(0);
+	}
+]

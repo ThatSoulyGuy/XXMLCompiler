@@ -7,7 +7,7 @@
  * This header provides the complete public API for extending the XXML compiler.
  * Users can register custom types, operators, backends, and more.
  *
- * @version 2.0.0
+ * @version 3.0.0
  * @date 2025
  *
  * ## Features:

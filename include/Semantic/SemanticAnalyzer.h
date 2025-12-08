@@ -231,6 +231,9 @@ private:
     void checkVariableNotMoved(const std::string& varName, const Common::SourceLocation& loc);
     void resetMovedVariables();  // Called when entering new scope
 
+    // Thread safety validation for lambda captures
+    void validateThreadLambdaCaptures(Parser::LambdaExpr* lambda, const Common::SourceLocation& loc);
+
     // Function type tracking helpers
     void registerFunctionType(const std::string& varName, Parser::FunctionTypeRef* funcType);
     std::vector<Parser::OwnershipType>* getFunctionTypeParams(const std::string& varName);
@@ -324,6 +327,7 @@ private:
     bool evaluateTruthCondition(Parser::Expression* expr,
                                const std::unordered_map<std::string, std::string>& typeSubstitutions);
     bool isTypeCompatible(const std::string& actualType, const std::string& constraintType);
+
     // Compile-time helpers
     bool isCompiletimeType(const std::string& typeName) const;
     bool isCompiletimeMethod(const std::string& className, const std::string& methodName);
@@ -354,6 +358,11 @@ private:
         const std::vector<Parser::TemplateParameter>& templateParams);
 
 public:
+    // Concurrency marker constraint helpers (public for derive handlers)
+    // These are "auto-traits" determined by structural analysis of type fields
+    bool isSendable(const std::string& typeName, std::set<std::string>& visited);
+    bool isSharable(const std::string& typeName, std::set<std::string>& visited);
+
     // Method lookup for code generation (needed by backends)
     MethodInfo* findMethod(const std::string& className, const std::string& methodName);
     // Get template instantiations for code generation

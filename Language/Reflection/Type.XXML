@@ -233,6 +233,33 @@
 
 				Return MethodInfo::Constructor(ctorPtr);
 			}
+
+			// Check if this type can be safely moved across thread boundaries
+			// A type is Sendable if:
+			// - All owned (^) fields are of Sendable types
+			// - No reference (&) fields (would become dangling)
+			// - Primitives and Atomic<T> are always Sendable
+			Method <isSendable> Returns Bool^ Parameters () ->
+			{
+				Instantiate NativeType<"ptr">^ As <ptr> = typeInfoPtr;
+				Instantiate NativeType<"int64">^ As <result> =
+					Syscall::reflection_type_isSendable(ptr);
+				Instantiate NativeType<"bool">^ As <b> = result != 0;
+				Return Bool::Constructor(b);
+			}
+
+			// Check if this type can be safely shared across threads
+			// A type is Sharable if:
+			// - All fields are of immutable/Sharable types
+			// - Atomic<T>, Mutex, sync primitives are Sharable
+			Method <isSharable> Returns Bool^ Parameters () ->
+			{
+				Instantiate NativeType<"ptr">^ As <ptr> = typeInfoPtr;
+				Instantiate NativeType<"int64">^ As <result> =
+					Syscall::reflection_type_isSharable(ptr);
+				Instantiate NativeType<"bool">^ As <b> = result != 0;
+				Return Bool::Constructor(b);
+			}
 		]
 	]
 ]

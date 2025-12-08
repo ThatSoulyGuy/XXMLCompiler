@@ -15,7 +15,7 @@ This roadmap outlines the path from current state to that vision.
 
 ---
 
-## Phase 0: Groundwork & Codebase Triage
+## Phase 0: Groundwork & Codebase Triage ✅
 
 **Goal**: Stabilize the foundation before building advanced features.
 
@@ -25,7 +25,7 @@ This roadmap outlines the path from current state to that vision.
 |------|-------------|--------|
 | Dead code cleanup | Remove unused passes and legacy code | Done |
 | Documentation overhaul | Restructure docs into language/, stdlib/, advanced/, tools/ | Done |
-| Test suite expansion | Add tests for templates, lambdas, ownership | In Progress |
+| Test suite expansion | Add tests for templates, lambdas, ownership | Done |
 | Build system modernization | CMake presets, CI/CD pipeline | Done |
 
 ### Deliverables
@@ -35,7 +35,7 @@ This roadmap outlines the path from current state to that vision.
 
 ---
 
-## Phase 1: Runtime Reflection Completion
+## Phase 1: Runtime Reflection Completion ✅
 
 **Goal**: Complete the `TypeInfo` and `FieldInfo` APIs for full runtime introspection.
 
@@ -77,7 +77,7 @@ Instantiate String^ As <nameCopy> = field.getCopy<String>(person);   // Copy
 
 ---
 
-## Phase 2: Compile-Time Reflection & Metaprogramming
+## Phase 2: Compile-Time Reflection & Metaprogramming ✅
 
 **Goal**: Enable code generation at compile-time using reflection APIs.
 
@@ -123,7 +123,7 @@ Instantiate String^ As <nameCopy> = field.getCopy<String>(person);   // Copy
 
 ---
 
-## Phase 3: Ownership Introspection & Diagnostics
+## Phase 3: Ownership Introspection & Diagnostics ✅
 
 **Goal**: Make ownership visible and queryable at both compile-time and runtime.
 
@@ -158,7 +158,7 @@ Run consume(s);
 
 ---
 
-## Phase 4: Concurrency & Send/Share Constraints
+## Phase 4: Concurrency & Send/Share Constraints ✅
 
 **Goal**: Enforce thread-safety at compile time through type constraints.
 
@@ -206,7 +206,7 @@ Run Thread::spawn([ Lambda [&someString] ... ]);  // Error!
 
 ---
 
-## Phase 5: Tooling & Language Server Integration
+## Phase 5: Tooling & Language Server Integration ✅
 
 **Goal**: Excellent developer experience through IDE integration.
 
@@ -228,7 +228,7 @@ Run Thread::spawn([ Lambda [&someString] ... ]);  // Error!
 
 ---
 
-## Phase 6: Flagship Demos
+## Phase 6: Flagship Demos ✅
 
 **Goal**: Demonstrate XXML's unique capabilities through compelling examples.
 
@@ -270,31 +270,31 @@ Instantiate User^ As <parsed> = User::fromJson(json);
 
 ---
 
-## Phase 7: Cleanup, Stabilization, and Versioning
+## Phase 7: Cleanup, Stabilization, and Versioning ✅
 
 **Goal**: Prepare for 1.0 release.
 
 ### Tasks
 
-| Task | Description |
-|------|-------------|
-| API review | Finalize public APIs |
-| Breaking change cleanup | Remove deprecated features |
-| Performance optimization | Profile and optimize hot paths |
-| Documentation polish | Complete API reference |
-| Version 1.0 | Tag stable release |
+| Task | Description | Status |
+|------|-------------|--------|
+| API review | Finalize public APIs | Done |
+| Breaking change cleanup | Remove deprecated features | Done |
+| Performance optimization | Profile and optimize hot paths | Done |
+| Documentation polish | Complete API reference | Done |
+| Version 1.0 | Tag stable release | Done |
 
 ### Version Milestones
 
-| Version | Content |
-|---------|---------|
-| 0.3.0 | Phase 0-1 complete (runtime reflection) |
-| 0.4.0 | Phase 2 complete (compile-time reflection) |
-| 0.5.0 | Phase 3 complete (ownership introspection) |
-| 0.6.0 | Phase 4 complete (concurrency constraints) |
-| 0.7.0 | Phase 5 complete (tooling) |
-| 0.9.0 | Phase 6 complete (demos) |
-| 1.0.0 | Phase 7 complete (stable release) |
+| Version | Content | Status |
+|---------|---------|--------|
+| 0.3.0 | Phase 0-1 complete (runtime reflection) | ✅ |
+| 0.4.0 | Phase 2 complete (compile-time reflection) | ✅ |
+| 0.5.0 | Phase 3 complete (ownership introspection) | ✅ |
+| 0.6.0 | Phase 4 complete (concurrency constraints) | ✅ |
+| 0.7.0 | Phase 5 complete (tooling) | ✅ |
+| 0.9.0 | Phase 6 complete (demos) | ✅ |
+| **1.0.0** | **Phase 7 complete (stable release)** | ✅ **Current** |
 
 ---
 

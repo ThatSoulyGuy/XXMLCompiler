@@ -1,0 +1,369 @@
+// XXML Simple RPC Framework Demo
+// Demonstrates reflection-based RPC stub generation
+// This is a conceptual demo showing the RPC pattern
+
+#import Language::Core;
+#import Language::Collections;
+#import Language::Reflection;
+#import Language::System;
+
+// Remote annotation to mark RPC service interfaces
+[ Annotation <Remote>
+	Property <serviceName> Types String^;
+]
+
+// RpcMethod annotation to customize method binding
+[ Annotation <RpcMethod>
+	Property <name> Types String^;
+	Property <timeout> Types Integer^;
+]
+
+// Request message wrapper
+[ Class <RpcRequest> Final Extends None
+	[ Public <>
+		Property <serviceName> Types String^;
+		Property <methodName> Types String^;
+		Property <requestId> Types Integer^;
+		Property <arguments> Types List<String>^;
+
+		Constructor Parameters () -> {
+			Set serviceName = String::Constructor("");
+			Set methodName = String::Constructor("");
+			Set requestId = Integer::Constructor(0);
+			Set arguments = List<String>::Constructor();
+		}
+
+		Method <serialize> Returns String^ Parameters () Do {
+			Instantiate String^ As <result> = String::Constructor("RPC:");
+			Set result = result.concat(serviceName).concat(String::Constructor(":"));
+			Set result = result.concat(methodName).concat(String::Constructor(":"));
+			Set result = result.concat(requestId.toString()).concat(String::Constructor(":"));
+
+			// Serialize arguments
+			Instantiate Integer^ As <i> = Integer::Constructor(0);
+			While (i.lessThan(arguments.size())) -> {
+				If (i.greaterThan(Integer::Constructor(0))) -> {
+					Set result = result.concat(String::Constructor(","));
+				}
+				Set result = result.concat(arguments.get(i));
+				Set i = i.add(Integer::Constructor(1));
+			}
+
+			Return result;
+		}
+	]
+]
+
+// Response message wrapper
+[ Class <RpcResponse> Final Extends None
+	[ Public <>
+		Property <requestId> Types Integer^;
+		Property <success> Types Bool^;
+		Property <result> Types String^;
+		Property <errorMessage> Types String^;
+
+		Constructor Parameters () -> {
+			Set requestId = Integer::Constructor(0);
+			Set success = Bool::Constructor(False);
+			Set result = String::Constructor("");
+			Set errorMessage = String::Constructor("");
+		}
+
+		Method <setSuccess> Returns None Parameters (Parameter <res> Types String&) Do {
+			Set success = Bool::Constructor(True);
+			Set result = res.copy();
+			Set errorMessage = String::Constructor("");
+		}
+
+		Method <setError> Returns None Parameters (Parameter <msg> Types String&) Do {
+			Set success = Bool::Constructor(False);
+			Set result = String::Constructor("");
+			Set errorMessage = msg.copy();
+		}
+
+		Method <serialize> Returns String^ Parameters () Do {
+			Instantiate String^ As <out> = String::Constructor("RESP:");
+			Set out = out.concat(requestId.toString()).concat(String::Constructor(":"));
+			If (success.equals(Bool::Constructor(True))) -> {
+				Set out = out.concat(String::Constructor("OK:")).concat(result);
+			} Else {
+				Set out = out.concat(String::Constructor("ERR:")).concat(errorMessage);
+			}
+			Return out;
+		}
+	]
+]
+
+// Stub generator that uses reflection to create RPC metadata
+[ Class <StubGenerator> Final Extends None
+	[ Public <>
+		// Generate client stub code for a service interface
+		Method <generateClientStub> Returns String^ Parameters (Parameter <typeName> Types String&) Do {
+			Instantiate Type^ As <type> = Type::forName(typeName);
+			Instantiate String^ As <stub> = String::Constructor("// Auto-generated client stub for ");
+			Set stub = stub.concat(typeName).concat(String::Constructor("\n\n"));
+
+			Set stub = stub.concat(String::Constructor("[ Class <")).concat(typeName).concat(String::Constructor("Client> Final Extends None\n"));
+			Set stub = stub.concat(String::Constructor("\t[ Private <>\n"));
+			Set stub = stub.concat(String::Constructor("\t\tProperty <endpoint> Types String^;\n"));
+			Set stub = stub.concat(String::Constructor("\t\tProperty <nextRequestId> Types Integer^;\n"));
+			Set stub = stub.concat(String::Constructor("\t]\n\n"));
+
+			Set stub = stub.concat(String::Constructor("\t[ Public <>\n"));
+			Set stub = stub.concat(String::Constructor("\t\tConstructor Parameters (Parameter <ep> Types String&) -> {\n"));
+			Set stub = stub.concat(String::Constructor("\t\t\tSet endpoint = ep.copy();\n"));
+			Set stub = stub.concat(String::Constructor("\t\t\tSet nextRequestId = Integer::Constructor(1);\n"));
+			Set stub = stub.concat(String::Constructor("\t\t}\n\n"));
+
+			// Generate stub method for each method in the interface
+			Instantiate Integer^ As <i> = Integer::Constructor(0);
+			While (i.lessThan(type.getMethodCount())) -> {
+				Instantiate MethodInfo^ As <method> = type.getMethodAt(i);
+				Set stub = stub.concat(generateMethodStub(method, typeName));
+				Set i = i.add(Integer::Constructor(1));
+			}
+
+			Set stub = stub.concat(String::Constructor("\t]\n"));
+			Set stub = stub.concat(String::Constructor("]\n"));
+
+			Return stub;
+		}
+
+		// Generate server skeleton code
+		Method <generateServerSkeleton> Returns String^ Parameters (Parameter <typeName> Types String&) Do {
+			Instantiate Type^ As <type> = Type::forName(typeName);
+			Instantiate String^ As <skel> = String::Constructor("// Auto-generated server skeleton for ");
+			Set skel = skel.concat(typeName).concat(String::Constructor("\n\n"));
+
+			Set skel = skel.concat(String::Constructor("[ Class <")).concat(typeName).concat(String::Constructor("Server> Final Extends None\n"));
+			Set skel = skel.concat(String::Constructor("\t[ Private <>\n"));
+			Set skel = skel.concat(String::Constructor("\t\tProperty <implementation> Types ")).concat(typeName).concat(String::Constructor("^;\n"));
+			Set skel = skel.concat(String::Constructor("\t]\n\n"));
+
+			Set skel = skel.concat(String::Constructor("\t[ Public <>\n"));
+			Set skel = skel.concat(String::Constructor("\t\tConstructor Parameters (Parameter <impl> Types ")).concat(typeName).concat(String::Constructor("^) -> {\n"));
+			Set skel = skel.concat(String::Constructor("\t\t\tSet implementation = impl;\n"));
+			Set skel = skel.concat(String::Constructor("\t\t}\n\n"));
+
+			// Generate dispatch method
+			Set skel = skel.concat(generateDispatchMethod(type, typeName));
+
+			Set skel = skel.concat(String::Constructor("\t]\n"));
+			Set skel = skel.concat(String::Constructor("]\n"));
+
+			Return skel;
+		}
+
+	[ Private <>
+		Method <generateMethodStub> Returns String^ Parameters (
+			Parameter <method> Types MethodInfo&,
+			Parameter <serviceName> Types String&
+		) Do {
+			Instantiate String^ As <name> = method.getName();
+			Instantiate String^ As <code> = String::Constructor("\t\t// Stub for ");
+			Set code = code.concat(name).concat(String::Constructor("\n"));
+			Set code = code.concat(String::Constructor("\t\tMethod <")).concat(name);
+			Set code = code.concat(String::Constructor("> Returns RpcResponse^ Parameters ("));
+
+			// Add parameters based on method signature
+			Instantiate Integer^ As <paramCount> = method.getParameterCount();
+			Instantiate Integer^ As <p> = Integer::Constructor(0);
+			While (p.lessThan(paramCount)) -> {
+				If (p.greaterThan(Integer::Constructor(0))) -> {
+					Set code = code.concat(String::Constructor(", "));
+				}
+				Set code = code.concat(String::Constructor("Parameter <arg")).concat(p.toString());
+				Set code = code.concat(String::Constructor("> Types String&"));
+				Set p = p.add(Integer::Constructor(1));
+			}
+
+			Set code = code.concat(String::Constructor(") Do {\n"));
+			Set code = code.concat(String::Constructor("\t\t\tInstantiate RpcRequest^ As <req> = RpcRequest::Constructor();\n"));
+			Set code = code.concat(String::Constructor("\t\t\tSet req.serviceName = String::Constructor(\"")).concat(serviceName).concat(String::Constructor("\");\n"));
+			Set code = code.concat(String::Constructor("\t\t\tSet req.methodName = String::Constructor(\"")).concat(name).concat(String::Constructor("\");\n"));
+			Set code = code.concat(String::Constructor("\t\t\tSet req.requestId = nextRequestId;\n"));
+			Set code = code.concat(String::Constructor("\t\t\tSet nextRequestId = nextRequestId.add(Integer::Constructor(1));\n"));
+
+			// Add arguments to request
+			Set p = Integer::Constructor(0);
+			While (p.lessThan(paramCount)) -> {
+				Set code = code.concat(String::Constructor("\t\t\tRun req.arguments.add(arg")).concat(p.toString()).concat(String::Constructor(");\n"));
+				Set p = p.add(Integer::Constructor(1));
+			}
+
+			Set code = code.concat(String::Constructor("\t\t\t// Serialize and send request...\n"));
+			Set code = code.concat(String::Constructor("\t\t\tReturn RpcResponse::Constructor(); // Placeholder\n"));
+			Set code = code.concat(String::Constructor("\t\t}\n\n"));
+
+			Return code;
+		}
+
+		Method <generateDispatchMethod> Returns String^ Parameters (
+			Parameter <type> Types Type&,
+			Parameter <serviceName> Types String&
+		) Do {
+			Instantiate String^ As <code> = String::Constructor("\t\t// Dispatch incoming requests to implementation\n");
+			Set code = code.concat(String::Constructor("\t\tMethod <dispatch> Returns RpcResponse^ Parameters (\n"));
+			Set code = code.concat(String::Constructor("\t\t\tParameter <request> Types RpcRequest&\n"));
+			Set code = code.concat(String::Constructor("\t\t) Do {\n"));
+			Set code = code.concat(String::Constructor("\t\t\tInstantiate RpcResponse^ As <response> = RpcResponse::Constructor();\n"));
+			Set code = code.concat(String::Constructor("\t\t\tSet response.requestId = request.requestId;\n\n"));
+
+			// Generate method dispatch cases
+			Instantiate Integer^ As <i> = Integer::Constructor(0);
+			While (i.lessThan(type.getMethodCount())) -> {
+				Instantiate MethodInfo^ As <method> = type.getMethodAt(i);
+				Instantiate String^ As <name> = method.getName();
+
+				If (i.equals(Integer::Constructor(0))) -> {
+					Set code = code.concat(String::Constructor("\t\t\tIf (request.methodName.equals(String::Constructor(\""));
+				} Else {
+					Set code = code.concat(String::Constructor("\t\t\t} Else {\n"));
+					Set code = code.concat(String::Constructor("\t\t\t\tIf (request.methodName.equals(String::Constructor(\""));
+				}
+				Set code = code.concat(name).concat(String::Constructor("\"))) -> {\n"));
+				Set code = code.concat(String::Constructor("\t\t\t\t\t// Call implementation.")).concat(name).concat(String::Constructor("(...)\n"));
+				Set code = code.concat(String::Constructor("\t\t\t\t\tRun response.setSuccess(String::Constructor(\"OK\"));\n"));
+
+				Set i = i.add(Integer::Constructor(1));
+			}
+
+			// Close all the If/Else blocks
+			Set i = Integer::Constructor(0);
+			While (i.lessThan(type.getMethodCount())) -> {
+				Set code = code.concat(String::Constructor("\t\t\t\t}\n"));
+				If (i.greaterThan(Integer::Constructor(0))) -> {
+					Set code = code.concat(String::Constructor("\t\t\t}\n"));
+				}
+				Set i = i.add(Integer::Constructor(1));
+			}
+
+			Set code = code.concat(String::Constructor("\n\t\t\tReturn response;\n"));
+			Set code = code.concat(String::Constructor("\t\t}\n\n"));
+
+			Return code;
+		}
+	]
+]
+
+// Example service interface: Calculator
+@Remote(serviceName = "Calculator")
+[ Class <ICalculator> Final Extends None
+	[ Public <>
+		Constructor = default;
+
+		@RpcMethod(name = "add", timeout = 5000)
+		Method <add> Returns Integer^ Parameters (
+			Parameter <a> Types Integer&,
+			Parameter <b> Types Integer&
+		) Do {
+			Return a.add(b);
+		}
+
+		@RpcMethod(name = "subtract", timeout = 5000)
+		Method <subtract> Returns Integer^ Parameters (
+			Parameter <a> Types Integer&,
+			Parameter <b> Types Integer&
+		) Do {
+			Return a.subtract(b);
+		}
+
+		@RpcMethod(name = "multiply", timeout = 5000)
+		Method <multiply> Returns Integer^ Parameters (
+			Parameter <a> Types Integer&,
+			Parameter <b> Types Integer&
+		) Do {
+			Return a.multiply(b);
+		}
+	]
+]
+
+// Example service interface: StringService
+@Remote(serviceName = "StringService")
+[ Class <IStringService> Final Extends None
+	[ Public <>
+		Constructor = default;
+
+		Method <concat> Returns String^ Parameters (
+			Parameter <a> Types String&,
+			Parameter <b> Types String&
+		) Do {
+			Return a.concat(b);
+		}
+
+		Method <length> Returns Integer^ Parameters (Parameter <s> Types String&) Do {
+			Return s.length();
+		}
+
+		Method <toUpper> Returns String^ Parameters (Parameter <s> Types String&) Do {
+			// Simplified - real implementation would iterate chars
+			Return s.copy();
+		}
+	]
+]
+
+[ Entrypoint
+	{
+		Run Console::printLine(String::Constructor("=== XXML RPC Framework Demo ==="));
+		Run Console::printLine(String::Constructor("Demonstrating reflection-based RPC stub generation"));
+		Run Console::printLine(String::Constructor(""));
+
+		// Create stub generator
+		Instantiate StubGenerator^ As <generator> = StubGenerator::Constructor();
+
+		// Generate client stub for Calculator service
+		Run Console::printLine(String::Constructor("--- Generated Calculator Client Stub ---"));
+		Instantiate String^ As <calcClientStub> = generator.generateClientStub(String::Constructor("ICalculator"));
+		Run Console::printLine(calcClientStub);
+
+		// Generate server skeleton for Calculator service
+		Run Console::printLine(String::Constructor("--- Generated Calculator Server Skeleton ---"));
+		Instantiate String^ As <calcServerSkel> = generator.generateServerSkeleton(String::Constructor("ICalculator"));
+		Run Console::printLine(calcServerSkel);
+
+		// Generate client stub for StringService
+		Run Console::printLine(String::Constructor("--- Generated StringService Client Stub ---"));
+		Instantiate String^ As <strClientStub> = generator.generateClientStub(String::Constructor("IStringService"));
+		Run Console::printLine(strClientStub);
+
+		// Demonstrate RPC message serialization
+		Run Console::printLine(String::Constructor("--- RPC Message Examples ---"));
+
+		Instantiate RpcRequest^ As <req> = RpcRequest::Constructor();
+		Set req.serviceName = String::Constructor("Calculator");
+		Set req.methodName = String::Constructor("add");
+		Set req.requestId = Integer::Constructor(1);
+		Run req.arguments.add(String::Constructor("5"));
+		Run req.arguments.add(String::Constructor("3"));
+
+		Run Console::printLine(String::Constructor("Request:  ").concat(req.serialize()));
+
+		Instantiate RpcResponse^ As <resp> = RpcResponse::Constructor();
+		Set resp.requestId = Integer::Constructor(1);
+		Run resp.setSuccess(String::Constructor("8"));
+
+		Run Console::printLine(String::Constructor("Response: ").concat(resp.serialize()));
+
+		// Show service discovery using reflection
+		Run Console::printLine(String::Constructor(""));
+		Run Console::printLine(String::Constructor("--- Service Discovery via Reflection ---"));
+
+		Instantiate Type^ As <calcType> = Type::forName(String::Constructor("ICalculator"));
+		Run Console::printLine(String::Constructor("Service: ICalculator"));
+		Run Console::printLine(String::Constructor("Methods: ").concat(calcType.getMethodCount().toString()));
+
+		Instantiate Integer^ As <i> = Integer::Constructor(0);
+		While (i.lessThan(calcType.getMethodCount())) -> {
+			Instantiate MethodInfo^ As <method> = calcType.getMethodAt(i);
+			Run Console::printLine(String::Constructor("  - ").concat(method.getName())
+				.concat(String::Constructor(" ("))
+				.concat(method.getParameterCount().toString())
+				.concat(String::Constructor(" params)")));
+			Set i = i.add(Integer::Constructor(1));
+		}
+
+		Run Console::printLine(String::Constructor(""));
+		Run Console::printLine(String::Constructor("=== RPC Demo Complete ==="));
+		Exit(0);
+	}
+]

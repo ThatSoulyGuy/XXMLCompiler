@@ -1,0 +1,41 @@
+// Negative test for Sendable constraint
+// This should FAIL to compile because NotSendable has a reference field
+
+#import Language::Core;
+
+// A class with a reference field - should NOT be Sendable
+[ Class <NotSendable> Final Extends None
+    [ Private <>
+        Property <ref> Types Integer&;  // Reference field - not sendable!
+    ]
+    [ Public <>
+        Constructor Parameters (Parameter <r> Types Integer&) -> {
+            Set ref = r;
+        }
+    ]
+]
+
+// Container that requires Sendable constraint on T
+[ Class <SendableContainer> <T Constrains Sendable> Final Extends None
+    [ Private <>
+        Property <item> Types T^;
+    ]
+    [ Public <>
+        Constructor Parameters (Parameter <i> Types T^) -> {
+            Set item = i;
+        }
+    ]
+]
+
+[ Entrypoint
+    {
+        // This should cause a constraint violation error
+        Instantiate Integer^ As <value> = Integer::Constructor(42);
+        Instantiate NotSendable^ As <notSendable> = NotSendable::Constructor(value);
+
+        // This line should fail - NotSendable is not Sendable because it has a reference field
+        Instantiate SendableContainer<NotSendable>^ As <container> = SendableContainer@NotSendable::Constructor(notSendable);
+
+        Exit(0);
+    }
+]

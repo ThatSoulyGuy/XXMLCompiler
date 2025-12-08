@@ -163,6 +163,14 @@ int64_t Syscall_reflection_type_hasBaseClass(void* typeInfo);
 int64_t Syscall_reflection_type_getConstructorCount(void* typeInfo);
 void* Syscall_reflection_type_getConstructor(void* typeInfo, int64_t index);
 
+// Concurrency marker trait syscalls
+// isSendable: returns 1 if type can be safely moved across thread boundaries
+// A type is Sendable if all fields are Sendable and no reference (&) fields exist
+int64_t Syscall_reflection_type_isSendable(void* typeInfo);
+// isSharable: returns 1 if type can be safely shared across threads
+// A type is Sharable if all fields are immutable/Sharable types
+int64_t Syscall_reflection_type_isSharable(void* typeInfo);
+
 // Method reflection syscalls
 const char* Syscall_reflection_method_getName(void* methodInfo);
 const char* Syscall_reflection_method_getReturnType(void* methodInfo);

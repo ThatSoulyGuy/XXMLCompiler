@@ -344,6 +344,8 @@ void PreambleGen::emitReflectionRuntime(std::stringstream& out) const {
     out << "declare ptr @xxml_reflection_parameter_getName(ptr)\n";
     out << "declare ptr @xxml_reflection_parameter_getTypeName(ptr)\n";
     out << "declare i64 @xxml_reflection_parameter_getOwnership(ptr)\n";
+    out << "declare i64 @Syscall_reflection_type_isSendable(ptr)\n";
+    out << "declare i64 @Syscall_reflection_type_isSharable(ptr)\n";
     out << "\n";
 }
 
@@ -469,6 +471,7 @@ void PreambleGen::emitUtilityFunctions(std::stringstream& out) const {
     out << "declare i64 @xxml_string_length(ptr)\n";
     out << "declare ptr @xxml_string_copy(ptr)\n";
     out << "declare i64 @xxml_string_equals(ptr, ptr)\n";
+    out << "declare i64 @xxml_string_startsWith(ptr, ptr)\n";
     out << "declare ptr @xxml_string_charAt(ptr, i64)\n";
     out << "declare void @xxml_string_setCharAt(ptr, i64, ptr)\n";
     out << "declare void @xxml_string_destroy(ptr)\n";

@@ -1,0 +1,52 @@
+// @Unsafe Annotation
+// Marks a type as safe for concurrent use despite not automatically satisfying
+// Sendable or Sharable trait requirements. Used for FFI types that have been
+// manually verified to be thread-safe.
+//
+// Usage:
+//   @Derive(trait = "Sendable")
+//   @Unsafe(reason = "FFI handle verified thread-safe via external documentation")
+//   [ Class <ExternalHandle> Final Extends None ... ]
+//
+// Targets: Classes
+// Parameters:
+//   reason: String (required) - Explanation of why this override is safe
+//
+// Behavior:
+//   - Emits a warning that the class uses an unsafe override
+//   - The reason is recorded for documentation purposes
+//   - Does NOT automatically make the type Sendable/Sharable - @Derive is still required
+//   - Serves as documentation that manual verification was performed
+//
+// IMPORTANT: Use this annotation responsibly. Incorrectly marking a type as
+// thread-safe can lead to data races and undefined behavior.
+
+#import Language::Core;
+
+[ Annotation <Unsafe> Allows (AnnotationAllow::Classes)
+    Annotate (String)(reason) = String::Constructor("");
+
+    [ Processor
+        [ Public <>
+            Method <onAnnotate> Returns None Parameters (
+                Parameter <ctx> Types ReflectionContext&,
+                Parameter <comp> Types CompilationContext&
+            ) -> {
+                Instantiate String^ As <name> = ctx.getTargetName();
+                Instantiate String^ As <reason> = ctx.getAnnotationArg(String::Constructor("reason"));
+
+                // Require a reason to be provided
+                If (reason.length().equals(Integer::Constructor(0))) -> {
+                    Run comp.error(String::Constructor("@Unsafe on class '")
+                        .append(name)
+                        .append(String::Constructor("' requires a 'reason' parameter explaining why this is safe")));
+                } Else -> {
+                    Run comp.warning(String::Constructor("@Unsafe: Class '")
+                        .append(name)
+                        .append(String::Constructor("' marked as safe for concurrency. Reason: "))
+                        .append(reason));
+                }
+            }
+        ]
+    ]
+]
