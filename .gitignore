@@ -5,6 +5,8 @@ bin/
 lib/
 out/
 
+installer/temp/
+
 # Visual Studio
 .vs/
 *.user

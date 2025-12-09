@@ -344,7 +344,7 @@ function Build-Compiler {
             return $false
         }
 
-        Write-Step "Building..."
+        Write-Step "Building compiler and language server..."
         $buildResult = cmake --build --preset release 2>&1
         if ($LASTEXITCODE -ne 0) {
             Write-Err "Build failed"
@@ -352,10 +352,112 @@ function Build-Compiler {
             return $false
         }
 
+        # Ensure LSP is built
+        Write-Step "Building language server..."
+        $lspResult = cmake --build "$BuildDir" --target xxml-lsp 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warn "LSP build had issues (may still work)"
+        }
+
         Write-Success "Compiler built successfully"
         return $true
     }
     finally {
+        Pop-Location
+    }
+}
+
+function Copy-StandardLibrary {
+    Write-Header "Copying Standard Library to Build Directory"
+
+    $sourceLanguageDir = "$ProjectRoot\Language"
+    $destLanguageDir = "$BuildDir\bin\Language"
+
+    # Create destination directory
+    if (Test-Path $destLanguageDir) {
+        Remove-Item -Recurse -Force $destLanguageDir
+    }
+    New-Item -ItemType Directory -Force -Path $destLanguageDir | Out-Null
+
+    # Copy all .XXML files preserving directory structure
+    Write-Step "Copying Language/*.XXML files..."
+
+    $xxmlFiles = Get-ChildItem -Path $sourceLanguageDir -Filter "*.XXML" -Recurse
+    $copiedCount = 0
+
+    foreach ($file in $xxmlFiles) {
+        $relativePath = $file.FullName.Substring($sourceLanguageDir.Length + 1)
+        $destPath = Join-Path $destLanguageDir $relativePath
+        $destDir = Split-Path -Parent $destPath
+
+        if (-not (Test-Path $destDir)) {
+            New-Item -ItemType Directory -Force -Path $destDir | Out-Null
+        }
+
+        Copy-Item $file.FullName -Destination $destPath -Force
+        $copiedCount++
+    }
+
+    Write-Success "Copied $copiedCount standard library files"
+    return $true
+}
+
+function Build-VSCodeExtension {
+    Write-Header "Building VS Code Extension"
+
+    $vscodeExtDir = "$ProjectRoot\tools\vscode-xxml"
+
+    if (-not (Test-Path "$vscodeExtDir\package.json")) {
+        Write-Warn "VS Code extension source not found, skipping"
+        return $false
+    }
+
+    # Check for npm
+    if (-not (Test-CommandExists "npm")) {
+        Write-Warn "npm not found, skipping VS Code extension build"
+        return $false
+    }
+
+    Push-Location $vscodeExtDir
+    try {
+        # Copy LSP to extension
+        $lspSource = "$BuildDir\bin\xxml-lsp.exe"
+        $lspDest = "$vscodeExtDir\bin"
+
+        if (Test-Path $lspSource) {
+            New-Item -ItemType Directory -Force -Path $lspDest | Out-Null
+            Copy-Item $lspSource -Destination "$lspDest\xxml-lsp.exe" -Force
+            Write-Step "Copied LSP to extension"
+        }
+
+        # Suppress PowerShell's stderr->error behavior for npm commands
+        $ErrorActionPreference = "SilentlyContinue"
+
+        # Install dependencies if needed
+        if (-not (Test-Path "$vscodeExtDir\node_modules")) {
+            Write-Step "Installing npm dependencies..."
+            cmd /c "npm install 2>nul" | Out-Null
+        }
+
+        # Build VSIX
+        Write-Step "Packaging extension..."
+        cmd /c "npm run package 2>nul" | Out-Null
+
+        # Restore error handling
+        $ErrorActionPreference = "Stop"
+
+        # Check if VSIX was created (success indicator)
+        $vsixFile = Get-ChildItem "$vscodeExtDir\*.vsix" -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($vsixFile) {
+            Write-Success "VS Code extension built: $($vsixFile.Name)"
+            return $true
+        }
+
+        Write-Warn "Extension packaging may have failed - no VSIX file found"
+        return $false
+    }
+    finally {
+        $ErrorActionPreference = "Stop"
         Pop-Location
     }
 }
@@ -582,6 +684,18 @@ else {
     }
     Write-Success "Using existing compiler build"
 }
+
+# =============================================================================
+# Step 3b: Copy Standard Library
+# =============================================================================
+
+Copy-StandardLibrary
+
+# =============================================================================
+# Step 3c: Build VS Code Extension
+# =============================================================================
+
+Build-VSCodeExtension
 
 # =============================================================================
 # Step 4: Create Resources
