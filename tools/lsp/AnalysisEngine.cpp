@@ -2,11 +2,16 @@
 // XXML Language Server Protocol Implementation
 
 #include "AnalysisEngine.h"
+#include "Import/ImportResolver.h"
 #include <algorithm>
 #include <sstream>
 #include <filesystem>
+#include <fstream>
+#include <set>
 
 namespace xxml::lsp {
+
+namespace fs = std::filesystem;
 
 // AnalysisResult methods
 void AnalysisResult::computeLineOffsets() {
@@ -41,13 +46,7 @@ size_t AnalysisResult::positionToOffset(int line, int character) const {
 
 // AnalysisEngine methods
 AnalysisEngine::AnalysisEngine() {
-    // Try to detect stdlib path
-    std::filesystem::path exePath = std::filesystem::current_path();
-    if (std::filesystem::exists(exePath / "Language")) {
-        stdlibPath_ = (exePath / "Language").string();
-    } else if (std::filesystem::exists(exePath / ".." / "Language")) {
-        stdlibPath_ = (exePath / ".." / "Language").string();
-    }
+    // Paths will be set by LSPServer after initialization
 }
 
 AnalysisEngine::~AnalysisEngine() = default;
@@ -62,6 +61,35 @@ const AnalysisResult* AnalysisEngine::analyze(const std::string& uri, const std:
 
     // Create compilation context
     result->context = std::make_unique<XXML::Core::CompilationContext>();
+
+    // Convert URI to file path and extract directory
+    std::string filePath = uri;
+    if (filePath.substr(0, 8) == "file:///") {
+        filePath = filePath.substr(8);
+#ifdef _WIN32
+        // URL decode and fix path separators for Windows
+        std::string decoded;
+        for (size_t i = 0; i < filePath.size(); ++i) {
+            if (filePath[i] == '%' && i + 2 < filePath.size()) {
+                int hex = std::stoi(filePath.substr(i + 1, 2), nullptr, 16);
+                decoded += static_cast<char>(hex);
+                i += 2;
+            } else if (filePath[i] == '/') {
+                decoded += '\\';
+            } else {
+                decoded += filePath[i];
+            }
+        }
+        filePath = decoded;
+#endif
+    }
+
+    // Get directory containing the source file
+    std::string sourceDir;
+    fs::path sourcePath(filePath);
+    if (sourcePath.has_parent_path()) {
+        sourceDir = sourcePath.parent_path().string();
+    }
 
     try {
         // Step 1: Lexical analysis
@@ -101,12 +129,105 @@ const AnalysisResult* AnalysisEngine::analyze(const std::string& uri, const std:
 
         result->parseSuccess = true;
 
+        // Step 2.5: Load and parse imports
+        std::set<std::string> loadedFiles;  // Track loaded files to avoid duplicates
+        loadedFiles.insert(filePath);  // Don't re-load the main file
+
+        std::vector<std::unique_ptr<XXML::Parser::Program>> importedPrograms;
+
+        for (const auto& decl : result->ast->declarations) {
+            if (auto* importDecl = dynamic_cast<XXML::Parser::ImportDecl*>(decl.get())) {
+                std::string resolvedPath = resolveImportPath(importDecl->modulePath, sourceDir);
+                if (resolvedPath.empty()) {
+                    Diagnostic diag;
+                    diag.severity = DiagnosticSeverity::Warning;
+                    diag.message = "Cannot resolve import '" + importDecl->modulePath + "'";
+                    diag.message += ". Searched in:";
+                    if (!sourceDir.empty()) diag.message += " [source dir]";
+                    if (!stdlibPath_.empty()) diag.message += " [stdlib]";
+                    if (!workspaceRoot_.empty()) diag.message += " [workspace]";
+
+                    int line = importDecl->location.line > 0 ? importDecl->location.line - 1 : 0;
+                    int col = importDecl->location.column > 0 ? importDecl->location.column - 1 : 0;
+                    diag.range.start = {line, col};
+                    diag.range.end = {line, col + static_cast<int>(importDecl->modulePath.length()) + 8};
+                    result->diagnostics.push_back(diag);
+                } else {
+                    // Find all XXML files in the resolved path
+                    std::vector<std::string> filesToLoad;
+
+                    if (fs::is_directory(resolvedPath)) {
+                        // Load all XXML files in the directory
+                        for (const auto& entry : fs::recursive_directory_iterator(resolvedPath)) {
+                            if (entry.is_regular_file()) {
+                                std::string ext = entry.path().extension().string();
+                                if (ext == ".XXML" || ext == ".xxml") {
+                                    std::string absPath = fs::absolute(entry.path()).string();
+                                    if (loadedFiles.find(absPath) == loadedFiles.end()) {
+                                        filesToLoad.push_back(absPath);
+                                        loadedFiles.insert(absPath);
+                                    }
+                                }
+                            }
+                        }
+                    } else if (fs::is_regular_file(resolvedPath)) {
+                        std::string absPath = fs::absolute(resolvedPath).string();
+                        if (loadedFiles.find(absPath) == loadedFiles.end()) {
+                            filesToLoad.push_back(absPath);
+                            loadedFiles.insert(absPath);
+                        }
+                    }
+
+                    // Parse each imported file
+                    for (const auto& importFile : filesToLoad) {
+                        try {
+                            std::ifstream ifs(importFile);
+                            if (!ifs) continue;
+
+                            std::string importContent((std::istreambuf_iterator<char>(ifs)),
+                                                       std::istreambuf_iterator<char>());
+                            ifs.close();
+
+                            // Create a separate error reporter for imports (don't pollute main errors)
+                            XXML::Common::ErrorReporter importErrors;
+
+                            // Lex and parse the import
+                            XXML::Lexer::Lexer importLexer(importContent,
+                                fs::path(importFile).filename().string(), importErrors);
+                            auto importTokens = importLexer.tokenize();
+
+                            if (!importErrors.hasErrors()) {
+                                XXML::Parser::Parser importParser(importTokens, importErrors);
+                                auto importAst = importParser.parse();
+
+                                if (importAst && !importErrors.hasErrors()) {
+                                    importedPrograms.push_back(std::move(importAst));
+                                }
+                            }
+                        } catch (...) {
+                            // Silently skip files that fail to parse
+                        }
+                    }
+                }
+            }
+        }
+
         // Step 3: Semantic analysis
         result->errorReporter->clear();
         result->analyzer = std::make_unique<XXML::Semantic::SemanticAnalyzer>(
             *result->context, *result->errorReporter);
 
-        // Run semantic analysis
+        // First analyze all imported programs to populate symbol tables
+        for (auto& importedAst : importedPrograms) {
+            if (importedAst) {
+                result->analyzer->analyze(*importedAst);
+            }
+        }
+
+        // Clear errors from imports (we only want to report errors from the main file)
+        result->errorReporter->clear();
+
+        // Now analyze the main file
         result->analyzer->analyze(*result->ast);
 
         // Collect semantic errors
@@ -420,31 +541,91 @@ std::optional<std::string> AnalysisEngine::getHoverInfo(
 
     // Check for XXML keywords first
     static const std::unordered_map<std::string, std::string> keywords = {
+        // Declaration keywords
         {"Class", "**Class**\n\nDeclares a class type.\n\n```xxml\n[ Class <Name> Final Extends Base ... ]\n```"},
-        {"Method", "**Method**\n\nDeclares a method.\n\n```xxml\nMethod <name> Returns Type Parameters (...) Do { ... }\n```"},
-        {"Property", "**Property**\n\nDeclares a class property.\n\n```xxml\nProperty <name> Types Type^;\n```"},
-        {"Constructor", "**Constructor**\n\nDeclares a class constructor.\n\n```xxml\nConstructor Parameters (...) -> { ... }\n```"},
-        {"Instantiate", "**Instantiate**\n\nCreates a new variable.\n\n```xxml\nInstantiate Type^ As <name> = value;\n```"},
-        {"Return", "**Return**\n\nReturns a value from a method."},
-        {"If", "**If**\n\nConditional statement.\n\n```xxml\nIf (condition) -> { ... } Else -> { ... }\n```"},
+        {"Struct", "**Struct**\n\nDeclares a value type (stack-allocated).\n\n```xxml\n[ Struct <Name> ... ]\n```"},
+        {"Interface", "**Interface**\n\nDeclares an interface (abstract contract).\n\n```xxml\n[ Interface <Name> ... ]\n```"},
+        {"Trait", "**Trait**\n\nDeclares a trait (interface with optional default implementation).\n\n```xxml\n[ Trait <Name> ... ]\n```"},
+        {"Enum", "**Enum**\n\nDeclares an enumeration.\n\n```xxml\n[ Enum <Name> ... ]\n```"},
+        {"Annotation", "**Annotation**\n\nDeclares a custom annotation for metaprogramming.\n\n```xxml\n[ Annotation <Name> ... ]\n```"},
+        {"Namespace", "**Namespace**\n\nDeclares a namespace for organizing code.\n\n```xxml\n[ Namespace <Name::Path> ... ]\n```"},
+        {"Entrypoint", "**Entrypoint**\n\nProgram entry point (main function).\n\n```xxml\n[ Entrypoint { ... } ]\n```"},
+
+        // Member declarations
+        {"Method", "**Method**\n\nDeclares a method.\n\n```xxml\nMethod <name> Returns Type^ Parameters (...) Do { ... }\n```"},
+        {"Property", "**Property**\n\nDeclares a class property/field.\n\n```xxml\nProperty <name> Types Type^;\n```"},
+        {"Constructor", "**Constructor**\n\nDeclares or calls a class constructor.\n\n```xxml\nConstructor Parameters (...) -> { ... }\n// or\nConstructor = default;\n```"},
+        {"Destructor", "**Destructor**\n\nDeclares a destructor for cleanup.\n\n```xxml\nDestructor -> { ... }\n```"},
+        {"Operator", "**Operator**\n\nDeclares an operator overload.\n\n```xxml\nOperator <+> Returns Type^ Parameters (...) Do { ... }\n```"},
+
+        // Statement keywords
+        {"Instantiate", "**Instantiate**\n\nCreates a new variable with explicit type.\n\n```xxml\nInstantiate Type^ As <name> = value;\n```"},
+        {"Return", "**Return**\n\nReturns a value from a method.\n\n```xxml\nReturn expression;\n```"},
+        {"Run", "**Run**\n\nExecutes a statement or method call.\n\n```xxml\nRun obj.method(args);\n```"},
+        {"Set", "**Set**\n\nAssigns to a property or variable.\n\n```xxml\nSet propertyName = value;\n```"},
+        {"Exit", "**Exit**\n\nExits the program with a return code.\n\n```xxml\nExit(0);\n```"},
+
+        // Control flow
+        {"If", "**If**\n\nConditional statement.\n\n```xxml\nIf (condition) -> { ... }\nElse -> { ... }\n```"},
         {"Else", "**Else**\n\nElse branch of conditional."},
-        {"While", "**While**\n\nLoop statement.\n\n```xxml\nWhile (condition) -> { ... }\n```"},
-        {"For", "**For**\n\nIterator loop.\n\n```xxml\nFor <item> In collection -> { ... }\n```"},
-        {"Run", "**Run**\n\nExecute a statement (call method, etc.)."},
-        {"Set", "**Set**\n\nAssign to a property.\n\n```xxml\nSet propertyName = value;\n```"},
-        {"Exit", "**Exit**\n\nExit the program with a return code."},
-        {"Public", "**Public**\n\nPublic access modifier."},
-        {"Private", "**Private**\n\nPrivate access modifier."},
-        {"Final", "**Final**\n\nMarks a class as non-inheritable."},
-        {"Extends", "**Extends**\n\nSpecifies base class."},
-        {"Types", "**Types**\n\nType annotation for properties/parameters."},
-        {"Returns", "**Returns**\n\nReturn type annotation for methods."},
+        {"While", "**While**\n\nLoop while condition is true.\n\n```xxml\nWhile (condition) -> { ... }\n```"},
+        {"For", "**For**\n\nIterator loop over collection.\n\n```xxml\nFor <item> In collection -> { ... }\n```"},
+        {"Match", "**Match**\n\nPattern matching statement.\n\n```xxml\nMatch (value) { Case X -> { ... } }\n```"},
+        {"Case", "**Case**\n\nCase branch in match statement."},
+        {"Break", "**Break**\n\nBreaks out of a loop."},
+        {"Continue", "**Continue**\n\nContinues to next loop iteration."},
+
+        // Access modifiers
+        {"Public", "**Public**\n\nPublic access - visible everywhere."},
+        {"Private", "**Private**\n\nPrivate access - visible only within class."},
+        {"Protected", "**Protected**\n\nProtected access - visible within class and subclasses."},
+
+        // Type modifiers
+        {"Final", "**Final**\n\nMarks a class as non-inheritable or method as non-overridable."},
+        {"Abstract", "**Abstract**\n\nMarks a class or method as abstract (must be implemented)."},
+        {"Static", "**Static**\n\nMarks a member as belonging to the class, not instances."},
+        {"Virtual", "**Virtual**\n\nMarks a method as overridable in subclasses."},
+        {"Override", "**Override**\n\nIndicates method overrides a base class method."},
+        {"Const", "**Const**\n\nMarks a value as immutable."},
+        {"Compiletime", "**Compiletime**\n\nMarks a class/method for compile-time evaluation."},
+
+        // Type annotations
+        {"Types", "**Types**\n\nType annotation for properties/parameters.\n\n```xxml\nProperty <x> Types Integer^;\n```"},
+        {"Returns", "**Returns**\n\nReturn type annotation for methods.\n\n```xxml\nMethod <foo> Returns String^ ...\n```"},
         {"Parameters", "**Parameters**\n\nParameter list for methods/constructors."},
-        {"Do", "**Do**\n\nIntroduces method body."},
-        {"Entrypoint", "**Entrypoint**\n\nProgram entry point (main function)."},
-        {"Annotation", "**Annotation**\n\nDeclares a custom annotation."},
-        {"Trait", "**Trait**\n\nDeclares a trait (interface with optional implementation)."},
-        {"Enum", "**Enum**\n\nDeclares an enumeration."},
+        {"Parameter", "**Parameter**\n\nDeclares a method parameter.\n\n```xxml\nParameter <name> Types Type^\n```"},
+        {"Extends", "**Extends**\n\nSpecifies base class inheritance.\n\n```xxml\n[ Class <Child> Extends Parent ... ]\n```"},
+        {"Implements", "**Implements**\n\nSpecifies interface/trait implementation."},
+        {"Do", "**Do**\n\nIntroduces method body block."},
+        {"As", "**As**\n\nVariable name specifier in Instantiate."},
+        {"In", "**In**\n\nCollection specifier in For loop."},
+
+        // Ownership modifiers (as keywords when used standalone)
+        {"Owned", "**Owned (`^`)**\n\nUnique ownership - this reference owns the object and is responsible for its lifetime."},
+        {"Reference", "**Reference (`&`)**\n\nBorrowed reference - does not own the object, just borrows access."},
+        {"Copy", "**Copy (`%`)**\n\nValue copy - creates a copy of the value."},
+
+        // Special values
+        {"true", "**true**\n\nBoolean literal `true`."},
+        {"false", "**false**\n\nBoolean literal `false`."},
+        {"null", "**null**\n\nNull reference (no object)."},
+        {"None", "**None**\n\nNo base class / no value."},
+        {"default", "**default**\n\nDefault value or default implementation.\n\n```xxml\nConstructor = default;\n```"},
+        {"this", "**this**\n\nReference to the current object instance."},
+        {"Self", "**Self**\n\nReference to the current class type."},
+
+        // Common types
+        {"Integer", "**Integer**\n\n64-bit signed integer type.\n\nFrom `Language::Core`"},
+        {"String", "**String**\n\nUTF-8 string type.\n\nFrom `Language::Core`"},
+        {"Bool", "**Bool**\n\nBoolean type (`true`/`false`).\n\nFrom `Language::Core`"},
+        {"Float", "**Float**\n\n32-bit floating point type.\n\nFrom `Language::Core`"},
+        {"Double", "**Double**\n\n64-bit floating point type.\n\nFrom `Language::Core`"},
+        {"Char", "**Char**\n\nSingle character type.\n\nFrom `Language::Core`"},
+        {"Void", "**Void**\n\nNo return value type."},
+        {"NativeType", "**NativeType**\n\nLow-level native type wrapper.\n\n```xxml\nNativeType<\"int64\">^\n```"},
+        {"List", "**List<T>**\n\nDynamic array/list collection.\n\nFrom `Language::Collections`"},
+        {"HashMap", "**HashMap<K,V>**\n\nKey-value hash map collection.\n\nFrom `Language::Collections`"},
+        {"Set", "**Set<T>**\n\nUnique value set collection.\n\nFrom `Language::Collections`"},
     };
 
     auto kwIt = keywords.find(word);
@@ -452,8 +633,47 @@ std::optional<std::string> AnalysisEngine::getHoverInfo(
         return kwIt->second;
     }
 
-    // Try to find symbol information
+    // Try to find class information in the class registry
     if (result->analyzer) {
+        const auto& classRegistry = result->analyzer->getClassRegistry();
+
+        // Check if word is a known class name
+        for (const auto& [className, classInfo] : classRegistry) {
+            // Match either full name or short name
+            std::string shortName = className;
+            size_t lastColon = className.rfind("::");
+            if (lastColon != std::string::npos) {
+                shortName = className.substr(lastColon + 2);
+            }
+
+            if (shortName == word || className == word) {
+                std::ostringstream hover;
+                hover << "**" << shortName << "**\n\n";
+                hover << "*Class*";
+
+                if (!className.empty() && className != shortName) {
+                    hover << " from `" << className.substr(0, lastColon) << "`";
+                }
+
+                // List public methods
+                if (!classInfo.methods.empty()) {
+                    hover << "\n\n**Methods:**\n";
+                    int count = 0;
+                    for (const auto& [methodName, methodInfo] : classInfo.methods) {
+                        if (count++ < 10) {  // Limit to 10 methods
+                            hover << "- `" << methodName << "()` → " << methodInfo.returnType << "\n";
+                        }
+                    }
+                    if (count > 10) {
+                        hover << "- ... and " << (count - 10) << " more\n";
+                    }
+                }
+
+                return hover.str();
+            }
+        }
+
+        // Try symbol table lookup
         auto& symbolTable = result->context->symbolTable();
         auto* symbol = symbolTable.resolve(word);
 
@@ -501,7 +721,7 @@ std::optional<std::string> AnalysisEngine::getHoverInfo(
                     hover << "*Property*";
                     break;
                 case XXML::Semantic::SymbolKind::LocalVariable:
-                    hover << "*Variable*";
+                    hover << "*Local Variable*";
                     break;
                 case XXML::Semantic::SymbolKind::Parameter:
                     hover << "*Parameter*";
@@ -510,10 +730,23 @@ std::optional<std::string> AnalysisEngine::getHoverInfo(
                     hover << "*Namespace*";
                     break;
                 default:
+                    hover << "*Symbol*";
                     break;
             }
 
             return hover.str();
+        }
+    }
+
+    // Check for ownership modifier characters
+    if (offset > 0 && offset <= result->sourceContent.size()) {
+        char c = result->sourceContent[offset];
+        if (c == '^') {
+            return "**Owned (`^`)**\n\nUnique ownership modifier.\n\nThis reference owns the object and is responsible for its lifetime. When this reference goes out of scope, the object is destroyed.";
+        } else if (c == '&') {
+            return "**Reference (`&`)**\n\nBorrowed reference modifier.\n\nThis reference borrows access to an object owned elsewhere. It cannot outlive the owner.";
+        } else if (c == '%') {
+            return "**Copy (`%`)**\n\nValue copy modifier.\n\nThis creates a copy of the value. Changes to the copy don't affect the original.";
         }
     }
 
@@ -525,160 +758,544 @@ std::vector<CompletionItem> AnalysisEngine::getCompletions(
     const std::string& precedingText) const {
 
     std::vector<CompletionItem> completions;
-
     auto* result = getAnalysis(uri);
 
-    // Check context for completion type
+    // Helper to add all known types (includes namespaces and fully-qualified names)
+    auto addAllTypes = [&]() {
+        // Built-in types
+        std::vector<std::pair<std::string, std::string>> builtinTypes = {
+            {"Integer", "64-bit signed integer"},
+            {"String", "UTF-8 string"},
+            {"Bool", "Boolean (true/false)"},
+            {"Float", "32-bit floating point"},
+            {"Double", "64-bit floating point"},
+            {"Char", "Single character"},
+            {"Void", "No value"},
+            {"Object", "Base object type"},
+        };
+        for (const auto& [name, desc] : builtinTypes) {
+            CompletionItem item;
+            item.label = name;
+            item.kind = CompletionItemKind::Class;
+            item.detail = desc;
+            item.insertText = name;
+            completions.push_back(item);
+        }
+
+        // NativeType and NativeStruct suggestions
+        CompletionItem nativeItem;
+        nativeItem.label = "NativeType";
+        nativeItem.kind = CompletionItemKind::Class;
+        nativeItem.detail = "Low-level native type";
+        nativeItem.insertText = "NativeType<\"\">"; // No snippet placeholders
+        completions.push_back(nativeItem);
+
+        CompletionItem nativeStructItem;
+        nativeStructItem.label = "NativeStruct";
+        nativeStructItem.kind = CompletionItemKind::Struct;
+        nativeStructItem.detail = "Low-level native struct";
+        nativeStructItem.insertText = "NativeStruct<\"\">"; // No snippet placeholders
+        completions.push_back(nativeStructItem);
+
+        // Collect namespaces and classes from registry
+        std::set<std::string> addedNames;
+        std::set<std::string> namespaces;
+
+        if (result && result->analyzer) {
+            for (const auto& [fullName, classInfo] : result->analyzer->getClassRegistry()) {
+                // Add the short name
+                size_t lastColon = fullName.rfind("::");
+                std::string shortName = (lastColon != std::string::npos) ? fullName.substr(lastColon + 2) : fullName;
+
+                if (addedNames.find(shortName) == addedNames.end()) {
+                    addedNames.insert(shortName);
+                    CompletionItem item;
+                    item.label = shortName;
+                    item.kind = CompletionItemKind::Class;
+                    item.detail = (lastColon != std::string::npos) ? fullName : "Class";
+                    item.insertText = shortName;
+                    completions.push_back(item);
+                }
+
+                // Also add the fully-qualified name if different
+                if (lastColon != std::string::npos && addedNames.find(fullName) == addedNames.end()) {
+                    addedNames.insert(fullName);
+                    CompletionItem item;
+                    item.label = fullName;
+                    item.kind = CompletionItemKind::Class;
+                    item.detail = "Fully qualified";
+                    item.insertText = fullName;
+                    completions.push_back(item);
+
+                    // Extract namespace
+                    std::string ns = fullName.substr(0, lastColon);
+                    namespaces.insert(ns);
+                }
+            }
+        }
+
+        // Add namespace suggestions
+        for (const auto& ns : namespaces) {
+            if (addedNames.find(ns) == addedNames.end()) {
+                addedNames.insert(ns);
+                CompletionItem item;
+                item.label = ns;
+                item.kind = CompletionItemKind::Module;
+                item.detail = "Namespace";
+                item.insertText = ns + "::";
+                completions.push_back(item);
+            }
+        }
+
+        // Common XXML namespaces
+        std::vector<std::string> commonNamespaces = {
+            "Language::Core",
+            "Language::Collections",
+            "Language::System",
+            "Language::IO",
+            "Language::Math",
+        };
+        for (const auto& ns : commonNamespaces) {
+            if (addedNames.find(ns) == addedNames.end()) {
+                addedNames.insert(ns);
+                CompletionItem item;
+                item.label = ns;
+                item.kind = CompletionItemKind::Module;
+                item.detail = "Standard library namespace";
+                item.insertText = ns + "::";
+                completions.push_back(item);
+            }
+        }
+
+        // Generic collection types
+        std::vector<std::pair<std::string, std::string>> genericTypes = {
+            {"List", "Dynamic array - List<T>^"},
+            {"HashMap", "Key-value map - HashMap<K,V>^"},
+            {"Set", "Unique set - Set<T>^"},
+            {"Optional", "Optional value - Optional<T>"},
+            {"Result", "Result type - Result<T,E>"},
+        };
+        for (const auto& [name, desc] : genericTypes) {
+            if (addedNames.find(name) == addedNames.end()) {
+                CompletionItem item;
+                item.label = name;
+                item.kind = CompletionItemKind::Class;
+                item.detail = desc;
+                item.insertText = name + "<>"; // No snippet placeholders
+                completions.push_back(item);
+            }
+        }
+    };
+
+    // Helper to add local variables
+    auto addLocalVariables = [&]() {
+        if (result && result->context) {
+            auto& symbolTable = result->context->symbolTable();
+            auto* currentScope = symbolTable.getCurrentScope();
+            while (currentScope) {
+                for (const auto& [symName, sym] : currentScope->getSymbols()) {
+                    if (sym->kind == XXML::Semantic::SymbolKind::LocalVariable ||
+                        sym->kind == XXML::Semantic::SymbolKind::Parameter) {
+                        CompletionItem item;
+                        item.label = sym->name;
+                        item.kind = CompletionItemKind::Variable;
+                        item.detail = sym->typeName;
+                        item.insertText = sym->name;
+                        completions.push_back(item);
+                    }
+                }
+                currentScope = currentScope->getParent();
+            }
+        }
+    };
+
+    // Detect context from preceding text
+    std::string trimmed = precedingText;
+    // Trim trailing whitespace for context detection
+    while (!trimmed.empty() && std::isspace(trimmed.back())) {
+        trimmed.pop_back();
+    }
+
+    // Check for specific contexts
     bool afterDoubleColon = precedingText.size() >= 2 &&
                             precedingText.substr(precedingText.size() - 2) == "::";
     bool afterDot = !precedingText.empty() && precedingText.back() == '.';
 
-    if (afterDoubleColon) {
-        // Class member access - try to find class name before ::
-        size_t colonPos = precedingText.rfind("::");
-        if (colonPos != std::string::npos && colonPos > 0) {
-            // Find start of class name
-            size_t nameEnd = colonPos;
-            size_t nameStart = nameEnd;
-            while (nameStart > 0 && (std::isalnum(precedingText[nameStart - 1]) ||
-                                      precedingText[nameStart - 1] == '_')) {
-                --nameStart;
-            }
-
-            std::string className = precedingText.substr(nameStart, nameEnd - nameStart);
-
-            // Look up class in semantic analyzer's class registry
-            if (result && result->analyzer) {
-                const auto& classRegistry = result->analyzer->getClassRegistry();
-                auto it = classRegistry.find(className);
-                if (it == classRegistry.end()) {
-                    // Try with common namespace prefixes
-                    for (const auto& [name, info] : classRegistry) {
-                        if (name.ends_with("::" + className)) {
-                            it = classRegistry.find(name);
-                            break;
-                        }
-                    }
-                }
-
-                if (it != classRegistry.end()) {
-                    const auto& classInfo = it->second;
-
-                    // Add constructor
-                    CompletionItem ctorItem;
-                    ctorItem.label = "Constructor";
-                    ctorItem.kind = CompletionItemKind::Constructor;
-                    ctorItem.detail = "Create new " + className;
-                    ctorItem.insertText = "Constructor";
-                    completions.push_back(ctorItem);
-
-                    // Add methods
-                    for (const auto& [methodName, methodInfo] : classInfo.methods) {
-                        CompletionItem item;
-                        item.label = methodName;
-                        item.kind = CompletionItemKind::Method;
-                        item.detail = methodInfo.returnType;
-                        item.insertText = methodName;
-                        completions.push_back(item);
-                    }
-                }
-            }
-
-            // Fallback: common methods
-            if (completions.empty()) {
-                completions.push_back({"Constructor", CompletionItemKind::Constructor,
-                                       "Class constructor", "", "Constructor"});
-            }
-        }
-    } else if (afterDot) {
-        // Instance member access
-        // Would need type inference to know what type we're accessing
-        // For now, provide generic completions
-    } else {
-        // General completions - keywords
-        std::vector<std::tuple<std::string, std::string, CompletionItemKind>> items = {
-            {"Class", "Declare a class", CompletionItemKind::Keyword},
-            {"Method", "Declare a method", CompletionItemKind::Keyword},
-            {"Property", "Declare a property", CompletionItemKind::Keyword},
-            {"Constructor", "Declare a constructor", CompletionItemKind::Keyword},
-            {"Instantiate", "Create a variable", CompletionItemKind::Keyword},
-            {"Return", "Return from method", CompletionItemKind::Keyword},
-            {"If", "Conditional statement", CompletionItemKind::Keyword},
-            {"Else", "Else branch", CompletionItemKind::Keyword},
-            {"While", "While loop", CompletionItemKind::Keyword},
-            {"For", "For loop", CompletionItemKind::Keyword},
-            {"Run", "Execute statement", CompletionItemKind::Keyword},
-            {"Set", "Assign property", CompletionItemKind::Keyword},
-            {"Exit", "Exit program", CompletionItemKind::Keyword},
-            {"Public", "Public access", CompletionItemKind::Keyword},
-            {"Private", "Private access", CompletionItemKind::Keyword},
-            {"Final", "Final class", CompletionItemKind::Keyword},
-            {"Extends", "Inheritance", CompletionItemKind::Keyword},
-            {"Types", "Type annotation", CompletionItemKind::Keyword},
-            {"Returns", "Return type", CompletionItemKind::Keyword},
-            {"Parameters", "Parameter list", CompletionItemKind::Keyword},
-            {"Do", "Method body", CompletionItemKind::Keyword},
-            {"Entrypoint", "Program entry", CompletionItemKind::Keyword},
+    // Helper to find the last keyword in the text
+    auto findLastKeyword = [](const std::string& text) -> std::string {
+        // Keywords that expect specific completions to follow
+        std::vector<std::string> typeKeywords = {
+            "Instantiate", "Types", "Returns", "Extends", "Implements", "Parameter", "Run", "Set"
         };
-
-        for (const auto& [label, detail, kind] : items) {
-            CompletionItem item;
-            item.label = label;
-            item.kind = kind;
-            item.detail = detail;
-            item.insertText = label;
-            completions.push_back(item);
+        for (const auto& kw : typeKeywords) {
+            // Look for keyword followed by space (and possibly partial type)
+            size_t pos = text.rfind(kw);
+            if (pos != std::string::npos) {
+                // Check if it's a complete word (not part of another word)
+                bool validStart = (pos == 0 || !std::isalnum(text[pos - 1]));
+                bool validEnd = (pos + kw.size() >= text.size() ||
+                                 !std::isalnum(text[pos + kw.size()]) ||
+                                 std::isspace(text[pos + kw.size()]));
+                if (validStart) {
+                    // Check what comes after the keyword
+                    size_t afterKw = pos + kw.size();
+                    if (afterKw < text.size()) {
+                        // There's content after keyword - check if it's just space + partial word
+                        std::string after = text.substr(afterKw);
+                        // Skip whitespace
+                        size_t nonSpace = after.find_first_not_of(" \t");
+                        if (nonSpace == std::string::npos) {
+                            // Only whitespace after keyword
+                            return kw;
+                        }
+                        // Check if what follows looks like start of a type (no other keywords)
+                        std::string rest = after.substr(nonSpace);
+                        // If the rest is just identifier chars (possibly partial type), we're in type context
+                        bool allIdentChars = true;
+                        for (char c : rest) {
+                            if (!std::isalnum(c) && c != '_' && c != ':' && c != '<' && c != '>' && c != ',' && c != '^' && c != '&' && c != '%') {
+                                allIdentChars = false;
+                                break;
+                            }
+                        }
+                        if (allIdentChars) {
+                            return kw;
+                        }
+                    } else {
+                        return kw;
+                    }
+                }
+            }
         }
+        return "";
+    };
 
-        // Add symbols from analysis
+    // Find the context keyword
+    std::string contextKeyword = findLastKeyword(trimmed);
+
+    // Type context - only show types, no keywords
+    if (contextKeyword == "Instantiate" || contextKeyword == "Types" ||
+        contextKeyword == "Returns" || contextKeyword == "Parameter") {
+        addAllTypes();
+        return completions;
+    }
+
+    // After "Extends " - show class names
+    if (contextKeyword == "Extends") {
         if (result && result->analyzer) {
-            // Add class names from class registry
             for (const auto& [name, classInfo] : result->analyzer->getClassRegistry()) {
-                CompletionItem item;
-                // Use short name (without namespace)
                 size_t lastColon = name.rfind("::");
-                item.label = (lastColon != std::string::npos) ? name.substr(lastColon + 2) : name;
+                std::string shortName = (lastColon != std::string::npos) ? name.substr(lastColon + 2) : name;
+                CompletionItem item;
+                item.label = shortName;
                 item.kind = CompletionItemKind::Class;
-                item.detail = "Class";
-                item.insertText = item.label;
+                item.detail = "Base class";
+                item.insertText = shortName;
                 completions.push_back(item);
             }
+        }
+        // Add None for no base class
+        CompletionItem noneItem;
+        noneItem.label = "None";
+        noneItem.kind = CompletionItemKind::Keyword;
+        noneItem.detail = "No base class";
+        noneItem.insertText = "None";
+        completions.push_back(noneItem);
+        return completions;
+    }
 
-            // Add symbols from symbol table
-            auto& symbolTable = result->context->symbolTable();
-            auto* globalScope = symbolTable.getGlobalScope();
-            if (globalScope) {
-                for (const auto& [symName, sym] : globalScope->getSymbols()) {
+    // After "Run " - show variables and class names for method calls
+    if (contextKeyword == "Run") {
+        addLocalVariables();
+        // Add class names for static calls (with namespaces)
+        if (result && result->analyzer) {
+            std::set<std::string> addedNames;
+            for (const auto& [fullName, classInfo] : result->analyzer->getClassRegistry()) {
+                size_t lastColon = fullName.rfind("::");
+                std::string shortName = (lastColon != std::string::npos) ? fullName.substr(lastColon + 2) : fullName;
+                if (addedNames.find(shortName) == addedNames.end()) {
+                    addedNames.insert(shortName);
                     CompletionItem item;
-                    item.label = sym->name;
-                    item.detail = sym->typeName;
-
-                    switch (sym->kind) {
-                        case XXML::Semantic::SymbolKind::Class:
-                            item.kind = CompletionItemKind::Class;
-                            break;
-                        case XXML::Semantic::SymbolKind::Method:
-                            item.kind = CompletionItemKind::Method;
-                            break;
-                        case XXML::Semantic::SymbolKind::Property:
-                            item.kind = CompletionItemKind::Property;
-                            break;
-                        case XXML::Semantic::SymbolKind::LocalVariable:
-                        case XXML::Semantic::SymbolKind::Parameter:
-                            item.kind = CompletionItemKind::Variable;
-                            break;
-                        default:
-                            item.kind = CompletionItemKind::Text;
-                    }
-
-                    item.insertText = sym->name;
+                    item.label = shortName;
+                    item.kind = CompletionItemKind::Class;
+                    item.detail = (lastColon != std::string::npos) ? fullName : "Class";
+                    item.insertText = shortName;
                     completions.push_back(item);
                 }
             }
         }
+        return completions;
     }
 
-    return completions;
+    // After "Set " - show local variables and properties
+    if (contextKeyword == "Set") {
+        addLocalVariables();
+        // Also show 'this' for setting properties
+        CompletionItem thisItem;
+        thisItem.label = "this";
+        thisItem.kind = CompletionItemKind::Keyword;
+        thisItem.detail = "Current instance";
+        thisItem.insertText = "this";
+        completions.push_back(thisItem);
+        return completions;
+    }
+
+    // After "::" - show class/namespace members
+    if (afterDoubleColon) {
+        size_t colonPos = precedingText.rfind("::");
+        if (colonPos != std::string::npos && colonPos > 0) {
+            // Find the name before ::
+            size_t nameEnd = colonPos;
+            size_t nameStart = nameEnd;
+            while (nameStart > 0 && (std::isalnum(precedingText[nameStart - 1]) ||
+                                      precedingText[nameStart - 1] == '_' ||
+                                      precedingText[nameStart - 1] == ':')) {
+                --nameStart;
+            }
+
+            std::string qualifiedName = precedingText.substr(nameStart, nameEnd - nameStart);
+
+            // Check if it's a namespace (e.g., "System::Console::")
+            // or a class (e.g., "String::")
+            if (result && result->analyzer) {
+                const auto& classRegistry = result->analyzer->getClassRegistry();
+
+                // Try to find as class first
+                std::string foundClassName;
+                for (const auto& [name, info] : classRegistry) {
+                    size_t lastColon = name.rfind("::");
+                    std::string shortName = (lastColon != std::string::npos) ? name.substr(lastColon + 2) : name;
+                    if (shortName == qualifiedName || name == qualifiedName) {
+                        foundClassName = name;
+                        break;
+                    }
+                }
+
+                if (!foundClassName.empty()) {
+                    auto it = classRegistry.find(foundClassName);
+                    if (it != classRegistry.end()) {
+                        const auto& classInfo = it->second;
+
+                        // Add Constructor
+                        CompletionItem ctorItem;
+                        ctorItem.label = "Constructor";
+                        ctorItem.kind = CompletionItemKind::Constructor;
+                        ctorItem.detail = "Create new " + qualifiedName;
+                        ctorItem.insertText = "Constructor()";
+                        completions.push_back(ctorItem);
+
+                        // Add static methods
+                        for (const auto& [methodName, methodInfo] : classInfo.methods) {
+                            CompletionItem item;
+                            item.label = methodName;
+                            item.kind = CompletionItemKind::Method;
+                            item.detail = "→ " + methodInfo.returnType;
+                            item.insertText = methodName + "()";
+                            completions.push_back(item);
+                        }
+                    }
+                } else {
+                    // It might be a namespace - show ONLY classes/namespaces in that namespace
+                    std::string nsPrefix = qualifiedName + "::";
+                    std::set<std::string> addedNames;
+                    for (const auto& [name, info] : classRegistry) {
+                        if (name.find(nsPrefix) == 0) {
+                            // Extract class name after the namespace prefix
+                            std::string remainder = name.substr(nsPrefix.size());
+                            size_t nextColon = remainder.find("::");
+                            std::string nextPart = (nextColon != std::string::npos) ?
+                                                    remainder.substr(0, nextColon) : remainder;
+
+                            // Deduplicate
+                            if (addedNames.find(nextPart) != addedNames.end()) continue;
+                            addedNames.insert(nextPart);
+
+                            CompletionItem item;
+                            item.label = nextPart;
+                            item.kind = (nextColon != std::string::npos) ?
+                                        CompletionItemKind::Module : CompletionItemKind::Class;
+                            item.detail = (nextColon != std::string::npos) ? "Namespace" : "Class";
+                            item.insertText = nextPart;
+                            completions.push_back(item);
+                        }
+                    }
+                }
+            }
+
+            // Add Constructor as fallback only if it's likely a class
+            if (completions.empty() && !qualifiedName.empty() && std::isupper(qualifiedName[0])) {
+                CompletionItem ctorItem;
+                ctorItem.label = "Constructor";
+                ctorItem.kind = CompletionItemKind::Constructor;
+                ctorItem.detail = "Class constructor";
+                ctorItem.insertText = "Constructor()";
+                completions.push_back(ctorItem);
+            }
+        }
+        return completions;
+    }
+
+    // After "." - show instance members
+    if (afterDot) {
+        // Find variable name before the dot
+        size_t dotPos = precedingText.size() - 1;
+        size_t nameEnd = dotPos;
+        size_t nameStart = nameEnd;
+        while (nameStart > 0 && (std::isalnum(precedingText[nameStart - 1]) ||
+                                  precedingText[nameStart - 1] == '_')) {
+            --nameStart;
+        }
+
+        std::string varName = precedingText.substr(nameStart, nameEnd - nameStart);
+
+        // Try to find variable type
+        if (result && result->context) {
+            auto& symbolTable = result->context->symbolTable();
+            auto* symbol = symbolTable.resolve(varName);
+
+            if (symbol && !symbol->typeName.empty()) {
+                std::string typeName = symbol->typeName;
+                // Remove ownership modifier
+                if (!typeName.empty() && (typeName.back() == '^' || typeName.back() == '&' || typeName.back() == '%')) {
+                    typeName.pop_back();
+                }
+                // Remove generic parameters for lookup
+                size_t genericStart = typeName.find('<');
+                if (genericStart != std::string::npos) {
+                    typeName = typeName.substr(0, genericStart);
+                }
+
+                // Look up methods for this type
+                if (result->analyzer) {
+                    const auto& classRegistry = result->analyzer->getClassRegistry();
+                    for (const auto& [name, classInfo] : classRegistry) {
+                        size_t lastColon = name.rfind("::");
+                        std::string shortName = (lastColon != std::string::npos) ? name.substr(lastColon + 2) : name;
+                        if (shortName == typeName || name == typeName) {
+                            for (const auto& [methodName, methodInfo] : classInfo.methods) {
+                                // Skip Constructor for instance calls
+                                if (methodName == "Constructor") continue;
+                                CompletionItem item;
+                                item.label = methodName;
+                                item.kind = CompletionItemKind::Method;
+                                item.detail = "→ " + methodInfo.returnType;
+                                item.insertText = methodName + "()";
+                                completions.push_back(item);
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Add common methods as fallback
+        if (completions.empty()) {
+            std::vector<std::pair<std::string, std::string>> commonMethods = {
+                {"toString", "→ String^"},
+                {"equals", "→ Bool^"},
+                {"hash", "→ Integer^"},
+                {"dispose", "→ Void"},
+            };
+            for (const auto& [name, detail] : commonMethods) {
+                CompletionItem item;
+                item.label = name;
+                item.kind = CompletionItemKind::Method;
+                item.detail = detail;
+                item.insertText = name + "()";
+                completions.push_back(item);
+            }
+        }
+        return completions;
+    }
+
+    // Default: show keywords and available symbols
+    std::vector<std::tuple<std::string, std::string, CompletionItemKind>> keywords = {
+        // Declarations
+        {"Class", "Declare a class", CompletionItemKind::Keyword},
+        {"Struct", "Declare a struct", CompletionItemKind::Keyword},
+        {"Interface", "Declare an interface", CompletionItemKind::Keyword},
+        {"Trait", "Declare a trait", CompletionItemKind::Keyword},
+        {"Enum", "Declare an enum", CompletionItemKind::Keyword},
+        {"Annotation", "Declare an annotation", CompletionItemKind::Keyword},
+        {"Namespace", "Declare a namespace", CompletionItemKind::Keyword},
+        {"Entrypoint", "Program entry point", CompletionItemKind::Keyword},
+        // Members
+        {"Method", "Declare a method", CompletionItemKind::Keyword},
+        {"Property", "Declare a property", CompletionItemKind::Keyword},
+        {"Constructor", "Declare a constructor", CompletionItemKind::Keyword},
+        {"Destructor", "Declare a destructor", CompletionItemKind::Keyword},
+        {"Operator", "Declare an operator", CompletionItemKind::Keyword},
+        // Statements
+        {"Instantiate", "Create a variable", CompletionItemKind::Keyword},
+        {"Run", "Execute statement", CompletionItemKind::Keyword},
+        {"Set", "Assign value", CompletionItemKind::Keyword},
+        {"Return", "Return from method", CompletionItemKind::Keyword},
+        {"Exit", "Exit program", CompletionItemKind::Keyword},
+        // Control flow
+        {"If", "Conditional", CompletionItemKind::Keyword},
+        {"Else", "Else branch", CompletionItemKind::Keyword},
+        {"While", "While loop", CompletionItemKind::Keyword},
+        {"For", "For loop", CompletionItemKind::Keyword},
+        {"Match", "Pattern match", CompletionItemKind::Keyword},
+        {"Break", "Break loop", CompletionItemKind::Keyword},
+        {"Continue", "Continue loop", CompletionItemKind::Keyword},
+        // Modifiers
+        {"Public", "Public access", CompletionItemKind::Keyword},
+        {"Private", "Private access", CompletionItemKind::Keyword},
+        {"Protected", "Protected access", CompletionItemKind::Keyword},
+        {"Final", "Non-inheritable", CompletionItemKind::Keyword},
+        {"Static", "Class-level member", CompletionItemKind::Keyword},
+        {"Abstract", "Abstract member", CompletionItemKind::Keyword},
+        {"Virtual", "Virtual method", CompletionItemKind::Keyword},
+        {"Override", "Override method", CompletionItemKind::Keyword},
+        {"Compiletime", "Compile-time eval", CompletionItemKind::Keyword},
+        // Type annotations
+        {"Types", "Type annotation", CompletionItemKind::Keyword},
+        {"Returns", "Return type", CompletionItemKind::Keyword},
+        {"Parameters", "Parameter list", CompletionItemKind::Keyword},
+        {"Parameter", "Single parameter", CompletionItemKind::Keyword},
+        {"Extends", "Base class", CompletionItemKind::Keyword},
+        {"Implements", "Interface impl", CompletionItemKind::Keyword},
+        {"Do", "Method body", CompletionItemKind::Keyword},
+        {"As", "Variable name", CompletionItemKind::Keyword},
+        {"In", "Collection iter", CompletionItemKind::Keyword},
+        // Values
+        {"true", "Boolean true", CompletionItemKind::Keyword},
+        {"false", "Boolean false", CompletionItemKind::Keyword},
+        {"null", "Null reference", CompletionItemKind::Keyword},
+        {"None", "No value/base", CompletionItemKind::Keyword},
+        {"this", "Current instance", CompletionItemKind::Keyword},
+        {"Self", "Current type", CompletionItemKind::Keyword},
+        {"default", "Default value", CompletionItemKind::Keyword},
+    };
+
+    for (const auto& [label, detail, kind] : keywords) {
+        CompletionItem item;
+        item.label = label;
+        item.kind = kind;
+        item.detail = detail;
+        item.insertText = label;
+        completions.push_back(item);
+    }
+
+    // Add types
+    addAllTypes();
+
+    // Add local variables
+    addLocalVariables();
+
+    // Deduplicate by label
+    std::set<std::string> seen;
+    std::vector<CompletionItem> deduped;
+    for (auto& item : completions) {
+        if (seen.find(item.label) == seen.end()) {
+            seen.insert(item.label);
+            deduped.push_back(std::move(item));
+        }
+    }
+
+    return deduped;
 }
 
 std::vector<DocumentSymbol> AnalysisEngine::getDocumentSymbols(const std::string& uri) const {
@@ -791,6 +1408,72 @@ std::string AnalysisEngine::getTypeString(const XXML::Semantic::Symbol* symbol) 
     }
 
     return result;
+}
+
+std::string AnalysisEngine::resolveImportPath(const std::string& importPath, const std::string& sourceDir) const {
+    // Convert import path like "Language::Core" to directory path "Language/Core"
+    std::string dirPath = importPath;
+    size_t pos = 0;
+    while ((pos = dirPath.find("::", pos)) != std::string::npos) {
+        dirPath.replace(pos, 2, "/");
+    }
+
+    // Build list of search paths
+    std::vector<fs::path> searchPaths;
+
+    // 1. Source file's directory and its parents (walk up to find Language/ or the import)
+    if (!sourceDir.empty()) {
+        fs::path currentDir = fs::path(sourceDir);
+        // Walk up directory tree looking for the import
+        for (int depth = 0; depth < 10 && !currentDir.empty(); ++depth) {
+            searchPaths.push_back(currentDir);
+            if (currentDir.has_parent_path() && currentDir.parent_path() != currentDir) {
+                currentDir = currentDir.parent_path();
+            } else {
+                break;
+            }
+        }
+    }
+
+    // 2. Stdlib path (for Language:: imports)
+    if (!stdlibPath_.empty()) {
+        // stdlibPath_ points to Language/, so use its parent
+        fs::path stdlibParent = fs::path(stdlibPath_).parent_path();
+        searchPaths.push_back(stdlibParent);
+        // Also add the stdlib path itself in case import is relative to Language/
+        searchPaths.push_back(fs::path(stdlibPath_));
+    }
+
+    // 3. Workspace root and common build locations
+    if (!workspaceRoot_.empty()) {
+        searchPaths.push_back(fs::path(workspaceRoot_));
+        searchPaths.push_back(fs::path(workspaceRoot_) / "build" / "release" / "bin");
+        searchPaths.push_back(fs::path(workspaceRoot_) / "build" / "debug" / "bin");
+    }
+
+    // Try each search path
+    for (const auto& basePath : searchPaths) {
+        // Check for directory (namespace import like "Language::Core")
+        fs::path candidateDir = basePath / dirPath;
+        if (fs::exists(candidateDir) && fs::is_directory(candidateDir)) {
+            return candidateDir.string();
+        }
+
+        // Check for single-file module (e.g., "System" -> "System.XXML")
+        fs::path candidateFile = basePath / (dirPath + ".XXML");
+        if (fs::exists(candidateFile) && fs::is_regular_file(candidateFile)) {
+            return candidateFile.string();
+        }
+
+        // Also try lowercase extension
+        fs::path candidateFileLower = basePath / (dirPath + ".xxml");
+        if (fs::exists(candidateFileLower) && fs::is_regular_file(candidateFileLower)) {
+            return candidateFileLower.string();
+        }
+    }
+
+    // Not found
+    return "";
 }
 
 } // namespace xxml::lsp

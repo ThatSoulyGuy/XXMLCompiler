@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    XXML Compiler Installer - Directory Structure
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+    <Fragment>
+        <StandardDirectory Id="ProgramFiles64Folder">
+            <Directory Id="INSTALLFOLDER" Name="XXML">
+                <Directory Id="BinFolder" Name="bin" />
+                <Directory Id="LibFolder" Name="lib" />
+                <Directory Id="IncludeFolder" Name="include" />
+                <Directory Id="LanguageFolder" Name="Language">
+                    <Directory Id="CoreFolder" Name="Core" />
+                    <Directory Id="CollectionsFolder" Name="Collections" />
+                    <Directory Id="SystemFolder" Name="System" />
+                    <Directory Id="ReflectionFolder" Name="Reflection" />
+                    <Directory Id="AnnotationsFolder" Name="Annotations" />
+                    <Directory Id="MathFolder" Name="Math" />
+                    <Directory Id="TextFolder" Name="Text" />
+                    <Directory Id="TimeFolder" Name="Time" />
+                    <Directory Id="NetworkFolder" Name="Network" />
+                    <Directory Id="ConcurrentFolder" Name="Concurrent" />
+                    <Directory Id="FormatFolder" Name="Format" />
+                    <Directory Id="TestFolder" Name="Test" />
+                    <Directory Id="ProcessorCtxFolder" Name="ProcessorCtx" />
+                </Directory>
+                <Directory Id="RuntimeFolder" Name="runtime" />
+                <Directory Id="DocsFolder" Name="docs" />
+                <Directory Id="ToolsFolder" Name="tools">
+                    <Directory Id="VSCodeExtFolder" Name="vscode-xxml" />
+                </Directory>
+                <Directory Id="MinGWFolder" Name="mingw64">
+                    <Directory Id="MinGWBinFolder" Name="bin" />
+                    <Directory Id="MinGWLibFolder" Name="lib" />
+                    <Directory Id="MinGWIncludeFolder" Name="include" />
+                </Directory>
+            </Directory>
+        </StandardDirectory>
+
+        <!-- Start Menu -->
+        <StandardDirectory Id="ProgramMenuFolder">
+            <Directory Id="XXMLMenuFolder" Name="XXML" />
+        </StandardDirectory>
+    </Fragment>
+</Wix>

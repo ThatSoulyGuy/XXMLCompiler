@@ -74,6 +74,13 @@ private:
 
     // Client capabilities (from initialize)
     json clientCapabilities_;
+
+    // Configuration
+    std::string stdlibPath_;
+    std::string workspaceRoot_;
+
+    // Apply configuration from settings
+    void applyConfiguration(const json& settings);
 };
 
 } // namespace xxml::lsp

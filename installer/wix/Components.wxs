@@ -1,0 +1,265 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    XXML Compiler Installer - Component Definitions
+    Updated to include all standard library files and VSCode extension
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+    <Fragment>
+        <!-- Main Compiler Components -->
+        <ComponentGroup Id="CompilerComponents" Directory="BinFolder">
+            <Component Id="CompilerExe" Guid="A1B2C3D4-E5F6-7890-ABCD-EF1234567890">
+                <File Id="xxml.exe" Source="$(var.BuildDir)\bin\xxml.exe" KeyPath="yes">
+                    <Shortcut Id="XXMLShortcut"
+                              Directory="XXMLMenuFolder"
+                              Name="XXML Command Prompt"
+                              Description="Open command prompt with XXML in PATH"
+                              Arguments="/k echo XXML Compiler Ready"
+                              WorkingDirectory="BinFolder" />
+                </File>
+
+                <!-- Environment Variable for PATH -->
+                <Environment Id="PathEnv"
+                             Name="PATH"
+                             Value="[BinFolder]"
+                             Permanent="no"
+                             Part="last"
+                             Action="set"
+                             System="yes" />
+            </Component>
+
+            <Component Id="LSPServer" Guid="B2C3D4E5-F6A7-8901-BCDE-F23456789012">
+                <File Id="xxml_lsp.exe" Source="$(var.BuildDir)\bin\xxml-lsp.exe" KeyPath="yes" />
+            </Component>
+        </ComponentGroup>
+
+        <!-- Runtime Library -->
+        <ComponentGroup Id="RuntimeComponents" Directory="LibFolder">
+            <Component Id="RuntimeLib" Guid="C3D4E5F6-A7B8-9012-CDEF-345678901234">
+                <File Id="XXMLLLVMRuntime.lib" Source="$(var.BuildDir)\lib\XXMLLLVMRuntime.lib" KeyPath="yes" />
+            </Component>
+            <Component Id="XXMLLib" Guid="D4E5F6A7-B8C9-0123-DEF0-456789012345">
+                <File Id="XXMLLib.lib" Source="$(var.BuildDir)\lib\XXMLLib.lib" KeyPath="yes" />
+            </Component>
+        </ComponentGroup>
+
+        <!-- Standard Library (XXML source files) -->
+        <ComponentGroup Id="StandardLibraryComponents">
+            <!-- Root Level -->
+            <Component Id="LangCollections" Directory="LanguageFolder" Guid="00000001-0001-0001-0001-000000000001">
+                <File Id="Collections.XXML" Source="$(var.SourceDir)\Language\Collections.XXML" KeyPath="yes" />
+            </Component>
+            <Component Id="LangReflection" Directory="LanguageFolder" Guid="00000001-0001-0001-0001-000000000002">
+                <File Id="Reflection.XXML" Source="$(var.SourceDir)\Language\Reflection.XXML" KeyPath="yes" />
+            </Component>
+
+            <!-- Core -->
+            <Component Id="CoreInteger" Directory="CoreFolder" Guid="E5F6A7B8-C9D0-1234-EF01-567890123456">
+                <File Id="Integer.XXML" Source="$(var.SourceDir)\Language\Core\Integer.XXML" KeyPath="yes" />
+            </Component>
+            <Component Id="CoreString" Directory="CoreFolder" Guid="F6A7B8C9-D0E1-2345-F012-678901234567">
+                <File Id="String.XXML" Source="$(var.SourceDir)\Language\Core\String.XXML" KeyPath="yes" />
+            </Component>
+            <Component Id="CoreBool" Directory="CoreFolder" Guid="A7B8C9D0-E1F2-3456-0123-789012345678">
+                <File Id="Bool.XXML" Source="$(var.SourceDir)\Language\Core\Bool.XXML" KeyPath="yes" />
+            </Component>
+            <Component Id="CoreFloat" Directory="CoreFolder" Guid="B8C9D0E1-F2A3-4567-1234-890123456789">
+                <File Id="Float.XXML" Source="$(var.SourceDir)\Language\Core\Float.XXML" KeyPath="yes" />
+            </Component>
+            <Component Id="CoreDouble" Directory="CoreFolder" Guid="C9D0E1F2-A3B4-5678-2345-901234567890">
+                <File Id="Double.XXML" Source="$(var.SourceDir)\Language\Core\Double.XXML" KeyPath="yes" />
+            </Component>
+            <Component Id="CoreMem" Directory="CoreFolder" Guid="00000002-0001-0001-0001-000000000001">
+                <File Id="Mem.XXML" Source="$(var.SourceDir)\Language\Core\Mem.XXML" KeyPath="yes" />
+            </Component>
+            <Component Id="CoreNone" Directory="CoreFolder" Guid="00000002-0001-0001-0001-000000000002">
+                <File Id="None.XXML" Source="$(var.SourceDir)\Language\Core\None.XXML" KeyPath="yes" />
+            </Component>
+            <Component Id="CoreEquatable" Directory="CoreFolder" Guid="00000002-0001-0001-0001-000000000003">
+                <File Id="Equatable.XXML" Source="$(var.SourceDir)\Language\Core\Equatable.XXML" KeyPath="yes" />
+            </Component>
+            <Component Id="CoreHashable" Directory="CoreFolder" Guid="00000002-0001-0001-0001-000000000004">
+                <File Id="Hashable.XXML" Source="$(var.SourceDir)\Language\Core\Hashable.XXML" KeyPath="yes" />
+            </Component>
+            <Component Id="CoreIterable" Directory="CoreFolder" Guid="00000002-0001-0001-0001-000000000005">
+                <File Id="Iterable.XXML" Source="$(var.SourceDir)\Language\Core\Iterable.XXML" KeyPath="yes" />
+            </Component>
+            <Component Id="CoreIterator" Directory="CoreFolder" Guid="00000002-0001-0001-0001-000000000006">
+                <File Id="Iterator.XXML" Source="$(var.SourceDir)\Language\Core\Iterator.XXML" KeyPath="yes" />
+            </Component>
+            <Component Id="CoreSendable" Directory="CoreFolder" Guid="00000002-0001-0001-0001-000000000007">
+                <File Id="Sendable.XXML" Source="$(var.SourceDir)\Language\Core\Sendable.XXML" KeyPath="yes" />
+            </Component>
+            <Component Id="CoreSharable" Directory="CoreFolder" Guid="00000002-0001-0001-0001-000000000008">
+                <File Id="Sharable.XXML" Source="$(var.SourceDir)\Language\Core\Sharable.XXML" KeyPath="yes" />
+            </Component>
+
+            <!-- Collections -->
+            <Component Id="CollectionsList" Directory="CollectionsFolder" Guid="F2A3B4C5-D6E7-8901-5678-234567890123">
+                <File Id="List.XXML" Source="$(var.SourceDir)\Language\Collections\List.XXML" KeyPath="yes" />
+            </Component>
+            <Component Id="CollectionsListIterator" Directory="CollectionsFolder" Guid="00000003-0001-0001-0001-000000000001">
+                <File Id="ListIterator.XXML" Source="$(var.SourceDir)\Language\Collections\ListIterator.XXML" KeyPath="yes" />
+            </Component>
+            <Component Id="CollectionsHashMap" Directory="CollectionsFolder" Guid="A3B4C5D6-E7F8-9012-6789-345678901234">
+                <File Id="HashMap.XXML" Source="$(var.SourceDir)\Language\Collections\HashMap.XXML" KeyPath="yes" />
+            </Component>
+            <Component Id="CollectionsHashMapIterator" Directory="CollectionsFolder" Guid="00000003-0001-0001-0001-000000000002">
+                <File Id="HashMapIterator.XXML" Source="$(var.SourceDir)\Language\Collections\HashMapIterator.XXML" KeyPath="yes" />
+            </Component>
+            <Component Id="CollectionsKeyValuePair" Directory="CollectionsFolder" Guid="00000003-0001-0001-0001-000000000003">
+                <File Id="KeyValuePair.XXML" Source="$(var.SourceDir)\Language\Collections\KeyValuePair.XXML" KeyPath="yes" />
+            </Component>
+            <Component Id="CollectionsSet" Directory="CollectionsFolder" Guid="B4C5D6E7-F8A9-0123-7890-456789012345">
+                <File Id="Set.XXML" Source="$(var.SourceDir)\Language\Collections\Set.XXML" KeyPath="yes" />
+            </Component>
+            <Component Id="CollectionsSetIterator" Directory="CollectionsFolder" Guid="00000003-0001-0001-0001-000000000004">
+                <File Id="SetIterator.XXML" Source="$(var.SourceDir)\Language\Collections\SetIterator.XXML" KeyPath="yes" />
+            </Component>
+            <Component Id="CollectionsArray" Directory="CollectionsFolder" Guid="00000003-0001-0001-0001-000000000005">
+                <File Id="Array.XXML" Source="$(var.SourceDir)\Language\Collections\Array.XXML" KeyPath="yes" />
+            </Component>
+            <Component Id="CollectionsQueue" Directory="CollectionsFolder" Guid="00000003-0001-0001-0001-000000000006">
+                <File Id="Queue.XXML" Source="$(var.SourceDir)\Language\Collections\Queue.XXML" KeyPath="yes" />
+            </Component>
+            <Component Id="CollectionsStack" Directory="CollectionsFolder" Guid="00000003-0001-0001-0001-000000000007">
+                <File Id="Stack.XXML" Source="$(var.SourceDir)\Language\Collections\Stack.XXML" KeyPath="yes" />
+            </Component>
+
+            <!-- System -->
+            <Component Id="SystemConsole" Directory="SystemFolder" Guid="C5D6E7F8-A9B0-1234-8901-567890123456">
+                <File Id="Console.XXML" Source="$(var.SourceDir)\Language\System\Console.XXML" KeyPath="yes" />
+            </Component>
+            <Component Id="SystemSystem" Directory="SystemFolder" Guid="00000004-0001-0001-0001-000000000001">
+                <File Id="System.XXML" Source="$(var.SourceDir)\Language\System\System.XXML" KeyPath="yes" />
+            </Component>
+
+            <!-- Reflection -->
+            <Component Id="ReflectionType" Directory="ReflectionFolder" Guid="00000005-0001-0001-0001-000000000001">
+                <File Id="Type.XXML" Source="$(var.SourceDir)\Language\Reflection\Type.XXML" KeyPath="yes" />
+            </Component>
+            <Component Id="ReflectionGetType" Directory="ReflectionFolder" Guid="00000005-0001-0001-0001-000000000002">
+                <File Id="GetType.XXML" Source="$(var.SourceDir)\Language\Reflection\GetType.XXML" KeyPath="yes" />
+            </Component>
+            <Component Id="ReflectionMethodInfo" Directory="ReflectionFolder" Guid="00000005-0001-0001-0001-000000000003">
+                <File Id="MethodInfo.XXML" Source="$(var.SourceDir)\Language\Reflection\MethodInfo.XXML" KeyPath="yes" />
+            </Component>
+            <Component Id="ReflectionPropertyInfo" Directory="ReflectionFolder" Guid="00000005-0001-0001-0001-000000000004">
+                <File Id="PropertyInfo.XXML" Source="$(var.SourceDir)\Language\Reflection\PropertyInfo.XXML" KeyPath="yes" />
+            </Component>
+            <Component Id="ReflectionParameterInfo" Directory="ReflectionFolder" Guid="00000005-0001-0001-0001-000000000005">
+                <File Id="ParameterInfo.XXML" Source="$(var.SourceDir)\Language\Reflection\ParameterInfo.XXML" KeyPath="yes" />
+            </Component>
+            <Component Id="ReflectionAnnotationInfo" Directory="ReflectionFolder" Guid="00000005-0001-0001-0001-000000000006">
+                <File Id="AnnotationInfo.XXML" Source="$(var.SourceDir)\Language\Reflection\AnnotationInfo.XXML" KeyPath="yes" />
+            </Component>
+            <Component Id="ReflectionAnnotationArg" Directory="ReflectionFolder" Guid="00000005-0001-0001-0001-000000000007">
+                <File Id="AnnotationArg.XXML" Source="$(var.SourceDir)\Language\Reflection\AnnotationArg.XXML" KeyPath="yes" />
+            </Component>
+            <Component Id="ReflectionOwnership" Directory="ReflectionFolder" Guid="00000005-0001-0001-0001-000000000008">
+                <File Id="Ownership.XXML" Source="$(var.SourceDir)\Language\Reflection\Ownership.XXML" KeyPath="yes" />
+            </Component>
+
+            <!-- Annotations -->
+            <Component Id="AnnotationsMain" Directory="AnnotationsFolder" Guid="00000006-0001-0001-0001-000000000001">
+                <File Id="Annotations.XXML" Source="$(var.SourceDir)\Language\Annotations\Annotations.XXML" KeyPath="yes" />
+            </Component>
+            <Component Id="AnnotationsDeprecated" Directory="AnnotationsFolder" Guid="00000006-0001-0001-0001-000000000002">
+                <File Id="Deprecated.XXML" Source="$(var.SourceDir)\Language\Annotations\Deprecated.XXML" KeyPath="yes" />
+            </Component>
+            <Component Id="AnnotationsExperimental" Directory="AnnotationsFolder" Guid="00000006-0001-0001-0001-000000000003">
+                <File Id="Experimental.XXML" Source="$(var.SourceDir)\Language\Annotations\Experimental.XXML" KeyPath="yes" />
+            </Component>
+            <Component Id="AnnotationsOverride" Directory="AnnotationsFolder" Guid="00000006-0001-0001-0001-000000000004">
+                <File Id="Override.XXML" Source="$(var.SourceDir)\Language\Annotations\Override.XXML" KeyPath="yes" />
+            </Component>
+            <Component Id="AnnotationsNotNull" Directory="AnnotationsFolder" Guid="00000006-0001-0001-0001-000000000005">
+                <File Id="NotNull.XXML" Source="$(var.SourceDir)\Language\Annotations\NotNull.XXML" KeyPath="yes" />
+            </Component>
+            <Component Id="AnnotationsNotEmpty" Directory="AnnotationsFolder" Guid="00000006-0001-0001-0001-000000000006">
+                <File Id="NotEmpty.XXML" Source="$(var.SourceDir)\Language\Annotations\NotEmpty.XXML" KeyPath="yes" />
+            </Component>
+            <Component Id="AnnotationsRange" Directory="AnnotationsFolder" Guid="00000006-0001-0001-0001-000000000007">
+                <File Id="Range.XXML" Source="$(var.SourceDir)\Language\Annotations\Range.XXML" KeyPath="yes" />
+            </Component>
+            <Component Id="AnnotationsPositive" Directory="AnnotationsFolder" Guid="00000006-0001-0001-0001-000000000008">
+                <File Id="Positive.XXML" Source="$(var.SourceDir)\Language\Annotations\Positive.XXML" KeyPath="yes" />
+            </Component>
+            <Component Id="AnnotationsNegative" Directory="AnnotationsFolder" Guid="00000006-0001-0001-0001-000000000009">
+                <File Id="Negative.XXML" Source="$(var.SourceDir)\Language\Annotations\Negative.XXML" KeyPath="yes" />
+            </Component>
+            <Component Id="AnnotationsTodo" Directory="AnnotationsFolder" Guid="00000006-0001-0001-0001-00000000000A">
+                <File Id="Todo.XXML" Source="$(var.SourceDir)\Language\Annotations\Todo.XXML" KeyPath="yes" />
+            </Component>
+            <Component Id="AnnotationsUnsafe" Directory="AnnotationsFolder" Guid="00000006-0001-0001-0001-00000000000B">
+                <File Id="Unsafe.XXML" Source="$(var.SourceDir)\Language\Annotations\Unsafe.XXML" KeyPath="yes" />
+            </Component>
+
+            <!-- Math -->
+            <Component Id="MathMath" Directory="MathFolder" Guid="00000007-0001-0001-0001-000000000001">
+                <File Id="Math.XXML" Source="$(var.SourceDir)\Language\Math\Math.XXML" KeyPath="yes" />
+            </Component>
+
+            <!-- Text -->
+            <Component Id="TextRegex" Directory="TextFolder" Guid="00000008-0001-0001-0001-000000000001">
+                <File Id="Regex.XXML" Source="$(var.SourceDir)\Language\Text\Regex.XXML" KeyPath="yes" />
+            </Component>
+            <Component Id="TextStringUtils" Directory="TextFolder" Guid="00000008-0001-0001-0001-000000000002">
+                <File Id="StringUtils.XXML" Source="$(var.SourceDir)\Language\Text\StringUtils.XXML" KeyPath="yes" />
+            </Component>
+
+            <!-- Time -->
+            <Component Id="TimeDateTime" Directory="TimeFolder" Guid="00000009-0001-0001-0001-000000000001">
+                <File Id="DateTime.XXML" Source="$(var.SourceDir)\Language\Time\DateTime.XXML" KeyPath="yes" />
+            </Component>
+
+            <!-- Network -->
+            <Component Id="NetworkHTTP" Directory="NetworkFolder" Guid="0000000A-0001-0001-0001-000000000001">
+                <File Id="HTTP.XXML" Source="$(var.SourceDir)\Language\Network\HTTP.XXML" KeyPath="yes" />
+            </Component>
+
+            <!-- Concurrent -->
+            <Component Id="ConcurrentThreading" Directory="ConcurrentFolder" Guid="0000000B-0001-0001-0001-000000000001">
+                <File Id="Threading.XXML" Source="$(var.SourceDir)\Language\Concurrent\Threading.XXML" KeyPath="yes" />
+            </Component>
+
+            <!-- Format -->
+            <Component Id="FormatJSON" Directory="FormatFolder" Guid="0000000C-0001-0001-0001-000000000001">
+                <File Id="JSON.XXML" Source="$(var.SourceDir)\Language\Format\JSON.XXML" KeyPath="yes" />
+            </Component>
+
+            <!-- Test -->
+            <Component Id="TestFramework" Directory="TestFolder" Guid="0000000D-0001-0001-0001-000000000001">
+                <File Id="TestFramework.XXML" Source="$(var.SourceDir)\Language\Test\TestFramework.XXML" KeyPath="yes" />
+            </Component>
+            <Component Id="TestFile" Directory="TestFolder" Guid="0000000D-0001-0001-0001-000000000002">
+                <File Id="TestFile.XXML" Source="$(var.SourceDir)\Language\Test\TestFile.XXML" KeyPath="yes" />
+            </Component>
+
+            <!-- ProcessorCtx (Annotation Processor Context) -->
+            <Component Id="ProcessorCtxReflection" Directory="ProcessorCtxFolder" Guid="0000000E-0001-0001-0001-000000000001">
+                <File Id="ProcessorReflectionContext.XXML" Source="$(var.SourceDir)\Language\ProcessorCtx\ProcessorReflectionContext.XXML" KeyPath="yes" />
+            </Component>
+            <Component Id="ProcessorCtxCompilation" Directory="ProcessorCtxFolder" Guid="0000000E-0001-0001-0001-000000000002">
+                <File Id="ProcessorCompilationContext.XXML" Source="$(var.SourceDir)\Language\ProcessorCtx\ProcessorCompilationContext.XXML" KeyPath="yes" />
+            </Component>
+            <Component Id="ProcessorCtxAnnotationArg" Directory="ProcessorCtxFolder" Guid="0000000E-0001-0001-0001-000000000003">
+                <File Id="ProcessorAnnotationArg.XXML" Source="$(var.SourceDir)\Language\ProcessorCtx\ProcessorAnnotationArg.XXML" KeyPath="yes" />
+            </Component>
+            <Component Id="ProcessorCtxAnnotationArgs" Directory="ProcessorCtxFolder" Guid="0000000E-0001-0001-0001-000000000004">
+                <File Id="ProcessorAnnotationArgs.XXML" Source="$(var.SourceDir)\Language\ProcessorCtx\ProcessorAnnotationArgs.XXML" KeyPath="yes" />
+            </Component>
+        </ComponentGroup>
+
+        <!-- VSCode Extension -->
+        <ComponentGroup Id="VSCodeExtComponents" Directory="VSCodeExtFolder">
+            <Component Id="VSCodeExtVSIX" Guid="0000000F-0001-0001-0001-000000000001">
+                <File Id="xxml_language.vsix" Source="$(var.SourceDir)\tools\vscode-xxml\xxml-language-0.1.0.vsix" KeyPath="yes" />
+            </Component>
+        </ComponentGroup>
+
+        <!-- MinGW Components (populated by build script) -->
+        <ComponentGroup Id="MinGWComponents">
+            <!-- This will be populated dynamically by heat.exe during build -->
+        </ComponentGroup>
+    </Fragment>
+</Wix>

@@ -7,10 +7,14 @@
     { "include": "#preprocessor" },
     { "include": "#strings" },
     { "include": "#numbers" },
+    { "include": "#block-declarations" },
+    { "include": "#member-declarations" },
+    { "include": "#statements" },
     { "include": "#keywords" },
-    { "include": "#declarations" },
-    { "include": "#annotations" },
-    { "include": "#types" },
+    { "include": "#native-type" },
+    { "include": "#generic-type" },
+    { "include": "#template-instantiation" },
+    { "include": "#type-with-ownership" },
     { "include": "#operators" },
     { "include": "#identifiers" }
   ],
@@ -24,7 +28,10 @@
         {
           "name": "comment.block.xxml",
           "begin": "/\\*",
-          "end": "\\*/"
+          "end": "\\*/",
+          "captures": {
+            "0": { "name": "punctuation.definition.comment.xxml" }
+          }
         }
       ]
     },
@@ -32,7 +39,7 @@
       "patterns": [
         {
           "name": "meta.preprocessor.import.xxml",
-          "match": "^\\s*(#import)\\s+([\\w:]+)",
+          "match": "^\\s*(#import)\\s+([\\w:]+)\\s*;?",
           "captures": {
             "1": { "name": "keyword.control.import.xxml" },
             "2": { "name": "entity.name.namespace.xxml" }
@@ -53,6 +60,8 @@
           "name": "string.quoted.double.xxml",
           "begin": "\"",
           "end": "\"",
+          "beginCaptures": { "0": { "name": "punctuation.definition.string.begin.xxml" } },
+          "endCaptures": { "0": { "name": "punctuation.definition.string.end.xxml" } },
           "patterns": [
             {
               "name": "constant.character.escape.xxml",
@@ -64,6 +73,8 @@
           "name": "string.quoted.single.xxml",
           "begin": "'",
           "end": "'",
+          "beginCaptures": { "0": { "name": "punctuation.definition.string.begin.xxml" } },
+          "endCaptures": { "0": { "name": "punctuation.definition.string.end.xxml" } },
           "patterns": [
             {
               "name": "constant.character.escape.xxml",
@@ -89,173 +100,306 @@
         }
       ]
     },
-    "keywords": {
+    "block-declarations": {
       "patterns": [
         {
-          "name": "keyword.control.xxml",
-          "match": "\\b(If|Else|While|For|In|Return|Exit|Break|Continue|Match|Case|Default)\\b"
-        },
-        {
-          "name": "keyword.other.xxml",
-          "match": "\\b(Class|Struct|Interface|Trait|Annotation|Enum|Entrypoint|Namespace)\\b"
-        },
-        {
-          "name": "keyword.declaration.xxml",
-          "match": "\\b(Method|Property|Constructor|Destructor|Operator)\\b"
-        },
-        {
-          "name": "keyword.statement.xxml",
-          "match": "\\b(Instantiate|Run|Set|As|Do|Invoke|Call)\\b"
-        },
-        {
-          "name": "keyword.modifier.xxml",
-          "match": "\\b(Public|Private|Protected|Static|Final|Abstract|Virtual|Override|Const|Mutable)\\b"
-        },
-        {
-          "name": "keyword.type.xxml",
-          "match": "\\b(Types|Returns|Parameters|Parameter|Extends|Implements|Allows)\\b"
-        },
-        {
-          "name": "constant.language.xxml",
-          "match": "\\b(true|false|null|None|Self)\\b"
-        },
-        {
-          "name": "keyword.operator.new.xxml",
-          "match": "\\b(new|delete)\\b"
-        }
-      ]
-    },
-    "declarations": {
-      "patterns": [
-        {
-          "name": "meta.class.xxml",
-          "match": "\\[\\s*(Class|Struct|Interface|Trait|Enum)\\s*<([^>]+)>",
+          "comment": "Namespace declaration: [ Namespace <Name>",
+          "match": "(\\[)\\s*(Namespace)\\s*<([^>]+)>",
           "captures": {
-            "1": { "name": "keyword.other.xxml" },
-            "2": { "name": "entity.name.type.class.xxml" }
+            "1": { "name": "punctuation.section.block.begin.xxml" },
+            "2": { "name": "keyword.declaration.namespace.xxml" },
+            "3": { "name": "entity.name.namespace.xxml" }
           }
         },
         {
-          "name": "meta.method.xxml",
-          "match": "(Method|Constructor|Destructor)\\s*<([^>]+)>",
+          "comment": "Class/Struct/Interface/Trait/Enum declaration",
+          "match": "(\\[)\\s*(Class|Struct|Interface|Trait|Enum)\\s*<([^>]+)>",
           "captures": {
-            "1": { "name": "keyword.declaration.xxml" },
+            "1": { "name": "punctuation.section.block.begin.xxml" },
+            "2": { "name": "keyword.declaration.type.xxml" },
+            "3": { "name": "entity.name.type.class.xxml" }
+          }
+        },
+        {
+          "comment": "Annotation declaration",
+          "match": "(\\[)\\s*(Annotation)\\s*<([^>]+)>",
+          "captures": {
+            "1": { "name": "punctuation.section.block.begin.xxml" },
+            "2": { "name": "keyword.declaration.annotation.xxml" },
+            "3": { "name": "entity.name.type.annotation.xxml" }
+          }
+        },
+        {
+          "comment": "Entrypoint declaration (no angle brackets)",
+          "match": "(\\[)\\s*(Entrypoint)\\b",
+          "captures": {
+            "1": { "name": "punctuation.section.block.begin.xxml" },
+            "2": { "name": "keyword.declaration.entrypoint.xxml" }
+          }
+        },
+        {
+          "comment": "Access modifier sections: [ Public <> or [ Private <>",
+          "match": "(\\[)\\s*(Public|Private|Protected)\\s*<>",
+          "captures": {
+            "1": { "name": "punctuation.section.block.begin.xxml" },
+            "2": { "name": "storage.modifier.access.xxml" }
+          }
+        },
+        {
+          "comment": "Block end",
+          "match": "\\]",
+          "name": "punctuation.section.block.end.xxml"
+        }
+      ]
+    },
+    "member-declarations": {
+      "patterns": [
+        {
+          "comment": "Method declaration: Method <name>",
+          "match": "(Method)\\s*<([^>]+)>",
+          "captures": {
+            "1": { "name": "keyword.declaration.method.xxml" },
             "2": { "name": "entity.name.function.xxml" }
           }
         },
         {
-          "name": "meta.property.xxml",
+          "comment": "Constructor keyword",
+          "match": "\\b(Constructor)\\b(?!\\s*<)",
+          "name": "keyword.declaration.constructor.xxml"
+        },
+        {
+          "comment": "Destructor keyword",
+          "match": "\\b(Destructor)\\b",
+          "name": "keyword.declaration.destructor.xxml"
+        },
+        {
+          "comment": "Property declaration: Property <name>",
           "match": "(Property)\\s*<([^>]+)>",
           "captures": {
-            "1": { "name": "keyword.declaration.xxml" },
+            "1": { "name": "keyword.declaration.property.xxml" },
             "2": { "name": "variable.other.property.xxml" }
           }
         },
         {
-          "name": "meta.parameter.xxml",
+          "comment": "Parameter declaration: Parameter <name>",
           "match": "(Parameter)\\s*<([^>]+)>",
           "captures": {
-            "1": { "name": "keyword.type.xxml" },
+            "1": { "name": "keyword.other.parameter.xxml" },
             "2": { "name": "variable.parameter.xxml" }
           }
         },
         {
-          "name": "meta.variable.xxml",
-          "match": "(Instantiate)\\s+([\\w^&%]+)\\s+(As)\\s*<([^>]+)>",
+          "comment": "Operator overload: Operator <op>",
+          "match": "(Operator)\\s*<([^>]+)>",
           "captures": {
-            "1": { "name": "keyword.statement.xxml" },
+            "1": { "name": "keyword.declaration.operator.xxml" },
+            "2": { "name": "entity.name.function.operator.xxml" }
+          }
+        }
+      ]
+    },
+    "statements": {
+      "patterns": [
+        {
+          "comment": "Instantiate statement with variable name",
+          "match": "(Instantiate)\\s+([\\w<>@:]+[\\^&%]?)\\s+(As)\\s*<([^>]+)>",
+          "captures": {
+            "1": { "name": "keyword.control.instantiate.xxml" },
             "2": { "name": "entity.name.type.xxml" },
-            "3": { "name": "keyword.statement.xxml" },
+            "3": { "name": "keyword.control.as.xxml" },
             "4": { "name": "variable.other.local.xxml" }
           }
+        },
+        {
+          "comment": "For loop with iterator variable",
+          "match": "(For)\\s*<([^>]+)>\\s+(In)\\b",
+          "captures": {
+            "1": { "name": "keyword.control.for.xxml" },
+            "2": { "name": "variable.other.iterator.xxml" },
+            "3": { "name": "keyword.control.in.xxml" }
+          }
         }
       ]
     },
-    "annotations": {
+    "keywords": {
       "patterns": [
         {
-          "name": "meta.annotation.xxml",
-          "match": "@(\\w+)(\\([^)]*\\))?",
+          "comment": "Control flow keywords",
+          "name": "keyword.control.xxml",
+          "match": "\\b(If|Else|While|For|In|Return|Exit|Break|Continue|Match|Case|Default)\\b"
+        },
+        {
+          "comment": "Statement keywords",
+          "name": "keyword.control.statement.xxml",
+          "match": "\\b(Run|Set|Invoke|Call)\\b"
+        },
+        {
+          "comment": "Type declaration modifiers",
+          "name": "storage.modifier.xxml",
+          "match": "\\b(Final|Abstract|Virtual|Override|Static|Const|Mutable|Compiletime)\\b"
+        },
+        {
+          "comment": "Type annotation keywords",
+          "name": "keyword.other.type.xxml",
+          "match": "\\b(Types|Returns|Parameters|Extends|Implements|Allows|Do)\\b"
+        },
+        {
+          "comment": "Constants and special values",
+          "name": "constant.language.xxml",
+          "match": "\\b(true|false|null|None|default)\\b"
+        },
+        {
+          "comment": "Self/this reference",
+          "name": "variable.language.xxml",
+          "match": "\\b(Self|this)\\b"
+        }
+      ]
+    },
+    "native-type": {
+      "patterns": [
+        {
+          "comment": "NativeType<\"...\"> syntax",
+          "match": "(NativeType)\\s*<\\s*\"([^\"]+)\"\\s*>",
           "captures": {
-            "0": { "name": "meta.annotation.xxml" },
-            "1": { "name": "entity.name.function.decorator.xxml" }
+            "1": { "name": "support.type.native.xxml" },
+            "2": { "name": "string.quoted.double.native-type.xxml" }
+          }
+        }
+      ]
+    },
+    "generic-type": {
+      "patterns": [
+        {
+          "comment": "Generic type with nested generics: Type<A<B>, C>",
+          "begin": "\\b([A-Z][a-zA-Z0-9_]*)\\s*(<)",
+          "beginCaptures": {
+            "1": { "name": "entity.name.type.generic.xxml" },
+            "2": { "name": "punctuation.definition.typeparameters.begin.xxml" }
+          },
+          "end": "(>)",
+          "endCaptures": {
+            "1": { "name": "punctuation.definition.typeparameters.end.xxml" }
+          },
+          "patterns": [
+            { "include": "#generic-type" },
+            { "include": "#type-with-ownership" },
+            {
+              "match": ",",
+              "name": "punctuation.separator.comma.xxml"
+            },
+            {
+              "match": "\\b([A-Z][a-zA-Z0-9_]*)\\b",
+              "name": "entity.name.type.parameter.xxml"
+            }
+          ]
+        }
+      ]
+    },
+    "template-instantiation": {
+      "patterns": [
+        {
+          "comment": "Template instantiation: Type@Arg::Method",
+          "match": "\\b([A-Z][a-zA-Z0-9_]*)@([A-Z][a-zA-Z0-9_]*)\\s*(::)\\s*([A-Za-z_][a-zA-Z0-9_]*)",
+          "captures": {
+            "1": { "name": "entity.name.type.xxml" },
+            "2": { "name": "entity.name.type.parameter.xxml" },
+            "3": { "name": "punctuation.accessor.xxml" },
+            "4": { "name": "entity.name.function.xxml" }
+          }
+        }
+      ]
+    },
+    "type-with-ownership": {
+      "patterns": [
+        {
+          "comment": "Type with ownership modifier: Type^, Type&, Type%",
+          "match": "\\b([A-Z][a-zA-Z0-9_]*)([\\^&%])",
+          "captures": {
+            "1": { "name": "entity.name.type.xxml" },
+            "2": { "name": "keyword.operator.ownership.xxml" }
           }
         },
         {
-          "name": "storage.modifier.annotation.xxml",
-          "match": "\\b(Annotate)\\b"
-        }
-      ]
-    },
-    "types": {
-      "patterns": [
-        {
-          "name": "entity.name.type.xxml",
-          "match": "\\b(Integer|Float|Double|Bool|String|Char|Void|Any|Object|Array|List|HashMap|Set)\\b"
-        },
-        {
-          "name": "storage.type.native.xxml",
-          "match": "\\b(NativeType)\\s*<\"([^\"]+)\">"
-        },
-        {
-          "name": "keyword.operator.ownership.owned.xxml",
-          "match": "\\^"
-        },
-        {
-          "name": "keyword.operator.ownership.reference.xxml",
-          "match": "&(?!&)"
-        },
-        {
-          "name": "keyword.operator.ownership.copy.xxml",
-          "match": "%"
+          "comment": "Standalone ownership modifiers after >",
+          "match": ">([\\^&%])",
+          "captures": {
+            "1": { "name": "keyword.operator.ownership.xxml" }
+          }
         }
       ]
     },
     "operators": {
       "patterns": [
         {
+          "comment": "Arrow operator",
+          "name": "keyword.operator.arrow.xxml",
+          "match": "->"
+        },
+        {
+          "comment": "Scope resolution operator",
+          "name": "punctuation.accessor.double-colon.xxml",
+          "match": "::"
+        },
+        {
+          "comment": "Comparison operators",
           "name": "keyword.operator.comparison.xxml",
           "match": "(==|!=|<=|>=|<|>)"
         },
         {
+          "comment": "Logical operators",
           "name": "keyword.operator.logical.xxml",
           "match": "(&&|\\|\\||!)"
         },
         {
+          "comment": "Arithmetic operators",
           "name": "keyword.operator.arithmetic.xxml",
-          "match": "(\\+|-|\\*|/|%)"
+          "match": "(\\+|-|\\*|/)"
         },
         {
+          "comment": "Assignment operator",
           "name": "keyword.operator.assignment.xxml",
-          "match": "(=)"
+          "match": "="
         },
         {
-          "name": "keyword.operator.access.xxml",
-          "match": "(::|\\.)"
+          "comment": "Member access operator",
+          "name": "punctuation.accessor.dot.xxml",
+          "match": "\\."
         },
         {
-          "name": "keyword.operator.arrow.xxml",
-          "match": "(->)"
+          "comment": "Address-of operator",
+          "name": "keyword.operator.address.xxml",
+          "match": "&(?=[a-zA-Z_])"
         }
       ]
     },
     "identifiers": {
       "patterns": [
         {
-          "name": "entity.name.function.call.xxml",
-          "match": "\\b([A-Z]\\w*)\\s*::\\s*(\\w+)",
+          "comment": "Static method/constructor call: ClassName::methodName",
+          "match": "\\b([A-Z][a-zA-Z0-9_]*)\\s*(::)\\s*([A-Za-z_][a-zA-Z0-9_]*)",
           "captures": {
             "1": { "name": "entity.name.type.xxml" },
+            "2": { "name": "punctuation.accessor.xxml" },
+            "3": { "name": "entity.name.function.xxml" }
+          }
+        },
+        {
+          "comment": "Instance method call: object.method(",
+          "match": "\\b([a-z_][a-zA-Z0-9_]*)\\s*\\.\\s*([a-z_][a-zA-Z0-9_]*)\\s*(?=\\()",
+          "captures": {
+            "1": { "name": "variable.other.xxml" },
             "2": { "name": "entity.name.function.xxml" }
           }
         },
         {
-          "name": "variable.other.xxml",
-          "match": "\\b[a-z_]\\w*\\b"
+          "comment": "Type names (PascalCase)",
+          "match": "\\b([A-Z][a-zA-Z0-9_]*)\\b",
+          "name": "entity.name.type.xxml"
         },
         {
-          "name": "entity.name.type.xxml",
-          "match": "\\b[A-Z]\\w*\\b"
+          "comment": "Variable and function names (camelCase/snake_case)",
+          "match": "\\b([a-z_][a-zA-Z0-9_]*)\\b",
+          "name": "variable.other.xxml"
         }
       ]
     }

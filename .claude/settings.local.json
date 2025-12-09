@@ -264,7 +264,13 @@
       "Bash(\"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" \"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\tests\\ReflectionTest.XXML\" -o \"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\reflectiontest.exe\")",
       "Bash(\"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\derivestringtest.exe\")",
       "Bash(\"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\deriveeqhashtest.exe\")",
-      "Bash(\"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\reflectiontest.exe\")"
+      "Bash(\"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\reflectiontest.exe\")",
+      "Bash(Select-Object -First 60)",
+      "Bash(cmd /c \"dir /b C:\\Users\\bkmcm\\.vscode\\extensions 2>nul | findstr /i xxml\")",
+      "Bash(cmd /c \"if exist C:\\Users\\bkmcm\\.vscode\\extensions dir /b C:\\Users\\bkmcm\\.vscode\\extensions\")",
+      "Bash(npm install:*)",
+      "Bash(npm run package:*)",
+      "Bash(Copy-Item -Force \"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml-lsp.exe\" \"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\tools\\vscode-xxml\\bin\\xxml-lsp.exe\")"
     ],
     "deny": [],
     "ask": []

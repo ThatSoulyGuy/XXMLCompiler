@@ -121,6 +121,13 @@ public:
     // Set standard library path
     void setStdlibPath(const std::string& path) { stdlibPath_ = path; }
 
+    // Set workspace root for resolving relative imports
+    void setWorkspaceRoot(const std::string& path) { workspaceRoot_ = path; }
+
+    // Get configured paths (for debugging)
+    const std::string& getStdlibPath() const { return stdlibPath_; }
+    const std::string& getWorkspaceRoot() const { return workspaceRoot_; }
+
 private:
     // Convert XXML compiler error to LSP diagnostic
     Diagnostic convertError(const XXML::Common::Error& error, const AnalysisResult& result) const;
@@ -154,6 +161,13 @@ private:
 
     // Standard library path
     std::string stdlibPath_;
+
+    // Workspace root path
+    std::string workspaceRoot_;
+
+    // Resolve an import path to a file path
+    // sourceDir is the directory containing the current source file
+    std::string resolveImportPath(const std::string& importPath, const std::string& sourceDir) const;
 };
 
 } // namespace xxml::lsp

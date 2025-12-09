@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    XXML Compiler Installer
+    WiX v4 Package Definition
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+    <Package
+        Name="XXML Compiler"
+        Manufacturer="XXML Project"
+        Version="$(var.ProductVersion)"
+        UpgradeCode="8E5F4A2B-1C3D-4E5F-6A7B-8C9D0E1F2A3B"
+        Scope="perMachine">
+
+        <SummaryInformation
+            Description="XXML Programming Language Compiler"
+            Keywords="XXML, Compiler, Programming Language" />
+
+        <!-- Upgrade handling -->
+        <MajorUpgrade
+            DowngradeErrorMessage="A newer version of XXML Compiler is already installed."
+            AllowSameVersionUpgrades="yes" />
+
+        <!-- Media -->
+        <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+        <!-- Features -->
+        <Feature Id="MainFeature" Title="XXML Compiler" Level="1">
+            <ComponentGroupRef Id="CompilerComponents" />
+            <ComponentGroupRef Id="StandardLibraryComponents" />
+            <ComponentGroupRef Id="RuntimeComponents" />
+            <Feature Id="MinGWFeature" Title="MinGW-w64 Toolchain" Level="1"
+                     Description="GCC compiler toolchain for linking XXML programs">
+                <ComponentGroupRef Id="MinGWComponents" />
+            </Feature>
+            <Feature Id="VSCodeExtFeature" Title="VS Code Extension" Level="1"
+                     Description="XXML language support for Visual Studio Code (syntax highlighting, IntelliSense, diagnostics)">
+                <ComponentGroupRef Id="VSCodeExtComponents" />
+            </Feature>
+        </Feature>
+
+        <!-- Custom Actions -->
+        <CustomAction Id="SetPath" Directory="INSTALLFOLDER"
+                      ExeCommand="cmd.exe /c setx PATH &quot;%PATH%;[INSTALLFOLDER]bin;[INSTALLFOLDER]mingw64\bin&quot;"
+                      Execute="deferred" Impersonate="no" Return="ignore" />
+
+        <!-- UI -->
+        <UI>
+            <UIRef Id="WixUI_FeatureTree" />
+            <Publish Dialog="ExitDialog" Control="Finish" Event="DoAction" Value="LaunchApplication">
+                WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 and NOT Installed
+            </Publish>
+        </UI>
+
+        <!-- License -->
+        <WixVariable Id="WixUILicenseRtf" Value="$(var.ProjectDir)\resources\license.rtf" />
+
+        <!-- Banner and dialog images -->
+        <WixVariable Id="WixUIBannerBmp" Value="$(var.ProjectDir)\resources\banner.bmp" />
+        <WixVariable Id="WixUIDialogBmp" Value="$(var.ProjectDir)\resources\dialog.bmp" />
+
+        <!-- Icon -->
+        <Icon Id="xxml.ico" SourceFile="$(var.ProjectDir)\resources\xxml.ico" />
+        <Property Id="ARPPRODUCTICON" Value="xxml.ico" />
+        <Property Id="ARPHELPLINK" Value="https://github.com/yourusername/xxml" />
+    </Package>
+</Wix>

@@ -41,6 +41,13 @@ void LSPServer::registerHandlers() {
         handleDidSave(params);
     };
 
+    // Configuration
+    notificationHandlers_["workspace/didChangeConfiguration"] = [this](const json& params) {
+        if (params.contains("settings")) {
+            applyConfiguration(params["settings"]);
+        }
+    };
+
     // Language features
     requestHandlers_["textDocument/hover"] = [this](const json& params) {
         return handleHover(params);
@@ -152,6 +159,72 @@ json LSPServer::handleInitialize(const json& params) {
     // Store client capabilities
     if (params.contains("capabilities")) {
         clientCapabilities_ = params["capabilities"];
+    }
+
+    // Extract workspace root from rootUri or workspaceFolders
+    if (params.contains("rootUri") && !params["rootUri"].is_null()) {
+        workspaceRoot_ = params["rootUri"].get<std::string>();
+        // Convert file URI to path
+        if (workspaceRoot_.substr(0, 8) == "file:///") {
+            workspaceRoot_ = workspaceRoot_.substr(8);
+            // Handle Windows drive letters (file:///C:/... -> C:/...)
+            #ifdef _WIN32
+            // URL decode and fix path separators
+            std::string decoded;
+            for (size_t i = 0; i < workspaceRoot_.size(); ++i) {
+                if (workspaceRoot_[i] == '%' && i + 2 < workspaceRoot_.size()) {
+                    int hex = std::stoi(workspaceRoot_.substr(i + 1, 2), nullptr, 16);
+                    decoded += static_cast<char>(hex);
+                    i += 2;
+                } else if (workspaceRoot_[i] == '/') {
+                    decoded += '\\';
+                } else {
+                    decoded += workspaceRoot_[i];
+                }
+            }
+            workspaceRoot_ = decoded;
+            #endif
+        }
+        transport_.log("Workspace root: " + workspaceRoot_);
+    }
+
+    // Extract initialization options
+    if (params.contains("initializationOptions")) {
+        const auto& opts = params["initializationOptions"];
+
+        if (opts.contains("stdlibPath") && opts["stdlibPath"].is_string()) {
+            stdlibPath_ = opts["stdlibPath"].get<std::string>();
+            transport_.log("Stdlib path from init options: " + stdlibPath_);
+        }
+    }
+
+    // If no stdlib path provided, try to find it relative to workspace
+    if (stdlibPath_.empty() && !workspaceRoot_.empty()) {
+        namespace fs = std::filesystem;
+        fs::path wsRoot(workspaceRoot_);
+
+        // Check common locations relative to workspace
+        std::vector<fs::path> candidates = {
+            wsRoot / "Language",
+            wsRoot / "build" / "release" / "bin" / "Language",
+            wsRoot / "build" / "debug" / "bin" / "Language"
+        };
+
+        for (const auto& candidate : candidates) {
+            if (fs::exists(candidate) && fs::is_directory(candidate)) {
+                stdlibPath_ = candidate.string();
+                transport_.log("Auto-detected stdlib path: " + stdlibPath_);
+                break;
+            }
+        }
+    }
+
+    // Apply configuration to analysis engine
+    if (!stdlibPath_.empty()) {
+        analyzer_.setStdlibPath(stdlibPath_);
+    }
+    if (!workspaceRoot_.empty()) {
+        analyzer_.setWorkspaceRoot(workspaceRoot_);
     }
 
     // Return server capabilities
@@ -297,62 +370,33 @@ json LSPServer::handleCompletion(const json& params) {
         return json::array();
     }
 
-    // Get context for completion
-    size_t offset = documents_.positionToOffset(uri, posParams.position.line, posParams.position.character);
+    // Get the current line text up to cursor for context detection
+    std::string currentLineText;
+    int cursorLine = posParams.position.line;
+    int cursorChar = posParams.position.character;
 
-    // Find preceding characters for context
-    std::string precedingText;
-    if (offset > 0 && offset <= doc->content.size()) {
-        size_t start = (offset > 50) ? offset - 50 : 0;
-        precedingText = doc->content.substr(start, offset - start);
+    // Extract the current line up to cursor position
+    size_t lineStart = 0;
+    int lineNum = 0;
+    for (size_t i = 0; i < doc->content.size(); ++i) {
+        if (lineNum == cursorLine) {
+            // Found our line, extract text up to cursor
+            size_t endPos = std::min(lineStart + static_cast<size_t>(cursorChar), doc->content.size());
+            currentLineText = doc->content.substr(lineStart, endPos - lineStart);
+            break;
+        }
+        if (doc->content[i] == '\n') {
+            ++lineNum;
+            lineStart = i + 1;
+        }
     }
+
+    // Use analysis engine for context-aware completions
+    auto items = analyzer_.getCompletions(uri, cursorLine, cursorChar, currentLineText);
 
     json completions = json::array();
-
-    // Check for :: trigger (class member access)
-    if (precedingText.size() >= 2 && precedingText.substr(precedingText.size() - 2) == "::") {
-        // Would need semantic analysis to provide real completions
-        // For now, provide common method names
-        completions.push_back(CompletionItem{"Constructor", CompletionItemKind::Constructor, "Class constructor", "", "Constructor"}.toJson());
-    }
-    // Check for . trigger (instance member access)
-    else if (!precedingText.empty() && precedingText.back() == '.') {
-        // Would need semantic analysis
-    }
-    // General completions (keywords)
-    else {
-        std::vector<std::pair<std::string, std::string>> keywords = {
-            {"Class", "Declare a class"},
-            {"Method", "Declare a method"},
-            {"Property", "Declare a property"},
-            {"Constructor", "Declare a constructor"},
-            {"Instantiate", "Create a variable"},
-            {"Return", "Return from method"},
-            {"If", "Conditional statement"},
-            {"Else", "Else branch"},
-            {"While", "While loop"},
-            {"For", "For loop"},
-            {"Run", "Execute statement"},
-            {"Set", "Assign property"},
-            {"Exit", "Exit program"},
-            {"Public", "Public access"},
-            {"Private", "Private access"},
-            {"Final", "Final class"},
-            {"Extends", "Inheritance"},
-            {"Types", "Type annotation"},
-            {"Returns", "Return type"},
-            {"Parameters", "Parameter list"},
-            {"Do", "Method body"},
-        };
-
-        for (const auto& [kw, desc] : keywords) {
-            CompletionItem item;
-            item.label = kw;
-            item.kind = CompletionItemKind::Keyword;
-            item.detail = desc;
-            item.insertText = kw;
-            completions.push_back(item.toJson());
-        }
+    for (const auto& item : items) {
+        completions.push_back(item.toJson());
     }
 
     return completions;
@@ -484,6 +528,25 @@ void LSPServer::publishDiagnostics(const std::string& uri) {
         {"diagnostics", diagnosticsJson}
     });
     transport_.writeMessage(notification);
+}
+
+void LSPServer::applyConfiguration(const json& settings) {
+    transport_.log("Applying configuration...");
+
+    // Extract xxml settings
+    if (settings.contains("xxml")) {
+        const auto& xxmlSettings = settings["xxml"];
+
+        // Stdlib path
+        if (xxmlSettings.contains("stdlibPath") && xxmlSettings["stdlibPath"].is_string()) {
+            stdlibPath_ = xxmlSettings["stdlibPath"].get<std::string>();
+            analyzer_.setStdlibPath(stdlibPath_);
+            transport_.log("Updated stdlib path: " + stdlibPath_);
+        }
+    }
+
+    // Re-analyze all open documents with new configuration
+    // This would require storing list of open documents and re-analyzing them
 }
 
 } // namespace xxml::lsp

@@ -13,7 +13,7 @@
   "activationEvents": [
     "onLanguage:xxml"
   ],
-  "main": "./out/extension.js",
+  "main": "./dist/extension.js",
   "contributes": {
     "languages": [
       {
@@ -50,6 +50,11 @@
           "default": true,
           "description": "Enable/disable the XXML language server."
         },
+        "xxml.stdlibPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the XXML standard library (Language folder). If empty, auto-detected from workspace."
+        },
         "xxml.ownershipVisualization.enabled": {
           "type": "boolean",
           "default": true,
@@ -59,9 +64,10 @@
     }
   },
   "scripts": {
-    "vscode:prepublish": "npm run compile",
-    "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./",
+    "vscode:prepublish": "npm run esbuild-base -- --minify",
+    "esbuild-base": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node",
+    "compile": "npm run esbuild-base -- --sourcemap",
+    "watch": "npm run esbuild-base -- --sourcemap --watch",
     "lint": "eslint src --ext ts",
     "package": "vsce package"
   },
@@ -73,6 +79,7 @@
     "@types/vscode": "^1.75.0",
     "@typescript-eslint/eslint-plugin": "^6.9.0",
     "@typescript-eslint/parser": "^6.9.0",
+    "esbuild": "^0.20.0",
     "eslint": "^8.52.0",
     "typescript": "^5.2.2",
     "@vscode/vsce": "^2.22.0"

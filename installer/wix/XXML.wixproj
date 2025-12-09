@@ -1,0 +1,36 @@
+<Project Sdk="WixToolset.Sdk/4.0.5">
+    <PropertyGroup>
+        <OutputType>Package</OutputType>
+        <Platform>x64</Platform>
+        <InstallerPlatform>x64</InstallerPlatform>
+        <OutputName>xxml-$(ProductVersion)-windows-x64</OutputName>
+    </PropertyGroup>
+
+    <PropertyGroup>
+        <!-- These are set by the build script -->
+        <ProductVersion Condition="'$(ProductVersion)' == ''">3.0.0</ProductVersion>
+        <BuildDir Condition="'$(BuildDir)' == ''">..\..\build\release</BuildDir>
+        <SourceDir Condition="'$(SourceDir)' == ''">..\..\..</SourceDir>
+        <ProjectDir Condition="'$(ProjectDir)' == ''">..</ProjectDir>
+    </PropertyGroup>
+
+    <PropertyGroup>
+        <DefineConstants>
+            ProductVersion=$(ProductVersion);
+            BuildDir=$(BuildDir);
+            SourceDir=$(SourceDir);
+            ProjectDir=$(ProjectDir)
+        </DefineConstants>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <Compile Include="Package.wxs" />
+        <Compile Include="Directories.wxs" />
+        <Compile Include="Components.wxs" />
+        <Compile Include="MinGWComponents.wxs" Condition="Exists('MinGWComponents.wxs')" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <PackageReference Include="WixToolset.UI.wixext" Version="4.0.*" />
+    </ItemGroup>
+</Project>

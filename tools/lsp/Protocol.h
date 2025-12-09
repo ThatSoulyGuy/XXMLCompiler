@@ -192,6 +192,12 @@ enum class CompletionItemKind {
     TypeParameter = 25
 };
 
+// Insert text format
+enum class InsertTextFormat {
+    PlainText = 1,
+    Snippet = 2
+};
+
 // Completion item
 struct CompletionItem {
     std::string label;
@@ -199,6 +205,7 @@ struct CompletionItem {
     std::string detail;
     std::string documentation;
     std::string insertText;
+    InsertTextFormat insertTextFormat = InsertTextFormat::PlainText;
 
     json toJson() const {
         json j;
@@ -206,7 +213,10 @@ struct CompletionItem {
         j["kind"] = static_cast<int>(kind);
         if (!detail.empty()) j["detail"] = detail;
         if (!documentation.empty()) j["documentation"] = documentation;
-        if (!insertText.empty()) j["insertText"] = insertText;
+        if (!insertText.empty()) {
+            j["insertText"] = insertText;
+            j["insertTextFormat"] = static_cast<int>(insertTextFormat);
+        }
         return j;
     }
 };
