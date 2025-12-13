@@ -80,6 +80,7 @@ private:
     void visitProcessorDecl(Parser::ProcessorDecl& node);
     void visitPropertyDecl(Parser::PropertyDecl& node);
     void visitMethodDecl(Parser::MethodDecl& node);
+    void visitConstructorDecl(Parser::ConstructorDecl& node);
     void visitTypeRef(Parser::TypeRef* typeRef);
 
     // Forward reference tracking

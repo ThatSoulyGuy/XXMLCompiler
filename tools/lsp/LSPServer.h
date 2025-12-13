@@ -23,6 +23,9 @@ public:
     // Stop the server
     void stop();
 
+    // Add an include path for import resolution
+    void addIncludePath(const std::string& path);
+
 private:
     // JSON-RPC message handlers
     using RequestHandler = std::function<json(const json&)>;
@@ -78,6 +81,7 @@ private:
     // Configuration
     std::string stdlibPath_;
     std::string workspaceRoot_;
+    std::vector<std::string> includePaths_;  // User-specified import search paths
 
     // Apply configuration from settings
     void applyConfiguration(const json& settings);

@@ -237,11 +237,12 @@ public:
         args.push_back("vcruntime.lib");      // VC runtime
 
         // Optimization/debug settings
-        if (config.optimizationLevel == 0) {
+        if (config.optimizationLevel == 0 && !config.stripSymbols) {
             args.push_back("/DEBUG");
-        } else {
-            args.push_back("/OPT:REF");
-            args.push_back("/OPT:ICF");
+        }
+        if (config.optimizationLevel > 0 || config.stripSymbols) {
+            args.push_back("/OPT:REF");  // Remove unreferenced code
+            args.push_back("/OPT:ICF");  // Fold identical functions
         }
 
         // Static vs dynamic runtime

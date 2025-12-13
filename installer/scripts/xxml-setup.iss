@@ -91,14 +91,8 @@ Source: "{#BuildDir}\bin\xxml-lsp.exe"; DestDir: "{app}\bin"; Flags: ignoreversi
 Source: "{#BuildDir}\lib\XXMLLLVMRuntime.lib"; DestDir: "{app}\lib"; Flags: ignoreversion; Components: main
 Source: "{#BuildDir}\lib\XXMLLib.lib"; DestDir: "{app}\lib"; Flags: ignoreversion skipifsourcedoesntexist; Components: main
 
-; Standard Library
-Source: "{#ProjectRoot}\Language\Core\*.XXML"; DestDir: "{app}\Language\Core"; Flags: ignoreversion; Components: stdlib
-Source: "{#ProjectRoot}\Language\Collections\*.XXML"; DestDir: "{app}\Language\Collections"; Flags: ignoreversion skipifsourcedoesntexist; Components: stdlib
-Source: "{#ProjectRoot}\Language\System\*.XXML"; DestDir: "{app}\Language\System"; Flags: ignoreversion skipifsourcedoesntexist; Components: stdlib
-Source: "{#ProjectRoot}\Language\Threading\*.XXML"; DestDir: "{app}\Language\Threading"; Flags: ignoreversion skipifsourcedoesntexist; Components: stdlib
-Source: "{#ProjectRoot}\Language\Reflection\*.XXML"; DestDir: "{app}\Language\Reflection"; Flags: ignoreversion skipifsourcedoesntexist; Components: stdlib
-Source: "{#ProjectRoot}\Language\Format\*.XXML"; DestDir: "{app}\Language\Format"; Flags: ignoreversion skipifsourcedoesntexist; Components: stdlib
-Source: "{#ProjectRoot}\Language\Test\*.XXML"; DestDir: "{app}\Language\Test"; Flags: ignoreversion skipifsourcedoesntexist; Components: stdlib
+; Standard Library (recursively copy entire Language directory)
+Source: "{#ProjectRoot}\Language\*"; DestDir: "{app}\Language"; Flags: ignoreversion recursesubdirs createallsubdirs; Components: stdlib
 
 ; Runtime C source (for reference)
 Source: "{#ProjectRoot}\runtime\*.c"; DestDir: "{app}\runtime"; Flags: ignoreversion; Components: main
@@ -139,6 +133,81 @@ Root: HKLM; Subkey: "SYSTEM\CurrentControlSet\Control\Session Manager\Environmen
 Filename: "{app}\bin\xxml.exe"; Parameters: "--version"; Description: "Verify installation"; Flags: postinstall nowait skipifsilent runhidden
 
 [Code]
+const
+  UninstallKey = 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{8E5F4A2B-1C3D-4E5F-6A7B-8C9D0E1F2A3C}_is1';
+
+// Get the uninstall string for a previous installation
+function GetUninstallString(): string;
+var
+  UninstallString: string;
+begin
+  Result := '';
+  if RegQueryStringValue(HKLM, UninstallKey, 'UninstallString', UninstallString) then
+    Result := UninstallString
+  else if RegQueryStringValue(HKCU, UninstallKey, 'UninstallString', UninstallString) then
+    Result := UninstallString;
+end;
+
+// Check if a previous version is installed
+function IsUpgrade(): Boolean;
+begin
+  Result := (GetUninstallString() <> '');
+end;
+
+// Uninstall previous version before installing new one
+function UninstallPreviousVersion(): Integer;
+var
+  UninstallString: string;
+  ResultCode: Integer;
+begin
+  Result := 0;
+  UninstallString := GetUninstallString();
+
+  if UninstallString <> '' then
+  begin
+    // Remove quotes if present
+    if (Length(UninstallString) > 0) and (UninstallString[1] = '"') then
+    begin
+      Delete(UninstallString, 1, 1);
+      Delete(UninstallString, Pos('"', UninstallString), 1);
+    end;
+
+    // Run the uninstaller silently
+    if Exec(UninstallString, '/SILENT /NORESTART /SUPPRESSMSGBOXES', '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
+      Result := ResultCode
+    else
+      Result := -1;
+  end;
+end;
+
+// Called before installation begins
+function InitializeSetup(): Boolean;
+var
+  ResultCode: Integer;
+begin
+  Result := True;
+
+  // Check if XXML is already installed
+  if IsUpgrade() then
+  begin
+    if MsgBox('A previous version of XXML Compiler is installed. It will be uninstalled first.' + #13#10 + #13#10 +
+              'Do you want to continue?', mbConfirmation, MB_YESNO) = IDYES then
+    begin
+      ResultCode := UninstallPreviousVersion();
+      if ResultCode <> 0 then
+      begin
+        MsgBox('Failed to uninstall previous version (error code: ' + IntToStr(ResultCode) + ').' + #13#10 +
+               'Please uninstall it manually and try again.', mbError, MB_OK);
+        Result := False;
+      end;
+    end
+    else
+    begin
+      Result := False;
+    end;
+  end;
+end;
+
 // Check if path needs to be added
 function NeedsAddPath(Param: string): boolean;
 var

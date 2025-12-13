@@ -170,8 +170,9 @@ function startLanguageServer(context: vscode.ExtensionContext) {
         }
     };
 
-    // Get stdlib path from settings
+    // Get stdlib path and include paths from settings
     const stdlibPath = config.get<string>('stdlibPath', '');
+    const includePaths = config.get<string[]>('includePaths', []);
 
     const clientOptions: LanguageClientOptions = {
         documentSelector: [{ scheme: 'file', language: 'xxml' }],
@@ -181,7 +182,8 @@ function startLanguageServer(context: vscode.ExtensionContext) {
         },
         outputChannelName: 'XXML Language Server',
         initializationOptions: {
-            stdlibPath: stdlibPath
+            stdlibPath: stdlibPath,
+            includePaths: includePaths
         }
     };
 

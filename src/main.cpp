@@ -84,6 +84,8 @@ void printUsage(const char* programName) {
     std::cerr << "Usage: " << programName << " [options] <input.XXML> -o <output>\n\n";
     std::cerr << "Options:\n";
     std::cerr << "  -o <file>              Output file (.ll for IR, .exe/.dll for binary)\n";
+    std::cerr << "  -I <dir>               Add directory to import search path (can be used multiple times)\n";
+    std::cerr << "  --include-dir=<dir>    Same as -I <dir>\n";
     std::cerr << "  --ir                   Generate LLVM IR only (same as mode 2)\n";
     std::cerr << "  --emit-llvm            Alias for --ir\n";
     std::cerr << "  --processor            Compile annotation processor to DLL\n";
@@ -91,8 +93,19 @@ void printUsage(const char* programName) {
     std::cerr << "  --stl-warnings         Show warnings for standard library files (off by default)\n";
     std::cerr << "  --dump-ownership       Dump ownership analysis information for debugging\n";
     std::cerr << "  2                      Legacy mode: LLVM IR only\n\n";
+    std::cerr << "Optimization Options:\n";
+    std::cerr << "  -O0                    No optimization (default, fastest compilation)\n";
+    std::cerr << "  -O1                    Basic optimization\n";
+    std::cerr << "  -O2                    Standard optimization (recommended for release)\n";
+    std::cerr << "  -O3                    Aggressive optimization (may increase code size)\n";
+    std::cerr << "  -Os                    Optimize for size\n";
+    std::cerr << "  -Oz                    Aggressively optimize for size\n";
+    std::cerr << "  -g                     Include debug symbols (disabled by default with -O1+)\n";
+    std::cerr << "  --no-debug             Explicitly disable debug symbols\n\n";
     std::cerr << "Examples:\n";
     std::cerr << "  " << programName << " Hello.XXML -o hello.exe                    # Compile to executable\n";
+    std::cerr << "  " << programName << " Hello.XXML -o hello.exe -O2                # Optimized release build\n";
+    std::cerr << "  " << programName << " Hello.XXML -o hello.exe -O2 -g             # Optimized with debug info\n";
     std::cerr << "  " << programName << " Hello.XXML -o hello.ll --ir                # Generate LLVM IR only\n";
     std::cerr << "  " << programName << " --processor MyAnnot.XXML -o MyAnnot.dll    # Compile processor DLL\n";
     std::cerr << "  " << programName << " --use-processor=MyAnnot.dll App.XXML -o app.exe  # Use processor\n";
@@ -114,6 +127,13 @@ int main(int argc, char* argv[]) {
     bool showSTLWarnings = false;
     bool dumpOwnership = false;
     std::vector<std::string> processorDLLs;
+    std::vector<std::string> includeDirs;  // Additional import search paths
+
+    // Optimization settings
+    int optimizationLevel = 0;         // 0-3, or special values for Os/Oz
+    std::string optimizationMode = ""; // "", "s", or "z" for size optimizations
+    bool includeDebugSymbols = true;   // Default to debug symbols (will be disabled by -O1+ unless -g)
+    bool explicitDebugFlag = false;    // Track if user explicitly set -g or --no-debug
 
     // Parse command-line arguments
     for (int i = 1; i < argc; i++) {
@@ -121,7 +141,7 @@ int main(int argc, char* argv[]) {
         if (arg == "-o" && i + 1 < argc) {
             outputFile = argv[i + 1];
             i++; // Skip the next argument
-        } else if (arg == "2" || arg == "--ir") {
+        } else if (arg == "2" || arg == "--ir" || arg == "--emit-llvm") {
             llvmIROnly = true;
         } else if (arg == "--processor") {
             processorMode = true;
@@ -135,6 +155,40 @@ int main(int argc, char* argv[]) {
             showSTLWarnings = true;
         } else if (arg == "--dump-ownership") {
             dumpOwnership = true;
+        } else if (arg == "-I" && i + 1 < argc) {
+            // -I <dir> - add import search path
+            includeDirs.push_back(argv[i + 1]);
+            i++; // Skip the next argument
+        } else if (arg.rfind("--include-dir=", 0) == 0) {
+            // --include-dir=<dir> - add import search path
+            std::string dir = arg.substr(14);
+            if (!dir.empty()) {
+                includeDirs.push_back(dir);
+            }
+        } else if (arg == "-O0") {
+            optimizationLevel = 0;
+            optimizationMode = "";
+        } else if (arg == "-O1") {
+            optimizationLevel = 1;
+            optimizationMode = "";
+        } else if (arg == "-O2") {
+            optimizationLevel = 2;
+            optimizationMode = "";
+        } else if (arg == "-O3") {
+            optimizationLevel = 3;
+            optimizationMode = "";
+        } else if (arg == "-Os") {
+            optimizationLevel = 2;  // Size optimization uses O2 as base
+            optimizationMode = "s";
+        } else if (arg == "-Oz") {
+            optimizationLevel = 2;  // Aggressive size optimization uses O2 as base
+            optimizationMode = "z";
+        } else if (arg == "-g") {
+            includeDebugSymbols = true;
+            explicitDebugFlag = true;
+        } else if (arg == "--no-debug") {
+            includeDebugSymbols = false;
+            explicitDebugFlag = true;
         } else if (arg[0] != '-') {
             // Positional argument - input file
             if (inputFile.empty()) {
@@ -144,6 +198,11 @@ int main(int argc, char* argv[]) {
                 outputFile = arg;
             }
         }
+    }
+
+    // By default, disable debug symbols for optimized builds unless explicitly requested
+    if (!explicitDebugFlag && optimizationLevel > 0) {
+        includeDebugSymbols = false;
     }
 
     if (inputFile.empty()) {
@@ -179,6 +238,14 @@ int main(int argc, char* argv[]) {
         // Initialize file discovery with compiler path and source file path
         resolver.initializeWithCompilerPath(argv[0]);
         resolver.initializeWithSourceFile(inputFile);
+
+        // Add user-specified include directories (highest priority for imports)
+        // Use addPrioritySearchPath to insert at the beginning of search paths
+        // so they are searched BEFORE stdlib paths
+        for (const auto& dir : includeDirs) {
+            std::cout << "Adding include path (priority): " << dir << "\n";
+            resolver.addPrioritySearchPath(dir);
+        }
 
         // Auto-discover and load processor DLLs from standard locations
         std::vector<std::string> processorSearchPaths;
@@ -769,9 +836,25 @@ int main(int argc, char* argv[]) {
             }
 #endif
 
-            std::cout << "Compiling to object file...\n";
+            // Print optimization settings
+            if (optimizationLevel > 0 || !optimizationMode.empty()) {
+                std::string optStr;
+                if (!optimizationMode.empty()) {
+                    optStr = "-O" + optimizationMode;
+                } else {
+                    optStr = "-O" + std::to_string(optimizationLevel);
+                }
+                std::cout << "Compiling to object file (" << optStr;
+                if (includeDebugSymbols) {
+                    std::cout << " -g";
+                }
+                std::cout << ")...\n";
+            } else {
+                std::cout << "Compiling to object file...\n";
+            }
+
             std::string objPath = outputPath.stem().string() + ".obj";
-            if (!llvmBackend->generateObjectFile(llvmIR, objPath, 0)) {
+            if (!llvmBackend->generateObjectFile(llvmIR, objPath, optimizationLevel, optimizationMode, includeDebugSymbols)) {
                 std::cerr << "✗ Object file generation failed\n";
                 return 1;
             }
@@ -828,6 +911,8 @@ int main(int argc, char* argv[]) {
             linkConfig.outputPath = executablePath;
             linkConfig.createConsoleApp = !processorMode;  // Console app unless creating DLL
             linkConfig.createDLL = processorMode;          // Create DLL for processor mode
+            linkConfig.optimizationLevel = optimizationLevel;
+            linkConfig.stripSymbols = !includeDebugSymbols;  // Strip symbols when debug info disabled
 
             auto linkResult = linker->link(linkConfig);
             if (!linkResult.success) {

@@ -282,6 +282,42 @@ LLVMIR::AnyValue ExprCodegen::visitReference(Parser::ReferenceExpr* expr) {
 
 // === Binary Expression Implementation ===
 
+// Helper to unwrap boxed types (Integer, Float, etc.) to their raw values
+// These wrapper types have their value field at offset 0, so we can directly load
+LLVMIR::AnyValue ExprCodegen::unwrapBoxedType(LLVMIR::AnyValue value, const std::string& type) {
+    std::string baseType = TypeNormalizer::stripOwnershipMarker(type);
+
+    // Only unwrap if it's a pointer to a boxed type
+    if (!value.isPtr()) {
+        return value;  // Already unwrapped
+    }
+
+    // Integer -> i64 (value field at offset 0)
+    if (baseType == "Integer" || baseType == "Language::Core::Integer") {
+        auto* intTy = ctx_.builder().getInt64Ty();
+        // The Integer struct has i64 as its first (and only) field
+        // So we can directly load an i64 from the pointer
+        auto loaded = ctx_.builder().createLoad(intTy, value.asPtr(), "int_value");
+        return loaded;
+    }
+
+    // Float -> float (value field at offset 0)
+    if (baseType == "Float" || baseType == "Language::Core::Float") {
+        auto* floatTy = ctx_.builder().getFloatTy();
+        auto loaded = ctx_.builder().createLoad(floatTy, value.asPtr(), "float_value");
+        return loaded;
+    }
+
+    // Double -> double (value field at offset 0)
+    if (baseType == "Double" || baseType == "Language::Core::Double") {
+        auto* doubleTy = ctx_.builder().getDoubleTy();
+        auto loaded = ctx_.builder().createLoad(doubleTy, value.asPtr(), "double_value");
+        return loaded;
+    }
+
+    return value;  // Not a known boxed type
+}
+
 LLVMIR::AnyValue ExprCodegen::visitBinary(Parser::BinaryExpr* expr) {
     if (!expr || !expr->left || !expr->right) {
         return LLVMIR::AnyValue(ctx_.builder().getInt64(0));
@@ -303,8 +339,20 @@ LLVMIR::AnyValue ExprCodegen::visitBinary(Parser::BinaryExpr* expr) {
 
     // Determine operand types
     std::string leftType = getExpressionType(expr->left.get());
+    std::string rightType = getExpressionType(expr->right.get());
 
     const std::string& op = expr->op;
+
+    // For arithmetic and comparison operators, unwrap boxed types
+    bool isArithmeticOp = (op == "+" || op == "-" || op == "*" || op == "/" || op == "%");
+    bool isComparisonOp = (op == "==" || op == "is" || op == "!=" || op == "isnt" ||
+                           op == "<" || op == "<=" || op == ">" || op == ">=");
+    bool isBitwiseOp = (op == "&" || op == "|" || op == "^" || op == "<<" || op == ">>");
+
+    if (isArithmeticOp || isComparisonOp || isBitwiseOp) {
+        leftResult = unwrapBoxedType(leftResult, leftType);
+        rightResult = unwrapBoxedType(rightResult, rightType);
+    }
 
     // Arithmetic operators
     if (op == "+") return generateAdd(leftResult, rightResult, leftType);
@@ -350,8 +398,10 @@ LLVMIR::AnyValue ExprCodegen::visitMemberAccess(Parser::MemberAccessExpr* expr) 
         // Check if this is an enum value access (member starts with "::")
         if (expr->member.size() > 2 && expr->member.substr(0, 2) == "::") {
             std::string enumValueName = ident->name + expr->member;  // e.g., "Color::RED"
-            if (ctx_.hasEnumValue(enumValueName)) {
-                int64_t value = ctx_.getEnumValue(enumValueName);
+            // Try to resolve the enum value, including searching by suffix for imported enums
+            auto resolved = ctx_.resolveEnumValue(enumValueName);
+            if (resolved) {
+                int64_t value = resolved->second;
                 auto intValue = ctx_.builder().getInt64(value);
                 ctx_.lastExprValue = LLVMIR::AnyValue(intValue);
                 return ctx_.lastExprValue;
@@ -448,6 +498,18 @@ LLVMIR::AnyValue ExprCodegen::loadPropertyFromThis(const PropertyInfo& prop) {
         prop.name + ".ptr"
     );
 
+    // Check if the current method returns a reference type
+    // If so, return the address of the property (for reference semantics)
+    std::string returnType = std::string(ctx_.currentReturnType());
+    bool isReferenceReturn = returnType.find("&") != std::string::npos ||
+                             returnType.find("Reference") != std::string::npos;
+
+    if (isReferenceReturn) {
+        // For reference returns, return the address (pointer to the storage)
+        ctx_.lastExprValue = LLVMIR::AnyValue(propPtr);
+        return ctx_.lastExprValue;
+    }
+
     // Use ptr type for object types (owned/reference/copy), otherwise primitive type
     auto* propType = prop.isObjectType ? ctx_.module().getContext().getPtrTy() : ctx_.mapType(prop.xxmlType);
     auto loaded = ctx_.builder().createLoad(propType, propPtr, "");
@@ -490,6 +552,18 @@ LLVMIR::AnyValue ExprCodegen::loadThisProperty(const std::string& propName) {
                 static_cast<unsigned>(prop.index),
                 propName + ".ptr"
             );
+
+            // Check if the current method returns a reference type
+            // If so, return the address of the property (for reference semantics)
+            std::string returnType = std::string(ctx_.currentReturnType());
+            bool isReferenceReturn = returnType.find("&") != std::string::npos ||
+                                     returnType.find("Reference") != std::string::npos;
+
+            if (isReferenceReturn) {
+                // For reference returns, return the address (pointer to the storage)
+                ctx_.lastExprValue = LLVMIR::AnyValue(propPtr);
+                return ctx_.lastExprValue;
+            }
 
             // Use ptr type for object types (owned/reference/copy), otherwise primitive type
             auto* propType = prop.isObjectType ? ctx_.module().getContext().getPtrTy() : ctx_.mapType(prop.xxmlType);
@@ -740,8 +814,43 @@ LLVMIR::AnyValue ExprCodegen::handleMemberCall(Parser::CallExpr* expr,
             current = innerAccess->object.get();
         }
 
-        // The final should be an identifier (the base namespace/class)
-        if (auto* baseIdent = dynamic_cast<Parser::IdentifierExpr*>(current)) {
+        // The final should be an identifier (the base namespace/class) or ThisExpr
+        if (auto* baseThis = dynamic_cast<Parser::ThisExpr*>(current)) {
+            // Handle this.property.method() pattern (e.g., this.x.toString())
+            (void)baseThis;
+            if (segments.size() == 1) {
+                // Single property access: this.x.method()
+                std::string propName = segments[0];
+                if (propName.substr(0, 2) == "::") {
+                    propName = propName.substr(2);
+                }
+
+                // Load the property value
+                auto propValue = loadThisProperty(propName);
+                if (propValue.isPtr()) {
+                    instancePtr = propValue.asPtr();
+                    isInstanceMethod = true;
+
+                    // Get the property type to determine the method name
+                    std::string currentClass = std::string(ctx_.currentClassName());
+                    auto* classInfo = ctx_.getClass(currentClass);
+                    if (classInfo) {
+                        for (const auto& prop : classInfo->properties) {
+                            if (prop.name == propName) {
+                                std::string propTypeName = TypeNormalizer::stripOwnershipMarker(prop.xxmlType);
+                                propTypeName = ctx_.resolveToQualifiedName(propTypeName);
+                                std::string methodName = memberAccess->member;
+                                if (methodName.substr(0, 2) == "::") {
+                                    methodName = methodName.substr(2);
+                                }
+                                functionName = ctx_.mangleFunctionName(propTypeName, methodName);
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        } else if (auto* baseIdent = dynamic_cast<Parser::IdentifierExpr*>(current)) {
             // Reverse to get correct order: System, Console
             std::string qualifiedClass = baseIdent->name;
             for (auto it = segments.rbegin(); it != segments.rend(); ++it) {
@@ -841,11 +950,11 @@ LLVMIR::AnyValue ExprCodegen::handleMemberCall(Parser::CallExpr* expr,
         // First evaluate the inner call to get the instance
         auto innerResult = generate(innerCall);
         if (innerResult.isPtr()) {
-            instancePtr = innerResult.asPtr();
             isInstanceMethod = true;
 
             // Determine the return type of the inner call to find the correct method
             std::string returnType;
+            bool isReferenceReturn = false;
 
             if (auto* innerMemberAccess = dynamic_cast<Parser::MemberAccessExpr*>(innerCall->callee.get())) {
                 std::string innerMethodName = innerMemberAccess->member;
@@ -893,6 +1002,10 @@ LLVMIR::AnyValue ExprCodegen::handleMemberCall(Parser::CallExpr* expr,
                     if (!innerClassName.empty()) {
                         // Use direct lookup to avoid lossy mangling/demangling for template types
                         returnType = ctx_.lookupMethodReturnTypeDirect(innerClassName, innerMethodName);
+                        // Check if return type is a reference before stripping
+                        if (!returnType.empty() && returnType.back() == '&') {
+                            isReferenceReturn = true;
+                        }
                         // Strip ownership markers from return type
                         if (!returnType.empty() && (returnType.back() == '^' ||
                             returnType.back() == '&' || returnType.back() == '%')) {
@@ -900,6 +1013,19 @@ LLVMIR::AnyValue ExprCodegen::handleMemberCall(Parser::CallExpr* expr,
                         }
                     }
                 }
+            }
+
+            // If the inner method returns a reference type, the result is a pointer
+            // to where the actual object pointer is stored - we need to load through it
+            if (isReferenceReturn) {
+                auto loadedObj = ctx_.builder().createLoad(
+                    ctx_.builder().getPtrTy(),
+                    innerResult.asPtr(),
+                    "ref.deref"
+                );
+                instancePtr = loadedObj.asPtr();
+            } else {
+                instancePtr = innerResult.asPtr();
             }
 
             // Default fallback - only if we couldn't determine the type

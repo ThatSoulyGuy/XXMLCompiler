@@ -114,11 +114,15 @@ public:
      * @param irCode LLVM IR code (text format)
      * @param outputPath Output object file path
      * @param optimizationLevel Optimization level (0-3)
+     * @param optimizationMode Size optimization mode: "" (default), "s" (-Os), "z" (-Oz)
+     * @param includeDebugSymbols Whether to include debug symbols
      * @return true if successful, false otherwise
      */
     bool generateObjectFile(const std::string& irCode,
                            const std::string& outputPath,
-                           int optimizationLevel = 0);
+                           int optimizationLevel = 0,
+                           const std::string& optimizationMode = "",
+                           bool includeDebugSymbols = true);
 
 private:
     // === Modular Codegen (type-safe IR system) ===

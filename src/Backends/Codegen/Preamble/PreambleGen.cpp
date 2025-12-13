@@ -303,7 +303,7 @@ void PreambleGen::emitSystemFunctions(std::stringstream& out) const {
 }
 
 void PreambleGen::emitReflectionRuntime(std::stringstream& out) const {
-    out << "; Reflection Runtime Functions\n";
+    out << "; Reflection Runtime Functions (provided by XXMLLLVMRuntime)\n";
     out << "declare ptr @Reflection_registerType(ptr)\n";
     out << "declare ptr @Reflection_getTypeInfo(ptr)\n";
     out << "declare i32 @Reflection_getTypeCount()\n";

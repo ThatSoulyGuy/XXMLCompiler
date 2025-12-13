@@ -683,7 +683,9 @@ void LLVMBackend::emitDestructor(const std::string& varName) {
 // Object file generation using external LLVM tools
 bool LLVMBackend::generateObjectFile(const std::string& irCode,
                                      const std::string& outputPath,
-                                     int optimizationLevel) {
+                                     int optimizationLevel,
+                                     const std::string& optimizationMode,
+                                     bool includeDebugSymbols) {
     using namespace XXML::Utils;
 
     // Write IR code to temporary file
@@ -696,6 +698,14 @@ bool LLVMBackend::generateObjectFile(const std::string& irCode,
     irFile << irCode;
     irFile.close();
 
+    // Build optimization flag string
+    std::string optFlag;
+    if (!optimizationMode.empty()) {
+        optFlag = "-O" + optimizationMode;  // -Os or -Oz
+    } else {
+        optFlag = "-O" + std::to_string(optimizationLevel);  // -O0, -O1, -O2, -O3
+    }
+
     // Try to find LLVM's llc (LLVM static compiler)
     std::string llcPath = ProcessUtils::findInPath("llc");
 
@@ -705,9 +715,7 @@ bool LLVMBackend::generateObjectFile(const std::string& irCode,
         args.push_back("-filetype=obj");
 
         // Add optimization level
-        if (optimizationLevel > 0) {
-            args.push_back("-O" + std::to_string(optimizationLevel));
-        }
+        args.push_back(optFlag);
 
         args.push_back("-o");
         args.push_back(outputPath);
@@ -736,10 +744,11 @@ bool LLVMBackend::generateObjectFile(const std::string& irCode,
     cmd << " -target " << getTargetTriple();
 
     // Add optimization level
-    if (optimizationLevel > 0) {
-        cmd << " -O" << optimizationLevel;
-    } else {
-        cmd << " -O0";
+    cmd << " " << optFlag;
+
+    // Add debug symbols flag
+    if (includeDebugSymbols) {
+        cmd << " -g";
     }
 
     cmd << " -o \"" << outputPath << "\" \"" << tempIRFile << "\"";

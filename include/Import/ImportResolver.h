@@ -73,6 +73,10 @@ public:
     // Add a search path (e.g., "Language/", "./lib/")
     void addSearchPath(const std::string& path);
 
+    // Add a priority search path (inserted at the beginning, searched first)
+    // Use this for user -I paths to ensure they take precedence over stdlib
+    void addPrioritySearchPath(const std::string& path);
+
     // Add the directory containing the source file being compiled
     void addSourceFileDirectory(const std::string& sourceFilePath);
 

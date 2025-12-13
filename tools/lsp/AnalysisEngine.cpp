@@ -143,6 +143,7 @@ const AnalysisResult* AnalysisEngine::analyze(const std::string& uri, const std:
                     diag.severity = DiagnosticSeverity::Warning;
                     diag.message = "Cannot resolve import '" + importDecl->modulePath + "'";
                     diag.message += ". Searched in:";
+                    if (!includePaths_.empty()) diag.message += " [include paths]";
                     if (!sourceDir.empty()) diag.message += " [source dir]";
                     if (!stdlibPath_.empty()) diag.message += " [stdlib]";
                     if (!workspaceRoot_.empty()) diag.message += " [workspace]";
@@ -757,545 +758,40 @@ std::vector<CompletionItem> AnalysisEngine::getCompletions(
     const std::string& uri, int line, int character,
     const std::string& precedingText) const {
 
-    std::vector<CompletionItem> completions;
     auto* result = getAnalysis(uri);
 
-    // Helper to add all known types (includes namespaces and fully-qualified names)
-    auto addAllTypes = [&]() {
-        // Built-in types
-        std::vector<std::pair<std::string, std::string>> builtinTypes = {
-            {"Integer", "64-bit signed integer"},
-            {"String", "UTF-8 string"},
-            {"Bool", "Boolean (true/false)"},
-            {"Float", "32-bit floating point"},
-            {"Double", "64-bit floating point"},
-            {"Char", "Single character"},
-            {"Void", "No value"},
-            {"Object", "Base object type"},
-        };
-        for (const auto& [name, desc] : builtinTypes) {
-            CompletionItem item;
-            item.label = name;
-            item.kind = CompletionItemKind::Class;
-            item.detail = desc;
-            item.insertText = name;
-            completions.push_back(item);
-        }
+    // Build context-aware completion context
+    CompletionContext ctx = buildCompletionContext(result, line, character, precedingText);
 
-        // NativeType and NativeStruct suggestions
-        CompletionItem nativeItem;
-        nativeItem.label = "NativeType";
-        nativeItem.kind = CompletionItemKind::Class;
-        nativeItem.detail = "Low-level native type";
-        nativeItem.insertText = "NativeType<\"\">"; // No snippet placeholders
-        completions.push_back(nativeItem);
-
-        CompletionItem nativeStructItem;
-        nativeStructItem.label = "NativeStruct";
-        nativeStructItem.kind = CompletionItemKind::Struct;
-        nativeStructItem.detail = "Low-level native struct";
-        nativeStructItem.insertText = "NativeStruct<\"\">"; // No snippet placeholders
-        completions.push_back(nativeStructItem);
-
-        // Collect namespaces and classes from registry
-        std::set<std::string> addedNames;
-        std::set<std::string> namespaces;
-
-        if (result && result->analyzer) {
-            for (const auto& [fullName, classInfo] : result->analyzer->getClassRegistry()) {
-                // Add the short name
-                size_t lastColon = fullName.rfind("::");
-                std::string shortName = (lastColon != std::string::npos) ? fullName.substr(lastColon + 2) : fullName;
-
-                if (addedNames.find(shortName) == addedNames.end()) {
-                    addedNames.insert(shortName);
-                    CompletionItem item;
-                    item.label = shortName;
-                    item.kind = CompletionItemKind::Class;
-                    item.detail = (lastColon != std::string::npos) ? fullName : "Class";
-                    item.insertText = shortName;
-                    completions.push_back(item);
-                }
-
-                // Also add the fully-qualified name if different
-                if (lastColon != std::string::npos && addedNames.find(fullName) == addedNames.end()) {
-                    addedNames.insert(fullName);
-                    CompletionItem item;
-                    item.label = fullName;
-                    item.kind = CompletionItemKind::Class;
-                    item.detail = "Fully qualified";
-                    item.insertText = fullName;
-                    completions.push_back(item);
-
-                    // Extract namespace
-                    std::string ns = fullName.substr(0, lastColon);
-                    namespaces.insert(ns);
-                }
-            }
-        }
-
-        // Add namespace suggestions
-        for (const auto& ns : namespaces) {
-            if (addedNames.find(ns) == addedNames.end()) {
-                addedNames.insert(ns);
-                CompletionItem item;
-                item.label = ns;
-                item.kind = CompletionItemKind::Module;
-                item.detail = "Namespace";
-                item.insertText = ns + "::";
-                completions.push_back(item);
-            }
-        }
-
-        // Common XXML namespaces
-        std::vector<std::string> commonNamespaces = {
-            "Language::Core",
-            "Language::Collections",
-            "Language::System",
-            "Language::IO",
-            "Language::Math",
-        };
-        for (const auto& ns : commonNamespaces) {
-            if (addedNames.find(ns) == addedNames.end()) {
-                addedNames.insert(ns);
-                CompletionItem item;
-                item.label = ns;
-                item.kind = CompletionItemKind::Module;
-                item.detail = "Standard library namespace";
-                item.insertText = ns + "::";
-                completions.push_back(item);
-            }
-        }
-
-        // Generic collection types
-        std::vector<std::pair<std::string, std::string>> genericTypes = {
-            {"List", "Dynamic array - List<T>^"},
-            {"HashMap", "Key-value map - HashMap<K,V>^"},
-            {"Set", "Unique set - Set<T>^"},
-            {"Optional", "Optional value - Optional<T>"},
-            {"Result", "Result type - Result<T,E>"},
-        };
-        for (const auto& [name, desc] : genericTypes) {
-            if (addedNames.find(name) == addedNames.end()) {
-                CompletionItem item;
-                item.label = name;
-                item.kind = CompletionItemKind::Class;
-                item.detail = desc;
-                item.insertText = name + "<>"; // No snippet placeholders
-                completions.push_back(item);
-            }
-        }
-    };
-
-    // Helper to add local variables
-    auto addLocalVariables = [&]() {
-        if (result && result->context) {
-            auto& symbolTable = result->context->symbolTable();
-            auto* currentScope = symbolTable.getCurrentScope();
-            while (currentScope) {
-                for (const auto& [symName, sym] : currentScope->getSymbols()) {
-                    if (sym->kind == XXML::Semantic::SymbolKind::LocalVariable ||
-                        sym->kind == XXML::Semantic::SymbolKind::Parameter) {
-                        CompletionItem item;
-                        item.label = sym->name;
-                        item.kind = CompletionItemKind::Variable;
-                        item.detail = sym->typeName;
-                        item.insertText = sym->name;
-                        completions.push_back(item);
-                    }
-                }
-                currentScope = currentScope->getParent();
-            }
-        }
-    };
-
-    // Detect context from preceding text
-    std::string trimmed = precedingText;
-    // Trim trailing whitespace for context detection
-    while (!trimmed.empty() && std::isspace(trimmed.back())) {
-        trimmed.pop_back();
+    // Strict context-based dispatch - return ONLY appropriate items
+    if (ctx.afterDot) {
+        // After "." - ONLY member completions, nothing else
+        return getMemberCompletions(ctx, result);
+    } else if (ctx.afterDoubleColon) {
+        // After "::" - ONLY static completions
+        return getStaticCompletions(ctx, result);
+    } else if (ctx.inTypePosition) {
+        // In type position - ONLY types, no keywords
+        return getTypeCompletions(ctx, result);
+    } else if (ctx.inVariableNamePosition) {
+        // After "As <" - suggesting variable name, no completions needed
+        return {};
+    } else if (ctx.inExpressionPosition) {
+        // In expression position - variables, class names, literals
+        return getExpressionCompletions(ctx, result);
+    } else if (ctx.inStatementPosition) {
+        // At start of statement - statement keywords + variables
+        return getStatementCompletions(ctx, result);
+    } else if (ctx.inMemberDeclarationPosition) {
+        // Inside class but outside method - member declaration keywords
+        return getMemberDeclarationCompletions(ctx, result);
+    } else if (ctx.inTopLevelPosition) {
+        // At top level - declaration keywords only
+        return getTopLevelCompletions(ctx, result);
+    } else {
+        // Fallback - context-appropriate completions
+        return getGeneralCompletions(ctx, result);
     }
-
-    // Check for specific contexts
-    bool afterDoubleColon = precedingText.size() >= 2 &&
-                            precedingText.substr(precedingText.size() - 2) == "::";
-    bool afterDot = !precedingText.empty() && precedingText.back() == '.';
-
-    // Helper to find the last keyword in the text
-    auto findLastKeyword = [](const std::string& text) -> std::string {
-        // Keywords that expect specific completions to follow
-        std::vector<std::string> typeKeywords = {
-            "Instantiate", "Types", "Returns", "Extends", "Implements", "Parameter", "Run", "Set"
-        };
-        for (const auto& kw : typeKeywords) {
-            // Look for keyword followed by space (and possibly partial type)
-            size_t pos = text.rfind(kw);
-            if (pos != std::string::npos) {
-                // Check if it's a complete word (not part of another word)
-                bool validStart = (pos == 0 || !std::isalnum(text[pos - 1]));
-                bool validEnd = (pos + kw.size() >= text.size() ||
-                                 !std::isalnum(text[pos + kw.size()]) ||
-                                 std::isspace(text[pos + kw.size()]));
-                if (validStart) {
-                    // Check what comes after the keyword
-                    size_t afterKw = pos + kw.size();
-                    if (afterKw < text.size()) {
-                        // There's content after keyword - check if it's just space + partial word
-                        std::string after = text.substr(afterKw);
-                        // Skip whitespace
-                        size_t nonSpace = after.find_first_not_of(" \t");
-                        if (nonSpace == std::string::npos) {
-                            // Only whitespace after keyword
-                            return kw;
-                        }
-                        // Check if what follows looks like start of a type (no other keywords)
-                        std::string rest = after.substr(nonSpace);
-                        // If the rest is just identifier chars (possibly partial type), we're in type context
-                        bool allIdentChars = true;
-                        for (char c : rest) {
-                            if (!std::isalnum(c) && c != '_' && c != ':' && c != '<' && c != '>' && c != ',' && c != '^' && c != '&' && c != '%') {
-                                allIdentChars = false;
-                                break;
-                            }
-                        }
-                        if (allIdentChars) {
-                            return kw;
-                        }
-                    } else {
-                        return kw;
-                    }
-                }
-            }
-        }
-        return "";
-    };
-
-    // Find the context keyword
-    std::string contextKeyword = findLastKeyword(trimmed);
-
-    // Type context - only show types, no keywords
-    if (contextKeyword == "Instantiate" || contextKeyword == "Types" ||
-        contextKeyword == "Returns" || contextKeyword == "Parameter") {
-        addAllTypes();
-        return completions;
-    }
-
-    // After "Extends " - show class names
-    if (contextKeyword == "Extends") {
-        if (result && result->analyzer) {
-            for (const auto& [name, classInfo] : result->analyzer->getClassRegistry()) {
-                size_t lastColon = name.rfind("::");
-                std::string shortName = (lastColon != std::string::npos) ? name.substr(lastColon + 2) : name;
-                CompletionItem item;
-                item.label = shortName;
-                item.kind = CompletionItemKind::Class;
-                item.detail = "Base class";
-                item.insertText = shortName;
-                completions.push_back(item);
-            }
-        }
-        // Add None for no base class
-        CompletionItem noneItem;
-        noneItem.label = "None";
-        noneItem.kind = CompletionItemKind::Keyword;
-        noneItem.detail = "No base class";
-        noneItem.insertText = "None";
-        completions.push_back(noneItem);
-        return completions;
-    }
-
-    // After "Run " - show variables and class names for method calls
-    if (contextKeyword == "Run") {
-        addLocalVariables();
-        // Add class names for static calls (with namespaces)
-        if (result && result->analyzer) {
-            std::set<std::string> addedNames;
-            for (const auto& [fullName, classInfo] : result->analyzer->getClassRegistry()) {
-                size_t lastColon = fullName.rfind("::");
-                std::string shortName = (lastColon != std::string::npos) ? fullName.substr(lastColon + 2) : fullName;
-                if (addedNames.find(shortName) == addedNames.end()) {
-                    addedNames.insert(shortName);
-                    CompletionItem item;
-                    item.label = shortName;
-                    item.kind = CompletionItemKind::Class;
-                    item.detail = (lastColon != std::string::npos) ? fullName : "Class";
-                    item.insertText = shortName;
-                    completions.push_back(item);
-                }
-            }
-        }
-        return completions;
-    }
-
-    // After "Set " - show local variables and properties
-    if (contextKeyword == "Set") {
-        addLocalVariables();
-        // Also show 'this' for setting properties
-        CompletionItem thisItem;
-        thisItem.label = "this";
-        thisItem.kind = CompletionItemKind::Keyword;
-        thisItem.detail = "Current instance";
-        thisItem.insertText = "this";
-        completions.push_back(thisItem);
-        return completions;
-    }
-
-    // After "::" - show class/namespace members
-    if (afterDoubleColon) {
-        size_t colonPos = precedingText.rfind("::");
-        if (colonPos != std::string::npos && colonPos > 0) {
-            // Find the name before ::
-            size_t nameEnd = colonPos;
-            size_t nameStart = nameEnd;
-            while (nameStart > 0 && (std::isalnum(precedingText[nameStart - 1]) ||
-                                      precedingText[nameStart - 1] == '_' ||
-                                      precedingText[nameStart - 1] == ':')) {
-                --nameStart;
-            }
-
-            std::string qualifiedName = precedingText.substr(nameStart, nameEnd - nameStart);
-
-            // Check if it's a namespace (e.g., "System::Console::")
-            // or a class (e.g., "String::")
-            if (result && result->analyzer) {
-                const auto& classRegistry = result->analyzer->getClassRegistry();
-
-                // Try to find as class first
-                std::string foundClassName;
-                for (const auto& [name, info] : classRegistry) {
-                    size_t lastColon = name.rfind("::");
-                    std::string shortName = (lastColon != std::string::npos) ? name.substr(lastColon + 2) : name;
-                    if (shortName == qualifiedName || name == qualifiedName) {
-                        foundClassName = name;
-                        break;
-                    }
-                }
-
-                if (!foundClassName.empty()) {
-                    auto it = classRegistry.find(foundClassName);
-                    if (it != classRegistry.end()) {
-                        const auto& classInfo = it->second;
-
-                        // Add Constructor
-                        CompletionItem ctorItem;
-                        ctorItem.label = "Constructor";
-                        ctorItem.kind = CompletionItemKind::Constructor;
-                        ctorItem.detail = "Create new " + qualifiedName;
-                        ctorItem.insertText = "Constructor()";
-                        completions.push_back(ctorItem);
-
-                        // Add static methods
-                        for (const auto& [methodName, methodInfo] : classInfo.methods) {
-                            CompletionItem item;
-                            item.label = methodName;
-                            item.kind = CompletionItemKind::Method;
-                            item.detail = "→ " + methodInfo.returnType;
-                            item.insertText = methodName + "()";
-                            completions.push_back(item);
-                        }
-                    }
-                } else {
-                    // It might be a namespace - show ONLY classes/namespaces in that namespace
-                    std::string nsPrefix = qualifiedName + "::";
-                    std::set<std::string> addedNames;
-                    for (const auto& [name, info] : classRegistry) {
-                        if (name.find(nsPrefix) == 0) {
-                            // Extract class name after the namespace prefix
-                            std::string remainder = name.substr(nsPrefix.size());
-                            size_t nextColon = remainder.find("::");
-                            std::string nextPart = (nextColon != std::string::npos) ?
-                                                    remainder.substr(0, nextColon) : remainder;
-
-                            // Deduplicate
-                            if (addedNames.find(nextPart) != addedNames.end()) continue;
-                            addedNames.insert(nextPart);
-
-                            CompletionItem item;
-                            item.label = nextPart;
-                            item.kind = (nextColon != std::string::npos) ?
-                                        CompletionItemKind::Module : CompletionItemKind::Class;
-                            item.detail = (nextColon != std::string::npos) ? "Namespace" : "Class";
-                            item.insertText = nextPart;
-                            completions.push_back(item);
-                        }
-                    }
-                }
-            }
-
-            // Add Constructor as fallback only if it's likely a class
-            if (completions.empty() && !qualifiedName.empty() && std::isupper(qualifiedName[0])) {
-                CompletionItem ctorItem;
-                ctorItem.label = "Constructor";
-                ctorItem.kind = CompletionItemKind::Constructor;
-                ctorItem.detail = "Class constructor";
-                ctorItem.insertText = "Constructor()";
-                completions.push_back(ctorItem);
-            }
-        }
-        return completions;
-    }
-
-    // After "." - show instance members
-    if (afterDot) {
-        // Find variable name before the dot
-        size_t dotPos = precedingText.size() - 1;
-        size_t nameEnd = dotPos;
-        size_t nameStart = nameEnd;
-        while (nameStart > 0 && (std::isalnum(precedingText[nameStart - 1]) ||
-                                  precedingText[nameStart - 1] == '_')) {
-            --nameStart;
-        }
-
-        std::string varName = precedingText.substr(nameStart, nameEnd - nameStart);
-
-        // Try to find variable type
-        if (result && result->context) {
-            auto& symbolTable = result->context->symbolTable();
-            auto* symbol = symbolTable.resolve(varName);
-
-            if (symbol && !symbol->typeName.empty()) {
-                std::string typeName = symbol->typeName;
-                // Remove ownership modifier
-                if (!typeName.empty() && (typeName.back() == '^' || typeName.back() == '&' || typeName.back() == '%')) {
-                    typeName.pop_back();
-                }
-                // Remove generic parameters for lookup
-                size_t genericStart = typeName.find('<');
-                if (genericStart != std::string::npos) {
-                    typeName = typeName.substr(0, genericStart);
-                }
-
-                // Look up methods for this type
-                if (result->analyzer) {
-                    const auto& classRegistry = result->analyzer->getClassRegistry();
-                    for (const auto& [name, classInfo] : classRegistry) {
-                        size_t lastColon = name.rfind("::");
-                        std::string shortName = (lastColon != std::string::npos) ? name.substr(lastColon + 2) : name;
-                        if (shortName == typeName || name == typeName) {
-                            for (const auto& [methodName, methodInfo] : classInfo.methods) {
-                                // Skip Constructor for instance calls
-                                if (methodName == "Constructor") continue;
-                                CompletionItem item;
-                                item.label = methodName;
-                                item.kind = CompletionItemKind::Method;
-                                item.detail = "→ " + methodInfo.returnType;
-                                item.insertText = methodName + "()";
-                                completions.push_back(item);
-                            }
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-
-        // Add common methods as fallback
-        if (completions.empty()) {
-            std::vector<std::pair<std::string, std::string>> commonMethods = {
-                {"toString", "→ String^"},
-                {"equals", "→ Bool^"},
-                {"hash", "→ Integer^"},
-                {"dispose", "→ Void"},
-            };
-            for (const auto& [name, detail] : commonMethods) {
-                CompletionItem item;
-                item.label = name;
-                item.kind = CompletionItemKind::Method;
-                item.detail = detail;
-                item.insertText = name + "()";
-                completions.push_back(item);
-            }
-        }
-        return completions;
-    }
-
-    // Default: show keywords and available symbols
-    std::vector<std::tuple<std::string, std::string, CompletionItemKind>> keywords = {
-        // Declarations
-        {"Class", "Declare a class", CompletionItemKind::Keyword},
-        {"Struct", "Declare a struct", CompletionItemKind::Keyword},
-        {"Interface", "Declare an interface", CompletionItemKind::Keyword},
-        {"Trait", "Declare a trait", CompletionItemKind::Keyword},
-        {"Enum", "Declare an enum", CompletionItemKind::Keyword},
-        {"Annotation", "Declare an annotation", CompletionItemKind::Keyword},
-        {"Namespace", "Declare a namespace", CompletionItemKind::Keyword},
-        {"Entrypoint", "Program entry point", CompletionItemKind::Keyword},
-        // Members
-        {"Method", "Declare a method", CompletionItemKind::Keyword},
-        {"Property", "Declare a property", CompletionItemKind::Keyword},
-        {"Constructor", "Declare a constructor", CompletionItemKind::Keyword},
-        {"Destructor", "Declare a destructor", CompletionItemKind::Keyword},
-        {"Operator", "Declare an operator", CompletionItemKind::Keyword},
-        // Statements
-        {"Instantiate", "Create a variable", CompletionItemKind::Keyword},
-        {"Run", "Execute statement", CompletionItemKind::Keyword},
-        {"Set", "Assign value", CompletionItemKind::Keyword},
-        {"Return", "Return from method", CompletionItemKind::Keyword},
-        {"Exit", "Exit program", CompletionItemKind::Keyword},
-        // Control flow
-        {"If", "Conditional", CompletionItemKind::Keyword},
-        {"Else", "Else branch", CompletionItemKind::Keyword},
-        {"While", "While loop", CompletionItemKind::Keyword},
-        {"For", "For loop", CompletionItemKind::Keyword},
-        {"Match", "Pattern match", CompletionItemKind::Keyword},
-        {"Break", "Break loop", CompletionItemKind::Keyword},
-        {"Continue", "Continue loop", CompletionItemKind::Keyword},
-        // Modifiers
-        {"Public", "Public access", CompletionItemKind::Keyword},
-        {"Private", "Private access", CompletionItemKind::Keyword},
-        {"Protected", "Protected access", CompletionItemKind::Keyword},
-        {"Final", "Non-inheritable", CompletionItemKind::Keyword},
-        {"Static", "Class-level member", CompletionItemKind::Keyword},
-        {"Abstract", "Abstract member", CompletionItemKind::Keyword},
-        {"Virtual", "Virtual method", CompletionItemKind::Keyword},
-        {"Override", "Override method", CompletionItemKind::Keyword},
-        {"Compiletime", "Compile-time eval", CompletionItemKind::Keyword},
-        // Type annotations
-        {"Types", "Type annotation", CompletionItemKind::Keyword},
-        {"Returns", "Return type", CompletionItemKind::Keyword},
-        {"Parameters", "Parameter list", CompletionItemKind::Keyword},
-        {"Parameter", "Single parameter", CompletionItemKind::Keyword},
-        {"Extends", "Base class", CompletionItemKind::Keyword},
-        {"Implements", "Interface impl", CompletionItemKind::Keyword},
-        {"Do", "Method body", CompletionItemKind::Keyword},
-        {"As", "Variable name", CompletionItemKind::Keyword},
-        {"In", "Collection iter", CompletionItemKind::Keyword},
-        // Values
-        {"true", "Boolean true", CompletionItemKind::Keyword},
-        {"false", "Boolean false", CompletionItemKind::Keyword},
-        {"null", "Null reference", CompletionItemKind::Keyword},
-        {"None", "No value/base", CompletionItemKind::Keyword},
-        {"this", "Current instance", CompletionItemKind::Keyword},
-        {"Self", "Current type", CompletionItemKind::Keyword},
-        {"default", "Default value", CompletionItemKind::Keyword},
-    };
-
-    for (const auto& [label, detail, kind] : keywords) {
-        CompletionItem item;
-        item.label = label;
-        item.kind = kind;
-        item.detail = detail;
-        item.insertText = label;
-        completions.push_back(item);
-    }
-
-    // Add types
-    addAllTypes();
-
-    // Add local variables
-    addLocalVariables();
-
-    // Deduplicate by label
-    std::set<std::string> seen;
-    std::vector<CompletionItem> deduped;
-    for (auto& item : completions) {
-        if (seen.find(item.label) == seen.end()) {
-            seen.insert(item.label);
-            deduped.push_back(std::move(item));
-        }
-    }
-
-    return deduped;
 }
 
 std::vector<DocumentSymbol> AnalysisEngine::getDocumentSymbols(const std::string& uri) const {
@@ -1421,6 +917,11 @@ std::string AnalysisEngine::resolveImportPath(const std::string& importPath, con
     // Build list of search paths
     std::vector<fs::path> searchPaths;
 
+    // 0. User-specified include paths (highest priority)
+    for (const auto& includePath : includePaths_) {
+        searchPaths.push_back(fs::path(includePath));
+    }
+
     // 1. Source file's directory and its parents (walk up to find Language/ or the import)
     if (!sourceDir.empty()) {
         fs::path currentDir = fs::path(sourceDir);
@@ -1474,6 +975,1565 @@ std::string AnalysisEngine::resolveImportPath(const std::string& importPath, con
 
     // Not found
     return "";
+}
+
+// ============================================================================
+// Context-Aware Completion Infrastructure
+// ============================================================================
+
+// Helper: Strip ownership suffix from type name
+std::string AnalysisEngine::stripOwnership(const std::string& typeName) {
+    if (typeName.empty()) return typeName;
+    char last = typeName.back();
+    if (last == '^' || last == '&' || last == '%') {
+        return typeName.substr(0, typeName.size() - 1);
+    }
+    return typeName;
+}
+
+// Helper: Strip generic parameters from type name
+std::string AnalysisEngine::stripGenerics(const std::string& typeName) {
+    size_t pos = typeName.find('<');
+    if (pos != std::string::npos) {
+        return typeName.substr(0, pos);
+    }
+    return typeName;
+}
+
+// Find AST node at position - traverse the AST to find enclosing context
+XXML::Parser::ASTNode* AnalysisEngine::findNodeAtPosition(
+    XXML::Parser::Program* ast, int line, int character,
+    const AnalysisResult& result) const {
+
+    if (!ast) return nullptr;
+
+    // Convert to 1-based line numbers used by the AST
+    int targetLine = line + 1;
+
+    // Track the best (most specific) match
+    XXML::Parser::ASTNode* best = nullptr;
+
+    // Check each declaration
+    for (const auto& decl : ast->declarations) {
+        if (!decl) continue;
+
+        // Check if the cursor is within or after this declaration's start
+        if (decl->location.line <= targetLine) {
+            // This declaration starts at or before our position
+            // Check specific declaration types
+
+            if (auto* classDecl = dynamic_cast<XXML::Parser::ClassDecl*>(decl.get())) {
+                // Check class sections for methods/properties
+                for (const auto& section : classDecl->sections) {
+                    for (const auto& memberDecl : section->declarations) {
+                        if (memberDecl->location.line <= targetLine) {
+                            if (auto* method = dynamic_cast<XXML::Parser::MethodDecl*>(memberDecl.get())) {
+                                // Check if cursor is in method body
+                                for (const auto& stmt : method->body) {
+                                    if (stmt->location.line <= targetLine) {
+                                        best = stmt.get();
+                                    }
+                                }
+                                if (!best || method->location.line >= (best ? best->location.line : 0)) {
+                                    best = method;
+                                }
+                            } else if (auto* ctor = dynamic_cast<XXML::Parser::ConstructorDecl*>(memberDecl.get())) {
+                                for (const auto& stmt : ctor->body) {
+                                    if (stmt->location.line <= targetLine) {
+                                        best = stmt.get();
+                                    }
+                                }
+                                if (!best || ctor->location.line >= (best ? best->location.line : 0)) {
+                                    best = ctor;
+                                }
+                            } else {
+                                best = memberDecl.get();
+                            }
+                        }
+                    }
+                }
+                if (!best) best = classDecl;
+            } else if (auto* entrypoint = dynamic_cast<XXML::Parser::EntrypointDecl*>(decl.get())) {
+                // Check entrypoint body
+                for (const auto& stmt : entrypoint->body) {
+                    if (stmt->location.line <= targetLine) {
+                        best = stmt.get();
+                    }
+                }
+                if (!best) best = entrypoint;
+            } else {
+                best = decl.get();
+            }
+        }
+    }
+
+    return best;
+}
+
+// Build completion context from position and preceding text
+CompletionContext AnalysisEngine::buildCompletionContext(
+    const AnalysisResult* result, int line, int character,
+    const std::string& precedingText) const {
+
+    CompletionContext ctx;
+
+    // Detect basic context from preceding text first (works without AST)
+    std::string trimmed = precedingText;
+    while (!trimmed.empty() && std::isspace(trimmed.back())) {
+        trimmed.pop_back();
+    }
+
+    // Check for . or :: at end - these take priority
+    ctx.afterDoubleColon = trimmed.size() >= 2 &&
+                           trimmed.substr(trimmed.size() - 2) == "::";
+    ctx.afterDot = !trimmed.empty() && trimmed.back() == '.' && !ctx.afterDoubleColon;
+
+    // If after . or ::, extract the preceding identifier
+    if (ctx.afterDot || ctx.afterDoubleColon) {
+        size_t endPos = ctx.afterDoubleColon ? trimmed.size() - 2 : trimmed.size() - 1;
+        size_t startPos = endPos;
+
+        // Walk backwards to find identifier start (handle method chains like "obj.getList()")
+        int parenDepth = 0;
+        while (startPos > 0) {
+            char c = trimmed[startPos - 1];
+            if (c == ')') { parenDepth++; --startPos; continue; }
+            if (c == '(') { parenDepth--; --startPos; continue; }
+            if (parenDepth > 0) { --startPos; continue; }
+            if (std::isalnum(c) || c == '_' || c == '.' || c == ':') {
+                --startPos;
+            } else {
+                break;
+            }
+        }
+
+        ctx.precedingIdentifier = trimmed.substr(startPos, endPos - startPos);
+        // Don't return early - we still need to find currentClass/currentMethod
+        // for variable scope resolution. Fall through to AST traversal.
+    }
+
+    // Skip other position detection if we're doing member access (. or ::)
+    // Those take priority and we just need to find the class/method context
+    if (!ctx.afterDot && !ctx.afterDoubleColon) {
+
+        // Check for variable name position: "As <" pattern
+        {
+            size_t asPos = trimmed.rfind(" As <");
+            if (asPos == std::string::npos) asPos = trimmed.rfind("\tAs <");
+            if (asPos != std::string::npos) {
+                // Check if there's no ">" after the "<"
+                std::string afterAs = trimmed.substr(asPos + 5);  // After " As <"
+                if (afterAs.find('>') == std::string::npos) {
+                    ctx.inVariableNamePosition = true;
+                    return ctx;  // No completions for variable names
+                }
+            }
+        }
+
+        // Detect expression position: after verbs that take expressions
+    // NOTE: Use original precedingText here since trimmed strips trailing spaces
+    {
+        // Expression-triggering keywords - check if trimmed ENDS with these
+        // (trailing space was stripped, so "Run " becomes "Run")
+        static const std::vector<std::string> exprKeywords = {
+            "Run", "Return", "If", "ElseIf", "While", "Set"
+        };
+
+        for (const auto& kw : exprKeywords) {
+            // Check if trimmed ends with the keyword
+            if (trimmed.size() >= kw.size()) {
+                size_t pos = trimmed.size() - kw.size();
+                if (trimmed.substr(pos) == kw) {
+                    // Verify it's a whole word (not part of another identifier)
+                    bool isWord = (pos == 0 || !std::isalnum(trimmed[pos - 1]));
+                    if (isWord) {
+                        // Check original text - must have space after keyword
+                        // (user typed "Run " not just "Run")
+                        if (precedingText.size() > trimmed.size()) {
+                            ctx.inExpressionPosition = true;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            // Also check for keyword followed by partial expression (e.g., "Run obj")
+            size_t kwPos = trimmed.rfind(kw + " ");
+            if (kwPos != std::string::npos) {
+                bool isWord = (kwPos == 0 || !std::isalnum(trimmed[kwPos - 1]));
+                if (isWord) {
+                    std::string afterKw = trimmed.substr(kwPos + kw.length() + 1);
+                    if (afterKw.find(';') == std::string::npos) {
+                        ctx.inExpressionPosition = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        // After "= " in assignment/initialization (but not inside < >)
+        if (!ctx.inExpressionPosition) {
+            size_t eqPos = trimmed.rfind('=');
+            if (eqPos != std::string::npos && eqPos > 0) {
+                // Check it's not inside angle brackets (template args)
+                int angleDepth = 0;
+                for (size_t i = eqPos + 1; i < trimmed.size(); ++i) {
+                    if (trimmed[i] == '<') angleDepth++;
+                    if (trimmed[i] == '>') angleDepth--;
+                }
+                if (angleDepth == 0) {
+                    ctx.inExpressionPosition = true;
+                }
+            }
+        }
+
+        // After "(" or "," in function arguments (check original text for trailing)
+        if (!ctx.inExpressionPosition) {
+            // Check last non-space char in original or last char of trimmed
+            if (!trimmed.empty()) {
+                char lastChar = trimmed.back();
+                if (lastChar == '(' || lastChar == ',') {
+                    ctx.inExpressionPosition = true;
+                }
+            }
+            // Also check if original ends with ( or , followed by spaces
+            if (!ctx.inExpressionPosition && !precedingText.empty()) {
+                for (auto it = precedingText.rbegin(); it != precedingText.rend(); ++it) {
+                    if (!std::isspace(*it)) {
+                        if (*it == '(' || *it == ',') {
+                            ctx.inExpressionPosition = true;
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    // Detect type position: after specific keywords, before "As"
+    if (!ctx.inExpressionPosition) {
+        static const std::vector<std::string> typeKeywords = {
+            "Instantiate", "Types", "Returns", "Parameter", "Extends", "Implements"
+        };
+
+        for (const auto& kw : typeKeywords) {
+            size_t pos = trimmed.rfind(kw);
+            if (pos != std::string::npos) {
+                bool validStart = (pos == 0 || !std::isalnum(trimmed[pos - 1]));
+                if (validStart) {
+                    std::string after = trimmed.substr(pos + kw.length());
+                    // Check if "As" appears - if so, we're past type position
+                    if (after.find(" As ") != std::string::npos ||
+                        after.find("\tAs ") != std::string::npos) {
+                        break;  // Past type position
+                    }
+                    // Check if only type-like characters follow
+                    bool allTypeChars = true;
+                    for (char c : after) {
+                        if (std::isspace(c)) continue;
+                        if (!std::isalnum(c) && c != '_' && c != ':' && c != '<' && c != '>' &&
+                            c != ',' && c != '^' && c != '&' && c != '%') {
+                            allTypeChars = false;
+                            break;
+                        }
+                    }
+                    if (allTypeChars) {
+                        ctx.inTypePosition = true;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    } // End of if (!ctx.afterDot && !ctx.afterDoubleColon)
+
+    // Convert to 1-based line
+    int targetLine = line + 1;
+
+    if (!result || !result->ast) return ctx;
+
+    // Find enclosing context from AST (needed for variable scope even with . or ::)
+    for (const auto& decl : result->ast->declarations) {
+        if (!decl) continue;
+
+        if (auto* classDecl = dynamic_cast<XXML::Parser::ClassDecl*>(decl.get())) {
+            // Check if we're inside this class
+            if (classDecl->location.line <= targetLine) {
+                ctx.currentClass = classDecl;
+
+                // Check sections for method/constructor context
+                for (const auto& section : classDecl->sections) {
+                    for (const auto& memberDecl : section->declarations) {
+                        if (memberDecl->location.line <= targetLine) {
+                            if (auto* method = dynamic_cast<XXML::Parser::MethodDecl*>(memberDecl.get())) {
+                                ctx.currentMethod = method;
+                                ctx.currentConstructor = nullptr;
+                            } else if (auto* ctor = dynamic_cast<XXML::Parser::ConstructorDecl*>(memberDecl.get())) {
+                                ctx.currentConstructor = ctor;
+                                ctx.currentMethod = nullptr;
+                            }
+                        }
+                    }
+                }
+            }
+        } else if (auto* entrypoint = dynamic_cast<XXML::Parser::EntrypointDecl*>(decl.get())) {
+            if (entrypoint->location.line <= targetLine) {
+                ctx.inEntrypoint = true;
+            }
+        }
+    }
+
+    // Determine positional context if not already set
+    if (!ctx.inTypePosition && !ctx.inExpressionPosition && !ctx.inVariableNamePosition) {
+        // Check if we're at start of a line (statement position check)
+        bool atLineStart = true;
+        for (char c : trimmed) {
+            if (!std::isspace(c)) {
+                // Check if what's on the line looks like start of statement
+                // Allow partial keywords
+                atLineStart = false;
+                break;
+            }
+        }
+
+        if (ctx.currentMethod || ctx.currentConstructor || ctx.inEntrypoint) {
+            // Inside a method/constructor/entrypoint body
+            // Check if line is mostly empty or has partial keyword
+            bool looksLikeStatementStart = trimmed.empty();
+            if (!looksLikeStatementStart) {
+                // Check for partial statement keywords
+                static const std::vector<std::string> stmtKeywords = {
+                    "Instantiate", "Run", "Set", "Return", "If", "Else", "While", "For", "Match", "Break", "Continue"
+                };
+                for (const auto& kw : stmtKeywords) {
+                    if (kw.find(trimmed) == 0 || trimmed.find(kw) != std::string::npos) {
+                        looksLikeStatementStart = true;
+                        break;
+                    }
+                }
+            }
+            if (looksLikeStatementStart || trimmed.empty()) {
+                ctx.inStatementPosition = true;
+            }
+        } else if (ctx.currentClass && !ctx.currentMethod && !ctx.currentConstructor) {
+            // Inside class, but outside method body - member declaration position
+            ctx.inMemberDeclarationPosition = true;
+        } else if (!ctx.currentClass && !ctx.inEntrypoint) {
+            // At top level
+            ctx.inTopLevelPosition = true;
+        }
+    }
+
+    // Collect variables in scope
+    collectVariablesInScope(ctx, result, line, character);
+
+    // Resolve preceding expression type if needed
+    if ((ctx.afterDot || ctx.afterDoubleColon) && !ctx.precedingIdentifier.empty()) {
+        ctx.precedingTypeName = resolveExpressionType(ctx.precedingIdentifier, ctx, result);
+    }
+
+    return ctx;
+}
+
+// Collect variables in scope at cursor position
+void AnalysisEngine::collectVariablesInScope(
+    CompletionContext& ctx, const AnalysisResult* result,
+    int line, int character) const {
+
+    if (!result || !result->ast) return;
+
+    int targetLine = line + 1;  // 1-based
+
+    // Helper to collect from statement list
+    auto collectFromStatements = [&](const std::vector<std::unique_ptr<XXML::Parser::Statement>>& stmts) {
+        for (const auto& stmt : stmts) {
+            if (!stmt || stmt->location.line > targetLine) continue;
+
+            if (auto* inst = dynamic_cast<XXML::Parser::InstantiateStmt*>(stmt.get())) {
+                VariableInfo var;
+                var.name = inst->variableName;
+                var.typeName = inst->type ? inst->type->toString() : "";
+                var.ownership = inst->type ? inst->type->ownership : XXML::Parser::OwnershipType::None;
+                var.isParameter = false;
+                var.isProperty = false;
+                var.declarationLine = inst->location.line;
+                ctx.variablesInScope.push_back(var);
+            } else if (auto* forStmt = dynamic_cast<XXML::Parser::ForStmt*>(stmt.get())) {
+                // For loop iterator variable
+                if (!forStmt->iteratorName.empty() && forStmt->location.line <= targetLine) {
+                    VariableInfo var;
+                    var.name = forStmt->iteratorName;
+                    var.typeName = forStmt->iteratorType ? forStmt->iteratorType->toString() : "Integer^";
+                    var.ownership = forStmt->iteratorType ? forStmt->iteratorType->ownership : XXML::Parser::OwnershipType::Owned;
+                    var.isParameter = false;
+                    var.isProperty = false;
+                    var.declarationLine = forStmt->location.line;
+                    ctx.variablesInScope.push_back(var);
+                }
+            }
+        }
+    };
+
+    // Collect from class properties if in class context
+    if (ctx.currentClass) {
+        for (const auto& section : ctx.currentClass->sections) {
+            for (const auto& memberDecl : section->declarations) {
+                if (auto* prop = dynamic_cast<XXML::Parser::PropertyDecl*>(memberDecl.get())) {
+                    VariableInfo var;
+                    var.name = prop->name;
+                    var.typeName = prop->type ? prop->type->toString() : "";
+                    var.ownership = prop->type ? prop->type->ownership : XXML::Parser::OwnershipType::None;
+                    var.isParameter = false;
+                    var.isProperty = true;
+                    var.declarationLine = prop->location.line;
+                    ctx.variablesInScope.push_back(var);
+                }
+            }
+        }
+    }
+
+    // Collect from method parameters and body
+    if (ctx.currentMethod) {
+        for (const auto& param : ctx.currentMethod->parameters) {
+            VariableInfo var;
+            var.name = param->name;
+            var.typeName = param->type ? param->type->toString() : "";
+            var.ownership = param->type ? param->type->ownership : XXML::Parser::OwnershipType::None;
+            var.isParameter = true;
+            var.isProperty = false;
+            var.declarationLine = param->location.line;
+            ctx.variablesInScope.push_back(var);
+        }
+        collectFromStatements(ctx.currentMethod->body);
+    }
+
+    // Collect from constructor parameters and body
+    if (ctx.currentConstructor) {
+        for (const auto& param : ctx.currentConstructor->parameters) {
+            VariableInfo var;
+            var.name = param->name;
+            var.typeName = param->type ? param->type->toString() : "";
+            var.ownership = param->type ? param->type->ownership : XXML::Parser::OwnershipType::None;
+            var.isParameter = true;
+            var.isProperty = false;
+            var.declarationLine = param->location.line;
+            ctx.variablesInScope.push_back(var);
+        }
+        collectFromStatements(ctx.currentConstructor->body);
+    }
+
+    // Collect from entrypoint body
+    if (ctx.inEntrypoint) {
+        for (const auto& decl : result->ast->declarations) {
+            if (auto* entrypoint = dynamic_cast<XXML::Parser::EntrypointDecl*>(decl.get())) {
+                collectFromStatements(entrypoint->body);
+                break;
+            }
+        }
+    }
+}
+
+// Resolve expression type for member completions
+std::string AnalysisEngine::resolveExpressionType(
+    const std::string& exprText, const CompletionContext& ctx,
+    const AnalysisResult* result) const {
+
+    if (exprText.empty()) return "";
+
+    // Strip any trailing method call like ".getList()"
+    std::string cleanExpr = exprText;
+    size_t parenPos = cleanExpr.rfind('(');
+    if (parenPos != std::string::npos) {
+        // Find matching dot before the method name
+        size_t dotPos = cleanExpr.rfind('.', parenPos);
+        if (dotPos != std::string::npos) {
+            cleanExpr = cleanExpr.substr(0, dotPos);
+        }
+    }
+
+    // Check if it's a known variable
+    for (const auto& var : ctx.variablesInScope) {
+        if (var.name == cleanExpr) {
+            return var.typeName;
+        }
+    }
+
+    // Check if it's "this" in a class context
+    if (cleanExpr == "this" && ctx.currentClass) {
+        return ctx.currentClass->name + "^";
+    }
+
+    // Check if it's a class name (for static access)
+    if (result && result->analyzer) {
+        const auto& classRegistry = result->analyzer->getClassRegistry();
+
+        // Try to find as full or short class name
+        for (const auto& [fullName, classInfo] : classRegistry) {
+            size_t lastColon = fullName.rfind("::");
+            std::string shortName = (lastColon != std::string::npos) ?
+                                    fullName.substr(lastColon + 2) : fullName;
+
+            if (shortName == cleanExpr || fullName == cleanExpr) {
+                return fullName;  // Return as static type
+            }
+        }
+    }
+
+    // Try to resolve method chain (e.g., "obj.getList")
+    size_t dotPos = cleanExpr.rfind('.');
+    if (dotPos != std::string::npos) {
+        std::string baseExpr = cleanExpr.substr(0, dotPos);
+        std::string methodName = cleanExpr.substr(dotPos + 1);
+
+        // Remove () from method name if present
+        size_t parenIdx = methodName.find('(');
+        if (parenIdx != std::string::npos) {
+            methodName = methodName.substr(0, parenIdx);
+        }
+
+        // Recursively resolve base expression type
+        std::string baseType = resolveExpressionType(baseExpr, ctx, result);
+        if (!baseType.empty() && result && result->analyzer) {
+            // Look up the method's return type
+            std::string cleanBaseType = stripGenerics(stripOwnership(baseType));
+
+            const auto& classRegistry = result->analyzer->getClassRegistry();
+            for (const auto& [fullName, classInfo] : classRegistry) {
+                size_t lastColon = fullName.rfind("::");
+                std::string shortName = (lastColon != std::string::npos) ?
+                                        fullName.substr(lastColon + 2) : fullName;
+
+                if (shortName == cleanBaseType || fullName == cleanBaseType) {
+                    // Found the class - look for the method
+                    auto methodIt = classInfo.methods.find(methodName);
+                    if (methodIt != classInfo.methods.end()) {
+                        return methodIt->second.returnType;
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
+    return "";
+}
+
+// Find the source file for a type in the standard library
+std::string AnalysisEngine::findTypeSourceFile(const std::string& typeName) const {
+    if (typeName.empty()) return "";
+
+    // Search paths to check
+    std::vector<fs::path> searchPaths;
+
+    // Add user-specified include paths (highest priority)
+    for (const auto& includePath : includePaths_) {
+        searchPaths.push_back(fs::path(includePath));
+        // Also check Language/ subdirectory within include path
+        searchPaths.push_back(fs::path(includePath) / "Language");
+    }
+
+    // Add stdlib path (Language/)
+    if (!stdlibPath_.empty()) {
+        searchPaths.push_back(fs::path(stdlibPath_));
+    }
+
+    // Add workspace root and common locations
+    if (!workspaceRoot_.empty()) {
+        searchPaths.push_back(fs::path(workspaceRoot_) / "Language");
+        searchPaths.push_back(fs::path(workspaceRoot_) / "build" / "release" / "bin" / "Language");
+        searchPaths.push_back(fs::path(workspaceRoot_) / "build" / "debug" / "bin" / "Language");
+    }
+
+    // Common subdirectories to search within Language/
+    std::vector<std::string> subdirs = {"Core", "Collections", "System", "IO", "Reflection"};
+
+    for (const auto& basePath : searchPaths) {
+        // Try direct file: Language/TypeName.XXML
+        fs::path directPath = basePath / (typeName + ".XXML");
+        if (fs::exists(directPath) && fs::is_regular_file(directPath)) {
+            return directPath.string();
+        }
+
+        // Try subdirectories: Language/Core/TypeName.XXML, etc.
+        for (const auto& subdir : subdirs) {
+            fs::path subPath = basePath / subdir / (typeName + ".XXML");
+            if (fs::exists(subPath) && fs::is_regular_file(subPath)) {
+                return subPath.string();
+            }
+        }
+    }
+
+    return "";
+}
+
+// Parse a type's source file to extract methods and properties for completions
+std::vector<CompletionItem> AnalysisEngine::parseTypeForCompletions(const std::string& typeName) const {
+    // Check cache first
+    auto cacheIt = typeCompletionCache_.find(typeName);
+    if (cacheIt != typeCompletionCache_.end()) {
+        return cacheIt->second;
+    }
+
+    std::vector<CompletionItem> completions;
+
+    // Find the source file
+    std::string sourceFile = findTypeSourceFile(typeName);
+    if (sourceFile.empty()) {
+        // Cache empty result to avoid repeated lookups
+        typeCompletionCache_[typeName] = completions;
+        return completions;
+    }
+
+    // Read and parse the file
+    try {
+        std::ifstream ifs(sourceFile);
+        if (!ifs) {
+            typeCompletionCache_[typeName] = completions;
+            return completions;
+        }
+
+        std::string content((std::istreambuf_iterator<char>(ifs)),
+                             std::istreambuf_iterator<char>());
+        ifs.close();
+
+        // Create error reporter and parse
+        XXML::Common::ErrorReporter errorReporter;
+        XXML::Lexer::Lexer lexer(content, fs::path(sourceFile).filename().string(), errorReporter);
+        auto tokens = lexer.tokenize();
+
+        if (errorReporter.hasErrors()) {
+            typeCompletionCache_[typeName] = completions;
+            return completions;
+        }
+
+        XXML::Parser::Parser parser(tokens, errorReporter);
+        auto ast = parser.parse();
+
+        if (!ast || errorReporter.hasErrors()) {
+            typeCompletionCache_[typeName] = completions;
+            return completions;
+        }
+
+        // Find the class declaration matching our type name
+        for (const auto& decl : ast->declarations) {
+            // Handle namespace declarations
+            if (auto* nsDecl = dynamic_cast<XXML::Parser::NamespaceDecl*>(decl.get())) {
+                for (const auto& innerDecl : nsDecl->declarations) {
+                    if (auto* classDecl = dynamic_cast<XXML::Parser::ClassDecl*>(innerDecl.get())) {
+                        if (classDecl->name == typeName) {
+                            // Extract methods and properties from this class
+                            for (const auto& section : classDecl->sections) {
+                                // Skip private sections for completions
+                                if (section->modifier == XXML::Parser::AccessModifier::Private) {
+                                    continue;
+                                }
+
+                                for (const auto& memberDecl : section->declarations) {
+                                    if (auto* method = dynamic_cast<XXML::Parser::MethodDecl*>(memberDecl.get())) {
+                                        // Skip constructors for instance access (they're accessed via ::)
+                                        if (method->name == "Constructor") continue;
+
+                                        CompletionItem item;
+                                        item.label = method->name;
+                                        item.kind = CompletionItemKind::Method;
+
+                                        // Build parameter string
+                                        std::string params = "(";
+                                        for (size_t i = 0; i < method->parameters.size(); ++i) {
+                                            if (i > 0) params += ", ";
+                                            if (method->parameters[i]->type) {
+                                                params += method->parameters[i]->type->toString();
+                                            }
+                                        }
+                                        params += ")";
+
+                                        std::string returnType = method->returnType ?
+                                            method->returnType->toString() : "Void";
+
+                                        item.detail = params + " → " + returnType;
+                                        item.insertText = method->name + "()";
+                                        completions.push_back(item);
+                                    } else if (auto* prop = dynamic_cast<XXML::Parser::PropertyDecl*>(memberDecl.get())) {
+                                        CompletionItem item;
+                                        item.label = prop->name;
+                                        item.kind = CompletionItemKind::Property;
+                                        item.detail = prop->type ? prop->type->toString() : "unknown";
+                                        item.insertText = prop->name;
+                                        completions.push_back(item);
+                                    }
+                                }
+                            }
+                            break;
+                        }
+                    }
+                }
+            } else if (auto* classDecl = dynamic_cast<XXML::Parser::ClassDecl*>(decl.get())) {
+                if (classDecl->name == typeName) {
+                    // Extract methods and properties from this class
+                    for (const auto& section : classDecl->sections) {
+                        if (section->modifier == XXML::Parser::AccessModifier::Private) {
+                            continue;
+                        }
+
+                        for (const auto& memberDecl : section->declarations) {
+                            if (auto* method = dynamic_cast<XXML::Parser::MethodDecl*>(memberDecl.get())) {
+                                if (method->name == "Constructor") continue;
+
+                                CompletionItem item;
+                                item.label = method->name;
+                                item.kind = CompletionItemKind::Method;
+
+                                std::string params = "(";
+                                for (size_t i = 0; i < method->parameters.size(); ++i) {
+                                    if (i > 0) params += ", ";
+                                    if (method->parameters[i]->type) {
+                                        params += method->parameters[i]->type->toString();
+                                    }
+                                }
+                                params += ")";
+
+                                std::string returnType = method->returnType ?
+                                    method->returnType->toString() : "Void";
+
+                                item.detail = params + " → " + returnType;
+                                item.insertText = method->name + "()";
+                                completions.push_back(item);
+                            } else if (auto* prop = dynamic_cast<XXML::Parser::PropertyDecl*>(memberDecl.get())) {
+                                CompletionItem item;
+                                item.label = prop->name;
+                                item.kind = CompletionItemKind::Property;
+                                item.detail = prop->type ? prop->type->toString() : "unknown";
+                                item.insertText = prop->name;
+                                completions.push_back(item);
+                            }
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+    } catch (...) {
+        // Silently fail on parse errors
+    }
+
+    // Cache the result
+    typeCompletionCache_[typeName] = completions;
+    return completions;
+}
+
+// Get member completions (after .)
+std::vector<CompletionItem> AnalysisEngine::getMemberCompletions(
+    const CompletionContext& ctx, const AnalysisResult* result) const {
+
+    std::vector<CompletionItem> completions;
+
+    // Strip ownership and generics for lookup
+    std::string typeName = stripGenerics(stripOwnership(ctx.precedingTypeName));
+
+    // If we have the analyzer's class registry, use it first (most accurate)
+    if (!typeName.empty() && result && result->analyzer) {
+        const auto& classRegistry = result->analyzer->getClassRegistry();
+
+        for (const auto& [fullName, classInfo] : classRegistry) {
+            size_t lastColon = fullName.rfind("::");
+            std::string shortName = (lastColon != std::string::npos) ?
+                                    fullName.substr(lastColon + 2) : fullName;
+
+            if (shortName == typeName || fullName == typeName) {
+                // Found in registry - use it
+                for (const auto& [methodName, methodInfo] : classInfo.methods) {
+                    if (methodName == "Constructor") continue;
+
+                    CompletionItem item;
+                    item.label = methodName;
+                    item.kind = CompletionItemKind::Method;
+
+                    std::string detail = "(";
+                    for (size_t i = 0; i < methodInfo.parameters.size(); ++i) {
+                        if (i > 0) detail += ", ";
+                        detail += methodInfo.parameters[i].first;
+                    }
+                    detail += ") → " + methodInfo.returnType;
+                    item.detail = detail;
+
+                    item.insertText = methodName + "()";
+                    completions.push_back(item);
+                }
+
+                for (const auto& [propName, propInfo] : classInfo.properties) {
+                    CompletionItem item;
+                    item.label = propName;
+                    item.kind = CompletionItemKind::Property;
+                    item.detail = propInfo.first;
+                    item.insertText = propName;
+                    completions.push_back(item);
+                }
+
+                return completions;
+            }
+        }
+    }
+
+    // Try to parse the type's source file directly (works without analyzer)
+    if (!typeName.empty()) {
+        completions = parseTypeForCompletions(typeName);
+        if (!completions.empty()) {
+            return completions;
+        }
+    }
+
+    // Fallback: common Object methods (only when we truly can't determine the type)
+    std::vector<std::pair<std::string, std::string>> commonMethods = {
+        {"toString", "String^"},
+        {"equals", "Bool^"},
+        {"hash", "Integer^"},
+        {"dispose", "Void"},
+    };
+    for (const auto& [name, retType] : commonMethods) {
+        CompletionItem item;
+        item.label = name;
+        item.kind = CompletionItemKind::Method;
+        item.detail = "→ " + retType;
+        item.insertText = name + "()";
+        completions.push_back(item);
+    }
+    return completions;
+}
+
+// Parse a type's source file for static access (::) - includes Constructor and all public methods
+std::vector<CompletionItem> AnalysisEngine::parseTypeForStaticCompletions(const std::string& typeName) const {
+    // Check cache first (use different key to distinguish from instance completions)
+    std::string cacheKey = typeName + "::static";
+    auto cacheIt = typeCompletionCache_.find(cacheKey);
+    if (cacheIt != typeCompletionCache_.end()) {
+        return cacheIt->second;
+    }
+
+    std::vector<CompletionItem> completions;
+
+    // Find the source file
+    std::string sourceFile = findTypeSourceFile(typeName);
+    if (sourceFile.empty()) {
+        typeCompletionCache_[cacheKey] = completions;
+        return completions;
+    }
+
+    // Read and parse the file
+    try {
+        std::ifstream ifs(sourceFile);
+        if (!ifs) {
+            typeCompletionCache_[cacheKey] = completions;
+            return completions;
+        }
+
+        std::string content((std::istreambuf_iterator<char>(ifs)),
+                             std::istreambuf_iterator<char>());
+        ifs.close();
+
+        XXML::Common::ErrorReporter errorReporter;
+        XXML::Lexer::Lexer lexer(content, fs::path(sourceFile).filename().string(), errorReporter);
+        auto tokens = lexer.tokenize();
+
+        if (errorReporter.hasErrors()) {
+            typeCompletionCache_[cacheKey] = completions;
+            return completions;
+        }
+
+        XXML::Parser::Parser parser(tokens, errorReporter);
+        auto ast = parser.parse();
+
+        if (!ast || errorReporter.hasErrors()) {
+            typeCompletionCache_[cacheKey] = completions;
+            return completions;
+        }
+
+        // Helper lambda to extract completions from a class
+        auto extractFromClass = [&](XXML::Parser::ClassDecl* classDecl) {
+            // Add Constructor first
+            CompletionItem ctorItem;
+            ctorItem.label = "Constructor";
+            ctorItem.kind = CompletionItemKind::Constructor;
+            ctorItem.detail = "Create new " + typeName;
+            ctorItem.insertText = "Constructor()";
+            completions.push_back(ctorItem);
+
+            // Extract all public methods and properties
+            for (const auto& section : classDecl->sections) {
+                if (section->modifier == XXML::Parser::AccessModifier::Private) {
+                    continue;
+                }
+
+                for (const auto& memberDecl : section->declarations) {
+                    if (auto* method = dynamic_cast<XXML::Parser::MethodDecl*>(memberDecl.get())) {
+                        // Include Constructor methods (factory methods) for static access
+                        CompletionItem item;
+                        item.label = method->name;
+                        item.kind = (method->name == "Constructor") ?
+                            CompletionItemKind::Constructor : CompletionItemKind::Method;
+
+                        std::string params = "(";
+                        for (size_t i = 0; i < method->parameters.size(); ++i) {
+                            if (i > 0) params += ", ";
+                            if (method->parameters[i]->type) {
+                                params += method->parameters[i]->type->toString();
+                            }
+                        }
+                        params += ")";
+
+                        std::string returnType = method->returnType ?
+                            method->returnType->toString() : "Void";
+
+                        item.detail = params + " → " + returnType;
+                        item.insertText = method->name + "()";
+                        completions.push_back(item);
+                    } else if (auto* prop = dynamic_cast<XXML::Parser::PropertyDecl*>(memberDecl.get())) {
+                        CompletionItem item;
+                        item.label = prop->name;
+                        item.kind = CompletionItemKind::Property;
+                        item.detail = prop->type ? prop->type->toString() : "unknown";
+                        item.insertText = prop->name;
+                        completions.push_back(item);
+                    }
+                }
+            }
+        };
+
+        // Find the class declaration
+        for (const auto& decl : ast->declarations) {
+            if (auto* nsDecl = dynamic_cast<XXML::Parser::NamespaceDecl*>(decl.get())) {
+                for (const auto& innerDecl : nsDecl->declarations) {
+                    if (auto* classDecl = dynamic_cast<XXML::Parser::ClassDecl*>(innerDecl.get())) {
+                        if (classDecl->name == typeName) {
+                            extractFromClass(classDecl);
+                            break;
+                        }
+                    }
+                }
+            } else if (auto* classDecl = dynamic_cast<XXML::Parser::ClassDecl*>(decl.get())) {
+                if (classDecl->name == typeName) {
+                    extractFromClass(classDecl);
+                    break;
+                }
+            }
+        }
+    } catch (...) {
+        // Silently fail
+    }
+
+    typeCompletionCache_[cacheKey] = completions;
+    return completions;
+}
+
+// Find namespace directory and list its contents
+std::vector<CompletionItem> AnalysisEngine::getNamespaceContents(const std::string& namespacePath) const {
+    std::vector<CompletionItem> completions;
+
+    // Convert namespace path (e.g., "Language::Core") to directory path
+    std::string dirPath = namespacePath;
+    size_t pos = 0;
+    while ((pos = dirPath.find("::", pos)) != std::string::npos) {
+        dirPath.replace(pos, 2, "/");
+    }
+
+    // Search paths
+    std::vector<fs::path> searchPaths;
+
+    // Add user-specified include paths (highest priority)
+    for (const auto& includePath : includePaths_) {
+        searchPaths.push_back(fs::path(includePath));
+    }
+
+    if (!stdlibPath_.empty()) {
+        // stdlibPath_ is typically "Language/", so go up one level
+        fs::path stdlibParent = fs::path(stdlibPath_).parent_path();
+        searchPaths.push_back(stdlibParent);
+        searchPaths.push_back(fs::path(stdlibPath_));
+    }
+    if (!workspaceRoot_.empty()) {
+        searchPaths.push_back(fs::path(workspaceRoot_));
+        searchPaths.push_back(fs::path(workspaceRoot_) / "build" / "release" / "bin");
+        searchPaths.push_back(fs::path(workspaceRoot_) / "build" / "debug" / "bin");
+    }
+
+    std::set<std::string> addedNames;
+
+    for (const auto& basePath : searchPaths) {
+        fs::path nsDir = basePath / dirPath;
+
+        if (!fs::exists(nsDir) || !fs::is_directory(nsDir)) {
+            continue;
+        }
+
+        try {
+            for (const auto& entry : fs::directory_iterator(nsDir)) {
+                std::string name = entry.path().stem().string();
+
+                // Skip if already added
+                if (addedNames.find(name) != addedNames.end()) continue;
+
+                if (entry.is_directory()) {
+                    // Sub-namespace
+                    addedNames.insert(name);
+                    CompletionItem item;
+                    item.label = name;
+                    item.kind = CompletionItemKind::Module;
+                    item.detail = "Namespace";
+                    item.insertText = name;
+                    completions.push_back(item);
+                } else if (entry.is_regular_file()) {
+                    std::string ext = entry.path().extension().string();
+                    if (ext == ".XXML" || ext == ".xxml") {
+                        // Class file
+                        addedNames.insert(name);
+                        CompletionItem item;
+                        item.label = name;
+                        item.kind = CompletionItemKind::Class;
+                        item.detail = "Class";
+                        item.insertText = name;
+                        completions.push_back(item);
+                    }
+                }
+            }
+        } catch (...) {
+            // Ignore filesystem errors
+        }
+
+        // If we found content, stop searching
+        if (!completions.empty()) {
+            break;
+        }
+    }
+
+    return completions;
+}
+
+// Get static completions (after ::)
+std::vector<CompletionItem> AnalysisEngine::getStaticCompletions(
+    const CompletionContext& ctx, const AnalysisResult* result) const {
+
+    std::vector<CompletionItem> completions;
+
+    if (ctx.precedingIdentifier.empty()) return completions;
+
+    std::string qualifiedName = ctx.precedingIdentifier;
+
+    // First, try the analyzer's class registry (if available)
+    if (result && result->analyzer) {
+        const auto& classRegistry = result->analyzer->getClassRegistry();
+
+        // Check if it's a class
+        std::string foundClassName;
+        for (const auto& [name, info] : classRegistry) {
+            size_t lastColon = name.rfind("::");
+            std::string shortName = (lastColon != std::string::npos) ?
+                                    name.substr(lastColon + 2) : name;
+
+            if (shortName == qualifiedName || name == qualifiedName) {
+                foundClassName = name;
+                break;
+            }
+        }
+
+        if (!foundClassName.empty()) {
+            // It's a class - offer Constructor and all public methods
+            CompletionItem ctorItem;
+            ctorItem.label = "Constructor";
+            ctorItem.kind = CompletionItemKind::Constructor;
+            ctorItem.detail = "Create new " + qualifiedName;
+            ctorItem.insertText = "Constructor()";
+            completions.push_back(ctorItem);
+
+            auto it = classRegistry.find(foundClassName);
+            if (it != classRegistry.end()) {
+                for (const auto& [methodName, methodInfo] : it->second.methods) {
+                    CompletionItem item;
+                    item.label = methodName;
+                    item.kind = CompletionItemKind::Method;
+
+                    std::string detail = "(";
+                    for (size_t i = 0; i < methodInfo.parameters.size(); ++i) {
+                        if (i > 0) detail += ", ";
+                        detail += methodInfo.parameters[i].first;
+                    }
+                    detail += ") → " + methodInfo.returnType;
+                    item.detail = detail;
+
+                    item.insertText = methodName + "()";
+                    completions.push_back(item);
+                }
+
+                for (const auto& [propName, propInfo] : it->second.properties) {
+                    CompletionItem item;
+                    item.label = propName;
+                    item.kind = CompletionItemKind::Property;
+                    item.detail = propInfo.first;
+                    item.insertText = propName;
+                    completions.push_back(item);
+                }
+            }
+            return completions;
+        } else {
+            // Might be a namespace - show classes/namespaces from registry
+            std::string nsPrefix = qualifiedName + "::";
+            std::set<std::string> addedNames;
+
+            for (const auto& [name, info] : classRegistry) {
+                if (name.find(nsPrefix) == 0) {
+                    std::string remainder = name.substr(nsPrefix.size());
+                    size_t nextColon = remainder.find("::");
+                    std::string nextPart = (nextColon != std::string::npos) ?
+                                           remainder.substr(0, nextColon) : remainder;
+
+                    if (addedNames.find(nextPart) != addedNames.end()) continue;
+                    addedNames.insert(nextPart);
+
+                    CompletionItem item;
+                    item.label = nextPart;
+                    item.kind = (nextColon != std::string::npos) ?
+                                CompletionItemKind::Module : CompletionItemKind::Class;
+                    item.detail = (nextColon != std::string::npos) ? "Namespace" : "Class";
+                    item.insertText = nextPart;
+                    completions.push_back(item);
+                }
+            }
+
+            if (!completions.empty()) {
+                return completions;
+            }
+        }
+    }
+
+    // Second, try to parse the type's source file directly (works without analyzer)
+    // Check if it looks like a class name (starts with uppercase)
+    if (!qualifiedName.empty()) {
+        // Extract the last component for class lookup
+        std::string typeName = qualifiedName;
+        size_t lastColon = qualifiedName.rfind("::");
+        if (lastColon != std::string::npos) {
+            typeName = qualifiedName.substr(lastColon + 2);
+        }
+
+        // Try as a class first
+        completions = parseTypeForStaticCompletions(typeName);
+        if (!completions.empty()) {
+            return completions;
+        }
+
+        // Try as a namespace
+        completions = getNamespaceContents(qualifiedName);
+        if (!completions.empty()) {
+            return completions;
+        }
+    }
+
+    // Fallback: Constructor if it looks like a class name
+    if (completions.empty() && !qualifiedName.empty() && std::isupper(qualifiedName[0])) {
+        CompletionItem ctorItem;
+        ctorItem.label = "Constructor";
+        ctorItem.kind = CompletionItemKind::Constructor;
+        ctorItem.detail = "Class constructor";
+        ctorItem.insertText = "Constructor()";
+        completions.push_back(ctorItem);
+    }
+
+    return completions;
+}
+
+// Get type completions (in type position)
+std::vector<CompletionItem> AnalysisEngine::getTypeCompletions(
+    const CompletionContext& ctx, const AnalysisResult* result) const {
+
+    std::vector<CompletionItem> completions;
+
+    // Built-in types
+    std::vector<std::pair<std::string, std::string>> builtinTypes = {
+        {"Integer", "64-bit signed integer"},
+        {"String", "UTF-8 string"},
+        {"Bool", "Boolean (true/false)"},
+        {"Float", "32-bit floating point"},
+        {"Double", "64-bit floating point"},
+        {"Char", "Single character"},
+        {"Void", "No value"},
+        {"Object", "Base object type"},
+    };
+
+    for (const auto& [name, desc] : builtinTypes) {
+        CompletionItem item;
+        item.label = name;
+        item.kind = CompletionItemKind::Class;
+        item.detail = desc;
+        item.insertText = name;
+        completions.push_back(item);
+    }
+
+    // NativeType and NativeStruct
+    CompletionItem nativeItem;
+    nativeItem.label = "NativeType";
+    nativeItem.kind = CompletionItemKind::Class;
+    nativeItem.detail = "Low-level native type";
+    nativeItem.insertText = "NativeType<\"\">";
+    completions.push_back(nativeItem);
+
+    // Classes from registry
+    std::set<std::string> addedNames;
+    std::set<std::string> namespaces;
+
+    if (result && result->analyzer) {
+        for (const auto& [fullName, classInfo] : result->analyzer->getClassRegistry()) {
+            size_t lastColon = fullName.rfind("::");
+            std::string shortName = (lastColon != std::string::npos) ?
+                                    fullName.substr(lastColon + 2) : fullName;
+
+            if (addedNames.find(shortName) == addedNames.end()) {
+                addedNames.insert(shortName);
+                CompletionItem item;
+                item.label = shortName;
+                item.kind = CompletionItemKind::Class;
+                item.detail = (lastColon != std::string::npos) ? fullName : "Class";
+                item.insertText = shortName;
+                completions.push_back(item);
+            }
+
+            // Extract namespace
+            if (lastColon != std::string::npos) {
+                namespaces.insert(fullName.substr(0, lastColon));
+            }
+        }
+    }
+
+    // Add namespace suggestions
+    for (const auto& ns : namespaces) {
+        if (addedNames.find(ns) == addedNames.end()) {
+            addedNames.insert(ns);
+            CompletionItem item;
+            item.label = ns;
+            item.kind = CompletionItemKind::Module;
+            item.detail = "Namespace";
+            item.insertText = ns + "::";
+            completions.push_back(item);
+        }
+    }
+
+    // Generic collection types
+    std::vector<std::pair<std::string, std::string>> genericTypes = {
+        {"List", "Dynamic array - List<T>^"},
+        {"HashMap", "Key-value map - HashMap<K,V>^"},
+        {"Set", "Unique set - Set<T>^"},
+    };
+
+    for (const auto& [name, desc] : genericTypes) {
+        if (addedNames.find(name) == addedNames.end()) {
+            CompletionItem item;
+            item.label = name;
+            item.kind = CompletionItemKind::Class;
+            item.detail = desc;
+            item.insertText = name + "<>";
+            completions.push_back(item);
+        }
+    }
+
+    return completions;
+}
+
+// Get general completions (keywords, variables, types)
+std::vector<CompletionItem> AnalysisEngine::getGeneralCompletions(
+    const CompletionContext& ctx, const AnalysisResult* result) const {
+
+    std::vector<CompletionItem> completions;
+
+    // Keywords
+    std::vector<std::tuple<std::string, std::string, CompletionItemKind>> keywords = {
+        // Declarations
+        {"Class", "Declare a class", CompletionItemKind::Keyword},
+        {"Struct", "Declare a struct", CompletionItemKind::Keyword},
+        {"Interface", "Declare an interface", CompletionItemKind::Keyword},
+        {"Trait", "Declare a trait", CompletionItemKind::Keyword},
+        {"Enum", "Declare an enum", CompletionItemKind::Keyword},
+        {"Annotation", "Declare an annotation", CompletionItemKind::Keyword},
+        {"Namespace", "Declare a namespace", CompletionItemKind::Keyword},
+        {"Entrypoint", "Program entry point", CompletionItemKind::Keyword},
+        // Members
+        {"Method", "Declare a method", CompletionItemKind::Keyword},
+        {"Property", "Declare a property", CompletionItemKind::Keyword},
+        {"Constructor", "Declare a constructor", CompletionItemKind::Keyword},
+        {"Destructor", "Declare a destructor", CompletionItemKind::Keyword},
+        {"Operator", "Declare an operator", CompletionItemKind::Keyword},
+        // Statements
+        {"Instantiate", "Create a variable", CompletionItemKind::Keyword},
+        {"Run", "Execute statement", CompletionItemKind::Keyword},
+        {"Set", "Assign value", CompletionItemKind::Keyword},
+        {"Return", "Return from method", CompletionItemKind::Keyword},
+        {"Exit", "Exit program", CompletionItemKind::Keyword},
+        // Control flow
+        {"If", "Conditional", CompletionItemKind::Keyword},
+        {"Else", "Else branch", CompletionItemKind::Keyword},
+        {"While", "While loop", CompletionItemKind::Keyword},
+        {"For", "For loop", CompletionItemKind::Keyword},
+        {"Match", "Pattern match", CompletionItemKind::Keyword},
+        {"Break", "Break loop", CompletionItemKind::Keyword},
+        {"Continue", "Continue loop", CompletionItemKind::Keyword},
+        // Modifiers
+        {"Public", "Public access", CompletionItemKind::Keyword},
+        {"Private", "Private access", CompletionItemKind::Keyword},
+        {"Protected", "Protected access", CompletionItemKind::Keyword},
+        {"Final", "Non-inheritable", CompletionItemKind::Keyword},
+        {"Static", "Class-level member", CompletionItemKind::Keyword},
+        {"Abstract", "Abstract member", CompletionItemKind::Keyword},
+        {"Virtual", "Virtual method", CompletionItemKind::Keyword},
+        {"Override", "Override method", CompletionItemKind::Keyword},
+        {"Compiletime", "Compile-time eval", CompletionItemKind::Keyword},
+        // Type annotations
+        {"Types", "Type annotation", CompletionItemKind::Keyword},
+        {"Returns", "Return type", CompletionItemKind::Keyword},
+        {"Parameters", "Parameter list", CompletionItemKind::Keyword},
+        {"Parameter", "Single parameter", CompletionItemKind::Keyword},
+        {"Extends", "Base class", CompletionItemKind::Keyword},
+        {"Implements", "Interface impl", CompletionItemKind::Keyword},
+        {"Do", "Method body", CompletionItemKind::Keyword},
+        {"As", "Variable name", CompletionItemKind::Keyword},
+        {"In", "Collection iter", CompletionItemKind::Keyword},
+        // Values
+        {"true", "Boolean true", CompletionItemKind::Keyword},
+        {"false", "Boolean false", CompletionItemKind::Keyword},
+        {"null", "Null reference", CompletionItemKind::Keyword},
+        {"None", "No value/base", CompletionItemKind::Keyword},
+        {"this", "Current instance", CompletionItemKind::Keyword},
+        {"Self", "Current type", CompletionItemKind::Keyword},
+        {"default", "Default value", CompletionItemKind::Keyword},
+    };
+
+    for (const auto& [label, detail, kind] : keywords) {
+        CompletionItem item;
+        item.label = label;
+        item.kind = kind;
+        item.detail = detail;
+        item.insertText = label;
+        completions.push_back(item);
+    }
+
+    // Add variables in scope
+    for (const auto& var : ctx.variablesInScope) {
+        CompletionItem item;
+        item.label = var.name;
+        item.kind = var.isProperty ? CompletionItemKind::Property :
+                    var.isParameter ? CompletionItemKind::Variable :
+                    CompletionItemKind::Variable;
+        item.detail = var.typeName;
+        item.insertText = var.name;
+        completions.push_back(item);
+    }
+
+    // Add types
+    auto typeCompletions = getTypeCompletions(ctx, result);
+    for (auto& item : typeCompletions) {
+        completions.push_back(std::move(item));
+    }
+
+    // Deduplicate by label
+    std::set<std::string> seen;
+    std::vector<CompletionItem> deduped;
+    for (auto& item : completions) {
+        if (seen.find(item.label) == seen.end()) {
+            seen.insert(item.label);
+            deduped.push_back(std::move(item));
+        }
+    }
+
+    return deduped;
+}
+
+// Get expression completions (variables, class names for construction, literals)
+std::vector<CompletionItem> AnalysisEngine::getExpressionCompletions(
+    const CompletionContext& ctx, const AnalysisResult* result) const {
+
+    std::vector<CompletionItem> completions;
+
+    // Add variables in scope - these are the primary expression starters
+    for (const auto& var : ctx.variablesInScope) {
+        CompletionItem item;
+        item.label = var.name;
+        item.kind = var.isProperty ? CompletionItemKind::Property :
+                    var.isParameter ? CompletionItemKind::Variable :
+                    CompletionItemKind::Variable;
+        item.detail = var.typeName;
+        item.insertText = var.name;
+        completions.push_back(item);
+    }
+
+    // Add "this" if in class context
+    if (ctx.currentClass) {
+        CompletionItem thisItem;
+        thisItem.label = "this";
+        thisItem.kind = CompletionItemKind::Keyword;
+        thisItem.detail = ctx.currentClass->name + "&";
+        thisItem.insertText = "this";
+        completions.push_back(thisItem);
+    }
+
+    // Add class names for constructor calls
+    if (result && result->analyzer) {
+        std::set<std::string> addedNames;
+        for (const auto& [fullName, classInfo] : result->analyzer->getClassRegistry()) {
+            size_t lastColon = fullName.rfind("::");
+            std::string shortName = (lastColon != std::string::npos) ?
+                                    fullName.substr(lastColon + 2) : fullName;
+
+            if (addedNames.find(shortName) == addedNames.end()) {
+                addedNames.insert(shortName);
+                CompletionItem item;
+                item.label = shortName;
+                item.kind = CompletionItemKind::Class;
+                item.detail = "Class (use ::Constructor)";
+                item.insertText = shortName;
+                completions.push_back(item);
+            }
+        }
+    }
+
+    // Literal keywords
+    std::vector<std::pair<std::string, std::string>> literals = {
+        {"true", "Boolean true"},
+        {"false", "Boolean false"},
+        {"null", "Null reference"},
+    };
+    for (const auto& [name, desc] : literals) {
+        CompletionItem item;
+        item.label = name;
+        item.kind = CompletionItemKind::Keyword;
+        item.detail = desc;
+        item.insertText = name;
+        completions.push_back(item);
+    }
+
+    return completions;
+}
+
+// Get statement completions (statement keywords at start of line in method body)
+std::vector<CompletionItem> AnalysisEngine::getStatementCompletions(
+    const CompletionContext& ctx, const AnalysisResult* result) const {
+
+    std::vector<CompletionItem> completions;
+
+    // Statement keywords only - no declaration or modifier keywords
+    std::vector<std::pair<std::string, std::string>> stmtKeywords = {
+        {"Instantiate", "Create a local variable"},
+        {"Run", "Execute an expression"},
+        {"Set", "Assign a value"},
+        {"Return", "Return from method"},
+        {"If", "Conditional statement"},
+        {"While", "While loop"},
+        {"For", "For loop"},
+        {"Match", "Pattern matching"},
+        {"Break", "Break out of loop"},
+        {"Continue", "Continue to next iteration"},
+    };
+
+    // Add Exit only in entrypoint
+    if (ctx.inEntrypoint) {
+        stmtKeywords.push_back({"Exit", "Exit the program"});
+    }
+
+    for (const auto& [name, desc] : stmtKeywords) {
+        CompletionItem item;
+        item.label = name;
+        item.kind = CompletionItemKind::Keyword;
+        item.detail = desc;
+        item.insertText = name;
+        completions.push_back(item);
+    }
+
+    // Also add variables (they can start expressions used in statements)
+    for (const auto& var : ctx.variablesInScope) {
+        CompletionItem item;
+        item.label = var.name;
+        item.kind = CompletionItemKind::Variable;
+        item.detail = var.typeName;
+        item.insertText = var.name;
+        completions.push_back(item);
+    }
+
+    return completions;
+}
+
+// Get member declaration completions (inside class, outside method body)
+std::vector<CompletionItem> AnalysisEngine::getMemberDeclarationCompletions(
+    const CompletionContext& ctx, const AnalysisResult* result) const {
+
+    (void)ctx;
+    (void)result;
+
+    std::vector<CompletionItem> completions;
+
+    // Member declaration keywords only
+    std::vector<std::pair<std::string, std::string>> memberKeywords = {
+        {"Method", "Declare a method"},
+        {"Property", "Declare a property"},
+        {"Constructor", "Declare a constructor"},
+        {"Destructor", "Declare a destructor"},
+        {"Operator", "Declare an operator overload"},
+    };
+
+    for (const auto& [name, desc] : memberKeywords) {
+        CompletionItem item;
+        item.label = name;
+        item.kind = CompletionItemKind::Keyword;
+        item.detail = desc;
+        item.insertText = name;
+        completions.push_back(item);
+    }
+
+    // Access modifiers (for starting new access section)
+    std::vector<std::pair<std::string, std::string>> accessKeywords = {
+        {"Public", "Public access section"},
+        {"Private", "Private access section"},
+        {"Protected", "Protected access section"},
+    };
+
+    for (const auto& [name, desc] : accessKeywords) {
+        CompletionItem item;
+        item.label = name;
+        item.kind = CompletionItemKind::Keyword;
+        item.detail = desc;
+        item.insertText = name;
+        completions.push_back(item);
+    }
+
+    return completions;
+}
+
+// Get top-level declaration completions (at file top level)
+std::vector<CompletionItem> AnalysisEngine::getTopLevelCompletions(
+    const CompletionContext& ctx, const AnalysisResult* result) const {
+
+    (void)ctx;
+    (void)result;
+
+    std::vector<CompletionItem> completions;
+
+    // Top-level declaration keywords only
+    std::vector<std::pair<std::string, std::string>> topLevelKeywords = {
+        {"Class", "Declare a class"},
+        {"Structure", "Declare a structure"},
+        {"Interface", "Declare an interface"},
+        {"Trait", "Declare a trait"},
+        {"Enumeration", "Declare an enumeration"},
+        {"Annotation", "Declare an annotation"},
+        {"Namespace", "Declare a namespace"},
+        {"Entrypoint", "Program entry point"},
+        {"#import", "Import a module"},
+    };
+
+    for (const auto& [name, desc] : topLevelKeywords) {
+        CompletionItem item;
+        item.label = name;
+        item.kind = CompletionItemKind::Keyword;
+        item.detail = desc;
+        item.insertText = name;
+        completions.push_back(item);
+    }
+
+    return completions;
 }
 
 } // namespace xxml::lsp
