@@ -80,7 +80,7 @@ bool parseModule(XXML::Import::Module* module, XXML::Common::ErrorReporter& erro
 }
 
 void printUsage(const char* programName) {
-    std::cerr << "XXML Compiler v2.0\n";
+    std::cerr << "XXML Compiler v3.0.0\n";
     std::cerr << "Usage: " << programName << " [options] <input.XXML> -o <output>\n\n";
     std::cerr << "Options:\n";
     std::cerr << "  -o <file>              Output file (.ll for IR, .exe/.dll for binary)\n";
@@ -99,7 +99,7 @@ void printUsage(const char* programName) {
 }
 
 int main(int argc, char* argv[]) {
-    std::cout << "XXML Compiler v2.0 (LLVM Backend)\n";
+    std::cout << "XXML Compiler v3.0.0 (LLVM Backend)\n";
     std::cout << "==================================\n\n";
 
     if (argc < 3) {

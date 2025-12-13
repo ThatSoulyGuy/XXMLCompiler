@@ -44,6 +44,7 @@ Built-in types and modules.
 | [Time](stdlib/TIME.md) | DateTime, TimeSpan, Timer |
 | [JSON](stdlib/JSON.md) | JSON parsing and generation |
 | [HTTP](stdlib/HTTP.md) | HTTP client |
+| [Testing](stdlib/TESTING.md) | Unit testing framework |
 
 ---
 
@@ -54,10 +55,11 @@ Advanced features for experienced users.
 | Document | Description |
 |----------|-------------|
 | [Reflection](advanced/REFLECTION.md) | Runtime type introspection |
+| [Derives](advanced/DERIVES.md) | Automatic method generation (`@Derive`) |
 | [Annotations](advanced/ANNOTATIONS.md) | Java-style annotation system |
 | [FFI](advanced/FFI.md) | Foreign function interface |
 | [Native Types](advanced/NATIVE_TYPES.md) | Low-level types and syscalls |
-| [Threading](advanced/THREADING.md) | Concurrency and synchronization |
+| [Threading](advanced/THREADING.md) | Concurrency, Sendable/Sharable constraints |
 | [Destructors](advanced/DESTRUCTORS.md) | RAII and resource cleanup |
 
 ---
@@ -71,6 +73,7 @@ Compiler tooling and architecture.
 | [CLI Reference](tools/CLI.md) | Compiler command-line options |
 | [Import System](tools/IMPORTS.md) | Module resolution |
 | [Architecture](tools/ARCHITECTURE.md) | Compiler internals |
+| [VS Code Extension](tools/VSCODE.md) | IDE support with LSP |
 
 ---
 
@@ -85,4 +88,4 @@ Compiler tooling and architecture.
 
 ---
 
-*XXML Compiler v2.3.0*
+*XXML Compiler v3.0.0*

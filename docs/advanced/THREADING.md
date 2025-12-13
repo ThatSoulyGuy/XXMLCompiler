@@ -5,15 +5,19 @@ XXML provides comprehensive multithreading support through high-level classes th
 ## Table of Contents
 
 1. [Quick Start](#quick-start)
-2. [Thread Class](#thread-class)
-3. [Mutex Class](#mutex-class)
-4. [LockGuard Class](#lockguard-class)
-5. [Atomic Class](#atomic-class)
-6. [ConditionVariable Class](#conditionvariable-class)
-7. [Semaphore Class](#semaphore-class)
-8. [ThreadLocal Class](#threadlocal-class)
-9. [Best Practices](#best-practices)
-10. [Examples](#examples)
+2. [Thread Safety Constraints](#thread-safety-constraints)
+   - [Sendable](#sendable)
+   - [Sharable](#sharable)
+   - [@Unsafe Annotation](#unsafe-annotation)
+3. [Thread Class](#thread-class)
+4. [Mutex Class](#mutex-class)
+5. [LockGuard Class](#lockguard-class)
+6. [Atomic Class](#atomic-class)
+7. [ConditionVariable Class](#conditionvariable-class)
+8. [Semaphore Class](#semaphore-class)
+9. [ThreadLocal Class](#threadlocal-class)
+10. [Best Practices](#best-practices)
+11. [Examples](#examples)
 
 ---
 
@@ -39,6 +43,140 @@ XXML provides comprehensive multithreading support through high-level classes th
         Run Console::printLine(String::Constructor("Thread finished!"));
         Exit(0);
     }
+]
+```
+
+---
+
+## Thread Safety Constraints
+
+XXML provides two marker constraints—`Sendable` and `Sharable`—that enable compile-time verification of thread safety. These constraints allow the type system to prevent common concurrency bugs.
+
+### Sendable
+
+The `Sendable` constraint marks types that can be safely **moved** across thread boundaries.
+
+**Location:** `Language/Core/Sendable.XXML`
+
+**Requirements for a type to be Sendable:**
+- All owned (`^`) fields must be of Sendable types (recursively)
+- No reference (`&`) fields (references would become dangling across threads)
+- Copy (`%`) values are implicitly Sendable
+- Primitive types (`Integer`, `Bool`, `Float`, `Double`, `String`, `Char`) are Sendable
+- `Atomic<T>` is Sendable
+
+```xxml
+#import Language::Core;
+
+// This class is Sendable because all fields are Sendable
+@Derive(trait = "Sendable")
+[ Class <Message> Final Extends None
+    [ Public <>
+        Property <id> Types Integer^;
+        Property <content> Types String^;
+        Constructor = default;
+    ]
+]
+
+// Use in thread spawn
+Instantiate Message^ As <msg> = Message::Constructor();
+// msg can be safely moved to another thread
+```
+
+**Non-Sendable Example:**
+
+```xxml
+// This class is NOT Sendable - has a reference field
+[ Class <NotSendable> Final Extends None
+    [ Public <>
+        Property <ref> Types Integer&;  // Reference field prevents Sendable
+        Constructor = default;
+    ]
+]
+```
+
+### Sharable
+
+The `Sharable` constraint marks types that can be safely **shared** (referenced) across threads simultaneously.
+
+**Location:** `Language/Core/Sharable.XXML`
+
+**Requirements for a type to be Sharable:**
+- Immutable (no mutable state, or state is only set during construction)
+- OR all mutable state is protected by synchronization primitives
+- Primitive types (`Integer`, `Bool`, `Float`, `Double`, `String`, `Char`) are Sharable (immutable)
+- `Atomic<T>` is Sharable (provides atomic access)
+- Types with unprotected mutable state are NOT Sharable
+
+```xxml
+#import Language::Core;
+
+// Immutable class - automatically Sharable
+@Derive(trait = "Sharable")
+[ Class <Config> Final Extends None
+    [ Public <>
+        Property <maxConnections> Types Integer^;
+        Property <timeout> Types Integer^;
+
+        // Only constructor sets values - immutable after construction
+        Constructor Parameters (
+            Parameter <max> Types Integer^,
+            Parameter <t> Types Integer^
+        ) -> {
+            Set maxConnections = max;
+            Set timeout = t;
+        }
+    ]
+]
+```
+
+### @Unsafe Annotation
+
+For FFI types or manually verified thread-safe types, use `@Unsafe` to override automatic constraint checking.
+
+**Location:** `Language/Annotations/Unsafe.XXML`
+
+```xxml
+#import Language::Core;
+#import Language::Annotations;
+
+// FFI handle that has been manually verified thread-safe
+@Derive(trait = "Sendable")
+@Unsafe(reason = "External library guarantees thread-safety via internal locking")
+[ Class <ExternalHandle> Final Extends None
+    [ Public <>
+        Property <handle> Types NativeType<"ptr">^;
+        Constructor = default;
+    ]
+]
+```
+
+**Important:**
+- `@Unsafe` requires a `reason` parameter explaining why the override is safe
+- The compiler emits a warning when `@Unsafe` is used
+- Misuse can lead to data races and undefined behavior
+
+### Constraint Usage in Generic Code
+
+Use `Sendable` and `Sharable` as generic constraints:
+
+```xxml
+// A channel that only accepts Sendable types
+[ Class <Channel> Templates <T Constrains Sendable> Final Extends None
+    [ Public <>
+        Method <send> Returns None Parameters (Parameter <value> Types T^) Do {
+            // Safe to move value to another thread
+        }
+    ]
+]
+
+// A cache that only accepts Sharable types
+[ Class <SharedCache> Templates <T Constrains Sharable> Final Extends None
+    [ Public <>
+        Method <get> Returns T& Parameters () Do {
+            // Safe to return reference - multiple threads can read
+        }
+    ]
 ]
 ```
 

@@ -106,6 +106,63 @@ parameter.getOwnershipString() -> String^// Human-readable ownership
 | 2 | `&` | Reference | "Reference(&)" |
 | 3 | `%` | Copy | "Copy(%)" |
 
+### Ownership.XXML
+
+Utility class for working with ownership codes programmatically.
+
+```xxml
+// Constants
+Ownership::Unknown() -> Integer^    // 0
+Ownership::Owned() -> Integer^      // 1
+Ownership::Reference() -> Integer^  // 2
+Ownership::Copy() -> Integer^       // 3
+
+// Conversion
+Ownership::toString(ownership: Integer&) -> String^      // "Owned(^)", "Reference(&)", etc.
+Ownership::toSymbol(ownership: Integer&) -> String^      // "^", "&", "%", or ""
+
+// Checks
+Ownership::isOwned(ownership: Integer&) -> Bool^
+Ownership::isReference(ownership: Integer&) -> Bool^
+Ownership::isCopy(ownership: Integer&) -> Bool^
+Ownership::canStore(ownership: Integer&) -> Bool^        // true for Owned and Copy
+Ownership::requiresCleanup(ownership: Integer&) -> Bool^ // true for Owned only
+
+// Compatibility
+Ownership::isAssignmentCompatible(target: Integer&, source: Integer&) -> Bool^
+Ownership::describeTransfer(from: Integer&, to: Integer&) -> String^
+```
+
+**Example Usage:**
+
+```xxml
+#import Language::Reflection;
+
+// Check if a property is an owned field
+Instantiate PropertyInfo^ As <prop> = type.getPropertyAt(Integer::Constructor(0));
+Instantiate Integer^ As <ownership> = prop.getOwnership();
+
+If (Ownership::isOwned(ownership)) -> {
+    Run Console::printLine(String::Constructor("This property owns its value"));
+}
+
+// Describe ownership transfer
+Instantiate String^ As <desc> = Ownership::describeTransfer(
+    Ownership::Owned(),    // from
+    Ownership::Reference() // to
+);
+// desc = "Borrow (temporary reference)"
+```
+
+**Transfer Descriptions:**
+
+| From | To | Description |
+|------|-----|-------------|
+| Owned | Owned | "Move (ownership transferred)" |
+| Owned | Reference | "Borrow (temporary reference)" |
+| Copy | * | "Copy (value duplicated)" |
+| Reference | Reference | "Reborrow (reference passed along)" |
+
 ---
 
 ## Runtime Infrastructure
@@ -521,11 +578,11 @@ Located in `tests/`:
 - [x] Attribute/annotation support (completed)
 
 ### Long Term
-- [ ] Reflection-based serialization/deserialization
-- [ ] Automatic toString() generation
+- [x] Reflection-based serialization/deserialization (JSON via `@Derive(trait = "JSON")`)
+- [x] Automatic toString() generation (`@Derive(trait = "Stringable")`)
 - [ ] Dependency injection framework
-- [ ] Unit test framework using reflection
-- [ ] ORM (Object-Relational Mapping) support
+- [x] Unit test framework using reflection (`Language/Test/TestFramework.XXML`)
+- [x] ORM (Object-Relational Mapping) support (`demos/ORM/SimpleORM.XXML`)
 
 ---
 
@@ -541,6 +598,7 @@ Located in `tests/`:
 - `Language/Reflection/MethodInfo.XXML` - Method introspection
 - `Language/Reflection/PropertyInfo.XXML` - Property introspection
 - `Language/Reflection/ParameterInfo.XXML` - Parameter introspection
+- `Language/Reflection/Ownership.XXML` - Ownership utilities and constants
 - `Language/Reflection/GetType.XXML` - Type-safe template accessor
 - `Language/Reflection.XXML` - Module aggregation
 

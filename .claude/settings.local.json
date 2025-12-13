@@ -270,7 +270,10 @@
       "Bash(cmd /c \"if exist C:\\Users\\bkmcm\\.vscode\\extensions dir /b C:\\Users\\bkmcm\\.vscode\\extensions\")",
       "Bash(npm install:*)",
       "Bash(npm run package:*)",
-      "Bash(Copy-Item -Force \"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml-lsp.exe\" \"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\tools\\vscode-xxml\\bin\\xxml-lsp.exe\")"
+      "Bash(Copy-Item -Force \"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml-lsp.exe\" \"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\tools\\vscode-xxml\\bin\\xxml-lsp.exe\")",
+      "Bash(git -C \"D:\\VisualStudio\\Projects\\XXMLCompiler\" show ae7ad308d3ed0b05ab13919386a5b880560fb6a3 --stat)",
+      "Bash(git -C \"D:\\VisualStudio\\Projects\\XXMLCompiler\" show 5e4d3573243a7badf9fb15ecd79322ed1983a33a --stat)",
+      "Bash(git -C \"D:\\VisualStudio\\Projects\\XXMLCompiler\" log ae7ad308d3ed0b05ab13919386a5b880560fb6a3 -1 --name-only)"
     ],
     "deny": [],
     "ask": []

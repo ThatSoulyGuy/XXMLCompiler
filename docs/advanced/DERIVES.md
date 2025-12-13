@@ -8,9 +8,12 @@ The derive system allows automatic generation of common methods (like `equals()`
 
 1. [Overview](#overview)
 2. [Built-in Derives](#built-in-derives)
-   - [Derive<Stringable>](#derivetostringr)
-   - [Derive<Equatable>](#deriveeq)
-   - [Derive<Hashable>](#derivehash)
+   - [Derive<Stringable>](#derivestringable)
+   - [Derive<Equatable>](#deriveequatable)
+   - [Derive<Hashable>](#derivehashable)
+   - [Derive<Sendable>](#derivesendable)
+   - [Derive<Sharable>](#derivesharable)
+   - [Derive<JSON>](#derivejson)
 3. [Using Derives](#using-derives)
 4. [Writing Custom Derive Handlers](#writing-custom-derive-handlers)
    - [Handler Architecture](#handler-architecture)
@@ -151,6 +154,157 @@ for each property:
 // Usage:
 Instantiate Point^ As <p> = Point::Constructor();
 Instantiate NativeType<"int64">^ As <hashCode> = p.hash();
+```
+
+### Derive<Sendable>
+
+Marks a type as safe to **move** across thread boundaries. This is a **marker trait** that generates no methods but enables compile-time thread safety checking.
+
+**Generated:** No methods (marker constraint)
+
+**Behavior:**
+- Validates that all public properties are of Sendable types
+- Rejects types with reference (`&`) fields
+- Allows types with owned (`^`) or copy (`%`) fields of Sendable types
+
+**Requirements:**
+- All owned fields must themselves be Sendable
+- No reference fields allowed (references become dangling across threads)
+- Primitives (`Integer`, `String`, `Bool`, etc.) are implicitly Sendable
+
+**Example:**
+```xxml
+@Derive(trait = "Sendable")
+[ Class <Message> Final Extends None
+    [ Public <>
+        Property <id> Types Integer^;
+        Property <content> Types String^;
+        Constructor = default;
+    ]
+]
+
+// Message can now be safely moved to another thread
+```
+
+**Invalid Example:**
+```xxml
+// ERROR: Cannot derive Sendable - contains reference field
+@Derive(trait = "Sendable")
+[ Class <InvalidMessage> Final Extends None
+    [ Public <>
+        Property <ref> Types Integer&;  // Reference field blocks Sendable
+        Constructor = default;
+    ]
+]
+```
+
+See [Threading](THREADING.md#sendable) for more details on the Sendable constraint.
+
+### Derive<Sharable>
+
+Marks a type as safe to **share** (reference) across threads simultaneously. This is a **marker trait** for immutable or synchronized types.
+
+**Generated:** No methods (marker constraint)
+
+**Behavior:**
+- Validates that the type is suitable for shared access
+- Typically used for immutable types (state set only during construction)
+- Or types with synchronized mutable state
+
+**Requirements:**
+- Type should be immutable after construction
+- OR mutable state must be protected by synchronization primitives
+
+**Example:**
+```xxml
+@Derive(trait = "Sharable")
+[ Class <Config> Final Extends None
+    [ Public <>
+        Property <maxConnections> Types Integer^;
+        Property <timeout> Types Integer^;
+
+        // Values set only during construction - immutable after
+        Constructor Parameters (Parameter <max> Types Integer^, Parameter <t> Types Integer^) -> {
+            Set maxConnections = max;
+            Set timeout = t;
+        }
+    ]
+]
+
+// Config can be safely shared between threads
+```
+
+See [Threading](THREADING.md#sharable) for more details on the Sharable constraint.
+
+### Derive<JSON>
+
+Generates JSON serialization and deserialization methods for a class.
+
+**Generated Method Signatures:**
+```xxml
+Method <toJSON> Returns JSONObject^ Parameters ()
+Method <fromJSON> Returns ClassName^ Parameters (Parameter <json> Types JSONObject&)
+```
+
+**Behavior:**
+- `toJSON()` creates a `JSONObject` with all public properties as key-value pairs
+- `fromJSON()` constructs a new instance from a `JSONObject`
+- Property names become JSON keys
+- Nested objects with `@Derive(trait = "JSON")` are recursively serialized
+
+**Requirements:**
+- All public properties must be JSON-serializable types:
+  - Primitives: `Integer`, `String`, `Bool`, `Float`, `Double`
+  - Collections: `List<T>` where T is JSON-serializable
+  - Objects: Classes with `@Derive(trait = "JSON")`
+
+**Example:**
+```xxml
+#import Language::Core;
+#import Language::Format;
+
+@Derive(trait = "JSON")
+[ Class <Person> Final Extends None
+    [ Public <>
+        Property <name> Types String^;
+        Property <age> Types Integer^;
+        Constructor = default;
+    ]
+]
+
+// Serialize to JSON
+Instantiate Person^ As <p> = Person::Constructor();
+Set p.name = String::Constructor("Alice");
+Set p.age = Integer::Constructor(30);
+
+Instantiate JSONObject^ As <json> = p.toJSON();
+// json = {"name": "Alice", "age": 30}
+
+// Deserialize from JSON
+Instantiate JSONObject^ As <input> = JSONObject::parse(String::Constructor("{\"name\":\"Bob\",\"age\":25}"));
+Instantiate Person^ As <p2> = Person::fromJSON(input);
+```
+
+**Nested Objects:**
+```xxml
+@Derive(trait = "JSON")
+[ Class <Address> Final Extends None
+    [ Public <>
+        Property <street> Types String^;
+        Property <city> Types String^;
+        Constructor = default;
+    ]
+]
+
+@Derive(trait = "JSON")
+[ Class <Employee> Final Extends None
+    [ Public <>
+        Property <name> Types String^;
+        Property <address> Types Address^;  // Nested JSON-serializable
+        Constructor = default;
+    ]
+]
+// Produces: {"name": "...", "address": {"street": "...", "city": "..."}}
 ```
 
 ---
@@ -595,6 +749,9 @@ Source with @Derive annotations
 | Derive<Stringable> | Yes |
 | Derive<Equatable> | Yes |
 | Derive<Hashable> | Yes |
+| Derive<Sendable> | Yes |
+| Derive<Sharable> | Yes |
+| Derive<JSON> | Yes |
 | Validation (canDerive) | Yes |
 | Error messages for invalid derives | Yes |
 | Template class support | Partial |
@@ -610,6 +767,6 @@ Source with @Derive annotations
 
 ---
 
-**XXML Derive System v1.0**
+**XXML Derive System v2.0**
 
-*Last updated: Eq, Hash, and ToString derives implemented with validation.*
+*Last updated: Added Sendable, Sharable, and JSON derives for XXML 3.0.0*

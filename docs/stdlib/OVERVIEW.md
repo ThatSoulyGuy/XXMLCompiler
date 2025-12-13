@@ -6,7 +6,7 @@ The XXML Standard Library provides fundamental types, collections, and utilities
 
 ```
 Language/
-├── Core/           # Primitive types and core traits
+├── Core/           # Primitive types and core traits (Sendable, Sharable)
 ├── Collections/    # Generic data structures
 ├── System/         # Console I/O
 ├── IO/             # File operations
@@ -16,7 +16,9 @@ Language/
 ├── Format/         # JSON parsing
 ├── Network/        # HTTP client
 ├── Reflection/     # Runtime type introspection
-└── Concurrent/     # Threading and synchronization
+├── Concurrent/     # Threading and synchronization
+├── Test/           # Unit testing framework
+└── Annotations/    # Built-in annotations (@Unsafe, etc.)
 ```
 
 ## Importing Modules
@@ -35,6 +37,8 @@ Use `#import` to include standard library modules:
 #import Language::Network;        // HTTPClient
 #import Language::Reflection;     // Type introspection
 #import Language::Concurrent;     // Threading
+#import Language::Test;           // TestRunner, Assert
+#import Language::Annotations;    // @Unsafe
 ```
 
 ## Core Module
@@ -71,9 +75,13 @@ The standard library defines these constraints for generic types:
 |------------|-----------------|
 | `Hashable<T>` | `hash(): NativeType<"int64">^` |
 | `Equatable<T>` | `equals(other: T&): Bool^` |
+| `Sendable<T>` | (marker) - Type can be moved across threads |
+| `Sharable<T>` | (marker) - Type can be shared across threads |
 
 ## See Also
 
 - [Core Types](CORE.md) - Integer, String, Bool, Float, Double
 - [Collections](COLLECTIONS.md) - List, HashMap, Set, Array, Stack, Queue
 - [Iterators](ITERATORS.md) - Iterator types and protocols
+- [Testing](TESTING.md) - Unit testing framework
+- [Threading](../advanced/THREADING.md) - Sendable and Sharable constraints
