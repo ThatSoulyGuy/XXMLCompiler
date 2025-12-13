@@ -1354,6 +1354,7 @@ Method <_glfwSetScrollCallback> Returns NativeType<"ptr">^ Parameters (
     Constructor = default;
 
     // Check if a button is pressed
+    // Note: Using integer comparison with enum - produces warning but works
     Method <isButtonPressed> Returns Bool^ Parameters (
         Parameter <button> Types GamepadButton^
     ) -> {
@@ -1380,6 +1381,7 @@ Method <_glfwSetScrollCallback> Returns NativeType<"ptr">^ Parameters (
     }
 
     // Get axis value (-1.0 to 1.0 for sticks, 0.0 to 1.0 for triggers)
+    // Note: Using integer comparison with enum - produces warning but works
     Method <getAxis> Returns NativeType<"float">^ Parameters (
         Parameter <axis> Types GamepadAxis^
     ) -> {

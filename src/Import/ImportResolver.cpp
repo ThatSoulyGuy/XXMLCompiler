@@ -41,21 +41,33 @@ ImportResolver::ImportResolver() {
     std::string exeDir = getExecutableDirectory();
     std::string languagePath = exeDir + "/Language";
 
+    // Also check parent directory (for installed layout: bin/xxml.exe with sibling Language/)
+    fs::path exePath(exeDir);
+    std::string parentDir = exePath.parent_path().string();
+    std::string parentLanguagePath = parentDir + "/Language";
+
     // Add the executable directory itself for auto-scanning
     addSearchPath(exeDir);
 
     // Check if Language folder exists next to executable
     if (fs::exists(languagePath) && fs::is_directory(languagePath)) {
-        addSearchPath(languagePath);
+        // Don't add languagePath directly - exeDir already handles Language::* imports
         std::cout << "✓ Found standard library at: " << languagePath << "\n";
-    } else {
+    }
+    // Check parent directory (installed layout: {app}/bin/xxml.exe with {app}/Language/)
+    else if (fs::exists(parentLanguagePath) && fs::is_directory(parentLanguagePath)) {
+        // Add the PARENT directory so Language::Core resolves to parentDir/Language/Core
+        addSearchPath(parentDir);
+        std::cout << "✓ Found standard library at: " << parentLanguagePath << "\n";
+    }
+    else {
         // Fallback: try relative to current directory
         if (fs::exists("Language") && fs::is_directory("Language")) {
-            addSearchPath("Language");
+            // Current dir already added below, just log it
             std::cout << "✓ Found standard library at: ./Language\n";
         } else {
             std::cerr << "Warning: Language folder not found (searched: "
-                      << languagePath << " and ./Language)\n";
+                      << languagePath << ", " << parentLanguagePath << ", and ./Language)\n";
         }
     }
 
@@ -65,6 +77,11 @@ ImportResolver::ImportResolver() {
 
 void ImportResolver::addSearchPath(const std::string& path) {
     searchPaths.push_back(path);
+}
+
+void ImportResolver::addPrioritySearchPath(const std::string& path) {
+    // Insert at the beginning so this path is searched first
+    searchPaths.insert(searchPaths.begin(), path);
 }
 
 void ImportResolver::addSourceFileDirectory(const std::string& sourceFilePath) {
@@ -172,7 +189,8 @@ std::vector<Module*> ImportResolver::resolveImport(const std::string& importPath
     // Convert import path to directory path
     std::string dirPath = namespaceToPath(importPath);
 
-    // Search in all search paths
+    // Search in search paths - stop after finding modules in first matching path
+    // This ensures user include paths (-I) take priority over stdlib
     for (const auto& searchPath : searchPaths) {
         std::string fullPath = searchPath;
         if (!fullPath.empty() && fullPath.back() != '/' && fullPath.back() != '\\') {
@@ -199,8 +217,10 @@ std::vector<Module*> ImportResolver::resolveImport(const std::string& importPath
                         modules.push_back(modulePtr);
                     }
                 }
-                continue;
+                // Found in this search path - don't search further paths
+                break;
             }
+            continue;
         }
 
         // Directory import - find all XXML files in this directory
@@ -232,6 +252,12 @@ std::vector<Module*> ImportResolver::resolveImport(const std::string& importPath
             Module* modulePtr = module.get();
             moduleCache[moduleName] = std::move(module);
             modules.push_back(modulePtr);
+        }
+
+        // If we found modules in this search path, don't search further paths
+        // This ensures user include paths (-I) take priority over stdlib
+        if (!modules.empty()) {
+            break;
         }
     }
 
@@ -376,10 +402,21 @@ void ImportResolver::initializeWithCompilerPath(const std::string& compilerExePa
     compilerDir = getExecutableDirectory();
     compilerLanguagePath = compilerDir + "/Language";
 
+    // Also check parent directory (for installed layout: bin/xxml.exe with sibling Language/)
+    fs::path compilerPath(compilerDir);
+    std::string parentDir = compilerPath.parent_path().string();
+    std::string parentLanguagePath = parentDir + "/Language";
+
     std::cout << "Scanning compiler directory: " << compilerDir << "\n";
 
     // Recursively scan compiler directory for all XXML files
     compilerDirFiles = findXXMLFilesRecursive(compilerDir);
+
+    // Also scan parent directory if Language folder exists there (installed layout)
+    if (!fs::exists(compilerLanguagePath) && fs::exists(parentLanguagePath) && fs::is_directory(parentLanguagePath)) {
+        auto parentFiles = findXXMLFilesRecursive(parentDir);
+        compilerDirFiles.insert(compilerDirFiles.end(), parentFiles.begin(), parentFiles.end());
+    }
 
     // Filter out build directories and track STL files
     std::vector<std::string> filteredFiles;
@@ -410,7 +447,14 @@ void ImportResolver::initializeWithCompilerPath(const std::string& compilerExePa
 
     // Add compiler Language path to search paths if it exists
     if (fs::exists(compilerLanguagePath) && fs::is_directory(compilerLanguagePath)) {
-        addSearchPath(compilerLanguagePath);
+        // compilerDir already added as search path elsewhere, Language::* imports work
+        std::cout << "  ✓ Found standard library at: " << compilerLanguagePath << "\n";
+    }
+    // Check parent directory (installed layout: {app}/bin/xxml.exe with {app}/Language/)
+    else if (fs::exists(parentLanguagePath) && fs::is_directory(parentLanguagePath)) {
+        compilerLanguagePath = parentLanguagePath;  // Update to track actual location
+        // Add PARENT directory so Language::Core resolves to parentDir/Language/Core
+        addSearchPath(parentDir);
         std::cout << "  ✓ Found standard library at: " << compilerLanguagePath << "\n";
     }
 }

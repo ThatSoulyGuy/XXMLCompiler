@@ -127,7 +127,20 @@ void StmtCodegen::visitAssignment(Parser::AssignmentStmt* stmt) {
 
         if (auto* varInfo = ctx_.getVariable(varName)) {
             if (varInfo->alloca) {
-                ctx_.builder().createStore(valueResult, LLVMIR::PtrValue(varInfo->alloca));
+                if (varInfo->isReference) {
+                    // For reference types, we need to store THROUGH the reference
+                    // First load the pointer that the reference points to
+                    auto refTarget = ctx_.builder().createLoad(
+                        ctx_.builder().getPtrTy(),
+                        LLVMIR::PtrValue(varInfo->alloca),
+                        "ref.target"
+                    );
+                    // Then store the new value through that pointer
+                    ctx_.builder().createStore(valueResult, refTarget.asPtr());
+                } else {
+                    // For owned/copy types, store directly to the alloca
+                    ctx_.builder().createStore(valueResult, LLVMIR::PtrValue(varInfo->alloca));
+                }
             }
         } else if (!ctx_.currentClassName().empty()) {
             // Check if it's a class property (implicit this.propertyName)
@@ -139,6 +152,15 @@ void StmtCodegen::visitAssignment(Parser::AssignmentStmt* stmt) {
             storeToThisProperty(memberExpr->member, valueResult);
         } else if (auto* objIdent = dynamic_cast<Parser::IdentifierExpr*>(memberExpr->object.get())) {
             storeToObjectProperty(objIdent->name, memberExpr->member, valueResult);
+        }
+    } else if (auto* callExpr = dynamic_cast<Parser::CallExpr*>(stmt->target.get())) {
+        // Method call assignment: Set obj.getRef() = value;
+        // This works when the method returns a reference type (&)
+        // The call returns a pointer to the storage location
+        auto refTarget = exprCodegen_.generate(callExpr);
+        if (refTarget.isPtr()) {
+            // Store the value through the reference
+            ctx_.builder().createStore(valueResult, refTarget.asPtr());
         }
     }
 
@@ -168,6 +190,9 @@ void StmtCodegen::visitInstantiate(Parser::InstantiateStmt* stmt) {
     bool isObjectType = (stmt->type->ownership == Parser::OwnershipType::Owned ||
                          stmt->type->ownership == Parser::OwnershipType::Reference ||
                          stmt->type->ownership == Parser::OwnershipType::Copy);
+
+    // Track if this is a reference type (for assignment semantics)
+    bool isReference = (stmt->type->ownership == Parser::OwnershipType::Reference);
 
     // Strip ownership markers
     typeName = TypeNormalizer::stripOwnershipMarker(typeName);
@@ -209,7 +234,7 @@ void StmtCodegen::visitInstantiate(Parser::InstantiateStmt* stmt) {
     auto* allocaInst = static_cast<LLVMIR::AllocaInst*>(allocaPtr.raw());
 
     // Register the variable using declareVariable
-    ctx_.declareVariable(varName, typeName, LLVMIR::AnyValue(allocaPtr), allocaInst);
+    ctx_.declareVariable(varName, typeName, LLVMIR::AnyValue(allocaPtr), allocaInst, isReference);
 
     // Register for RAII destruction if this is an object type
     // This ensures automatic cleanup when the variable goes out of scope
@@ -411,9 +436,16 @@ void StmtCodegen::visitFor(Parser::ForStmt* stmt) {
 
             // Check if this is an object type (Integer^, String^, etc.)
             // Object types store pointers, not raw values
-            bool isObjectType = (stmt->iteratorType->ownership == Parser::OwnershipType::Owned ||
+            // Also treat bare Integer/String/etc. as object types (default to owned)
+            bool hasOwnership = (stmt->iteratorType->ownership == Parser::OwnershipType::Owned ||
                                  stmt->iteratorType->ownership == Parser::OwnershipType::Reference ||
                                  stmt->iteratorType->ownership == Parser::OwnershipType::Copy);
+            bool isKnownObjectType = (typeName == "Integer" || typeName == "Language::Core::Integer" ||
+                                      typeName == "String" || typeName == "Language::Core::String" ||
+                                      typeName == "Bool" || typeName == "Language::Core::Bool" ||
+                                      typeName == "Float" || typeName == "Language::Core::Float" ||
+                                      typeName == "Double" || typeName == "Language::Core::Double");
+            bool isObjectType = hasOwnership || isKnownObjectType;
 
             // Use ptr type for object types, mapped type for primitives
             auto* allocaType = isObjectType ? ctx_.builder().getPtrTy() : ctx_.mapType(typeName);
@@ -423,6 +455,24 @@ void StmtCodegen::visitFor(Parser::ForStmt* stmt) {
             ctx_.declareVariable(iterName, typeName, LLVMIR::AnyValue(allocaPtr), allocaInst);
 
             auto startVal = exprCodegen_.generate(stmt->rangeStart.get());
+
+            // If this is an Integer object type and the start value is a raw integer,
+            // we need to wrap it with Integer::Constructor()
+            if (isObjectType && (typeName == "Integer" || typeName == "Language::Core::Integer") &&
+                startVal.isInt()) {
+                // Call Integer::Constructor to wrap the raw i64
+                auto* intCtorFunc = ctx_.module().getFunction("Integer_Constructor");
+                if (!intCtorFunc) {
+                    std::vector<LLVMIR::Type*> ctorParams = { ctx_.module().getContext().getInt64Ty() };
+                    auto* ctorType = ctx_.module().getContext().getFunctionTy(
+                        ctx_.builder().getPtrTy(), ctorParams, false);
+                    intCtorFunc = ctx_.module().createFunction(ctorType, "Integer_Constructor",
+                        LLVMIR::Function::Linkage::External);
+                }
+                std::vector<LLVMIR::AnyValue> ctorArgs = { startVal };
+                startVal = ctx_.builder().createCall(intCtorFunc, ctorArgs, "");
+            }
+
             ctx_.builder().createStore(startVal, allocaPtr);
         }
     }
@@ -457,35 +507,24 @@ void StmtCodegen::visitFor(Parser::ForStmt* stmt) {
             auto endVal = exprCodegen_.generate(stmt->rangeEnd.get());
 
             if (isIntegerObject && iterVal.isPtr() && endVal.isPtr()) {
-                // Call Integer_lessThan(iter, end) which returns a Bool*
-                auto* ltFunc = ctx_.module().getFunction("Integer_lessThan");
-                if (!ltFunc) {
-                    std::vector<LLVMIR::Type*> ltParams = {
-                        ctx_.builder().getPtrTy(), ctx_.builder().getPtrTy()
-                    };
-                    auto* ltType = ctx_.module().getContext().getFunctionTy(
-                        ctx_.builder().getPtrTy(), ltParams, false);
-                    ltFunc = ctx_.module().createFunction(ltType, "Integer_lessThan",
+                // Extract raw int64 values directly for comparison (more efficient, no Bool allocation)
+                auto* getValFunc = ctx_.module().getFunction("Integer_getValue");
+                if (!getValFunc) {
+                    std::vector<LLVMIR::Type*> getValParams = { ctx_.builder().getPtrTy() };
+                    auto* getValType = ctx_.module().getContext().getFunctionTy(
+                        ctx_.module().getContext().getInt64Ty(), getValParams, false);
+                    getValFunc = ctx_.module().createFunction(getValType, "Integer_getValue",
                         LLVMIR::Function::Linkage::External);
                 }
-                std::vector<LLVMIR::AnyValue> ltArgs = { iterVal, endVal };
-                auto ltResult = ctx_.builder().createCall(ltFunc, ltArgs, "lt.result");
+                // Get raw values from both Integer objects
+                std::vector<LLVMIR::AnyValue> iterArgs = { iterVal };
+                auto iterRaw = ctx_.builder().createCall(getValFunc, iterArgs, "iter.raw");
+                std::vector<LLVMIR::AnyValue> endArgs = { endVal };
+                auto endRaw = ctx_.builder().createCall(getValFunc, endArgs, "end.raw");
 
-                // Call Bool_getValue to get the raw i1
-                auto* boolGetFunc = ctx_.module().getFunction("Bool_getValue");
-                if (!boolGetFunc) {
-                    std::vector<LLVMIR::Type*> boolParams = { ctx_.builder().getPtrTy() };
-                    auto* boolType = ctx_.module().getContext().getFunctionTy(
-                        ctx_.module().getContext().getInt1Ty(), boolParams, false);
-                    boolGetFunc = ctx_.module().createFunction(boolType, "Bool_getValue",
-                        LLVMIR::Function::Linkage::External);
-                }
-                std::vector<LLVMIR::AnyValue> boolArgs = { ltResult };
-                auto condVal = ctx_.builder().createCall(boolGetFunc, boolArgs, "for.cond");
-                // Register the Bool* from Integer_lessThan as a temporary and clean it up
-                ctx_.registerTemporary("Bool^", ltResult);
-                ctx_.emitTemporaryCleanup();
-                ctx_.builder().createCondBr(condVal.asInt(), bodyBB, endBB);
+                // Direct i64 comparison
+                auto cond = ctx_.builder().createICmpSLT(iterRaw.asInt(), endRaw.asInt(), "for.cmp");
+                ctx_.builder().createCondBr(cond, bodyBB, endBB);
             } else if (iterVal.isInt() && endVal.isInt()) {
                 // Raw integer comparison
                 auto cond = ctx_.builder().createICmpSLT(iterVal.asInt(), endVal.asInt(), "for.cmp");
@@ -538,7 +577,23 @@ void StmtCodegen::visitFor(Parser::ForStmt* stmt) {
             );
 
             if (isIntegerObject && iterVal.isPtr()) {
-                // Create Integer(1) for increment
+                // Extract raw value, increment, create new Integer (more efficient, no Integer_add call)
+                auto* getValFunc = ctx_.module().getFunction("Integer_getValue");
+                if (!getValFunc) {
+                    std::vector<LLVMIR::Type*> getValParams = { ctx_.builder().getPtrTy() };
+                    auto* getValType = ctx_.module().getContext().getFunctionTy(
+                        ctx_.module().getContext().getInt64Ty(), getValParams, false);
+                    getValFunc = ctx_.module().createFunction(getValType, "Integer_getValue",
+                        LLVMIR::Function::Linkage::External);
+                }
+                std::vector<LLVMIR::AnyValue> getArgs = { iterVal };
+                auto rawVal = ctx_.builder().createCall(getValFunc, getArgs, "iter.raw");
+
+                // Add 1 to raw value
+                auto one = ctx_.builder().getInt64(1);
+                auto incRaw = ctx_.builder().createAdd(rawVal.asInt(), one, "inc.raw");
+
+                // Create new Integer with incremented value
                 auto* intCtorFunc = ctx_.module().getFunction("Integer_Constructor");
                 if (!intCtorFunc) {
                     std::vector<LLVMIR::Type*> ctorParams = { ctx_.module().getContext().getInt64Ty() };
@@ -547,22 +602,8 @@ void StmtCodegen::visitFor(Parser::ForStmt* stmt) {
                     intCtorFunc = ctx_.module().createFunction(ctorType, "Integer_Constructor",
                         LLVMIR::Function::Linkage::External);
                 }
-                std::vector<LLVMIR::AnyValue> ctorArgs = { LLVMIR::AnyValue(ctx_.builder().getInt64(1)) };
-                auto oneInt = ctx_.builder().createCall(intCtorFunc, ctorArgs, "one");
-
-                // Call Integer_add(iter, one)
-                auto* addFunc = ctx_.module().getFunction("Integer_add");
-                if (!addFunc) {
-                    std::vector<LLVMIR::Type*> addParams = {
-                        ctx_.builder().getPtrTy(), ctx_.builder().getPtrTy()
-                    };
-                    auto* addType = ctx_.module().getContext().getFunctionTy(
-                        ctx_.builder().getPtrTy(), addParams, false);
-                    addFunc = ctx_.module().createFunction(addType, "Integer_add",
-                        LLVMIR::Function::Linkage::External);
-                }
-                std::vector<LLVMIR::AnyValue> addArgs = { iterVal, oneInt };
-                auto incVal = ctx_.builder().createCall(addFunc, addArgs, "inc.result");
+                std::vector<LLVMIR::AnyValue> ctorArgs = { LLVMIR::AnyValue(incRaw) };
+                auto incVal = ctx_.builder().createCall(intCtorFunc, ctorArgs, "inc.result");
                 ctx_.builder().createStore(incVal, LLVMIR::PtrValue(varInfo->alloca));
             } else if (iterVal.isInt()) {
                 // Raw integer increment

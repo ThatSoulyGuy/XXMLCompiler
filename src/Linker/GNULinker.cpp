@@ -138,10 +138,15 @@ public:
         }
 
         // Optimization/debug settings
-        if (config.optimizationLevel == 0) {
+        if (config.optimizationLevel == 0 && !config.stripSymbols) {
             args.push_back("-g");  // Include debug symbols
-        } else {
+        }
+        if (config.optimizationLevel > 0) {
             args.push_back("-O" + std::to_string(config.optimizationLevel));
+        }
+        // Strip symbols if requested
+        if (config.stripSymbols) {
+            args.push_back("-s");  // Strip all symbols
         }
 
         // Additional flags

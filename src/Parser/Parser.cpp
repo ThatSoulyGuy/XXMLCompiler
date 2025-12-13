@@ -1278,6 +1278,20 @@ std::unique_ptr<AssignmentStmt> Parser::parseAssignment() {
         }
     }
 
+    // Check for method call syntax: Set obj.getRef() = value
+    // This allows assigning through a method that returns a reference type
+    if (check(Lexer::TokenType::LeftParen)) {
+        advance();  // consume "("
+        std::vector<std::unique_ptr<Expression>> args;
+        if (!check(Lexer::TokenType::RightParen)) {
+            do {
+                args.push_back(parseExpression());
+            } while (match(Lexer::TokenType::Comma));
+        }
+        consume(Lexer::TokenType::RightParen, "Expected ')' after method arguments");
+        target = std::make_unique<CallExpr>(std::move(target), std::move(args), loc);
+    }
+
     consume(Lexer::TokenType::Equals, "Expected '=' after lvalue");
 
     auto value = parseExpression();

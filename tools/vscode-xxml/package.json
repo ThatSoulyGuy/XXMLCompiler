@@ -55,6 +55,14 @@
           "default": "",
           "description": "Path to the XXML standard library (Language folder). If empty, auto-detected from workspace."
         },
+        "xxml.includePaths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Additional directories to search for imports. These are searched before the standard library."
+        },
         "xxml.ownershipVisualization.enabled": {
           "type": "boolean",
           "default": true,

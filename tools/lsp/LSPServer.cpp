@@ -3,8 +3,41 @@
 
 #include "LSPServer.h"
 #include <iostream>
+#include <filesystem>
+
+#ifdef _WIN32
+#define NOMINMAX
+#include <windows.h>
+#else
+#include <unistd.h>
+#include <limits.h>
+#endif
 
 namespace xxml::lsp {
+
+// Get the directory containing the LSP executable
+static std::string getExecutableDirectory() {
+#ifdef _WIN32
+    char buffer[MAX_PATH];
+    DWORD size = GetModuleFileNameA(NULL, buffer, MAX_PATH);
+    if (size > 0 && size < MAX_PATH) {
+        std::string fullPath(buffer);
+        size_t pos = fullPath.find_last_of("\\/");
+        return (pos != std::string::npos) ? fullPath.substr(0, pos) : ".";
+    }
+    return ".";
+#else
+    char buffer[PATH_MAX];
+    ssize_t len = readlink("/proc/self/exe", buffer, sizeof(buffer) - 1);
+    if (len != -1) {
+        buffer[len] = '\0';
+        std::string fullPath(buffer);
+        size_t pos = fullPath.find_last_of('/');
+        return (pos != std::string::npos) ? fullPath.substr(0, pos) : ".";
+    }
+    return ".";
+#endif
+}
 
 LSPServer::LSPServer() {
     registerHandlers();
@@ -90,6 +123,10 @@ int LSPServer::run() {
 
 void LSPServer::stop() {
     running_ = false;
+}
+
+void LSPServer::addIncludePath(const std::string& path) {
+    includePaths_.push_back(path);
 }
 
 void LSPServer::processMessage(const json& message) {
@@ -196,19 +233,42 @@ json LSPServer::handleInitialize(const json& params) {
             stdlibPath_ = opts["stdlibPath"].get<std::string>();
             transport_.log("Stdlib path from init options: " + stdlibPath_);
         }
+
+        // Read include paths from initialization options
+        if (opts.contains("includePaths") && opts["includePaths"].is_array()) {
+            for (const auto& path : opts["includePaths"]) {
+                if (path.is_string()) {
+                    std::string includePath = path.get<std::string>();
+                    includePaths_.push_back(includePath);
+                    transport_.log("Include path from init options: " + includePath);
+                }
+            }
+        }
     }
 
-    // If no stdlib path provided, try to find it relative to workspace
-    if (stdlibPath_.empty() && !workspaceRoot_.empty()) {
+    // If no stdlib path provided, try to find it
+    if (stdlibPath_.empty()) {
         namespace fs = std::filesystem;
-        fs::path wsRoot(workspaceRoot_);
 
-        // Check common locations relative to workspace
-        std::vector<fs::path> candidates = {
-            wsRoot / "Language",
-            wsRoot / "build" / "release" / "bin" / "Language",
-            wsRoot / "build" / "debug" / "bin" / "Language"
-        };
+        std::vector<fs::path> candidates;
+
+        // First priority: relative to executable (for installed layout)
+        std::string exeDir = getExecutableDirectory();
+        fs::path exePath(exeDir);
+
+        // Check next to executable (e.g., bin/Language)
+        candidates.push_back(exePath / "Language");
+
+        // Check parent of executable (installed layout: bin/xxml-lsp.exe with sibling Language/)
+        candidates.push_back(exePath.parent_path() / "Language");
+
+        // Second priority: relative to workspace (for development)
+        if (!workspaceRoot_.empty()) {
+            fs::path wsRoot(workspaceRoot_);
+            candidates.push_back(wsRoot / "Language");
+            candidates.push_back(wsRoot / "build" / "release" / "bin" / "Language");
+            candidates.push_back(wsRoot / "build" / "debug" / "bin" / "Language");
+        }
 
         for (const auto& candidate : candidates) {
             if (fs::exists(candidate) && fs::is_directory(candidate)) {
@@ -225,6 +285,12 @@ json LSPServer::handleInitialize(const json& params) {
     }
     if (!workspaceRoot_.empty()) {
         analyzer_.setWorkspaceRoot(workspaceRoot_);
+    }
+
+    // Pass command-line include paths to analyzer
+    for (const auto& path : includePaths_) {
+        analyzer_.addIncludePath(path);
+        transport_.log("Include path: " + path);
     }
 
     // Return server capabilities

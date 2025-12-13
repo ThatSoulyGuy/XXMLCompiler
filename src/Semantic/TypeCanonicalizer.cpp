@@ -56,7 +56,7 @@ void TypeCanonicalizer::collectDeclarations(Parser::Program& program) {
 }
 
 void TypeCanonicalizer::resolveAllTypes(Parser::Program& program) {
-    // Second pass: resolve forward references
+    // Second pass: resolve forward references in registry
     for (auto& [name, type] : registeredTypes_) {
         if (!type.isResolved()) {
             // Try to resolve
@@ -66,6 +66,9 @@ void TypeCanonicalizer::resolveAllTypes(Parser::Program& program) {
             }
         }
     }
+
+    // Re-visit program to validate ownership annotations and resolve type references
+    visitProgram(program);
 }
 
 const QualifiedType* TypeCanonicalizer::getCanonicalType(const std::string& name) const {
@@ -193,31 +196,33 @@ void TypeCanonicalizer::visitClassDecl(Parser::ClassDecl& node) {
         classType.isNativeType = false;
 
         registerType(qualifiedName, classType);
-
-        // Track template parameters as temporarily valid types
-        std::set<std::string> previousTemplateParams = templateTypeParameters_;
-        for (const auto& param : node.templateParams) {
-            templateTypeParameters_.insert(param.name);
-        }
-
-        // Process class members
-        std::string previousClass = currentClass_;
-        currentClass_ = qualifiedName;
-
-        for (auto& section : node.sections) {
-            for (auto& member : section->declarations) {
-                if (auto* prop = dynamic_cast<Parser::PropertyDecl*>(member.get())) {
-                    visitPropertyDecl(*prop);
-                } else if (auto* method = dynamic_cast<Parser::MethodDecl*>(member.get())) {
-                    visitMethodDecl(*method);
-                }
-                // Constructors, destructors don't introduce new types
-            }
-        }
-
-        currentClass_ = previousClass;
-        templateTypeParameters_ = previousTemplateParams;
     }
+
+    // Track template parameters as temporarily valid types (needed in both phases)
+    std::set<std::string> previousTemplateParams = templateTypeParameters_;
+    for (const auto& param : node.templateParams) {
+        templateTypeParameters_.insert(param.name);
+    }
+
+    // Process class members (collection phase registers types, resolution phase validates)
+    std::string previousClass = currentClass_;
+    currentClass_ = qualifiedName;
+
+    for (auto& section : node.sections) {
+        for (auto& member : section->declarations) {
+            if (auto* prop = dynamic_cast<Parser::PropertyDecl*>(member.get())) {
+                visitPropertyDecl(*prop);
+            } else if (auto* method = dynamic_cast<Parser::MethodDecl*>(member.get())) {
+                visitMethodDecl(*method);
+            } else if (auto* ctor = dynamic_cast<Parser::ConstructorDecl*>(member.get())) {
+                visitConstructorDecl(*ctor);
+            }
+            // Destructors don't introduce new types or require ownership validation
+        }
+    }
+
+    currentClass_ = previousClass;
+    templateTypeParameters_ = previousTemplateParams;
 }
 
 void TypeCanonicalizer::visitNativeStructureDecl(Parser::NativeStructureDecl& node) {
@@ -314,6 +319,12 @@ void TypeCanonicalizer::visitMethodDecl(Parser::MethodDecl& node) {
     if (!inCollectionPhase_) {
         // Validate return type
         if (node.returnType) {
+            // Validate ownership annotation for return type (except Void/None)
+            if (node.returnType->typeName != "Void" && node.returnType->typeName != "None") {
+                validateOwnershipAnnotation(node.returnType.get(),
+                    "return type of method '" + node.name + "'");
+            }
+
             QualifiedType resolved = resolveTypeRef(node.returnType.get());
             if (!resolved.isResolved() && !templateTypeParameters_.count(node.returnType->typeName)) {
                 PendingReference ref;
@@ -335,6 +346,27 @@ void TypeCanonicalizer::visitMethodDecl(Parser::MethodDecl& node) {
                     PendingReference ref;
                     ref.typeName = param->type->typeName;
                     ref.referencedFrom = currentClass_ + "::" + node.name;
+                    ref.location = param->location;
+                    pendingReferences_.push_back(ref);
+                }
+            }
+        }
+    }
+}
+
+void TypeCanonicalizer::visitConstructorDecl(Parser::ConstructorDecl& node) {
+    if (!inCollectionPhase_) {
+        // Validate parameter types ownership
+        for (auto& param : node.parameters) {
+            if (param->type) {
+                validateOwnershipAnnotation(param->type.get(),
+                    "parameter '" + param->name + "' of constructor in '" + currentClass_ + "'");
+
+                QualifiedType resolved = resolveTypeRef(param->type.get());
+                if (!resolved.isResolved() && !templateTypeParameters_.count(param->type->typeName)) {
+                    PendingReference ref;
+                    ref.typeName = param->type->typeName;
+                    ref.referencedFrom = currentClass_ + "::Constructor";
                     ref.location = param->location;
                     pendingReferences_.push_back(ref);
                 }

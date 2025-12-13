@@ -18,6 +18,7 @@ struct LinkConfig {
     std::string outputPath;                    // Output executable path
     bool verbose = false;                      // Print linker commands
     int optimizationLevel = 0;                 // 0-3
+    bool stripSymbols = false;                 // Strip debug symbols from output
 
     // Platform-specific settings
     bool createConsoleApp = true;              // Windows: /SUBSYSTEM:CONSOLE vs WINDOWS

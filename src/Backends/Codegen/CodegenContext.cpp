@@ -47,11 +47,12 @@ void CodegenContext::setInsertPoint(LLVMIR::BasicBlock* bb) {
 // === Variable Management ===
 
 void CodegenContext::declareVariable(const std::string& name, const std::string& xxmlType,
-                                     LLVMIR::AnyValue value, LLVMIR::AllocaInst* alloca) {
+                                     LLVMIR::AnyValue value, LLVMIR::AllocaInst* alloca,
+                                     bool isReference) {
     if (variableScopes_.empty()) {
         variableScopes_.emplace_back();
     }
-    variableScopes_.back()[name] = VariableInfo{name, xxmlType, value, alloca, false};
+    variableScopes_.back()[name] = VariableInfo{name, xxmlType, value, alloca, false, isReference};
     if (alloca) {
         allocas_[name] = alloca;
     }
@@ -442,7 +443,22 @@ std::string CodegenContext::lookupMethodReturnTypeDirect(const std::string& clas
     // Try exact match first
     auto* methodInfo = semanticAnalyzer_->findMethod(className, methodName);
     if (methodInfo) {
-        return methodInfo->returnType;
+        // Include ownership marker in return type
+        std::string result = methodInfo->returnType;
+        switch (methodInfo->returnOwnership) {
+            case Parser::OwnershipType::Owned:
+                result += "^";
+                break;
+            case Parser::OwnershipType::Reference:
+                result += "&";
+                break;
+            case Parser::OwnershipType::Copy:
+                result += "%";
+                break;
+            default:
+                break;
+        }
+        return result;
     }
 
     // For template classes like MyClass<Integer>, also try the base template class
@@ -455,6 +471,9 @@ std::string CodegenContext::lookupMethodReturnTypeDirect(const std::string& clas
             // The return type might be a template parameter like "T"
             // We need to substitute it with the actual type argument
             std::string returnType = methodInfo->returnType;
+
+            // Track the ownership marker from the method signature
+            Parser::OwnershipType ownership = methodInfo->returnOwnership;
 
             // Extract template arguments from className (e.g., "Integer, String" from "HashMap<Integer, String>")
             size_t templateEnd = className.rfind('>');
@@ -511,6 +530,24 @@ std::string CodegenContext::lookupMethodReturnTypeDirect(const std::string& clas
                             break;  // Found the match, stop searching
                         }
                     }
+                }
+            }
+
+            // Add ownership marker from the method signature if not already present
+            if (!returnType.empty() && returnType.back() != '^' &&
+                returnType.back() != '&' && returnType.back() != '%') {
+                switch (ownership) {
+                    case Parser::OwnershipType::Owned:
+                        returnType += "^";
+                        break;
+                    case Parser::OwnershipType::Reference:
+                        returnType += "&";
+                        break;
+                    case Parser::OwnershipType::Copy:
+                        returnType += "%";
+                        break;
+                    default:
+                        break;
                 }
             }
             return returnType;
@@ -652,6 +689,27 @@ bool CodegenContext::hasEnumValue(const std::string& fullName) const {
 int64_t CodegenContext::getEnumValue(const std::string& fullName) const {
     auto it = enumValues_.find(fullName);
     return (it != enumValues_.end()) ? it->second : 0;
+}
+
+std::optional<std::pair<std::string, int64_t>> CodegenContext::resolveEnumValue(const std::string& unqualifiedName) const {
+    // First try exact match
+    auto it = enumValues_.find(unqualifiedName);
+    if (it != enumValues_.end()) {
+        return std::make_pair(it->first, it->second);
+    }
+
+    // Search for enum value by suffix - look for entries ending with "::EnumName::Value"
+    // where unqualifiedName is "EnumName::Value"
+    std::string suffix = "::" + unqualifiedName;
+    for (const auto& [name, value] : enumValues_) {
+        // Check if name ends with the suffix (e.g., "GLFW::GamepadButton::A" ends with "::GamepadButton::A")
+        if (name.size() > suffix.size() &&
+            name.substr(name.size() - suffix.size()) == suffix) {
+            return std::make_pair(name, value);
+        }
+    }
+
+    return std::nullopt;
 }
 
 // === Label/Register Allocation ===

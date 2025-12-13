@@ -1,0 +1,46 @@
+#import Language::Core;
+
+[ Class <Counter>
+[ Public<>
+    Constructor = default;
+
+    Constructor Parameters (Parameter <val> Types Integer%) ->
+    {
+        Set this.value = val;
+    }
+
+    Method <getRef> Returns Integer& Parameters () ->
+    {
+        Return this.value;
+    }
+
+    Method <getValue> Returns Integer^ Parameters () ->
+    {
+        Return this.value;
+    }
+]
+[ Private<>
+    Property <value> Types Integer^;
+]
+]
+
+[ Entrypoint
+    {
+        Instantiate Counter^ As <counter> = Counter::Constructor(Integer::Constructor(10));
+
+        Run Console::printLine(String::Constructor("Initial value:"));
+        Run Console::printLine(counter.getValue().toString());
+
+        Set counter.getRef() = Integer::Constructor(42);
+
+        Run Console::printLine(String::Constructor("After Set counter.getRef() = 42:"));
+        Run Console::printLine(counter.getValue().toString());
+
+        Set counter.getRef() = Integer::Constructor(100);
+
+        Run Console::printLine(String::Constructor("After Set counter.getRef() = 100:"));
+        Run Console::printLine(counter.getValue().toString());
+
+        Run Console::printLine(String::Constructor("Done!"));
+    }
+]

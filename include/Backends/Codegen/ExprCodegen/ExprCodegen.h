@@ -64,6 +64,9 @@ protected:
     bool isIntegerType(std::string_view type) const;
     bool isFloatType(std::string_view type) const;
 
+    // Unwrap boxed types (Integer, Float, etc.) to their raw primitive values
+    LLVMIR::AnyValue unwrapBoxedType(LLVMIR::AnyValue value, const std::string& type);
+
     // === Property Access Helpers ===
 
     LLVMIR::AnyValue loadPropertyFromThis(const PropertyInfo& prop);

@@ -11,6 +11,7 @@
 #include <memory>
 #include <functional>
 #include <set>
+#include <optional>
 
 namespace XXML {
 
@@ -55,6 +56,7 @@ struct VariableInfo {
     LLVMIR::AnyValue value;
     LLVMIR::AllocaInst* alloca = nullptr;
     bool isParameter = false;
+    bool isReference = false;  // true if this is a reference type (&)
 };
 
 // Loop context for break/continue
@@ -179,7 +181,8 @@ public:
 
     // === Variable Management ===
     void declareVariable(const std::string& name, const std::string& xxmlType,
-                        LLVMIR::AnyValue value, LLVMIR::AllocaInst* alloca = nullptr);
+                        LLVMIR::AnyValue value, LLVMIR::AllocaInst* alloca = nullptr,
+                        bool isReference = false);
     void declareParameter(const std::string& name, const std::string& xxmlType,
                          LLVMIR::AnyValue value);
     bool hasVariable(const std::string& name) const;
@@ -258,6 +261,9 @@ public:
     void registerEnumValue(const std::string& fullName, int64_t value);
     bool hasEnumValue(const std::string& fullName) const;
     int64_t getEnumValue(const std::string& fullName) const;
+    // Resolve an unqualified enum value (e.g., "GamepadButton::A") to its qualified form
+    // Returns empty optional if not found
+    std::optional<std::pair<std::string, int64_t>> resolveEnumValue(const std::string& unqualifiedName) const;
 
     // === Label/Register Allocation ===
     std::string allocateRegister();

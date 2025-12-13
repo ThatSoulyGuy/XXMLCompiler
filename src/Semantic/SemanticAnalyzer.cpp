@@ -751,8 +751,16 @@ bool SemanticAnalyzer::isTemporaryExpression(Parser::Expression* expr) {
 
     if (!expr) return false;
 
-    // CallExpr creates a temporary (constructor call or method call returning value)
+    // CallExpr creates a temporary UNLESS the method returns a reference
+    // A method returning & is returning a reference to an existing object, not a temporary
     if (dynamic_cast<Parser::CallExpr*>(expr)) {
+        // Check if this call returns a reference type
+        Parser::OwnershipType ownership = getExpressionOwnership(expr);
+        if (ownership == Parser::OwnershipType::Reference) {
+            // Method returns a reference - this is an lvalue, not a temporary
+            return false;
+        }
+        // Owned (^) or Copy (%) return types create temporaries
         return true;
     }
 
@@ -2092,6 +2100,16 @@ void SemanticAnalyzer::visit(Parser::RunStmt& node) {
 
 void SemanticAnalyzer::visit(Parser::ForStmt& node) {
     symbolTable_->enterScope("ForLoop");
+
+    // Validate ownership annotation for iterator type (only when validation is enabled)
+    if (enableValidation && node.iteratorType->ownership == Parser::OwnershipType::None) {
+        errorReporter.reportError(
+            Common::ErrorCode::InvalidOwnership,
+            "For loop iterator type '" + node.iteratorType->typeName +
+            "' must have an ownership qualifier (^, &, or %)",
+            node.location
+        );
+    }
 
     // Define iterator variable
     auto symbol = std::make_unique<Symbol>(
