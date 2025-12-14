@@ -4,10 +4,14 @@
 #include "LSPServer.h"
 #include <iostream>
 #include <filesystem>
+#include <cstdlib>
 
 #ifdef _WIN32
 #define NOMINMAX
 #include <windows.h>
+#elif defined(__APPLE__)
+#include <mach-o/dyld.h>
+#include <limits.h>
 #else
 #include <unistd.h>
 #include <limits.h>
@@ -26,7 +30,24 @@ static std::string getExecutableDirectory() {
         return (pos != std::string::npos) ? fullPath.substr(0, pos) : ".";
     }
     return ".";
+#elif defined(__APPLE__)
+    char buffer[PATH_MAX];
+    uint32_t size = sizeof(buffer);
+    if (_NSGetExecutablePath(buffer, &size) == 0) {
+        // Resolve symlinks to get the real path
+        char realPath[PATH_MAX];
+        if (realpath(buffer, realPath) != nullptr) {
+            std::string fullPath(realPath);
+            size_t pos = fullPath.find_last_of('/');
+            return (pos != std::string::npos) ? fullPath.substr(0, pos) : ".";
+        }
+        std::string fullPath(buffer);
+        size_t pos = fullPath.find_last_of('/');
+        return (pos != std::string::npos) ? fullPath.substr(0, pos) : ".";
+    }
+    return ".";
 #else
+    // Linux: use /proc/self/exe
     char buffer[PATH_MAX];
     ssize_t len = readlink("/proc/self/exe", buffer, sizeof(buffer) - 1);
     if (len != -1) {
@@ -259,8 +280,34 @@ json LSPServer::handleInitialize(const json& params) {
         // Check next to executable (e.g., bin/Language)
         candidates.push_back(exePath / "Language");
 
-        // Check parent of executable (installed layout: bin/xxml-lsp.exe with sibling Language/)
+        // Check parent of executable (installed layout: bin/xxml-lsp with sibling Language/)
         candidates.push_back(exePath.parent_path() / "Language");
+
+#if defined(__APPLE__) || defined(__linux__)
+        // macOS/Linux: Standard installation paths
+        // PKG installer installs to /usr/local/share/xxml/Language
+        candidates.push_back("/usr/local/share/xxml/Language");
+        // Homebrew on Apple Silicon
+        candidates.push_back("/opt/homebrew/share/xxml/Language");
+        // Homebrew on Intel Mac
+        candidates.push_back("/usr/local/Cellar/xxml/Language");
+        // Linux system-wide installation
+        candidates.push_back("/usr/share/xxml/Language");
+        // Linux local installation
+        candidates.push_back("/usr/local/lib/xxml/Language");
+#endif
+
+#ifdef _WIN32
+        // Windows: Check Program Files
+        const char* programFiles = std::getenv("ProgramFiles");
+        if (programFiles) {
+            candidates.push_back(fs::path(programFiles) / "XXML" / "Language");
+        }
+        const char* localAppData = std::getenv("LOCALAPPDATA");
+        if (localAppData) {
+            candidates.push_back(fs::path(localAppData) / "XXML" / "Language");
+        }
+#endif
 
         // Second priority: relative to workspace (for development)
         if (!workspaceRoot_.empty()) {

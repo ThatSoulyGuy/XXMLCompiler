@@ -284,7 +284,7 @@ typedef struct {
 } AnnotationArgWrapper;
 
 void* Language_Reflection_AnnotationInfo_Constructor(void* infoPtr) {
-    AnnotationInfoWrapper* wrapper = (AnnotationInfoWrapper*)xxml_alloc(sizeof(AnnotationInfoWrapper));
+    AnnotationInfoWrapper* wrapper = (AnnotationInfoWrapper*)xxml_malloc(sizeof(AnnotationInfoWrapper));
     wrapper->info = (ReflectionAnnotationInfo*)infoPtr;
     return wrapper;
 }
@@ -312,7 +312,7 @@ void* Language_Reflection_AnnotationInfo_getArgument(void* self, void* index) {
 
 void* Language_Reflection_AnnotationInfo_getArgumentByName(void* self, void* name) {
     AnnotationInfoWrapper* wrapper = (AnnotationInfoWrapper*)self;
-    const char* nameStr = xxml_string_data(name);
+    const char* nameStr = xxml_string_cstr(name);
     if (!wrapper || !wrapper->info || !nameStr) return NULL;
 
     ReflectionAnnotationArg* arg = Annotation_getArgument(wrapper->info, nameStr);
@@ -322,14 +322,14 @@ void* Language_Reflection_AnnotationInfo_getArgumentByName(void* self, void* nam
 
 void* Language_Reflection_AnnotationInfo_hasArgument(void* self, void* name) {
     AnnotationInfoWrapper* wrapper = (AnnotationInfoWrapper*)self;
-    const char* nameStr = xxml_string_data(name);
+    const char* nameStr = xxml_string_cstr(name);
     if (!wrapper || !wrapper->info || !nameStr) return (void*)0;
 
     return (void*)(int64_t)(Annotation_getArgument(wrapper->info, nameStr) != NULL);
 }
 
 void* Language_Reflection_AnnotationArg_Constructor(void* argPtr) {
-    AnnotationArgWrapper* wrapper = (AnnotationArgWrapper*)xxml_alloc(sizeof(AnnotationArgWrapper));
+    AnnotationArgWrapper* wrapper = (AnnotationArgWrapper*)xxml_malloc(sizeof(AnnotationArgWrapper));
     wrapper->arg = (ReflectionAnnotationArg*)argPtr;
     return wrapper;
 }

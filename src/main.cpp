@@ -853,7 +853,11 @@ int main(int argc, char* argv[]) {
                 std::cout << "Compiling to object file...\n";
             }
 
+#ifdef _WIN32
             std::string objPath = outputPath.stem().string() + ".obj";
+#else
+            std::string objPath = outputPath.stem().string() + ".o";
+#endif
             if (!llvmBackend->generateObjectFile(llvmIR, objPath, optimizationLevel, optimizationMode, includeDebugSymbols)) {
                 std::cerr << "✗ Object file generation failed\n";
                 return 1;
@@ -885,9 +889,24 @@ int main(int argc, char* argv[]) {
             };
 #else
             std::vector<std::string> tryPaths = {
+                // Relative to executable (most common for installed layout)
                 exeDir + "/../lib/libXXMLLLVMRuntime.a",
+                exeDir + "/lib/libXXMLLLVMRuntime.a",
+                exeDir + "/../lib/xxml/libXXMLLLVMRuntime.a",
+                // Build directory paths
                 "build/lib/libXXMLLLVMRuntime.a",
-                "build_mingw/lib/libXXMLLLVMRuntime.a"
+                "build/release/lib/libXXMLLLVMRuntime.a",
+                "build/debug/lib/libXXMLLLVMRuntime.a",
+                "build_mingw/lib/libXXMLLLVMRuntime.a",
+                // macOS PKG installer paths
+                "/usr/local/lib/xxml/libXXMLLLVMRuntime.a",
+                "/usr/local/share/xxml/lib/libXXMLLLVMRuntime.a",
+                // Homebrew paths (Apple Silicon and Intel)
+                "/opt/homebrew/lib/xxml/libXXMLLLVMRuntime.a",
+                "/usr/local/Cellar/xxml/lib/libXXMLLLVMRuntime.a",
+                // Linux system paths
+                "/usr/lib/xxml/libXXMLLLVMRuntime.a",
+                "/usr/share/xxml/lib/libXXMLLLVMRuntime.a"
             };
 #endif
             for (const auto& path : tryPaths) {
@@ -903,6 +922,18 @@ int main(int argc, char* argv[]) {
             if (!linker) {
                 std::cerr << "✗ No linker found. Object file: " << objPath << "\n";
                 return 1;
+            }
+
+            // Warn if runtime library not found
+            if (runtimeLibPath.empty()) {
+                std::cerr << "⚠ Warning: Runtime library (libXXMLLLVMRuntime.a) not found!\n";
+                std::cerr << "  Searched in:\n";
+                std::cerr << "    - " << exeDir << "/../lib/\n";
+                std::cerr << "    - " << exeDir << "/lib/\n";
+                std::cerr << "    - /usr/local/lib/xxml/\n";
+                std::cerr << "  Linking will likely fail with undefined symbols.\n";
+            } else {
+                std::cout << "  Runtime library: " << runtimeLibPath << "\n";
             }
 
             XXML::Linker::LinkConfig linkConfig;

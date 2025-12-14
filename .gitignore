@@ -5,7 +5,11 @@ bin/
 lib/
 out/
 
+# Installer
 installer/temp/
+installer/staging/
+installer/out/
+installer/.env.local
 
 # Visual Studio
 .vs/

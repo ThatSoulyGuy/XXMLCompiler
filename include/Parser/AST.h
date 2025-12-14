@@ -62,34 +62,30 @@ struct TemplateArgument {
     std::string valueStr;                     // String representation of value argument (e.g., "89")
     Common::SourceLocation location;
 
-    // Constructor for type arguments
-    TemplateArgument(const std::string& type, const Common::SourceLocation& loc)
-        : kind(Kind::Type), typeArg(type), valueArg(nullptr), location(loc) {}
+    // Constructor for type arguments (defined in AST.cpp)
+    TemplateArgument(const std::string& type, const Common::SourceLocation& loc);
 
-    // Constructor for value arguments
-    TemplateArgument(std::unique_ptr<Expression> value, const Common::SourceLocation& loc)
-        : kind(Kind::Value), typeArg(""), valueArg(std::move(value)), location(loc) {}
+    // Constructor for value arguments (defined in AST.cpp)
+    TemplateArgument(std::unique_ptr<Expression> value, const Common::SourceLocation& loc);
 
-    // Constructor for value arguments with string representation
-    TemplateArgument(std::unique_ptr<Expression> value, const std::string& valStr, const Common::SourceLocation& loc)
-        : kind(Kind::Value), typeArg(""), valueArg(std::move(value)), valueStr(valStr), location(loc) {}
+    // Constructor for value arguments with string representation (defined in AST.cpp)
+    TemplateArgument(std::unique_ptr<Expression> value, const std::string& valStr, const Common::SourceLocation& loc);
 
-    // Constructor for wildcard (?)
-    static TemplateArgument Wildcard(const Common::SourceLocation& loc) {
-        TemplateArgument arg("", loc);
-        arg.kind = Kind::Wildcard;
-        return arg;
-    }
+    // Factory for wildcard (?) (defined in AST.cpp)
+    static TemplateArgument Wildcard(const Common::SourceLocation& loc);
+
+    // Destructor (defined in AST.cpp where Expression is complete)
+    ~TemplateArgument();
 
     // Copy constructor (needed for AST cloning)
     TemplateArgument(const TemplateArgument& other);
 
-    // Move constructor
-    TemplateArgument(TemplateArgument&& other) noexcept = default;
+    // Move constructor (defined in AST.cpp)
+    TemplateArgument(TemplateArgument&& other) noexcept;
 
-    // Assignment operators
+    // Assignment operators (defined in AST.cpp)
     TemplateArgument& operator=(const TemplateArgument& other);
-    TemplateArgument& operator=(TemplateArgument&& other) noexcept = default;
+    TemplateArgument& operator=(TemplateArgument&& other) noexcept;
 };
 
 // Type reference
@@ -368,10 +364,8 @@ public:
                std::vector<std::unique_ptr<ParameterDecl>> params,
                std::unique_ptr<TypeRef> retType,
                std::vector<std::unique_ptr<Statement>> bodyStmts,
-               const Common::SourceLocation& loc)
-        : Expression(loc), captures(std::move(caps)),
-          parameters(std::move(params)), returnType(std::move(retType)),
-          body(std::move(bodyStmts)) {}
+               const Common::SourceLocation& loc);
+    ~LambdaExpr();
 
     void accept(ASTVisitor& visitor) override;
     std::unique_ptr<ASTNode> clone() const override;
@@ -396,8 +390,8 @@ public:
     bool isCompiletime = false;  // Compile-time variable instantiation
 
     InstantiateStmt(std::unique_ptr<TypeRef> t, const std::string& name,
-                    std::unique_ptr<Expression> init, const Common::SourceLocation& loc)
-        : Statement(loc), type(std::move(t)), variableName(name), initializer(std::move(init)) {}
+                    std::unique_ptr<Expression> init, const Common::SourceLocation& loc);
+    ~InstantiateStmt();
 
     void accept(ASTVisitor& visitor) override;    std::unique_ptr<ASTNode> clone() const override;    std::unique_ptr<Statement> cloneStmt() const override;
 };
@@ -609,8 +603,8 @@ public:
     std::vector<std::unique_ptr<AnnotationUsage>> annotations;  // Applied annotations
     bool isCompiletime = false;  // Compile-time property
 
-    PropertyDecl(const std::string& n, std::unique_ptr<TypeRef> t, const Common::SourceLocation& loc)
-        : Declaration(loc), name(n), type(std::move(t)) {}
+    PropertyDecl(const std::string& n, std::unique_ptr<TypeRef> t, const Common::SourceLocation& loc);
+    ~PropertyDecl();
 
     void accept(ASTVisitor& visitor) override;    std::unique_ptr<ASTNode> clone() const override;    std::unique_ptr<Declaration> cloneDecl() const override;
 };
@@ -624,9 +618,8 @@ public:
 
     ConstructorDecl(bool isDef, std::vector<std::unique_ptr<ParameterDecl>> params,
                     std::vector<std::unique_ptr<Statement>> bodyStmts,
-                    const Common::SourceLocation& loc)
-        : Declaration(loc), isDefault(isDef), parameters(std::move(params)),
-          body(std::move(bodyStmts)) {}
+                    const Common::SourceLocation& loc);
+    ~ConstructorDecl();
 
     void accept(ASTVisitor& visitor) override;    std::unique_ptr<ASTNode> clone() const override;    std::unique_ptr<Declaration> cloneDecl() const override;
 };
@@ -636,8 +629,8 @@ public:
     std::vector<std::unique_ptr<Statement>> body;
 
     DestructorDecl(std::vector<std::unique_ptr<Statement>> bodyStmts,
-                   const Common::SourceLocation& loc)
-        : Declaration(loc), body(std::move(bodyStmts)) {}
+                   const Common::SourceLocation& loc);
+    ~DestructorDecl();
 
     void accept(ASTVisitor& visitor) override;
     std::unique_ptr<ASTNode> clone() const override;
@@ -663,17 +656,14 @@ public:
     MethodDecl(const std::string& n, std::unique_ptr<TypeRef> retType,
                std::vector<std::unique_ptr<ParameterDecl>> params,
                std::vector<std::unique_ptr<Statement>> bodyStmts,
-               const Common::SourceLocation& loc)
-        : Declaration(loc), name(n), returnType(std::move(retType)),
-          parameters(std::move(params)), body(std::move(bodyStmts)) {}
+               const Common::SourceLocation& loc);
 
     MethodDecl(const std::string& n, const std::vector<TemplateParameter>& tparams,
                std::unique_ptr<TypeRef> retType,
                std::vector<std::unique_ptr<ParameterDecl>> params,
                std::vector<std::unique_ptr<Statement>> bodyStmts,
-               const Common::SourceLocation& loc)
-        : Declaration(loc), name(n), templateParams(tparams), returnType(std::move(retType)),
-          parameters(std::move(params)), body(std::move(bodyStmts)) {}
+               const Common::SourceLocation& loc);
+    ~MethodDecl();
 
     void accept(ASTVisitor& visitor) override;    std::unique_ptr<ASTNode> clone() const override;    std::unique_ptr<Declaration> cloneDecl() const override;
 };
@@ -689,8 +679,8 @@ public:
     AccessModifier modifier;
     std::vector<std::unique_ptr<Declaration>> declarations;
 
-    AccessSection(AccessModifier mod, const Common::SourceLocation& loc)
-        : ASTNode(loc), modifier(mod) {}
+    AccessSection(AccessModifier mod, const Common::SourceLocation& loc);
+    ~AccessSection();
 
     void accept(ASTVisitor& visitor) override;
     std::unique_ptr<ASTNode> clone() const override;
@@ -708,8 +698,8 @@ public:
 
     ClassDecl(const std::string& n, const std::vector<TemplateParameter>& tparams,
               bool final, const std::string& base,
-              const Common::SourceLocation& loc)
-        : Declaration(loc), name(n), templateParams(tparams), isFinal(final), baseClass(base) {}
+              const Common::SourceLocation& loc);
+    ~ClassDecl();
 
     void accept(ASTVisitor& visitor) override;    std::unique_ptr<ASTNode> clone() const override;    std::unique_ptr<Declaration> cloneDecl() const override;
 };
@@ -726,8 +716,8 @@ public:
     bool isCompiletime = false;  // Compile-time structure
 
     StructureDecl(const std::string& n, const std::vector<TemplateParameter>& tparams,
-                  const Common::SourceLocation& loc)
-        : Declaration(loc), name(n), templateParams(tparams) {}
+                  const Common::SourceLocation& loc);
+    ~StructureDecl();
 
     void accept(ASTVisitor& visitor) override;
     std::unique_ptr<ASTNode> clone() const override;
@@ -741,8 +731,8 @@ public:
     std::vector<std::unique_ptr<PropertyDecl>> properties;  // Only NativeType properties allowed
     size_t alignment = 8;  // Default alignment in bytes
 
-    NativeStructureDecl(const std::string& n, size_t align, const Common::SourceLocation& loc)
-        : Declaration(loc), name(n), alignment(align) {}
+    NativeStructureDecl(const std::string& n, size_t align, const Common::SourceLocation& loc);
+    ~NativeStructureDecl();
 
     void accept(ASTVisitor& visitor) override;
     std::unique_ptr<ASTNode> clone() const override;
@@ -761,9 +751,8 @@ public:
     CallbackTypeDecl(const std::string& n, CallingConvention conv,
                      std::unique_ptr<TypeRef> retType,
                      std::vector<std::unique_ptr<ParameterDecl>> params,
-                     const Common::SourceLocation& loc)
-        : Declaration(loc), name(n), convention(conv),
-          returnType(std::move(retType)), parameters(std::move(params)) {}
+                     const Common::SourceLocation& loc);
+    ~CallbackTypeDecl();
 
     void accept(ASTVisitor& visitor) override;
     std::unique_ptr<ASTNode> clone() const override;

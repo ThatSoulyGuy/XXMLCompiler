@@ -1,6 +1,7 @@
 #ifndef XXML_REFLECTION_RUNTIME_H
 #define XXML_REFLECTION_RUNTIME_H
 
+#include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
 #include "xxml_annotation_runtime.h"

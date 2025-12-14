@@ -5,6 +5,9 @@
 
 #ifdef _WIN32
 #include <windows.h>
+#elif defined(__APPLE__)
+#include <mach-o/dyld.h>
+#include <limits.h>
 #else
 #include <unistd.h>
 #include <limits.h>
@@ -23,7 +26,24 @@ static std::string getExecutableDirectory() {
     std::string fullPath(buffer);
     size_t pos = fullPath.find_last_of("\\/");
     return (pos != std::string::npos) ? fullPath.substr(0, pos) : ".";
+#elif defined(__APPLE__)
+    char buffer[PATH_MAX];
+    uint32_t size = sizeof(buffer);
+    if (_NSGetExecutablePath(buffer, &size) == 0) {
+        // Resolve symlinks to get the real path
+        char realPath[PATH_MAX];
+        if (realpath(buffer, realPath) != nullptr) {
+            std::string fullPath(realPath);
+            size_t pos = fullPath.find_last_of('/');
+            return (pos != std::string::npos) ? fullPath.substr(0, pos) : ".";
+        }
+        std::string fullPath(buffer);
+        size_t pos = fullPath.find_last_of('/');
+        return (pos != std::string::npos) ? fullPath.substr(0, pos) : ".";
+    }
+    return ".";
 #else
+    // Linux: use /proc/self/exe
     char buffer[PATH_MAX];
     ssize_t len = readlink("/proc/self/exe", buffer, sizeof(buffer) - 1);
     if (len != -1) {
@@ -41,7 +61,7 @@ ImportResolver::ImportResolver() {
     std::string exeDir = getExecutableDirectory();
     std::string languagePath = exeDir + "/Language";
 
-    // Also check parent directory (for installed layout: bin/xxml.exe with sibling Language/)
+    // Also check parent directory (for installed layout: bin/xxml with sibling Language/)
     fs::path exePath(exeDir);
     std::string parentDir = exePath.parent_path().string();
     std::string parentLanguagePath = parentDir + "/Language";
@@ -49,18 +69,45 @@ ImportResolver::ImportResolver() {
     // Add the executable directory itself for auto-scanning
     addSearchPath(exeDir);
 
+    bool foundStdlib = false;
+
     // Check if Language folder exists next to executable
     if (fs::exists(languagePath) && fs::is_directory(languagePath)) {
         // Don't add languagePath directly - exeDir already handles Language::* imports
         std::cout << "✓ Found standard library at: " << languagePath << "\n";
+        foundStdlib = true;
     }
-    // Check parent directory (installed layout: {app}/bin/xxml.exe with {app}/Language/)
+    // Check parent directory (installed layout: {app}/bin/xxml with {app}/Language/)
     else if (fs::exists(parentLanguagePath) && fs::is_directory(parentLanguagePath)) {
         // Add the PARENT directory so Language::Core resolves to parentDir/Language/Core
         addSearchPath(parentDir);
         std::cout << "✓ Found standard library at: " << parentLanguagePath << "\n";
+        foundStdlib = true;
     }
-    else {
+
+#if defined(__APPLE__) || defined(__linux__)
+    // macOS/Linux: Check standard installation paths
+    if (!foundStdlib) {
+        std::vector<std::string> systemPaths = {
+            "/usr/local/share/xxml",      // macOS PKG installer location
+            "/opt/homebrew/share/xxml",   // Homebrew on Apple Silicon
+            "/usr/share/xxml",            // Linux system-wide
+            "/usr/local/lib/xxml"         // Linux local installation
+        };
+
+        for (const auto& sysPath : systemPaths) {
+            std::string sysLanguagePath = sysPath + "/Language";
+            if (fs::exists(sysLanguagePath) && fs::is_directory(sysLanguagePath)) {
+                addSearchPath(sysPath);
+                std::cout << "✓ Found standard library at: " << sysLanguagePath << "\n";
+                foundStdlib = true;
+                break;
+            }
+        }
+    }
+#endif
+
+    if (!foundStdlib) {
         // Fallback: try relative to current directory
         if (fs::exists("Language") && fs::is_directory("Language")) {
             // Current dir already added below, just log it

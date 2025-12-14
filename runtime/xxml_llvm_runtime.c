@@ -1421,20 +1421,20 @@ void* __DynamicValue_toString(void* self) {
 }
 
 // __DynamicValue_greaterThan - compares two XXML objects
-int8_t __DynamicValue_greaterThan(void* self, void* other) {
-    if (!self || !other) return 0;
+bool __DynamicValue_greaterThan(void* self, void* other) {
+    if (!self || !other) return false;
     // Delegate to Integer_gt for integer comparison
     return Integer_gt(self, other);
 }
 
 // __DynamicValue_lessThan - compares two XXML objects
-int8_t __DynamicValue_lessThan(void* self, void* other) {
-    if (!self || !other) return 0;
+bool __DynamicValue_lessThan(void* self, void* other) {
+    if (!self || !other) return false;
     return Integer_lt(self, other);
 }
 
 // __DynamicValue_equals - compares two XXML objects for equality
-int8_t __DynamicValue_equals(void* self, void* other) {
+bool __DynamicValue_equals(void* self, void* other) {
     if (!self || !other) return self == other;
     return Integer_eq(self, other);
 }

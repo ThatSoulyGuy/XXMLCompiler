@@ -10,6 +10,13 @@
 
 #ifdef _WIN32
 #include <windows.h>
+#elif defined(__APPLE__)
+#include <mach-o/dyld.h>
+#include <unistd.h>
+#include <sys/wait.h>
+#include <sys/types.h>
+#include <fcntl.h>
+#include <limits.h>
 #else
 #include <unistd.h>
 #include <sys/wait.h>
@@ -104,7 +111,24 @@ std::string ProcessUtils::getExecutableDirectory() {
     std::string exePath(buffer);
     size_t pos = exePath.find_last_of("\\/");
     return (pos != std::string::npos) ? exePath.substr(0, pos) : "";
+#elif defined(__APPLE__)
+    char buffer[PATH_MAX];
+    uint32_t size = sizeof(buffer);
+    if (_NSGetExecutablePath(buffer, &size) == 0) {
+        // Resolve symlinks to get the real path
+        char realPath[PATH_MAX];
+        if (realpath(buffer, realPath) != nullptr) {
+            std::string exePath(realPath);
+            size_t pos = exePath.find_last_of('/');
+            return (pos != std::string::npos) ? exePath.substr(0, pos) : "";
+        }
+        std::string exePath(buffer);
+        size_t pos = exePath.find_last_of('/');
+        return (pos != std::string::npos) ? exePath.substr(0, pos) : "";
+    }
+    return "";
 #else
+    // Linux: use /proc/self/exe
     char buffer[PATH_MAX];
     ssize_t len = readlink("/proc/self/exe", buffer, sizeof(buffer) - 1);
     if (len != -1) {

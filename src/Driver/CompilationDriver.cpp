@@ -337,11 +337,20 @@ std::string CompilationDriver::getRuntimeLibraryPath() const {
         }
     }
 #else
-    // Unix: Check /usr/local and /usr
+    // Unix: Check standard installation paths
     std::vector<std::string> unixPaths = {
+        // macOS PKG installer paths
+        "/usr/local/lib/xxml/libXXMLLLVMRuntime.a",
+        "/usr/local/share/xxml/lib/libXXMLLLVMRuntime.a",
+        // Homebrew paths (Apple Silicon and Intel)
+        "/opt/homebrew/lib/xxml/libXXMLLLVMRuntime.a",
+        "/usr/local/Cellar/xxml/lib/libXXMLLLVMRuntime.a",
+        // Linux system paths
+        "/usr/lib/xxml/libXXMLLLVMRuntime.a",
+        "/usr/share/xxml/lib/libXXMLLLVMRuntime.a",
+        // Legacy paths
         "/usr/local/lib/libXXMLLLVMRuntime.a",
-        "/usr/lib/libXXMLLLVMRuntime.a",
-        "/usr/local/share/xxml/runtime/libXXMLLLVMRuntime.a"
+        "/usr/lib/libXXMLLLVMRuntime.a"
     };
 
     for (const auto& path : unixPaths) {

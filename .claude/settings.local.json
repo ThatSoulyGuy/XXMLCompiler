@@ -300,7 +300,19 @@
       "Bash(\"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" \"--include-dir=C:/Users/bkmcm/Documents/VisualStudio/Projects/XXMLCompiler/tests\" \"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\tests\\TinyListTest.XXML\" -o \"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\tinylisttest.exe\")",
       "Bash(\"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml-lsp.exe\" --help)",
       "Bash(\"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" -I \"C:/Users/bkmcm/Documents/XXMLStudio/Projects/MyCraft/Library\" \"C:/Users/bkmcm/Documents/XXMLStudio/Projects/MyCraft/src/Main.XXML\" -o \"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\mycraft.exe\")",
-      "Bash(\"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" -I \"C:/Users/bkmcm/Documents/XXMLStudio/Projects/MyCraft/Library\" \"C:/Users/bkmcm/Documents/XXMLStudio/Projects/MyCraft/src/Main.XXML\" -o \"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\mycraft_test.exe\")"
+      "Bash(\"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" -I \"C:/Users/bkmcm/Documents/XXMLStudio/Projects/MyCraft/Library\" \"C:/Users/bkmcm/Documents/XXMLStudio/Projects/MyCraft/src/Main.XXML\" -o \"C:\\Users\\bkmcm\\Documents\\VisualStudio\\Projects\\XXMLCompiler\\mycraft_test.exe\")",
+      "Bash(cmake --list-presets:*)",
+      "Bash(ninja:*)",
+      "Bash(/Users/ericphillips/Documents/IntelliJ/Projects/CLion/XXMLCompiler/build/release/bin/xxml:*)",
+      "Bash(chmod:*)",
+      "Bash(./build/release/bin/xxml:*)",
+      "Bash(./basictest)",
+      "Bash(nm:*)",
+      "Bash(/usr/local/bin/xxml:*)",
+      "Bash(md5:*)",
+      "Bash(./build-installer-macos.sh:*)",
+      "Bash(sudo installer:*)",
+      "Bash(/Users/ericphillips/Documents/XXMLStudio/Projects/Hello/hello)"
     ],
     "deny": [],
     "ask": []

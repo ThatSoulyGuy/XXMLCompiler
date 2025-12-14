@@ -1,5 +1,6 @@
 #include "Backends/LLVMIR/IRVerifier.h"
 #include <algorithm>
+#include <iterator>
 #include <queue>
 #include <sstream>
 
