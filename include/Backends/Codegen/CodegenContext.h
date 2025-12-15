@@ -306,6 +306,11 @@ public:
     void setProcessorMode(bool enabled) { processorMode_ = enabled; }
     bool isProcessorMode() const { return processorMode_; }
 
+    // === Derive Mode ===
+    // When true, we're compiling a derive DLL and should generate derive method bodies
+    void setDeriveMode(bool enabled) { deriveMode_ = enabled; }
+    bool isDeriveMode() const { return deriveMode_; }
+
     // === RAII Destructor Management ===
     void registerForDestruction(const std::string& varName, const std::string& typeName, LLVMIR::AllocaInst* alloca);
     void emitScopeDestructors();    // Emit destructors for current scope (LIFO order)
@@ -476,6 +481,9 @@ private:
 
     // Processor mode flag
     bool processorMode_ = false;
+
+    // Derive mode flag
+    bool deriveMode_ = false;
 
     // IR Verification infrastructure
     std::unique_ptr<LLVMIR::IRVerifier> irVerifier_;

@@ -43,6 +43,7 @@ private:
     std::unique_ptr<AnnotationDecl> parseAnnotationDecl();
     std::unique_ptr<AnnotateDecl> parseAnnotateDecl();
     std::unique_ptr<ProcessorDecl> parseProcessorDecl();
+    std::unique_ptr<DeriveDecl> parseDeriveDecl();
     std::unique_ptr<AnnotationUsage> parseAnnotationUsage();
     std::vector<std::unique_ptr<AnnotationUsage>> parseAnnotationUsages();
     std::vector<AnnotationTarget> parseAnnotationAllows();

@@ -1,0 +1,25 @@
+#import Language::Core;
+
+[ Derive <TestStringable>
+    [ Public <>
+        Method <generate> Returns None Parameters (
+            Parameter <ctx> Types DeriveContext&
+        ) Do {
+            // This is just a parse test, body doesn't need real implementation
+            Return;
+        }
+
+        Method <canDerive> Returns String^ Parameters (
+            Parameter <ctx> Types DeriveContext&
+        ) Do {
+            Return String::Constructor("");
+        }
+    ]
+]
+
+[ Entrypoint
+    {
+        Run Console::printLine(String::Constructor("Derive parse test passed!"));
+        Exit(0);
+    }
+]

@@ -206,10 +206,21 @@ protected:
     bool canStringifyProperty(Parser::PropertyDecl* prop, SemanticAnalyzer& analyzer);
 };
 
+} // namespace Semantic
+
+// Forward declaration for in-language derive support
+namespace Derive {
+class InLanguageDeriveRegistry;
+class InLanguageDeriveHandler;
+} // namespace Derive
+
+namespace Semantic {
+
 /**
  * @brief Registry for derive handlers
  *
  * Manages all available derive handlers and processes derive annotations.
+ * Can also delegate to InLanguageDeriveRegistry for user-defined derives.
  */
 class DeriveRegistry {
 public:
@@ -243,8 +254,15 @@ public:
      */
     std::vector<std::string> getAvailableDerives() const;
 
+    /**
+     * @brief Set the in-language derive registry for user-defined derives
+     * @param registry Pointer to InLanguageDeriveRegistry (not owned)
+     */
+    void setInLanguageRegistry(Derive::InLanguageDeriveRegistry* registry);
+
 private:
     std::unordered_map<std::string, std::unique_ptr<DeriveHandler>> handlers_;
+    Derive::InLanguageDeriveRegistry* inLanguageRegistry_ = nullptr;
 };
 
 } // namespace Semantic

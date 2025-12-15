@@ -154,6 +154,7 @@ void AnnotateDecl::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void ProcessorDecl::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void AnnotationDecl::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void AnnotationUsage::accept(ASTVisitor& visitor) { visitor.visit(*this); }
+void DeriveDecl::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void Program::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 
 } // namespace Parser

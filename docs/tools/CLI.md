@@ -42,6 +42,8 @@ xxml Hello.XXML -o hello.ll 2
 | `--ir` | Generate LLVM IR only (same as mode 2) |
 | `--processor` | Compile annotation processor to DLL |
 | `--use-processor=<dll>` | Load annotation processor DLL (can be repeated) |
+| `--derive` | Compile in-language derive to DLL |
+| `--use-derive=<dll>` | Load in-language derive DLL (can be repeated) |
 | `--stl-warnings` | Show warnings for standard library files (off by default) |
 | `2` | Legacy mode: LLVM IR only |
 
@@ -94,6 +96,47 @@ xxml --use-processor=MyAnnotation.dll App.XXML -o app.exe
 ```bash
 xxml --use-processor=Proc1.dll --use-processor=Proc2.dll App.XXML -o app.exe
 ```
+
+---
+
+## In-Language Derives
+
+In-language derives allow you to write custom derive implementations entirely in XXML, without C++ code.
+
+### Compiling a Derive
+
+```bash
+xxml --derive MyDerive.XXML -o MyDerive.dll
+```
+
+On macOS, use `.dylib` extension:
+```bash
+xxml --derive MyDerive.XXML -o MyDerive.dylib
+```
+
+### Using a Derive
+
+```bash
+xxml --use-derive=MyDerive.dll App.XXML -o app.exe
+```
+
+### Multiple Derives
+
+```bash
+xxml --use-derive=Stringable.dll --use-derive=Cloneable.dll App.XXML -o app.exe
+```
+
+### Example: Custom Stringable Derive
+
+```bash
+# 1. Compile the Stringable derive (provided in Language/Derives/)
+xxml --derive Language/Derives/Stringable.XXML -o Stringable.dll
+
+# 2. Use it when compiling your application
+xxml --use-derive=Stringable.dll MyApp.XXML -o myapp.exe
+```
+
+See [Derives](../advanced/DERIVES.md#in-language-derives) for details on writing custom derives.
 
 ---
 

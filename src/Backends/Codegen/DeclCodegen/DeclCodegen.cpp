@@ -50,6 +50,8 @@ void DeclCodegen::generate(Parser::ASTNode* decl) {
         visitEntrypoint(entryDecl);
     } else if (auto* annotDecl = dynamic_cast<Parser::AnnotationDecl*>(decl)) {
         visitAnnotationDecl(annotDecl);
+    } else if (auto* deriveDecl = dynamic_cast<Parser::DeriveDecl*>(decl)) {
+        visitDerive(deriveDecl);
     }
 }
 
@@ -1064,6 +1066,123 @@ void DeclCodegen::collectRetainedAnnotations(Parser::PropertyDecl* decl, const s
             ctx_.addAnnotationMetadata(metadata);
         }
     }
+}
+
+// === Derive Declaration ===
+
+void DeclCodegen::visitDerive(Parser::DeriveDecl* decl) {
+    if (!decl) return;
+
+    // Create synthetic class name for the derive
+    std::string deriveClassName = decl->name + "_Derive";
+
+    // Set the current class context
+    std::string previousClass = std::string(ctx_.currentClassName());
+    ctx_.setCurrentClassName(deriveClassName);
+
+    auto& mod = ctx_.module();
+    auto& typeCtx = mod.getContext();
+
+    // Generate the canDerive method if present
+    if (decl->canDeriveMethod) {
+        auto* method = decl->canDeriveMethod;
+        std::string methodName = deriveClassName + "_canDerive";
+
+        // Create function type: (ptr, ptr) -> ptr
+        // First param is 'this' (null for derives), second is DeriveContext*
+        std::vector<LLVMIR::Type*> paramTypes = {
+            typeCtx.getPtrTy(),  // this (null)
+            typeCtx.getPtrTy()   // DeriveContext*
+        };
+        LLVMIR::FunctionType* funcType = typeCtx.getFunctionTy(
+            typeCtx.getPtrTy(), std::move(paramTypes), false);
+
+        // Create function with External linkage
+        LLVMIR::Function* func = mod.createFunction(funcType, methodName,
+            LLVMIR::Function::Linkage::External);
+
+        // Name parameters
+        func->getArg(0)->setName("this");
+        func->getArg(1)->setName("ctx");
+
+        // Create entry block
+        LLVMIR::BasicBlock* entryBB = func->createBasicBlock("entry");
+        ctx_.setInsertPoint(entryBB);
+        ctx_.setCurrentFunction(func);
+        ctx_.setCurrentReturnType("ptr");  // canDerive returns String^ (ptr)
+
+        // Set up local context for parameters
+        ctx_.pushScope();
+
+        // Map 'ctx' parameter - store the DeriveContext* as a reference
+        if (!method->parameters.empty()) {
+            const auto& param = method->parameters[0];
+            ctx_.declareParameter(param->name, "DeriveContext",
+                LLVMIR::AnyValue(LLVMIR::PtrValue(func->getArg(1))));
+        }
+
+        // Generate method body
+        generateFunctionBody(method->body);
+
+        // If we didn't return, add a default return (empty string = success)
+        if (ctx_.currentBlock() && !ctx_.currentBlock()->getTerminator()) {
+            // Create empty string and return it
+            ctx_.builder().createRet(LLVMIR::AnyValue(ctx_.builder().getNullPtr()));
+        }
+
+        ctx_.popScope();
+    }
+
+    // Generate the generate method if present
+    if (decl->generateMethod) {
+        auto* method = decl->generateMethod;
+        std::string methodName = deriveClassName + "_generate";
+
+        // Create function type: (ptr, ptr) -> void
+        std::vector<LLVMIR::Type*> paramTypes = {
+            typeCtx.getPtrTy(),  // this (null)
+            typeCtx.getPtrTy()   // DeriveContext*
+        };
+        LLVMIR::FunctionType* funcType = typeCtx.getFunctionTy(
+            typeCtx.getVoidTy(), std::move(paramTypes), false);
+
+        // Create function with External linkage
+        LLVMIR::Function* func = mod.createFunction(funcType, methodName,
+            LLVMIR::Function::Linkage::External);
+
+        // Name parameters
+        func->getArg(0)->setName("this");
+        func->getArg(1)->setName("ctx");
+
+        // Create entry block
+        LLVMIR::BasicBlock* entryBB = func->createBasicBlock("entry");
+        ctx_.setInsertPoint(entryBB);
+        ctx_.setCurrentFunction(func);
+        ctx_.setCurrentReturnType("void");  // generate returns None (void)
+
+        // Set up local context for parameters
+        ctx_.pushScope();
+
+        // Map 'ctx' parameter
+        if (!method->parameters.empty()) {
+            const auto& param = method->parameters[0];
+            ctx_.declareParameter(param->name, "DeriveContext",
+                LLVMIR::AnyValue(LLVMIR::PtrValue(func->getArg(1))));
+        }
+
+        // Generate method body
+        generateFunctionBody(method->body);
+
+        // Add return void if not present
+        if (ctx_.currentBlock() && !ctx_.currentBlock()->getTerminator()) {
+            ctx_.builder().createRetVoid();
+        }
+
+        ctx_.popScope();
+    }
+
+    // Restore previous class context
+    ctx_.setCurrentClassName(previousClass);
 }
 
 } // namespace Codegen

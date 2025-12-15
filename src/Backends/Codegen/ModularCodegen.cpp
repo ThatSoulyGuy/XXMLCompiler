@@ -66,6 +66,8 @@ void ModularCodegen::generateProgram(const std::vector<std::unique_ptr<Parser::A
             generateDecl(enumDecl);
         } else if (auto* nativeDecl = dynamic_cast<Parser::NativeStructureDecl*>(node.get())) {
             generateDecl(nativeDecl);
+        } else if (auto* deriveDecl = dynamic_cast<Parser::DeriveDecl*>(node.get())) {
+            generateDecl(deriveDecl);
         }
     }
 }
@@ -87,6 +89,8 @@ void ModularCodegen::generateProgramDecls(const std::vector<std::unique_ptr<Pars
             generateDecl(nativeDecl);
         } else if (auto* annotDecl = dynamic_cast<Parser::AnnotationDecl*>(decl.get())) {
             generateDecl(annotDecl);
+        } else if (auto* deriveDecl = dynamic_cast<Parser::DeriveDecl*>(decl.get())) {
+            generateDecl(deriveDecl);
         }
     }
 }
@@ -476,6 +480,206 @@ void ModularCodegen::generateProcessorEntryPoints(Parser::Program& program,
                 LLVMIR::AnyValue(LLVMIR::PtrValue(func->getArg(1)))
             };
             ctx_.builder().createCallVoid(onAnnotateFunc, args);
+        }
+
+        ctx_.builder().createRetVoid();
+    }
+}
+
+// === Derive Entry Points ===
+
+void ModularCodegen::generateDeriveEntryPoints(Parser::Program& program,
+                                               const std::string& deriveName) {
+    LLVMIR::GlobalBuilder globalBuilder(ctx_.module());
+    LLVMIR::TypeContext& typeCtx = ctx_.module().getContext();
+
+    // Find the derive declaration
+    Parser::DeriveDecl* deriveDecl = nullptr;
+    for (const auto& decl : program.declarations) {
+        if (auto* ns = dynamic_cast<Parser::NamespaceDecl*>(decl.get())) {
+            for (const auto& nsDecl : ns->declarations) {
+                if (auto* dd = dynamic_cast<Parser::DeriveDecl*>(nsDecl.get())) {
+                    deriveDecl = dd;
+                    break;
+                }
+            }
+        } else if (auto* dd = dynamic_cast<Parser::DeriveDecl*>(decl.get())) {
+            deriveDecl = dd;
+            break;
+        }
+    }
+
+    if (!deriveDecl) {
+        return;  // No derive declaration found
+    }
+
+    std::string finalDeriveName = deriveName.empty() ? deriveDecl->name : deriveName;
+    std::string deriveClassName = finalDeriveName + "_Derive";
+
+    // Create derive name string constant
+    LLVMIR::GlobalVariable* nameStrGlobal =
+        globalBuilder.createStringConstant(finalDeriveName, "__derive_name");
+
+    // === Generate __xxml_derive_name() ===
+    {
+        LLVMIR::FunctionType* funcType = typeCtx.getFunctionTy(
+            typeCtx.getPtrTy(), {});
+        LLVMIR::Function* func = globalBuilder.defineFunction(
+            funcType, "__xxml_derive_name", LLVMIR::Function::Linkage::DLLExport);
+
+        LLVMIR::BasicBlock* entryBB = func->createBasicBlock("entry");
+        ctx_.builder().setInsertPoint(entryBB);
+        ctx_.builder().createRet(LLVMIR::AnyValue(nameStrGlobal->toTypedValue()));
+    }
+
+    // === Generate __xxml_derive_canDerive() ===
+    {
+        std::vector<LLVMIR::Type*> paramTypes = {
+            typeCtx.getPtrTy()  // DeriveContext*
+        };
+        LLVMIR::FunctionType* funcType = typeCtx.getFunctionTy(
+            typeCtx.getPtrTy(), std::move(paramTypes));  // Returns const char* (error msg or null)
+        LLVMIR::Function* func = globalBuilder.defineFunction(
+            funcType, "__xxml_derive_canDerive", LLVMIR::Function::Linkage::DLLExport);
+
+        func->getArg(0)->setName("ctx");
+
+        LLVMIR::BasicBlock* entryBB = func->createBasicBlock("entry");
+        ctx_.builder().setInsertPoint(entryBB);
+
+        // Find the canDerive method in the derive block
+        bool hasCanDerive = false;
+        if (deriveDecl->canDeriveMethod) {
+            hasCanDerive = true;
+        }
+
+        if (hasCanDerive) {
+            // Get or declare the canDerive method
+            std::string methodName = deriveClassName + "_canDerive";
+
+            // Declare the method if not already declared
+            LLVMIR::Function* canDeriveFunc = ctx_.module().getFunction(methodName);
+            if (!canDeriveFunc) {
+                std::vector<LLVMIR::Type*> canDeriveParams = {
+                    typeCtx.getPtrTy(),  // this (null for derives)
+                    typeCtx.getPtrTy()   // DeriveContext*
+                };
+                LLVMIR::FunctionType* canDeriveFuncType = typeCtx.getFunctionTy(
+                    typeCtx.getPtrTy(), std::move(canDeriveParams));
+                canDeriveFunc = globalBuilder.declareFunction(canDeriveFuncType, methodName);
+            }
+
+            // Declare xxml_string_cstr to convert String^ to char*
+            LLVMIR::Function* stringCstrFunc = ctx_.module().getFunction("xxml_string_cstr");
+            if (!stringCstrFunc) {
+                std::vector<LLVMIR::Type*> stringCstrParams = { typeCtx.getPtrTy() };
+                LLVMIR::FunctionType* stringCstrFuncType = typeCtx.getFunctionTy(
+                    typeCtx.getPtrTy(), std::move(stringCstrParams));
+                stringCstrFunc = globalBuilder.declareFunction(stringCstrFuncType, "xxml_string_cstr");
+            }
+
+            // Declare xxml_string_length to check if string is empty
+            LLVMIR::Function* stringLenFunc = ctx_.module().getFunction("xxml_string_length");
+            if (!stringLenFunc) {
+                std::vector<LLVMIR::Type*> stringLenParams = { typeCtx.getPtrTy() };
+                LLVMIR::FunctionType* stringLenFuncType = typeCtx.getFunctionTy(
+                    typeCtx.getInt64Ty(), std::move(stringLenParams));
+                stringLenFunc = globalBuilder.declareFunction(stringLenFuncType, "xxml_string_length");
+            }
+
+            // Create a wrapper for the DeriveContext - the XXML DeriveContext class
+            // has a single field 'ctxPtr' that holds the raw C pointer.
+            // We allocate space for this wrapper and store the raw pointer in it.
+            LLVMIR::PtrValue wrapperAlloca = ctx_.builder().createAlloca(typeCtx.getPtrTy());
+            ctx_.builder().createStore(LLVMIR::PtrValue(func->getArg(0)), wrapperAlloca);
+
+            // Call the canDerive method with null for 'this'
+            // Returns String^ (XXML String object)
+            std::vector<LLVMIR::AnyValue> args = {
+                LLVMIR::AnyValue(ctx_.builder().getNullPtr()),
+                LLVMIR::AnyValue(wrapperAlloca)
+            };
+            LLVMIR::AnyValue stringResult = ctx_.builder().createCall(canDeriveFunc, args);
+
+            // Check if the string is empty (success) using xxml_string_length
+            std::vector<LLVMIR::AnyValue> lenArgs = { stringResult };
+            LLVMIR::AnyValue lenResult = ctx_.builder().createCall(stringLenFunc, lenArgs);
+
+            // Compare length with 0
+            LLVMIR::IntValue zeroVal = ctx_.builder().getInt64(0);
+            LLVMIR::BoolValue isZero = ctx_.builder().createICmpEQ(lenResult.asInt(), zeroVal);
+
+            // Create basic blocks for branching
+            LLVMIR::BasicBlock* returnNullBB = func->createBasicBlock("return_null");
+            LLVMIR::BasicBlock* returnErrorBB = func->createBasicBlock("return_error");
+
+            ctx_.builder().createCondBr(isZero, returnNullBB, returnErrorBB);
+
+            // Return null (success - empty string)
+            ctx_.builder().setInsertPoint(returnNullBB);
+            ctx_.builder().createRet(LLVMIR::AnyValue(ctx_.builder().getNullPtr()));
+
+            // Return error message (non-empty string)
+            // Convert String^ to char* using xxml_string_cstr
+            ctx_.builder().setInsertPoint(returnErrorBB);
+            std::vector<LLVMIR::AnyValue> cstrArgs = { stringResult };
+            LLVMIR::AnyValue cstrResult = ctx_.builder().createCall(stringCstrFunc, cstrArgs);
+            ctx_.builder().createRet(cstrResult);
+        } else {
+            // No canDerive method, return null (success)
+            ctx_.builder().createRet(LLVMIR::AnyValue(ctx_.builder().getNullPtr()));
+        }
+    }
+
+    // === Generate __xxml_derive_generate() ===
+    {
+        std::vector<LLVMIR::Type*> paramTypes = {
+            typeCtx.getPtrTy()  // DeriveContext*
+        };
+        LLVMIR::FunctionType* funcType = typeCtx.getFunctionTy(
+            typeCtx.getVoidTy(), std::move(paramTypes));
+        LLVMIR::Function* func = globalBuilder.defineFunction(
+            funcType, "__xxml_derive_generate", LLVMIR::Function::Linkage::DLLExport);
+
+        func->getArg(0)->setName("ctx");
+
+        LLVMIR::BasicBlock* entryBB = func->createBasicBlock("entry");
+        ctx_.builder().setInsertPoint(entryBB);
+
+        // Find the generate method in the derive block
+        bool hasGenerate = false;
+        if (deriveDecl->generateMethod) {
+            hasGenerate = true;
+        }
+
+        if (hasGenerate) {
+            // Get or declare the generate method
+            std::string methodName = deriveClassName + "_generate";
+
+            // Declare the method if not already declared
+            LLVMIR::Function* generateFunc = ctx_.module().getFunction(methodName);
+            if (!generateFunc) {
+                std::vector<LLVMIR::Type*> generateParams = {
+                    typeCtx.getPtrTy(),  // this (null for derives)
+                    typeCtx.getPtrTy()   // DeriveContext*
+                };
+                LLVMIR::FunctionType* generateFuncType = typeCtx.getFunctionTy(
+                    typeCtx.getVoidTy(), std::move(generateParams));
+                generateFunc = globalBuilder.declareFunction(generateFuncType, methodName);
+            }
+
+            // Create a wrapper for the DeriveContext - the XXML DeriveContext class
+            // has a single field 'ctxPtr' that holds the raw C pointer.
+            // We allocate space for this wrapper and store the raw pointer in it.
+            LLVMIR::PtrValue wrapperAlloca = ctx_.builder().createAlloca(typeCtx.getPtrTy());
+            ctx_.builder().createStore(LLVMIR::PtrValue(func->getArg(0)), wrapperAlloca);
+
+            // Call the generate method with null for 'this'
+            std::vector<LLVMIR::AnyValue> args = {
+                LLVMIR::AnyValue(ctx_.builder().getNullPtr()),
+                LLVMIR::AnyValue(wrapperAlloca)
+            };
+            ctx_.builder().createCallVoid(generateFunc, args);
         }
 
         ctx_.builder().createRetVoid();

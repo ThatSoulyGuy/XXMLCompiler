@@ -15,14 +15,21 @@ The derive system allows automatic generation of common methods (like `equals()`
    - [Derive<Sharable>](#derivesharable)
    - [Derive<JSON>](#derivejson)
 3. [Using Derives](#using-derives)
-4. [Writing Custom Derive Handlers](#writing-custom-derive-handlers)
+4. [Writing Custom Derive Handlers (C++)](#writing-custom-derive-handlers)
    - [Handler Architecture](#handler-architecture)
    - [Creating a Handler](#creating-a-handler)
    - [AST Construction Helpers](#ast-construction-helpers)
    - [Registering Handlers](#registering-handlers)
-5. [Examples](#examples)
-6. [Limitations](#limitations)
-7. [Implementation Details](#implementation-details)
+5. [In-Language Derives (XXML)](#in-language-derives)
+   - [Overview](#overview-1)
+   - [Basic Structure](#basic-structure)
+   - [Compiling and Using](#compiling-and-using)
+   - [DeriveContext API](#derivecontext-api)
+   - [Complete Example: Stringable Derive](#complete-example-stringable-derive)
+   - [In-Language vs C++ Derives](#in-language-vs-c-derives)
+6. [Examples](#examples)
+7. [Limitations](#limitations)
+8. [Implementation Details](#implementation-details)
 
 ---
 
@@ -578,6 +585,300 @@ void SemanticAnalyzer::registerBuiltinDerives() {
 
 ---
 
+## In-Language Derives
+
+Starting with XXML 3.0, you can write custom derives entirely in XXML without any C++ code. This enables users to create their own derive implementations that can be compiled to DLLs and loaded at compile time.
+
+### Overview
+
+In-language derives use the `[ Derive <Name> ]` syntax to define a derive handler. The derive has access to a `DeriveContext` that provides:
+- **Introspection** of the target class (properties, methods, ownership)
+- **Type system queries** (check if types have methods/traits)
+- **Code generation** via string templates
+- **Diagnostics** (emit errors/warnings)
+
+### Basic Structure
+
+```xxml
+#import Language::Core;
+#import Language::Derives;
+
+[ Derive <MyDerive>
+    [ Public <>
+        // Optional: Validate that derive can be applied
+        Method <canDerive> Returns String^ Parameters (
+            Parameter <ctx> Types DeriveContext&
+        ) Do {
+            // Return empty string for success, error message for failure
+            Return String::Constructor("");
+        }
+
+        // Required: Generate methods/properties for target class
+        Method <generate> Returns None Parameters (
+            Parameter <ctx> Types DeriveContext&
+        ) Do {
+            // Use ctx.addMethod() to add methods
+            Run ctx.addMethod(
+                String::Constructor("myMethod"),      // method name
+                String::Constructor("String^"),       // return type
+                String::Constructor(""),              // parameters
+                String::Constructor("Return String::Constructor(\"Hello\");")  // body
+            );
+        }
+    ]
+]
+```
+
+### Compiling and Using
+
+```bash
+# Compile the derive to a DLL
+xxml --derive MyDerive.XXML -o MyDerive.dll
+
+# Use the derive when compiling your application
+xxml --use-derive=MyDerive.dll App.XXML -o app.exe
+```
+
+### DeriveContext API
+
+The `DeriveContext` class provides the following methods:
+
+#### Target Class Introspection
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `getClassName()` | `String^` | Name of the target class |
+| `getNamespaceName()` | `String^` | Containing namespace |
+| `getSourceFile()` | `String^` | Source file path |
+| `getLineNumber()` | `Integer^` | Line number of @Derive |
+| `getColumnNumber()` | `Integer^` | Column number |
+
+#### Property Inspection
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `getPropertyCount()` | `Integer^` | Number of public properties |
+| `getPropertyNameAt(Integer&)` | `String^` | Property name at index |
+| `getPropertyTypeAt(Integer&)` | `String^` | Property type (e.g., "Integer") |
+| `getPropertyOwnershipAt(Integer&)` | `String^` | Ownership marker ("^", "&", "%", "") |
+| `hasProperty(String&)` | `Bool^` | Check if property exists |
+
+#### Method Inspection
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `getMethodCount()` | `Integer^` | Number of methods |
+| `getMethodNameAt(Integer&)` | `String^` | Method name at index |
+| `getMethodReturnTypeAt(Integer&)` | `String^` | Return type at index |
+| `hasMethod(String&)` | `Bool^` | Check if method exists |
+| `getBaseClassName()` | `String^` | Base class name (or empty) |
+| `isClassFinal()` | `Bool^` | Whether class is final |
+
+#### Type System Queries
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `typeHasMethod(String&, String&)` | `Bool^` | Check if type has a method |
+| `typeHasProperty(String&, String&)` | `Bool^` | Check if type has a property |
+| `typeImplementsTrait(String&, String&)` | `Bool^` | Check if type implements trait |
+| `isBuiltinType(String&)` | `Bool^` | Check if type is built-in |
+
+#### Code Generation
+
+| Method | Parameters | Description |
+|--------|------------|-------------|
+| `addMethod` | `name, returnType, parameters, body` | Add instance method |
+| `addStaticMethod` | `name, returnType, parameters, body` | Add static method |
+| `addProperty` | `name, type, ownership, defaultValue` | Add property |
+
+#### Diagnostics
+
+| Method | Parameters | Description |
+|--------|------------|-------------|
+| `error(String&)` | message | Emit error and fail derive |
+| `warning(String&)` | message | Emit warning |
+| `message(String&)` | message | Emit info message |
+| `hasErrors()` | - | Check if errors were emitted |
+
+### Complete Example: Stringable Derive
+
+Here's the complete implementation of the Stringable derive in XXML:
+
+```xxml
+#import Language::Core;
+#import Language::Derives;
+
+[ Derive <Stringable>
+    [ Public <>
+        // Validate that all properties can be converted to string
+        Method <canDerive> Returns String^ Parameters (
+            Parameter <ctx> Types DeriveContext&
+        ) Do {
+            Instantiate Integer^ As <count> = ctx.getPropertyCount();
+            Instantiate Integer^ As <i> = Integer::Constructor(0);
+
+            While (i.lessThan(count)) -> {
+                Instantiate String^ As <propType> = ctx.getPropertyTypeAt(i);
+
+                // Built-in types always have toString
+                If (ctx.isBuiltinType(propType)) -> {
+                    Set i = i.add(Integer::Constructor(1));
+                    Continue;
+                }
+
+                // Check if the type has a toString method
+                If (ctx.typeHasMethod(propType, String::Constructor("toString")).not()) -> {
+                    Instantiate String^ As <propName> = ctx.getPropertyNameAt(i);
+                    Return String::Constructor("Property '")
+                        .append(propName)
+                        .append(String::Constructor("' of type '"))
+                        .append(propType)
+                        .append(String::Constructor("' does not have a toString() method"));
+                }
+
+                Set i = i.add(Integer::Constructor(1));
+            }
+
+            Return String::Constructor("");  // Success
+        }
+
+        // Generate the toString() method
+        Method <generate> Returns None Parameters (
+            Parameter <ctx> Types DeriveContext&
+        ) Do {
+            Instantiate Integer^ As <count> = ctx.getPropertyCount();
+            Instantiate String^ As <className> = ctx.getClassName();
+            Instantiate String^ As <body> = String::Constructor("");
+
+            If (count.equals(Integer::Constructor(0))) -> {
+                // No properties: return "ClassName{}"
+                Set body = String::Constructor("Return String::Constructor(\"")
+                    .append(className)
+                    .append(String::Constructor("{}\");"));
+            } Else -> {
+                // Build toString body with all properties
+                Set body = String::Constructor("Return String::Constructor(\"")
+                    .append(className)
+                    .append(String::Constructor("{"));
+
+                // First property
+                Instantiate String^ As <firstProp> = ctx.getPropertyNameAt(Integer::Constructor(0));
+                Set body = body.append(firstProp)
+                    .append(String::Constructor("=\").append("))
+                    .append(firstProp)
+                    .append(String::Constructor(".toString())"));
+
+                // Remaining properties
+                Instantiate Integer^ As <i> = Integer::Constructor(1);
+                While (i.lessThan(count)) -> {
+                    Instantiate String^ As <propName> = ctx.getPropertyNameAt(i);
+                    Set body = body
+                        .append(String::Constructor(".append(String::Constructor(\", "))
+                        .append(propName)
+                        .append(String::Constructor("=\")).append("))
+                        .append(propName)
+                        .append(String::Constructor(".toString())"));
+                    Set i = i.add(Integer::Constructor(1));
+                }
+
+                Set body = body.append(String::Constructor(".append(String::Constructor(\"}\"));"));
+            }
+
+            Run ctx.addMethod(
+                String::Constructor("toString"),
+                String::Constructor("String^"),
+                String::Constructor(""),
+                body
+            );
+        }
+    ]
+]
+```
+
+### Example: Simple Derive
+
+A minimal derive that adds a single method:
+
+```xxml
+#import Language::Core;
+#import Language::Derives;
+
+[ Derive <Greetable>
+    [ Public <>
+        Method <generate> Returns None Parameters (
+            Parameter <ctx> Types DeriveContext&
+        ) Do {
+            Instantiate String^ As <className> = ctx.getClassName();
+
+            // Generate: Return String::Constructor("Hello from ClassName!");
+            Instantiate String^ As <body> = String::Constructor("Return String::Constructor(\"Hello from ")
+                .append(className)
+                .append(String::Constructor("!\");"));
+
+            Run ctx.addMethod(
+                String::Constructor("greet"),
+                String::Constructor("String^"),
+                String::Constructor(""),
+                body
+            );
+        }
+    ]
+]
+```
+
+Usage:
+```xxml
+@Derive(trait = "Greetable")
+[ Class <MyClass> Final Extends None
+    [ Public <>
+        Constructor = default;
+    ]
+]
+
+// Generated method: greet() returns "Hello from MyClass!"
+```
+
+### Provided In-Language Derives
+
+The `Language/Derives/` directory contains ready-to-use in-language derives:
+
+| File | Derive | Description |
+|------|--------|-------------|
+| `Stringable.XXML` | Stringable | Generates `toString()` method |
+| `DeriveContext.XXML` | - | XXML wrapper for the DeriveContext C API |
+
+To use them:
+```bash
+# Compile the derive
+xxml --derive Language/Derives/Stringable.XXML -o Stringable.dll
+
+# Use it
+xxml --use-derive=Stringable.dll MyApp.XXML -o app.exe
+```
+
+### In-Language vs C++ Derives
+
+| Aspect | In-Language (XXML) | C++ Handler |
+|--------|-------------------|-------------|
+| Language | XXML | C++ |
+| Distribution | DLL file | Built into compiler |
+| Compilation | Separate `--derive` step | Compiler rebuild |
+| AST Access | String templates | Direct AST manipulation |
+| Type Safety | Runtime validation | Compile-time validation |
+| Best For | User-defined traits | Core language features |
+
+### Limitations
+
+1. **String-Based Code Generation**: Generated method bodies are XXML source strings that are parsed at compile time. Syntax errors in generated code will be reported but may be harder to debug.
+
+2. **No Direct AST Access**: Unlike C++ handlers, in-language derives cannot directly construct AST nodes. All code generation is via string templates.
+
+3. **Runtime Overhead**: Type system queries (`typeHasMethod`, etc.) are resolved at compile time when the derive runs, but require function calls through the DLL boundary.
+
+4. **Debugging**: Debug information for generated code points to the derive definition, not the generated method body.
+
+---
+
 ## Examples
 
 ### Complete Example: Data Class
@@ -767,6 +1068,6 @@ Source with @Derive annotations
 
 ---
 
-**XXML Derive System v2.0**
+**XXML Derive System v3.0**
 
-*Last updated: Added Sendable, Sharable, and JSON derives for XXML 3.0.0*
+*Last updated: Added In-Language Derives system - write custom derives entirely in XXML without C++ code*

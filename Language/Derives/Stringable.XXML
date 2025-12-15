@@ -1,0 +1,148 @@
+// Stringable - In-language derive that generates toString() method
+// This is a proof-of-concept showing how derives can be written in XXML
+// instead of requiring C++ backing code.
+//
+// Usage:
+//   @Derive(trait = "Stringable")
+//   [ Class <MyClass> ... ]
+//
+// Generates:
+//   Method <toString> Returns String^ Parameters () Do {
+//       Return String::Constructor("MyClass{prop1=").append(prop1.toString())
+//           .append(String::Constructor(", prop2=")).append(prop2.toString())
+//           .append(String::Constructor("}"));
+//   }
+
+#import Language::Core;
+#import Language::Derives;
+
+[ Derive <Stringable>
+    [ Public <>
+        // Validate that all properties can be converted to string
+        Method <canDerive> Returns String^ Parameters (
+            Parameter <ctx> Types DeriveContext&
+        ) Do {
+            // Get property count
+            Instantiate Integer^ As <count> = ctx.getPropertyCount();
+            Instantiate Integer^ As <i> = Integer::Constructor(0);
+
+            // Check each property
+            While (i.lessThan(count)) -> {
+                Instantiate String^ As <propType> = ctx.getPropertyTypeAt(i);
+
+                // Built-in types always have toString
+                If (ctx.isBuiltinType(propType)) -> {
+                    Set i = i.add(Integer::Constructor(1));
+                    Continue;
+                }
+
+                // Check if the type has a toString method
+                If (ctx.typeHasMethod(propType, String::Constructor("toString")).not()) -> {
+                    // Return error message
+                    Instantiate String^ As <propName> = ctx.getPropertyNameAt(i);
+                    Return String::Constructor("Property '")
+                        .append(propName)
+                        .append(String::Constructor("' of type '"))
+                        .append(propType)
+                        .append(String::Constructor("' does not have a toString() method"));
+                }
+
+                Set i = i.add(Integer::Constructor(1));
+            }
+
+            // All properties are valid - return empty string (success)
+            Return String::Constructor("");
+        }
+
+        // Generate the toString() method
+        Method <generate> Returns None Parameters (
+            Parameter <ctx> Types DeriveContext&
+        ) Do {
+            Instantiate Integer^ As <count> = ctx.getPropertyCount();
+            Instantiate String^ As <className> = ctx.getClassName();
+
+            // Build method body
+            Instantiate String^ As <body> = String::Constructor("");
+
+            If (count.equals(Integer::Constructor(0))) -> {
+                // No properties: just return "ClassName{}"
+                Set body = String::Constructor("Return String::Constructor(\"")
+                    .append(className)
+                    .append(String::Constructor("{}\");"));
+            } Else -> {
+                // Build: Return String::Constructor("ClassName{prop1=")
+                //            .append(prop1.toString())
+                //            .append(String::Constructor(", prop2="))
+                //            .append(prop2.toString())
+                //            .append(String::Constructor("}"));
+
+                // Start with return and class name
+                Set body = String::Constructor("Return String::Constructor(\"")
+                    .append(className)
+                    .append(String::Constructor("{"));
+
+                // Add first property name
+                Instantiate String^ As <firstProp> = ctx.getPropertyNameAt(Integer::Constructor(0));
+                Instantiate String^ As <firstType> = ctx.getPropertyTypeAt(Integer::Constructor(0));
+
+                Set body = body.append(firstProp)
+                    .append(String::Constructor("=\")"));
+
+                // Add first property value
+                If (firstType.equals(String::Constructor("String"))) -> {
+                    // String doesn't need toString()
+                    Set body = body
+                        .append(String::Constructor(".append("))
+                        .append(firstProp)
+                        .append(String::Constructor(")"));
+                } Else -> {
+                    // Other types need toString()
+                    Set body = body
+                        .append(String::Constructor(".append("))
+                        .append(firstProp)
+                        .append(String::Constructor(".toString())"));
+                }
+
+                // Add remaining properties
+                Instantiate Integer^ As <i> = Integer::Constructor(1);
+                While (i.lessThan(count)) -> {
+                    Instantiate String^ As <propName> = ctx.getPropertyNameAt(i);
+                    Instantiate String^ As <propType> = ctx.getPropertyTypeAt(i);
+
+                    // Add separator and property name
+                    Set body = body
+                        .append(String::Constructor(".append(String::Constructor(\", "))
+                        .append(propName)
+                        .append(String::Constructor("=\"))"));
+
+                    // Add property value
+                    If (propType.equals(String::Constructor("String"))) -> {
+                        Set body = body
+                            .append(String::Constructor(".append("))
+                            .append(propName)
+                            .append(String::Constructor(")"));
+                    } Else -> {
+                        Set body = body
+                            .append(String::Constructor(".append("))
+                            .append(propName)
+                            .append(String::Constructor(".toString())"));
+                    }
+
+                    Set i = i.add(Integer::Constructor(1));
+                }
+
+                // Close with "}"
+                Set body = body
+                    .append(String::Constructor(".append(String::Constructor(\"}\"));"));
+            }
+
+            // Add the method to the target class
+            Run ctx.addMethod(
+                String::Constructor("toString"),
+                String::Constructor("String^"),
+                String::Constructor(""),
+                body
+            );
+        }
+    ]
+]

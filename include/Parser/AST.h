@@ -15,6 +15,7 @@ class AnnotationUsage;
 class AnnotationDecl;
 class AnnotateDecl;
 class ProcessorDecl;
+class DeriveDecl;
 class StructureDecl;
 class NativeStructureDecl;
 class CallbackTypeDecl;
@@ -956,6 +957,27 @@ public:
     std::unique_ptr<ASTNode> clone() const override;
 };
 
+// User-defined derive definition
+// [ Derive <TraitName> ... ]
+class DeriveDecl : public Declaration {
+public:
+    std::string name;  // Trait name (e.g., "Stringable", "Equatable")
+    std::vector<std::unique_ptr<AccessSection>> sections;  // Public/Private sections
+
+    // Parsed from sections - pointers to methods within sections (not owned)
+    MethodDecl* generateMethod = nullptr;   // Required: generate(DeriveContext&) -> None
+    MethodDecl* canDeriveMethod = nullptr;  // Optional: canDerive(DeriveContext&) -> String^
+
+    DeriveDecl(const std::string& n,
+               std::vector<std::unique_ptr<AccessSection>> s,
+               const Common::SourceLocation& loc)
+        : Declaration(loc), name(n), sections(std::move(s)) {}
+
+    void accept(ASTVisitor& visitor) override;
+    std::unique_ptr<ASTNode> clone() const override;
+    std::unique_ptr<Declaration> cloneDecl() const override;
+};
+
 // Root node
 class Program : public ASTNode {
 public:
@@ -993,6 +1015,7 @@ public:
     virtual void visit(ProcessorDecl& node) = 0;
     virtual void visit(AnnotationDecl& node) = 0;
     virtual void visit(AnnotationUsage& node) = 0;
+    virtual void visit(DeriveDecl& node) = 0;
 
     virtual void visit(InstantiateStmt& node) = 0;
     virtual void visit(RequireStmt& node) = 0;

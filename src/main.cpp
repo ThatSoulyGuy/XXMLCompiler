@@ -22,6 +22,7 @@
 #include "Utils/ProcessUtils.h"
 #include "AnnotationProcessor/ProcessorLoader.h"
 #include "AnnotationProcessor/ProcessorCompiler.h"
+#include "Derive/InLanguageDeriveRegistry.h"
 
 std::string readFile(const std::string& filename) {
     std::ifstream file(filename);
@@ -90,6 +91,8 @@ void printUsage(const char* programName) {
     std::cerr << "  --emit-llvm            Alias for --ir\n";
     std::cerr << "  --processor            Compile annotation processor to DLL\n";
     std::cerr << "  --use-processor=<dll>  Load annotation processor DLL (can be used multiple times)\n";
+    std::cerr << "  --derive               Compile in-language derive to DLL\n";
+    std::cerr << "  --use-derive=<dll>     Load in-language derive DLL (can be used multiple times)\n";
     std::cerr << "  --stl-warnings         Show warnings for standard library files (off by default)\n";
     std::cerr << "  --dump-ownership       Dump ownership analysis information for debugging\n";
     std::cerr << "  2                      Legacy mode: LLVM IR only\n\n";
@@ -109,6 +112,8 @@ void printUsage(const char* programName) {
     std::cerr << "  " << programName << " Hello.XXML -o hello.ll --ir                # Generate LLVM IR only\n";
     std::cerr << "  " << programName << " --processor MyAnnot.XXML -o MyAnnot.dll    # Compile processor DLL\n";
     std::cerr << "  " << programName << " --use-processor=MyAnnot.dll App.XXML -o app.exe  # Use processor\n";
+    std::cerr << "  " << programName << " --derive MyDerive.XXML -o MyDerive.dylib  # Compile derive DLL\n";
+    std::cerr << "  " << programName << " --use-derive=MyDerive.dylib App.XXML -o app.exe  # Use derive\n";
 }
 
 int main(int argc, char* argv[]) {
@@ -124,9 +129,11 @@ int main(int argc, char* argv[]) {
     std::string outputFile;
     bool llvmIROnly = false;
     bool processorMode = false;
+    bool deriveMode = false;
     bool showSTLWarnings = false;
     bool dumpOwnership = false;
     std::vector<std::string> processorDLLs;
+    std::vector<std::string> deriveDLLs;
     std::vector<std::string> includeDirs;  // Additional import search paths
 
     // Optimization settings
@@ -145,6 +152,14 @@ int main(int argc, char* argv[]) {
             llvmIROnly = true;
         } else if (arg == "--processor") {
             processorMode = true;
+        } else if (arg == "--derive") {
+            deriveMode = true;
+        } else if (arg.rfind("--use-derive=", 0) == 0) {
+            // Extract DLL path after '='
+            std::string dllPath = arg.substr(13);
+            if (!dllPath.empty()) {
+                deriveDLLs.push_back(dllPath);
+            }
         } else if (arg.rfind("--use-processor=", 0) == 0) {
             // Extract DLL path after '='
             std::string dllPath = arg.substr(16);
@@ -234,6 +249,7 @@ int main(int argc, char* argv[]) {
         XXML::Common::ErrorReporter errorReporter;
         XXML::Import::ImportResolver resolver;
         XXML::AnnotationProcessor::ProcessorRegistry processorRegistry;
+        XXML::Derive::InLanguageDeriveRegistry deriveRegistry;
 
         // Initialize file discovery with compiler path and source file path
         resolver.initializeWithCompilerPath(argv[0]);
@@ -309,6 +325,17 @@ int main(int argc, char* argv[]) {
                     errorReporter.clear();  // Clear the error to continue
                 } else {
                     std::cout << "  Loaded successfully\n";
+                }
+            }
+        }
+
+        // Load user-specified derive DLLs
+        if (!deriveDLLs.empty()) {
+            std::cout << "Loading in-language derives...\n";
+            for (const auto& dllPath : deriveDLLs) {
+                std::cout << "  Loading: " << dllPath << "\n";
+                if (!deriveRegistry.loadDerive(dllPath)) {
+                    std::cerr << "  Warning: Failed to load derive: " << dllPath << "\n";
                 }
             }
         }
@@ -485,6 +512,8 @@ int main(int argc, char* argv[]) {
                 for (const auto& [name, templateInfo] : allTemplateClasses) {
                     analyzer->registerTemplateClass(name, templateInfo);
                 }
+                // Set in-language derive registry for @Derive annotations
+                analyzer->getDeriveRegistry().setInLanguageRegistry(&deriveRegistry);
                 analyzer->analyze(*it->second->ast);
                 if (errorReporter.hasErrors()) {
                     errorReporter.printErrors();
@@ -570,6 +599,8 @@ int main(int argc, char* argv[]) {
                 // Merge class and enum registries from all modules for cross-module type resolution
                 validator->mergeClassRegistry(allClasses);
                 validator->mergeEnumRegistry(allEnums);
+                // Set in-language derive registry for @Derive annotations
+                validator->getDeriveRegistry().setInLanguageRegistry(&deriveRegistry);
                 validator->analyze(*it->second->ast);
                 if (errorReporter.hasErrors()) {
                     errorReporter.printErrors();
@@ -600,6 +631,8 @@ int main(int argc, char* argv[]) {
             mainAnalyzer->mergeExpressionTypes(analyzer->getExpressionTypes());
             mainAnalyzer->mergeEnumRegistry(analyzer->getEnumRegistry());
         }
+        // Set in-language derive registry BEFORE analysis (derives are processed during class analysis)
+        mainAnalyzer->getDeriveRegistry().setInLanguageRegistry(&deriveRegistry);
         // Run the full multi-stage pipeline (TypeCanonicalizer -> SemanticAnalysis ->
         // TemplateExpander -> OwnershipAnalyzer -> LayoutComputer -> ABILowering)
         auto passResults = mainAnalyzer->runPipeline(*mainModule->ast);
@@ -807,6 +840,19 @@ int main(int argc, char* argv[]) {
                 }
                 llvmBackend->setProcessorMode(true, annotationName);
             }
+
+            // Set derive mode if compiling in-language derive to DLL
+            if (deriveMode) {
+                // Find the derive name from the AST
+                std::string deriveName;
+                for (const auto& decl : mainModule->ast->declarations) {
+                    if (auto* deriveDecl = dynamic_cast<XXML::Parser::DeriveDecl*>(decl.get())) {
+                        deriveName = deriveDecl->name;
+                        break;
+                    }
+                }
+                llvmBackend->setDeriveMode(true, deriveName);
+            }
         }
 
         std::string llvmIR = backend->generate(*mainModule->ast);
@@ -820,11 +866,11 @@ int main(int argc, char* argv[]) {
             std::cout << "\n✓ Generated " << llvmIR.length() << " bytes of LLVM IR\n";
             std::cout << "\nTo compile: clang " << outputFile << " -o output\n";
         } else {
-            // Compile to executable (or DLL in processor mode)
+            // Compile to executable (or DLL in processor/derive mode)
             std::string executablePath = outputPath.string();
 #ifdef _WIN32
-            if (processorMode) {
-                // Processor mode: create DLL
+            if (processorMode || deriveMode) {
+                // Processor/Derive mode: create DLL
                 if (outputPath.extension() != ".dll") {
                     executablePath = outputPath.stem().string() + ".dll";
                 }
@@ -940,8 +986,8 @@ int main(int argc, char* argv[]) {
             linkConfig.objectFiles.push_back(objPath);
             if (!runtimeLibPath.empty()) linkConfig.libraries.push_back(runtimeLibPath);
             linkConfig.outputPath = executablePath;
-            linkConfig.createConsoleApp = !processorMode;  // Console app unless creating DLL
-            linkConfig.createDLL = processorMode;          // Create DLL for processor mode
+            linkConfig.createConsoleApp = !(processorMode || deriveMode);  // Console app unless creating DLL
+            linkConfig.createDLL = processorMode || deriveMode;            // Create DLL for processor/derive mode
             linkConfig.optimizationLevel = optimizationLevel;
             linkConfig.stripSymbols = !includeDebugSymbols;  // Strip symbols when debug info disabled
 
@@ -954,6 +1000,8 @@ int main(int argc, char* argv[]) {
             std::cout << "\n✓ Compilation successful!\n";
             if (processorMode) {
                 std::cout << "  Processor DLL: " << executablePath << "\n";
+            } else if (deriveMode) {
+                std::cout << "  Derive DLL: " << executablePath << "\n";
             } else {
                 std::cout << "  Executable: " << executablePath << "\n";
             }

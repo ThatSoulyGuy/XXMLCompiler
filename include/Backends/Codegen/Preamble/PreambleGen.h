@@ -58,6 +58,7 @@ private:
     void emitReflectionRuntime(std::stringstream& out) const;
     void emitAnnotationRuntime(std::stringstream& out) const;
     void emitProcessorAPI(std::stringstream& out) const;
+    void emitDeriveAPI(std::stringstream& out) const;
     void emitDynamicValueMethods(std::stringstream& out) const;
     void emitUtilityFunctions(std::stringstream& out) const;
     void emitThreadingFunctions(std::stringstream& out) const;

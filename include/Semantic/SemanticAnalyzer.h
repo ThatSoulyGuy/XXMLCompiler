@@ -106,6 +106,7 @@ private:
     bool enableValidation;  // Controls whether to do full validation
     bool inTemplateDefinition;  // True when analyzing template class/method definition
     bool inProcessorContext_ = false;  // True when visiting ProcessorDecl (enables intrinsic types)
+    bool inDeriveContext_ = false;     // True when visiting DeriveDecl (enables DeriveContext type)
     std::string processorTargetType_;  // The type being annotated (for getTargetValue() return type)
     std::string currentAnnotationName_;  // The annotation being processed (for getAnnotationArg() return type)
     std::set<std::string> templateTypeParameters;  // Template parameters in current scope
@@ -593,6 +594,7 @@ public:
     void visit(Parser::ProcessorDecl& node) override;
     void visit(Parser::AnnotationDecl& node) override;
     void visit(Parser::AnnotationUsage& node) override;
+    void visit(Parser::DeriveDecl& node) override;
 
     void visit(Parser::InstantiateStmt& node) override;
     void visit(Parser::RequireStmt& node) override;

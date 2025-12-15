@@ -49,6 +49,7 @@ public:
     virtual void visitNamespace(Parser::NamespaceDecl* decl);
     virtual void visitEntrypoint(Parser::EntrypointDecl* decl);
     virtual void visitAnnotationDecl(Parser::AnnotationDecl* decl);
+    virtual void visitDerive(Parser::DeriveDecl* decl);
 
 protected:
     CodegenContext& ctx_;

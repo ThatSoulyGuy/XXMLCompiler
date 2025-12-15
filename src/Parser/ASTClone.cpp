@@ -731,6 +731,29 @@ std::unique_ptr<ASTNode> AnnotationUsage::clone() const {
     return std::make_unique<AnnotationUsage>(annotationName, std::move(clonedArgs), location);
 }
 
+std::unique_ptr<ASTNode> DeriveDecl::clone() const {
+    return cloneDecl();
+}
+
+std::unique_ptr<Declaration> DeriveDecl::cloneDecl() const {
+    std::vector<std::unique_ptr<AccessSection>> clonedSections;
+    for (const auto& section : sections) {
+        clonedSections.push_back(cloneAccessSection(*section));
+    }
+
+    auto cloned = std::make_unique<DeriveDecl>(
+        name,
+        std::move(clonedSections),
+        location
+    );
+
+    // Note: generateMethod and canDeriveMethod are non-owning pointers
+    // They will need to be re-resolved after cloning by walking the sections
+    // For now, leave them as nullptr - they can be resolved during semantic analysis
+
+    return cloned;
+}
+
 // ============================================================================
 // Program Clone
 // ============================================================================

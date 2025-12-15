@@ -88,6 +88,7 @@ std::string PreambleGen::generate() const {
     emitReflectionRuntime(preamble);
     emitAnnotationRuntime(preamble);
     emitProcessorAPI(preamble);
+    emitDeriveAPI(preamble);
     emitDynamicValueMethods(preamble);
     emitUtilityFunctions(preamble);
     emitThreadingFunctions(preamble);
@@ -446,6 +447,44 @@ void PreambleGen::emitProcessorAPI(std::stringstream& out) const {
     out << "declare ptr @xxml_Processor_getAnnotationStringArg(ptr, ptr, ptr)\n";
     out << "declare i64 @xxml_Processor_getAnnotationBoolArg(ptr, ptr, i64)\n";
     out << "declare double @xxml_Processor_getAnnotationDoubleArg(ptr, ptr, double)\n";
+    out << "\n";
+}
+
+void PreambleGen::emitDeriveAPI(std::stringstream& out) const {
+    out << "; Derive API (for in-language derives)\n";
+    // Target class introspection
+    out << "declare ptr @xxml_Derive_getClassName(ptr)\n";
+    out << "declare ptr @xxml_Derive_getNamespaceName(ptr)\n";
+    out << "declare ptr @xxml_Derive_getSourceFile(ptr)\n";
+    out << "declare i64 @xxml_Derive_getLineNumber(ptr)\n";
+    out << "declare i64 @xxml_Derive_getColumnNumber(ptr)\n";
+    // Property inspection
+    out << "declare i64 @xxml_Derive_getPropertyCount(ptr)\n";
+    out << "declare ptr @xxml_Derive_getPropertyNameAt(ptr, i64)\n";
+    out << "declare ptr @xxml_Derive_getPropertyTypeAt(ptr, i64)\n";
+    out << "declare ptr @xxml_Derive_getPropertyOwnershipAt(ptr, i64)\n";
+    out << "declare ptr @xxml_Derive_hasProperty(ptr, ptr)\n";
+    // Method inspection
+    out << "declare i64 @xxml_Derive_getMethodCount(ptr)\n";
+    out << "declare ptr @xxml_Derive_getMethodNameAt(ptr, i64)\n";
+    out << "declare ptr @xxml_Derive_getMethodReturnTypeAt(ptr, i64)\n";
+    out << "declare ptr @xxml_Derive_hasMethod(ptr, ptr)\n";
+    out << "declare ptr @xxml_Derive_getBaseClassName(ptr)\n";
+    out << "declare ptr @xxml_Derive_isClassFinal(ptr)\n";
+    // Type system queries
+    out << "declare ptr @xxml_Derive_typeHasMethod(ptr, ptr, ptr)\n";
+    out << "declare ptr @xxml_Derive_typeHasProperty(ptr, ptr, ptr)\n";
+    out << "declare ptr @xxml_Derive_typeImplementsTrait(ptr, ptr, ptr)\n";
+    out << "declare ptr @xxml_Derive_isBuiltinType(ptr, ptr)\n";
+    // Code generation
+    out << "declare ptr @xxml_Derive_addMethod(ptr, ptr, ptr, ptr, ptr)\n";
+    out << "declare ptr @xxml_Derive_addStaticMethod(ptr, ptr, ptr, ptr, ptr)\n";
+    out << "declare ptr @xxml_Derive_addProperty(ptr, ptr, ptr, ptr, ptr)\n";
+    // Diagnostics
+    out << "declare void @xxml_Derive_error(ptr, ptr)\n";
+    out << "declare void @xxml_Derive_warning(ptr, ptr)\n";
+    out << "declare void @xxml_Derive_message(ptr, ptr)\n";
+    out << "declare ptr @xxml_Derive_hasErrors(ptr)\n";
     out << "\n";
 }
 

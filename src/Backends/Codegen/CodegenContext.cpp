@@ -813,6 +813,10 @@ bool CodegenContext::needsDestruction(const std::string& typeName) const {
 void CodegenContext::emitScopeDestructors() {
     if (destructorScopes_.empty()) return;
 
+    // Don't emit destructors if current block already has a terminator (e.g., after a return)
+    // This prevents generating unreachable code
+    if (currentBlock_ && currentBlock_->getTerminator()) return;
+
     auto& scope = destructorScopes_.back();
     // LIFO order - destroy in reverse order of construction
     for (auto it = scope.rbegin(); it != scope.rend(); ++it) {

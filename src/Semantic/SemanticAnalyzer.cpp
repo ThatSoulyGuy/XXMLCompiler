@@ -250,6 +250,45 @@ SemanticAnalyzer::SemanticAnalyzer(Core::CompilationContext& context, Common::Er
     intrinsicMethods_["Syscall::Processor_error"] = {"None", Parser::OwnershipType::None};
     intrinsicMethods_["Syscall::Processor_errorAt"] = {"None", Parser::OwnershipType::None};
 
+    // Syscall - derive context introspection
+    intrinsicMethods_["Syscall::Derive_getClassName"] = {"NativeType<\"ptr\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::Derive_getNamespaceName"] = {"NativeType<\"ptr\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::Derive_getSourceFile"] = {"NativeType<\"ptr\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::Derive_getLineNumber"] = {"NativeType<\"int64\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::Derive_getColumnNumber"] = {"NativeType<\"int64\">", Parser::OwnershipType::Owned};
+
+    // Syscall - derive property inspection
+    intrinsicMethods_["Syscall::Derive_getPropertyCount"] = {"NativeType<\"int64\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::Derive_getPropertyNameAt"] = {"NativeType<\"ptr\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::Derive_getPropertyTypeAt"] = {"NativeType<\"ptr\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::Derive_getPropertyOwnershipAt"] = {"NativeType<\"ptr\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::Derive_hasProperty"] = {"NativeType<\"ptr\">", Parser::OwnershipType::Owned};
+
+    // Syscall - derive method inspection
+    intrinsicMethods_["Syscall::Derive_getMethodCount"] = {"NativeType<\"int64\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::Derive_getMethodNameAt"] = {"NativeType<\"ptr\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::Derive_getMethodReturnTypeAt"] = {"NativeType<\"ptr\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::Derive_hasMethod"] = {"NativeType<\"ptr\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::Derive_getBaseClassName"] = {"NativeType<\"ptr\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::Derive_isClassFinal"] = {"NativeType<\"ptr\">", Parser::OwnershipType::Owned};
+
+    // Syscall - derive type system queries
+    intrinsicMethods_["Syscall::Derive_typeHasMethod"] = {"NativeType<\"ptr\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::Derive_typeHasProperty"] = {"NativeType<\"ptr\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::Derive_typeImplementsTrait"] = {"NativeType<\"ptr\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::Derive_isBuiltinType"] = {"NativeType<\"ptr\">", Parser::OwnershipType::Owned};
+
+    // Syscall - derive code generation
+    intrinsicMethods_["Syscall::Derive_addMethod"] = {"None", Parser::OwnershipType::None};
+    intrinsicMethods_["Syscall::Derive_addStaticMethod"] = {"None", Parser::OwnershipType::None};
+    intrinsicMethods_["Syscall::Derive_addProperty"] = {"None", Parser::OwnershipType::None};
+
+    // Syscall - derive diagnostics
+    intrinsicMethods_["Syscall::Derive_error"] = {"None", Parser::OwnershipType::None};
+    intrinsicMethods_["Syscall::Derive_warning"] = {"None", Parser::OwnershipType::None};
+    intrinsicMethods_["Syscall::Derive_message"] = {"None", Parser::OwnershipType::None};
+    intrinsicMethods_["Syscall::Derive_hasErrors"] = {"NativeType<\"ptr\">", Parser::OwnershipType::Owned};
+
     // String constructors and methods
     intrinsicMethods_["String::Constructor"] = {"String", Parser::OwnershipType::Owned};
     intrinsicMethods_["Language::Core::String::Constructor"] = {"String", Parser::OwnershipType::Owned};
@@ -1644,8 +1683,8 @@ void SemanticAnalyzer::visit(Parser::DestructorDecl& node) {
 }
 
 void SemanticAnalyzer::visit(Parser::MethodDecl& node) {
-    // ERROR: Methods must be declared inside a class (or inside a Processor block)
-    if (currentClass.empty() && !inProcessorContext_) {
+    // ERROR: Methods must be declared inside a class (or inside a Processor/Derive block)
+    if (currentClass.empty() && !inProcessorContext_ && !inDeriveContext_) {
         errorReporter.reportError(
             Common::ErrorCode::InvalidMethodDeclaration,
             "Method '" + node.name + "' must be declared inside a class. "
@@ -5809,6 +5848,87 @@ void SemanticAnalyzer::visit(Parser::AnnotationUsage& node) {
 
     // Note: Full validation is done in validateAnnotationUsage() which is called
     // by the parent declaration visitor with the appropriate target kind
+}
+
+void SemanticAnalyzer::visit(Parser::DeriveDecl& node) {
+    // In-language derive declaration - these get compiled to DLLs similar to annotation processors
+    // For now, just validate the structure and visit contents
+
+    // Enable derive context - this allows DeriveContext type and methods inside the block
+    inDeriveContext_ = true;
+
+    // Visit all sections
+    for (auto& section : node.sections) {
+        section->accept(*this);
+    }
+
+    // Disable derive context
+    inDeriveContext_ = false;
+
+    // Validate that 'generate' method exists and has correct signature
+    // The parser should have already linked generateMethod pointer
+    if (!node.generateMethod) {
+        errorReporter.reportError(
+            Common::ErrorCode::InvalidMethodDeclaration,
+            "Derive '" + node.name + "' must have a 'generate' method",
+            node.location
+        );
+        return;
+    }
+
+    // Validate generate method signature: (DeriveContext&) -> None
+    if (node.generateMethod->parameters.size() != 1) {
+        errorReporter.reportError(
+            Common::ErrorCode::InvalidMethodDeclaration,
+            "Derive 'generate' method must take exactly one parameter of type DeriveContext&",
+            node.generateMethod->location
+        );
+    } else {
+        auto& param = node.generateMethod->parameters[0];
+        if (param->type->typeName != "DeriveContext" ||
+            param->type->ownership != Parser::OwnershipType::Reference) {
+            errorReporter.reportError(
+                Common::ErrorCode::TypeMismatch,
+                "Derive 'generate' method parameter must be of type DeriveContext&",
+                param->location
+            );
+        }
+    }
+
+    // If canDerive method exists, validate its signature: (DeriveContext&) -> String^
+    if (node.canDeriveMethod) {
+        if (node.canDeriveMethod->parameters.size() != 1) {
+            errorReporter.reportError(
+                Common::ErrorCode::InvalidMethodDeclaration,
+                "Derive 'canDerive' method must take exactly one parameter of type DeriveContext&",
+                node.canDeriveMethod->location
+            );
+        } else {
+            auto& param = node.canDeriveMethod->parameters[0];
+            if (param->type->typeName != "DeriveContext" ||
+                param->type->ownership != Parser::OwnershipType::Reference) {
+                errorReporter.reportError(
+                    Common::ErrorCode::TypeMismatch,
+                    "Derive 'canDerive' method parameter must be of type DeriveContext&",
+                    param->location
+                );
+            }
+        }
+
+        // Validate return type is String^
+        if (!node.canDeriveMethod->returnType ||
+            node.canDeriveMethod->returnType->typeName != "String" ||
+            node.canDeriveMethod->returnType->ownership != Parser::OwnershipType::Owned) {
+            errorReporter.reportError(
+                Common::ErrorCode::TypeMismatch,
+                "Derive 'canDerive' method must return String^",
+                node.canDeriveMethod->location
+            );
+        }
+    }
+
+    // TODO: Queue for auto-compilation to DLL (Phase 3)
+    // This will follow a similar pattern to processor compilation
 }
 
 std::string SemanticAnalyzer::annotationTargetToString(Parser::AnnotationTarget target) {

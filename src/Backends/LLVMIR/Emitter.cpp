@@ -234,10 +234,19 @@ void LLVMEmitter::emitBasicBlock(const BasicBlock* bb) {
 
     out_ << name << ":\n";
 
+    bool sawTerminator = false;
     for (const Instruction* inst : *bb) {
+        // Skip unreachable instructions after a terminator
+        if (sawTerminator) continue;
+
         out_ << "  ";
         emitInstruction(inst);
         out_ << "\n";
+
+        // Check if this instruction is a terminator
+        if (inst->isTerminator()) {
+            sawTerminator = true;
+        }
     }
 }
 
@@ -756,7 +765,20 @@ void LLVMEmitter::assignValueNames(const Function* func) {
             valueNames_[bb.get()] = "%bb" + std::to_string(blockCounter_++);
         }
 
+        bool sawTerminator = false;
         for (const Instruction* inst : *bb) {
+            // Skip unreachable instructions after a terminator
+            if (sawTerminator) continue;
+
+            // Check if this instruction is a terminator BEFORE numbering
+            // Terminators must be checked first because they don't produce SSA values
+            // even if their type is non-void (e.g., ReturnValueInst stores the type
+            // of the returned value, not void, but ret doesn't produce a new value)
+            if (inst->isTerminator()) {
+                sawTerminator = true;
+                continue;  // Don't number terminator instructions
+            }
+
             // Only name instructions that produce values
             if (inst->getType() && !inst->getType()->isVoid()) {
                 if (inst->hasName()) {

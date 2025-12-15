@@ -85,6 +85,7 @@ std::string LLVMBackend::generate(Parser::Program& program) {
     // Set processor mode on the codegen context
     if (modularCodegen_) {
         modularCodegen_->context().setProcessorMode(processorMode_);
+        modularCodegen_->context().setDeriveMode(deriveMode_);
     }
 
     // Track preamble-declared functions to prevent duplicates when processing modules
@@ -187,7 +188,10 @@ std::string LLVMBackend::generate(Parser::Program& program) {
                         ns->name.find("Syscall") == 0 || ns->name.find("Mem") == 0 ||
                         ns->name == "Collections") {
                         // In processor mode, we need to compile ProcessorCtx module classes
+                        // In derive mode, we need to compile Derives module classes
                         if (processorMode_ && ns->name.find("Language::ProcessorCtx") == 0) {
+                            isRuntimeModule = false;
+                        } else if (deriveMode_ && ns->name.find("Language::Derives") == 0) {
                             isRuntimeModule = false;
                         } else {
                             isRuntimeModule = true;
@@ -226,6 +230,11 @@ std::string LLVMBackend::generate(Parser::Program& program) {
     // Generate processor entry points if in processor mode
     if (processorMode_ && modularCodegen_) {
         modularCodegen_->generateProcessorEntryPoints(program, processorAnnotationName_);
+    }
+
+    // Generate derive entry points if in derive mode
+    if (deriveMode_ && modularCodegen_) {
+        modularCodegen_->generateDeriveEntryPoints(program, deriveModeName_);
     }
 
     // Build final output - all IR now comes from the Module

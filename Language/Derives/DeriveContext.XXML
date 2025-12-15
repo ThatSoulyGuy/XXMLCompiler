@@ -1,0 +1,345 @@
+// DeriveContext - XXML wrapper for derive API
+// Provides target class introspection, type system queries, and code generation
+// capabilities to user-defined derives.
+
+#import Language::Core;
+
+[ Namespace <Language::Derives>
+    [ Class <DeriveContext> Final Extends None
+        [ Private <>
+            Property <ctxPtr> Types NativeType<"ptr">^;
+        ]
+
+        [ Public <>
+            Constructor Parameters (
+                Parameter <ptr> Types NativeType<"ptr">%
+            ) ->
+            {
+                Run Syscall::memcpy(&ctxPtr, &ptr, 8);
+            }
+
+            // ================================================================
+            // Target Class Introspection
+            // ================================================================
+
+            // Get the name of the target class being derived
+            Method <getClassName> Returns String^ Parameters () ->
+            {
+                Instantiate NativeType<"ptr">^ As <ptr> = ctxPtr;
+                Instantiate NativeType<"ptr">^ As <result> =
+                    Syscall::Derive_getClassName(ptr);
+                Return result;
+            }
+
+            // Get the containing namespace
+            Method <getNamespaceName> Returns String^ Parameters () ->
+            {
+                Instantiate NativeType<"ptr">^ As <ptr> = ctxPtr;
+                Instantiate NativeType<"ptr">^ As <result> =
+                    Syscall::Derive_getNamespaceName(ptr);
+                Return result;
+            }
+
+            // Get the source file path
+            Method <getSourceFile> Returns String^ Parameters () ->
+            {
+                Instantiate NativeType<"ptr">^ As <ptr> = ctxPtr;
+                Instantiate NativeType<"ptr">^ As <result> =
+                    Syscall::Derive_getSourceFile(ptr);
+                Return result;
+            }
+
+            // Get the line number of the @Derive annotation
+            Method <getLineNumber> Returns Integer^ Parameters () ->
+            {
+                Instantiate NativeType<"ptr">^ As <ptr> = ctxPtr;
+                Instantiate NativeType<"int64">^ As <result> =
+                    Syscall::Derive_getLineNumber(ptr);
+                Return Integer::Constructor(result);
+            }
+
+            // Get the column number
+            Method <getColumnNumber> Returns Integer^ Parameters () ->
+            {
+                Instantiate NativeType<"ptr">^ As <ptr> = ctxPtr;
+                Instantiate NativeType<"int64">^ As <result> =
+                    Syscall::Derive_getColumnNumber(ptr);
+                Return Integer::Constructor(result);
+            }
+
+            // ================================================================
+            // Property Inspection
+            // ================================================================
+
+            // Get the number of properties in the target class
+            Method <getPropertyCount> Returns Integer^ Parameters () ->
+            {
+                Instantiate NativeType<"ptr">^ As <ptr> = ctxPtr;
+                Instantiate NativeType<"int64">^ As <result> =
+                    Syscall::Derive_getPropertyCount(ptr);
+                Return Integer::Constructor(result);
+            }
+
+            // Get property name by index (0-based)
+            Method <getPropertyNameAt> Returns String^ Parameters (
+                Parameter <index> Types Integer&
+            ) ->
+            {
+                Instantiate NativeType<"ptr">^ As <ptr> = ctxPtr;
+                Instantiate NativeType<"int64">^ As <idx> = index.toInt64();
+                Instantiate NativeType<"ptr">^ As <result> =
+                    Syscall::Derive_getPropertyNameAt(ptr, idx);
+                Return result;
+            }
+
+            // Get property type by index (0-based), without ownership marker
+            Method <getPropertyTypeAt> Returns String^ Parameters (
+                Parameter <index> Types Integer&
+            ) ->
+            {
+                Instantiate NativeType<"ptr">^ As <ptr> = ctxPtr;
+                Instantiate NativeType<"int64">^ As <idx> = index.toInt64();
+                Instantiate NativeType<"ptr">^ As <result> =
+                    Syscall::Derive_getPropertyTypeAt(ptr, idx);
+                Return result;
+            }
+
+            // Get property ownership by index ("^", "&", "%", or "")
+            Method <getPropertyOwnershipAt> Returns String^ Parameters (
+                Parameter <index> Types Integer&
+            ) ->
+            {
+                Instantiate NativeType<"ptr">^ As <ptr> = ctxPtr;
+                Instantiate NativeType<"int64">^ As <idx> = index.toInt64();
+                Instantiate NativeType<"ptr">^ As <result> =
+                    Syscall::Derive_getPropertyOwnershipAt(ptr, idx);
+                Return result;
+            }
+
+            // Check if the target class has a property with the given name
+            Method <hasProperty> Returns Bool^ Parameters (
+                Parameter <name> Types String&
+            ) ->
+            {
+                Instantiate NativeType<"ptr">^ As <ptr> = ctxPtr;
+                Instantiate NativeType<"ptr">^ As <result> =
+                    Syscall::Derive_hasProperty(ptr, name);
+                Return result;
+            }
+
+            // ================================================================
+            // Method Inspection
+            // ================================================================
+
+            // Get the number of methods in the target class
+            Method <getMethodCount> Returns Integer^ Parameters () ->
+            {
+                Instantiate NativeType<"ptr">^ As <ptr> = ctxPtr;
+                Instantiate NativeType<"int64">^ As <result> =
+                    Syscall::Derive_getMethodCount(ptr);
+                Return Integer::Constructor(result);
+            }
+
+            // Get method name by index (0-based)
+            Method <getMethodNameAt> Returns String^ Parameters (
+                Parameter <index> Types Integer&
+            ) ->
+            {
+                Instantiate NativeType<"ptr">^ As <ptr> = ctxPtr;
+                Instantiate NativeType<"int64">^ As <idx> = index.toInt64();
+                Instantiate NativeType<"ptr">^ As <result> =
+                    Syscall::Derive_getMethodNameAt(ptr, idx);
+                Return result;
+            }
+
+            // Get method return type by index (0-based)
+            Method <getMethodReturnTypeAt> Returns String^ Parameters (
+                Parameter <index> Types Integer&
+            ) ->
+            {
+                Instantiate NativeType<"ptr">^ As <ptr> = ctxPtr;
+                Instantiate NativeType<"int64">^ As <idx> = index.toInt64();
+                Instantiate NativeType<"ptr">^ As <result> =
+                    Syscall::Derive_getMethodReturnTypeAt(ptr, idx);
+                Return result;
+            }
+
+            // Check if the target class has a method with the given name
+            Method <hasMethod> Returns Bool^ Parameters (
+                Parameter <name> Types String&
+            ) ->
+            {
+                Instantiate NativeType<"ptr">^ As <ptr> = ctxPtr;
+                Instantiate NativeType<"ptr">^ As <result> =
+                    Syscall::Derive_hasMethod(ptr, name);
+                Return result;
+            }
+
+            // Get base class name (empty string if no base class)
+            Method <getBaseClassName> Returns String^ Parameters () ->
+            {
+                Instantiate NativeType<"ptr">^ As <ptr> = ctxPtr;
+                Instantiate NativeType<"ptr">^ As <result> =
+                    Syscall::Derive_getBaseClassName(ptr);
+                Return result;
+            }
+
+            // Check if target class is marked as Final
+            Method <isClassFinal> Returns Bool^ Parameters () ->
+            {
+                Instantiate NativeType<"ptr">^ As <ptr> = ctxPtr;
+                Instantiate NativeType<"ptr">^ As <result> =
+                    Syscall::Derive_isClassFinal(ptr);
+                Return result;
+            }
+
+            // ================================================================
+            // Type System Queries
+            // These allow derives to validate that types support required
+            // operations before generating code.
+            // ================================================================
+
+            // Check if a type has a method with the given name
+            Method <typeHasMethod> Returns Bool^ Parameters (
+                Parameter <typeName> Types String&,
+                Parameter <methodName> Types String&
+            ) ->
+            {
+                Instantiate NativeType<"ptr">^ As <ptr> = ctxPtr;
+                Instantiate NativeType<"ptr">^ As <result> =
+                    Syscall::Derive_typeHasMethod(ptr, typeName, methodName);
+                Return result;
+            }
+
+            // Check if a type has a property with the given name
+            Method <typeHasProperty> Returns Bool^ Parameters (
+                Parameter <typeName> Types String&,
+                Parameter <propertyName> Types String&
+            ) ->
+            {
+                Instantiate NativeType<"ptr">^ As <ptr> = ctxPtr;
+                Instantiate NativeType<"ptr">^ As <result> =
+                    Syscall::Derive_typeHasProperty(ptr, typeName, propertyName);
+                Return result;
+            }
+
+            // Check if a type implements a trait (has @Derive for that trait)
+            Method <typeImplementsTrait> Returns Bool^ Parameters (
+                Parameter <typeName> Types String&,
+                Parameter <traitName> Types String&
+            ) ->
+            {
+                Instantiate NativeType<"ptr">^ As <ptr> = ctxPtr;
+                Instantiate NativeType<"ptr">^ As <result> =
+                    Syscall::Derive_typeImplementsTrait(ptr, typeName, traitName);
+                Return result;
+            }
+
+            // Check if a type is a built-in type (Integer, String, Bool, etc.)
+            Method <isBuiltinType> Returns Bool^ Parameters (
+                Parameter <typeName> Types String&
+            ) ->
+            {
+                Instantiate NativeType<"ptr">^ As <ptr> = ctxPtr;
+                Instantiate NativeType<"ptr">^ As <result> =
+                    Syscall::Derive_isBuiltinType(ptr, typeName);
+                Return result;
+            }
+
+            // ================================================================
+            // Code Generation
+            // These methods allow derives to add new methods and properties
+            // to the target class. The generated code is provided as XXML
+            // source strings which are parsed and validated before injection.
+            // ================================================================
+
+            // Add a method to the target class
+            // - name: method name
+            // - returnType: return type (e.g., "String^")
+            // - parameters: parameter declarations (e.g., "Parameter <other> Types Point&")
+            //               or empty string for no parameters
+            // - body: method body as XXML code string
+            Method <addMethod> Returns None Parameters (
+                Parameter <name> Types String&,
+                Parameter <returnType> Types String&,
+                Parameter <parameters> Types String&,
+                Parameter <body> Types String&
+            ) ->
+            {
+                Instantiate NativeType<"ptr">^ As <ptr> = ctxPtr;
+                Run Syscall::Derive_addMethod(ptr, name, returnType, parameters, body);
+            }
+
+            // Add a static method to the target class
+            Method <addStaticMethod> Returns None Parameters (
+                Parameter <name> Types String&,
+                Parameter <returnType> Types String&,
+                Parameter <parameters> Types String&,
+                Parameter <body> Types String&
+            ) ->
+            {
+                Instantiate NativeType<"ptr">^ As <ptr> = ctxPtr;
+                Run Syscall::Derive_addStaticMethod(ptr, name, returnType, parameters, body);
+            }
+
+            // Add a property to the target class
+            // - name: property name
+            // - type: property type (without ownership)
+            // - ownership: ownership marker ("^", "&", "%", or "")
+            // - defaultValue: default value expression, or empty string
+            Method <addProperty> Returns None Parameters (
+                Parameter <name> Types String&,
+                Parameter <type> Types String&,
+                Parameter <ownership> Types String&,
+                Parameter <defaultValue> Types String&
+            ) ->
+            {
+                Instantiate NativeType<"ptr">^ As <ptr> = ctxPtr;
+                Run Syscall::Derive_addProperty(ptr, name, type, ownership, defaultValue);
+            }
+
+            // ================================================================
+            // Diagnostics
+            // ================================================================
+
+            // Emit an error message and fail the derive
+            // After calling this, the derive is considered failed and no code
+            // will be injected into the target class.
+            Method <error> Returns None Parameters (
+                Parameter <message> Types String&
+            ) ->
+            {
+                Instantiate NativeType<"ptr">^ As <ptr> = ctxPtr;
+                Run Syscall::Derive_error(ptr, message);
+            }
+
+            // Emit a warning message
+            // The derive will continue, but the warning will be reported.
+            Method <warning> Returns None Parameters (
+                Parameter <message> Types String&
+            ) ->
+            {
+                Instantiate NativeType<"ptr">^ As <ptr> = ctxPtr;
+                Run Syscall::Derive_warning(ptr, message);
+            }
+
+            // Emit an informational message
+            Method <message> Returns None Parameters (
+                Parameter <msg> Types String&
+            ) ->
+            {
+                Instantiate NativeType<"ptr">^ As <ptr> = ctxPtr;
+                Run Syscall::Derive_message(ptr, msg);
+            }
+
+            // Check if any errors have been emitted
+            Method <hasErrors> Returns Bool^ Parameters () ->
+            {
+                Instantiate NativeType<"ptr">^ As <ptr> = ctxPtr;
+                Instantiate NativeType<"ptr">^ As <result> =
+                    Syscall::Derive_hasErrors(ptr);
+                Return result;
+            }
+        ]
+    ]
+]

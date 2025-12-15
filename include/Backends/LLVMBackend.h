@@ -95,6 +95,12 @@ public:
         processorAnnotationName_ = annotationName;
     }
 
+    // Set derive compilation mode (compiles derive to DLL)
+    void setDeriveMode(bool enabled, const std::string& deriveName = "") {
+        deriveMode_ = enabled;
+        deriveModeName_ = deriveName;
+    }
+
 
     std::string generate(Parser::Program& program) override;
     std::string generateHeader(Parser::Program& program) override;
@@ -172,6 +178,10 @@ private:
     // Processor compilation mode (for compiling annotation processors to DLLs)
     bool processorMode_ = false;
     std::string processorAnnotationName_;
+
+    // Derive compilation mode (for compiling in-language derives to DLLs)
+    bool deriveMode_ = false;
+    std::string deriveModeName_;
 
     // Track generated (defined) functions to avoid duplicate definitions
     std::set<std::string> generatedFunctions_;

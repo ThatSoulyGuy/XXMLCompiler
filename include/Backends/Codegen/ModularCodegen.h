@@ -152,6 +152,13 @@ public:
     void generateProcessorEntryPoints(Parser::Program& program,
                                       const std::string& annotationName);
 
+    // === Derive Mode ===
+
+    /// Generate derive entry points
+    /// Creates __xxml_derive_name(), __xxml_derive_canDerive(), __xxml_derive_generate()
+    void generateDeriveEntryPoints(Parser::Program& program,
+                                   const std::string& deriveName);
+
 private:
     CodegenContext ctx_;
     std::unique_ptr<ExprCodegen> exprCodegen_;

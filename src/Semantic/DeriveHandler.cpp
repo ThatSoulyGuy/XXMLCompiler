@@ -1,5 +1,6 @@
 #include "../../include/Semantic/DeriveHandler.h"
 #include "../../include/Semantic/SemanticAnalyzer.h"
+#include "../../include/Derive/InLanguageDeriveRegistry.h"
 #include <iostream>
 #include <set>
 
@@ -194,16 +195,29 @@ bool DeriveRegistry::processClassDerives(
             traitName.pop_back();
         }
 
-        // Get the handler for this derive trait
+        // Get the handler for this derive trait (first check built-in, then in-language)
         DeriveHandler* handler = getHandler(traitName);
-        if (!handler) {
+        ::XXML::Derive::InLanguageDeriveHandler* inLangHandler = nullptr;
+
+        if (!handler && inLanguageRegistry_) {
+            // Try in-language derive registry
+            inLangHandler = inLanguageRegistry_->getDerive(traitName);
+        }
+
+        if (!handler && !inLangHandler) {
             std::cerr << "[Derive] Warning: Unknown derive trait '" << traitName
                       << "' for class '" << classDecl->name << "'\n";
             continue;
         }
 
-        // Check if derive can be applied
-        std::string canDeriveError = handler->canDerive(classDecl, analyzer);
+        // Check if derive can be applied (using appropriate handler)
+        std::string canDeriveError;
+        if (handler) {
+            canDeriveError = handler->canDerive(classDecl, analyzer);
+        } else {
+            canDeriveError = inLangHandler->canDerive(classDecl, analyzer);
+        }
+
         if (!canDeriveError.empty()) {
             std::cerr << "[Derive] Error: Cannot derive " << traitName
                       << " for class '" << classDecl->name << "': "
@@ -211,8 +225,13 @@ bool DeriveRegistry::processClassDerives(
             return false;
         }
 
-        // Generate the derived code
-        DeriveResult result = handler->generate(classDecl, analyzer);
+        // Generate the derived code (using appropriate handler)
+        DeriveResult result;
+        if (handler) {
+            result = handler->generate(classDecl, analyzer);
+        } else {
+            result = inLangHandler->generate(classDecl, analyzer);
+        }
 
         if (result.hasErrors()) {
             for (const auto& error : result.errors) {
@@ -263,7 +282,20 @@ std::vector<std::string> DeriveRegistry::getAvailableDerives() const {
     for (const auto& [name, handler] : handlers_) {
         result.push_back(name);
     }
+
+    // Also include in-language derives
+    if (inLanguageRegistry_) {
+        auto inLangDerives = inLanguageRegistry_->getRegisteredDerives();
+        for (const auto& name : inLangDerives) {
+            result.push_back(name);
+        }
+    }
+
     return result;
+}
+
+void DeriveRegistry::setInLanguageRegistry(Derive::InLanguageDeriveRegistry* registry) {
+    inLanguageRegistry_ = registry;
 }
 
 // ============================================================================

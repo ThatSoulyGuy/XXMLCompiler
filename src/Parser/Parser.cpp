@@ -152,6 +152,8 @@ std::unique_ptr<Declaration> Parser::parseDeclaration() {
             return parseConstraint();
         } else if (check(Lexer::TokenType::Annotation)) {
             return parseAnnotationDecl();
+        } else if (check(Lexer::TokenType::Derive)) {
+            return parseDeriveDecl();
         } else if (check(Lexer::TokenType::Entrypoint)) {
             return parseEntrypoint();
         } else if (check(Lexer::TokenType::Public) || check(Lexer::TokenType::Private) ||
@@ -1151,6 +1153,54 @@ std::unique_ptr<AnnotationDecl> Parser::parseAnnotationDecl() {
 
     return std::make_unique<AnnotationDecl>(name, std::move(targets), std::move(parameters),
                                             std::move(processor), retain, loc);
+}
+
+std::unique_ptr<DeriveDecl> Parser::parseDeriveDecl() {
+    auto loc = peek().location;
+    consume(Lexer::TokenType::Derive, "Expected 'Derive'");
+
+    std::string name = parseAngleBracketIdentifier();
+
+    std::vector<std::unique_ptr<AccessSection>> sections;
+
+    // Parse access sections (similar to class/processor)
+    while (!check(Lexer::TokenType::RightBracket) && !isAtEnd()) {
+        if (check(Lexer::TokenType::LeftBracket)) {
+            auto accessSection = parseAccessSection();
+            if (accessSection) {
+                sections.push_back(std::move(accessSection));
+            }
+        } else {
+            error("Expected access section in derive");
+            synchronize();
+            break;
+        }
+    }
+
+    consume(Lexer::TokenType::RightBracket, "Expected ']' after derive definition");
+
+    auto deriveDecl = std::make_unique<DeriveDecl>(name, std::move(sections), loc);
+
+    // Find and link the generate and canDerive methods
+    for (auto& section : deriveDecl->sections) {
+        for (auto& decl : section->declarations) {
+            if (auto* method = dynamic_cast<MethodDecl*>(decl.get())) {
+                if (method->name == "generate") {
+                    deriveDecl->generateMethod = method;
+                } else if (method->name == "canDerive") {
+                    deriveDecl->canDeriveMethod = method;
+                }
+            }
+        }
+    }
+
+    // Validate: generate method is required
+    if (!deriveDecl->generateMethod) {
+        error("Derive '" + name + "' must have a 'generate' method with signature: "
+              "(DeriveContext&) -> None");
+    }
+
+    return deriveDecl;
 }
 
 std::vector<std::unique_ptr<Statement>> Parser::parseBlock() {
@@ -2236,11 +2286,18 @@ std::string Parser::parseQualifiedIdentifier() {
         return result;
     }
 
-    if (check(Lexer::TokenType::Identifier)) {
+    // Handle keywords that can be used as identifiers in certain contexts
+    // (e.g., @Derive annotation where Derive is a keyword but also an annotation name)
+    auto isIdentifierOrKeywordAsIdentifier = [this]() {
+        return check(Lexer::TokenType::Identifier) ||
+               check(Lexer::TokenType::Derive);  // Allow "Derive" as identifier for @Derive annotation
+    };
+
+    if (isIdentifierOrKeywordAsIdentifier()) {
         result = advance().lexeme;
 
         while (match(Lexer::TokenType::DoubleColon)) {
-            if (check(Lexer::TokenType::Identifier)) {
+            if (isIdentifierOrKeywordAsIdentifier()) {
                 result += "::" + advance().lexeme;
             } else {
                 error("Expected identifier after '::'");

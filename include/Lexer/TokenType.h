@@ -64,6 +64,7 @@ enum class TokenType {
     Processor,        // Processor
     Retain,           // Retain
     AnnotationAllow,  // AnnotationAllow
+    Derive,           // Derive (user-defined derive declaration)
 
     // FFI keywords
     NativeStructure,  // NativeStructure
