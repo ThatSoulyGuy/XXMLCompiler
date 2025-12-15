@@ -5927,8 +5927,16 @@ void SemanticAnalyzer::visit(Parser::DeriveDecl& node) {
         }
     }
 
-    // TODO: Queue for auto-compilation to DLL (Phase 3)
-    // This will follow a similar pattern to processor compilation
+    // Queue for auto-compilation to DLL
+    // This follows the same pattern as processor compilation
+    PendingDeriveCompilation pending;
+    pending.deriveName = node.name;
+    pending.deriveDecl = &node;
+    // Copy imports from current file so derive can access imported modules
+    pending.imports.assign(importedNamespaces_.begin(), importedNamespaces_.end());
+    // Copy user-defined classes so derive can reference them
+    pending.userClasses = localClasses_;
+    pendingDeriveCompilations_.push_back(pending);
 }
 
 std::string SemanticAnalyzer::annotationTargetToString(Parser::AnnotationTarget target) {

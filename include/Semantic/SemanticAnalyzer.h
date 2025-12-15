@@ -67,6 +67,14 @@ public:
         std::vector<Parser::ClassDecl*> userClasses;  // User-defined classes from the same file
     };
 
+    // Pending derive compilation info - for in-language derives that need to be compiled to DLLs
+    struct PendingDeriveCompilation {
+        std::string deriveName;
+        Parser::DeriveDecl* deriveDecl;
+        std::vector<std::string> imports;  // Imports from the source file
+        std::vector<Parser::ClassDecl*> userClasses;  // User-defined classes from the same file
+    };
+
     // Template instantiation tracking - public for TemplateCodegen access
     struct TemplateInstantiation {
         std::string templateName;
@@ -273,6 +281,7 @@ private:
     // Annotation registry (uses public structs AnnotationInfo, AnnotationParamInfo, PendingProcessorCompilation)
     std::unordered_map<std::string, AnnotationInfo> annotationRegistry_;  // Annotation name -> info
     std::vector<PendingProcessorCompilation> pendingProcessorCompilations_;  // Annotations with inline processors
+    std::vector<PendingDeriveCompilation> pendingDeriveCompilations_;  // In-language derives needing compilation
 
     // Enumeration registry
     struct EnumValueInfo {
@@ -487,6 +496,11 @@ public:
         return pendingProcessorCompilations_;
     }
 
+    // Get pending derive compilations (in-language derives)
+    const std::vector<PendingDeriveCompilation>& getPendingDeriveCompilations() const {
+        return pendingDeriveCompilations_;
+    }
+
     // Get annotation registry (for cross-module annotation sharing)
     const std::unordered_map<std::string, AnnotationInfo>& getAnnotationRegistry() const {
         return annotationRegistry_;
@@ -520,6 +534,13 @@ public:
     void mergePendingProcessorCompilations(const std::vector<PendingProcessorCompilation>& pending) {
         for (const auto& p : pending) {
             pendingProcessorCompilations_.push_back(p);
+        }
+    }
+
+    // Merge pending derive compilations from another module
+    void mergePendingDeriveCompilations(const std::vector<PendingDeriveCompilation>& pending) {
+        for (const auto& d : pending) {
+            pendingDeriveCompilations_.push_back(d);
         }
     }
 

@@ -340,18 +340,44 @@ void* Derive_typeImplementsTrait(DeriveContext* ctx, void* typeNameStr, void* tr
     return Bool_Constructor(result);
 }
 
+/* Helper to check if a type name is a known builtin */
+static int isKnownBuiltinType(const char* typeName) {
+    if (!typeName) return 0;
+    /* Standard XXML builtin types */
+    if (strcmp(typeName, "Integer") == 0) return 1;
+    if (strcmp(typeName, "Float") == 0) return 1;
+    if (strcmp(typeName, "Double") == 0) return 1;
+    if (strcmp(typeName, "Bool") == 0) return 1;
+    if (strcmp(typeName, "Boolean") == 0) return 1;
+    if (strcmp(typeName, "String") == 0) return 1;
+    if (strcmp(typeName, "Char") == 0) return 1;
+    if (strcmp(typeName, "Byte") == 0) return 1;
+    if (strcmp(typeName, "Short") == 0) return 1;
+    if (strcmp(typeName, "Long") == 0) return 1;
+    if (strcmp(typeName, "Void") == 0) return 1;
+    if (strcmp(typeName, "None") == 0) return 1;
+    return 0;
+}
+
 void* Derive_isBuiltinType(DeriveContext* ctx, void* typeNameStr) {
-    if (!ctx || !ctx->_typeSystem || !typeNameStr) {
+    if (!ctx || !typeNameStr) {
         return Bool_Constructor(0);
     }
-    DeriveTypeSystem* ts = (DeriveTypeSystem*)ctx->_typeSystem;
-    if (!ts->isBuiltin) return Bool_Constructor(0);
 
     const char* typeName = String_toCString(typeNameStr);
     if (!typeName) return Bool_Constructor(0);
 
-    int result = ts->isBuiltin(ts->compilerState, typeName);
-    return Bool_Constructor(result);
+    /* First try type system if available */
+    if (ctx->_typeSystem) {
+        DeriveTypeSystem* ts = (DeriveTypeSystem*)ctx->_typeSystem;
+        if (ts->isBuiltin) {
+            int result = ts->isBuiltin(ts->compilerState, typeName);
+            return Bool_Constructor(result);
+        }
+    }
+
+    /* Fallback to hardcoded builtin types */
+    return Bool_Constructor(isKnownBuiltinType(typeName));
 }
 
 /* ==========================================================================
@@ -610,16 +636,18 @@ void* xxml_Derive_hasErrors(DeriveContext* ctx) {
 
 /**
  * Create a code generation state - called by compiler before invoking derive
+ * Named with _impl suffix so LLVM can generate export wrappers with the public name
  */
-DeriveCodeGen* DeriveCodeGen_create(void) {
+DeriveCodeGen* DeriveCodeGen_create_impl(void) {
     DeriveCodeGen* gen = (DeriveCodeGen*)calloc(1, sizeof(DeriveCodeGen));
     return gen;
 }
 
 /**
  * Free code generation state and all generated code
+ * Named with _impl suffix so LLVM can generate export wrappers with the public name
  */
-void DeriveCodeGen_destroy(DeriveCodeGen* gen) {
+void DeriveCodeGen_destroy_impl(DeriveCodeGen* gen) {
     if (!gen) return;
 
     /* Free methods */
@@ -645,16 +673,23 @@ void DeriveCodeGen_destroy(DeriveCodeGen* gen) {
 
 /**
  * Get the result of code generation
+ * Uses out-parameter to avoid struct return issues in LLVM IR
+ * Named with _impl suffix so LLVM can generate export wrappers with the public name
  */
-DeriveResult DeriveCodeGen_getResult(DeriveCodeGen* gen) {
-    DeriveResult result = {0};
-    if (!gen) return result;
+void DeriveCodeGen_getResult_impl(DeriveCodeGen* gen, DeriveResult* result) {
+    if (!result) return;
 
-    result.methodCount = gen->methodCount;
-    result.methods = gen->methods;
-    result.propertyCount = gen->propertyCount;
-    result.properties = gen->properties;
-    result.hasErrors = gen->hasErrors;
+    result->methodCount = 0;
+    result->methods = NULL;
+    result->propertyCount = 0;
+    result->properties = NULL;
+    result->hasErrors = 0;
 
-    return result;
+    if (!gen) return;
+
+    result->methodCount = gen->methodCount;
+    result->methods = gen->methods;
+    result->propertyCount = gen->propertyCount;
+    result->properties = gen->properties;
+    result->hasErrors = gen->hasErrors;
 }

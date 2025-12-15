@@ -38,15 +38,22 @@ extern "C" {
         int hasErrors;
     };
 
+    // Must match DeriveClassInfo in xxml_derive_api.c EXACTLY
     struct DeriveClassInfo {
-        const char* className;
-        const char* namespaceName;
+        /* Property information */
+        int propertyCount;
         const char** propertyNames;
         const char** propertyTypes;
         const char** propertyOwnerships;
-        int propertyCount;
-        const char** methodNames;
+
+        /* Method information */
         int methodCount;
+        const char** methodNames;
+        const char** methodReturnTypes;
+
+        /* Class information */
+        const char* baseClassName;
+        int isFinal;
     };
 
     // DeriveContext structure - must match xxml_derive_api.h
@@ -106,11 +113,8 @@ std::string InLanguageDeriveHandler::canDerive(
         return "";  // No validation function = always valid
     }
 
-    // Build DeriveContext from class
+    // Build DeriveClassInfo from class (must match struct in xxml_derive_api.c)
     DeriveClassInfo classInfo = {};
-    classInfo.className = classDecl->name.c_str();
-    // Note: namespaceName would need to be tracked elsewhere
-    classInfo.namespaceName = "";
 
     // Gather properties
     std::vector<const char*> propNames, propTypes, propOwnerships;
@@ -133,22 +137,28 @@ std::string InLanguageDeriveHandler::canDerive(
             }
         }
     }
+    classInfo.propertyCount = static_cast<int>(propNames.size());
     classInfo.propertyNames = propNames.empty() ? nullptr : propNames.data();
     classInfo.propertyTypes = propTypes.empty() ? nullptr : propTypes.data();
     classInfo.propertyOwnerships = propOwnerships.empty() ? nullptr : propOwnerships.data();
-    classInfo.propertyCount = static_cast<int>(propNames.size());
 
     // Gather methods
-    std::vector<const char*> methodNames;
+    std::vector<const char*> methodNames, methodReturnTypes;
     for (const auto& section : classDecl->sections) {
         for (const auto& decl : section->declarations) {
             if (auto* method = dynamic_cast<Parser::MethodDecl*>(decl.get())) {
                 methodNames.push_back(method->name.c_str());
+                methodReturnTypes.push_back(method->returnType ? method->returnType->typeName.c_str() : "");
             }
         }
     }
-    classInfo.methodNames = methodNames.empty() ? nullptr : methodNames.data();
     classInfo.methodCount = static_cast<int>(methodNames.size());
+    classInfo.methodNames = methodNames.empty() ? nullptr : methodNames.data();
+    classInfo.methodReturnTypes = methodReturnTypes.empty() ? nullptr : methodReturnTypes.data();
+
+    // Class info
+    classInfo.baseClassName = classDecl->baseClass.empty() ? nullptr : classDecl->baseClass.c_str();
+    classInfo.isFinal = classDecl->isFinal ? 1 : 0;
 
     // Create context with proper structure
     DeriveContext ctx = {};
@@ -178,10 +188,8 @@ Semantic::DeriveResult InLanguageDeriveHandler::generate(
         return result;
     }
 
-    // Build DeriveContext from class (similar to canDerive)
+    // Build DeriveClassInfo from class (must match struct in xxml_derive_api.c)
     DeriveClassInfo classInfo = {};
-    classInfo.className = classDecl->name.c_str();
-    classInfo.namespaceName = "";
 
     // Gather properties
     std::vector<const char*> propNames, propTypes, propOwnerships;
@@ -204,22 +212,28 @@ Semantic::DeriveResult InLanguageDeriveHandler::generate(
             }
         }
     }
+    classInfo.propertyCount = static_cast<int>(propNames.size());
     classInfo.propertyNames = propNames.empty() ? nullptr : propNames.data();
     classInfo.propertyTypes = propTypes.empty() ? nullptr : propTypes.data();
     classInfo.propertyOwnerships = propOwnerships.empty() ? nullptr : propOwnerships.data();
-    classInfo.propertyCount = static_cast<int>(propNames.size());
 
     // Gather methods
-    std::vector<const char*> methodNames;
+    std::vector<const char*> methodNames, methodReturnTypes;
     for (const auto& section : classDecl->sections) {
         for (const auto& decl : section->declarations) {
             if (auto* method = dynamic_cast<Parser::MethodDecl*>(decl.get())) {
                 methodNames.push_back(method->name.c_str());
+                methodReturnTypes.push_back(method->returnType ? method->returnType->typeName.c_str() : "");
             }
         }
     }
-    classInfo.methodNames = methodNames.empty() ? nullptr : methodNames.data();
     classInfo.methodCount = static_cast<int>(methodNames.size());
+    classInfo.methodNames = methodNames.empty() ? nullptr : methodNames.data();
+    classInfo.methodReturnTypes = methodReturnTypes.empty() ? nullptr : methodReturnTypes.data();
+
+    // Class info
+    classInfo.baseClassName = classDecl->baseClass.empty() ? nullptr : classDecl->baseClass.c_str();
+    classInfo.isFinal = classDecl->isFinal ? 1 : 0;
 
     // Create code generator state using dynamically loaded function
     if (!codeGenCreateFn_) {
@@ -253,7 +267,8 @@ Semantic::DeriveResult InLanguageDeriveHandler::generate(
         result.errors.push_back("DeriveCodeGen_getResult not available");
         return result;
     }
-    auto deriveResultC = codeGenGetResultFn_(codeGen);
+    DeriveResultC deriveResultC;
+    codeGenGetResultFn_(codeGen, &deriveResultC);
 
     // Check for errors
     if (deriveResultC.hasErrors) {
@@ -262,13 +277,19 @@ Semantic::DeriveResult InLanguageDeriveHandler::generate(
         return result;
     }
 
+    // Collect property names for this. qualification in generated code
+    std::unordered_set<std::string> propertyNameSet;
+    for (const char* name : propNames) {
+        if (name) propertyNameSet.insert(std::string(name));
+    }
+
     // Parse generated methods
     DeriveGeneratedMethod* methods = (DeriveGeneratedMethod*)deriveResultC.methods;
     for (int i = 0; i < deriveResultC.methodCount; i++) {
         const auto& genMethod = methods[i];
 
-        // Parse the method body into AST
-        auto body = parseMethodBody(genMethod.body, analyzer);
+        // Parse the method body into AST (with property name qualification)
+        auto body = parseMethodBody(genMethod.body, propertyNameSet, analyzer);
         if (body.empty() && genMethod.body && strlen(genMethod.body) > 0) {
             result.errors.push_back("Failed to parse generated method body for '" +
                                    std::string(genMethod.name) + "'");
@@ -352,6 +373,7 @@ Semantic::DeriveResult InLanguageDeriveHandler::generate(
 
 std::vector<std::unique_ptr<Parser::Statement>> InLanguageDeriveHandler::parseMethodBody(
     const std::string& body,
+    const std::unordered_set<std::string>& propertyNames,
     Semantic::SemanticAnalyzer& analyzer) {
 
     std::vector<std::unique_ptr<Parser::Statement>> statements;
@@ -360,11 +382,40 @@ std::vector<std::unique_ptr<Parser::Statement>> InLanguageDeriveHandler::parseMe
         return statements;
     }
 
+    // Preprocess body to add this. before property names
+    // This handles cases like "x.toString()" -> "this.x.toString()"
+    std::string processedBody = body;
+
+    for (const std::string& propName : propertyNames) {
+        // Replace "propName." with "this.propName." where not already qualified
+        std::string search = propName + ".";
+        std::string replace = "this." + propName + ".";
+
+        size_t pos = 0;
+        while ((pos = processedBody.find(search, pos)) != std::string::npos) {
+            // Check if already qualified with this. (look back 5 chars for "this.")
+            if (pos >= 5 && processedBody.substr(pos - 5, 5) == "this.") {
+                pos += search.length();
+                continue;
+            }
+            // Check if preceded by letter/digit/underscore (part of another identifier)
+            if (pos > 0) {
+                char prev = processedBody[pos - 1];
+                if (std::isalnum(static_cast<unsigned char>(prev)) || prev == '_') {
+                    pos += search.length();
+                    continue;
+                }
+            }
+            processedBody.replace(pos, search.length(), replace);
+            pos += replace.length();
+        }
+    }
+
     // Wrap the body in a minimal parseable structure
     std::string source = "[ Class <__DeriveTemp__> Final Extends None\n"
                          "    [ Public <>\n"
                          "        Method <__temp__> Returns None Parameters () Do {\n"
-                         + body + "\n"
+                         + processedBody + "\n"
                          "        }\n"
                          "    ]\n"
                          "]\n";

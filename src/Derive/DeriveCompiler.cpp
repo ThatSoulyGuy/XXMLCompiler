@@ -51,13 +51,13 @@ std::string DeriveCompiler::generateDeriveSource(const DeriveInfo& info) {
 
     // Include Language::Core for basic types (always needed)
     out << "#import Language::Core;\n";
-    // Include Language::Derive for DeriveContext
-    out << "#import Language::Derive;\n";
+    // Include Language::Derives for DeriveContext
+    out << "#import Language::Derives;\n";
 
     // Include all imports from the original source file
     for (const auto& import : info.imports) {
-        // Skip Language::Core and Language::Derive since we already included them
-        if (import != "Language::Core" && import != "Language::Derive") {
+        // Skip Language::Core and Language::Derives since we already included them
+        if (import != "Language::Core" && import != "Language::Derives") {
             out << "#import " << import << ";\n";
         }
     }
@@ -337,6 +337,12 @@ std::string DeriveCompiler::serializeStatement(Parser::Statement* stmt, int inde
         out << spaces << "Set " << serializeExpression(assignStmt->target.get()) << " = "
             << serializeExpression(assignStmt->value.get()) << ";\n";
     }
+    else if (dynamic_cast<Parser::ContinueStmt*>(stmt)) {
+        out << spaces << "Continue;\n";
+    }
+    else if (dynamic_cast<Parser::BreakStmt*>(stmt)) {
+        out << spaces << "Break;\n";
+    }
     else {
         // Generic fallback - emit a comment for unsupported statements
         out << spaces << "// [unsupported statement type]\n";
@@ -345,9 +351,24 @@ std::string DeriveCompiler::serializeStatement(Parser::Statement* stmt, int inde
     return out.str();
 }
 
+std::string DeriveCompiler::escapeString(const std::string& str) {
+    std::ostringstream out;
+    for (char c : str) {
+        switch (c) {
+            case '"': out << "\\\""; break;
+            case '\\': out << "\\\\"; break;
+            case '\n': out << "\\n"; break;
+            case '\r': out << "\\r"; break;
+            case '\t': out << "\\t"; break;
+            default: out << c; break;
+        }
+    }
+    return out.str();
+}
+
 std::string DeriveCompiler::serializeExpression(Parser::Expression* expr) {
     if (auto* strLit = dynamic_cast<Parser::StringLiteralExpr*>(expr)) {
-        return "String::Constructor(\"" + strLit->value + "\")";
+        return "String::Constructor(\"" + escapeString(strLit->value) + "\")";
     }
     else if (auto* intLit = dynamic_cast<Parser::IntegerLiteralExpr*>(expr)) {
         return std::to_string(intLit->value) + "i";
@@ -394,7 +415,7 @@ std::string DeriveCompiler::serializeExpression(Parser::Expression* expr) {
             // For String::Constructor with a StringLiteralExpr arg, output raw string literal
             if (isStringConstructor) {
                 if (auto* strLit = dynamic_cast<Parser::StringLiteralExpr*>(arg.get())) {
-                    out << "\"" << strLit->value << "\"";
+                    out << "\"" << escapeString(strLit->value) << "\"";
                     continue;
                 }
             }

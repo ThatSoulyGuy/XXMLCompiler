@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 #include <unordered_map>
+#include <unordered_set>
 #include <memory>
 #include "../Parser/AST.h"
 #include "../Semantic/DeriveHandler.h"
@@ -63,7 +64,7 @@ private:
         void* properties;
         int hasErrors;
     };
-    using CodeGenGetResultFn = DeriveResultC (*)(void*);  // DeriveCodeGen_getResult
+    using CodeGenGetResultFn = void (*)(void*, DeriveResultC*);  // DeriveCodeGen_getResult(gen, result_out)
 
     CanDeriveFn canDeriveFn_ = nullptr;
     GenerateFn generateFn_ = nullptr;
@@ -73,9 +74,13 @@ private:
 
     /**
      * Parse a method body string into AST statements
+     * @param body The method body code to parse
+     * @param propertyNames Set of property names to qualify with this.
+     * @param analyzer The semantic analyzer context
      */
     std::vector<std::unique_ptr<Parser::Statement>> parseMethodBody(
         const std::string& body,
+        const std::unordered_set<std::string>& propertyNames,
         Semantic::SemanticAnalyzer& analyzer);
 };
 

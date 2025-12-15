@@ -94,6 +94,11 @@ private:
     std::string serializeExpression(Parser::Expression* expr);
 
     /**
+     * Escape special characters in a string for XXML output
+     */
+    std::string escapeString(const std::string& str);
+
+    /**
      * Get a unique temp file path
      */
     std::string getTempFilePath(const std::string& baseName, const std::string& extension);

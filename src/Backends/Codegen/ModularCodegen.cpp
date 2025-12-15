@@ -90,7 +90,11 @@ void ModularCodegen::generateProgramDecls(const std::vector<std::unique_ptr<Pars
         } else if (auto* annotDecl = dynamic_cast<Parser::AnnotationDecl*>(decl.get())) {
             generateDecl(annotDecl);
         } else if (auto* deriveDecl = dynamic_cast<Parser::DeriveDecl*>(decl.get())) {
-            generateDecl(deriveDecl);
+            // Only generate derive code when in derive mode (compiling to DLL)
+            // In normal mode, derives are auto-compiled to DLLs and used at compile time
+            if (ctx_.isDeriveMode()) {
+                generateDecl(deriveDecl);
+            }
         }
     }
 }
@@ -682,6 +686,85 @@ void ModularCodegen::generateDeriveEntryPoints(Parser::Program& program,
             ctx_.builder().createCallVoid(generateFunc, args);
         }
 
+        ctx_.builder().createRetVoid();
+    }
+
+    // === Generate DeriveCodeGen_create export wrapper ===
+    {
+        LLVMIR::FunctionType* funcType = typeCtx.getFunctionTy(
+            typeCtx.getPtrTy(), {});
+        LLVMIR::Function* func = globalBuilder.defineFunction(
+            funcType, "DeriveCodeGen_create", LLVMIR::Function::Linkage::DLLExport);
+
+        LLVMIR::BasicBlock* entryBB = func->createBasicBlock("entry");
+        ctx_.builder().setInsertPoint(entryBB);
+
+        // Call the runtime function - always use the _impl version
+        LLVMIR::Function* runtimeFunc = ctx_.module().getFunction("DeriveCodeGen_create_impl");
+        if (!runtimeFunc) {
+            LLVMIR::FunctionType* runtimeFuncType = typeCtx.getFunctionTy(
+                typeCtx.getPtrTy(), {});
+            runtimeFunc = globalBuilder.declareFunction(runtimeFuncType, "DeriveCodeGen_create_impl");
+        }
+        LLVMIR::AnyValue result = ctx_.builder().createCall(runtimeFunc, {});
+        ctx_.builder().createRet(result);
+    }
+
+    // === Generate DeriveCodeGen_destroy export wrapper ===
+    {
+        std::vector<LLVMIR::Type*> paramTypes = { typeCtx.getPtrTy() };
+        LLVMIR::FunctionType* funcType = typeCtx.getFunctionTy(
+            typeCtx.getVoidTy(), std::move(paramTypes));
+        LLVMIR::Function* func = globalBuilder.defineFunction(
+            funcType, "DeriveCodeGen_destroy", LLVMIR::Function::Linkage::DLLExport);
+
+        func->getArg(0)->setName("gen");
+
+        LLVMIR::BasicBlock* entryBB = func->createBasicBlock("entry");
+        ctx_.builder().setInsertPoint(entryBB);
+
+        // Call the runtime function - always use the _impl version
+        LLVMIR::Function* runtimeFunc = ctx_.module().getFunction("DeriveCodeGen_destroy_impl");
+        if (!runtimeFunc) {
+            std::vector<LLVMIR::Type*> runtimeParamTypes = { typeCtx.getPtrTy() };
+            LLVMIR::FunctionType* runtimeFuncType = typeCtx.getFunctionTy(
+                typeCtx.getVoidTy(), std::move(runtimeParamTypes));
+            runtimeFunc = globalBuilder.declareFunction(runtimeFuncType, "DeriveCodeGen_destroy_impl");
+        }
+        std::vector<LLVMIR::AnyValue> args = { LLVMIR::AnyValue(LLVMIR::PtrValue(func->getArg(0))) };
+        ctx_.builder().createCallVoid(runtimeFunc, args);
+        ctx_.builder().createRetVoid();
+    }
+
+    // === Generate DeriveCodeGen_getResult export wrapper ===
+    // Uses out-parameter to avoid struct return issues in LLVM IR
+    // Signature: void DeriveCodeGen_getResult(void* gen, DeriveResult* result_out)
+    {
+        std::vector<LLVMIR::Type*> paramTypes = { typeCtx.getPtrTy(), typeCtx.getPtrTy() };
+        LLVMIR::FunctionType* funcType = typeCtx.getFunctionTy(
+            typeCtx.getVoidTy(), std::move(paramTypes));
+        LLVMIR::Function* func = globalBuilder.defineFunction(
+            funcType, "DeriveCodeGen_getResult", LLVMIR::Function::Linkage::DLLExport);
+
+        func->getArg(0)->setName("gen");
+        func->getArg(1)->setName("result_out");
+
+        LLVMIR::BasicBlock* entryBB = func->createBasicBlock("entry");
+        ctx_.builder().setInsertPoint(entryBB);
+
+        // Call the runtime function - always use the _impl version
+        LLVMIR::Function* runtimeFunc = ctx_.module().getFunction("DeriveCodeGen_getResult_impl");
+        if (!runtimeFunc) {
+            std::vector<LLVMIR::Type*> runtimeParamTypes = { typeCtx.getPtrTy(), typeCtx.getPtrTy() };
+            LLVMIR::FunctionType* runtimeFuncType = typeCtx.getFunctionTy(
+                typeCtx.getVoidTy(), std::move(runtimeParamTypes));
+            runtimeFunc = globalBuilder.declareFunction(runtimeFuncType, "DeriveCodeGen_getResult_impl");
+        }
+        std::vector<LLVMIR::AnyValue> args = {
+            LLVMIR::AnyValue(LLVMIR::PtrValue(func->getArg(0))),
+            LLVMIR::AnyValue(LLVMIR::PtrValue(func->getArg(1)))
+        };
+        ctx_.builder().createCallVoid(runtimeFunc, args);
         ctx_.builder().createRetVoid();
     }
 }

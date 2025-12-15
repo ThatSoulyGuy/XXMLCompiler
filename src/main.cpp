@@ -24,6 +24,7 @@
 #include "AnnotationProcessor/ProcessorLoader.h"
 #include "AnnotationProcessor/ProcessorCompiler.h"
 #include "Derive/InLanguageDeriveRegistry.h"
+#include "Derive/DeriveCompiler.h"
 
 std::string readFile(const std::string& filename) {
     std::ifstream file(filename);
@@ -634,6 +635,97 @@ int main(int argc, char* argv[]) {
         }
         // Set in-language derive registry BEFORE analysis (derives are processed during class analysis)
         mainAnalyzer->getDeriveRegistry().setInLanguageRegistry(&deriveRegistry);
+
+        // Pre-scan for inline derives in the AST and auto-compile them BEFORE runPipeline
+        // This allows @Derive(trait = "CustomDerive") to find the derive handler
+        // Note: We also scan imported modules in case they define derives
+        std::vector<XXML::Semantic::SemanticAnalyzer::PendingDeriveCompilation> preScanDerives;
+
+        // Helper lambda to scan a program for DeriveDecl nodes
+        auto scanForDerives = [&](XXML::Parser::Program* program, const std::vector<std::string>& imports,
+                                  const std::vector<XXML::Parser::ClassDecl*>& userClasses) {
+            for (const auto& decl : program->declarations) {
+                if (auto* deriveDecl = dynamic_cast<XXML::Parser::DeriveDecl*>(decl.get())) {
+                    XXML::Semantic::SemanticAnalyzer::PendingDeriveCompilation pending;
+                    pending.deriveName = deriveDecl->name;
+                    pending.deriveDecl = deriveDecl;
+                    pending.imports = imports;
+                    pending.userClasses = userClasses;
+                    preScanDerives.push_back(pending);
+                }
+            }
+        };
+
+        // Collect imports and user classes from main module for derive compilation
+        std::vector<std::string> mainImports;
+        std::vector<XXML::Parser::ClassDecl*> mainUserClasses;
+        for (const auto& decl : mainModule->ast->declarations) {
+            if (auto* importDecl = dynamic_cast<XXML::Parser::ImportDecl*>(decl.get())) {
+                mainImports.push_back(importDecl->modulePath);
+            } else if (auto* classDecl = dynamic_cast<XXML::Parser::ClassDecl*>(decl.get())) {
+                mainUserClasses.push_back(classDecl);
+            }
+        }
+        scanForDerives(mainModule->ast.get(), mainImports, mainUserClasses);
+
+        // Also scan imported modules for derives (but skip standard library modules)
+        for (const auto& [moduleName, modInfo] : moduleMap) {
+            // Skip standard library modules - their derives are pre-compiled
+            if (moduleName.find("Language::") == 0) {
+                continue;
+            }
+            if (modInfo != mainModule.get() && modInfo->ast) {
+                std::vector<std::string> modImports;
+                std::vector<XXML::Parser::ClassDecl*> modUserClasses;
+                for (const auto& decl : modInfo->ast->declarations) {
+                    if (auto* importDecl = dynamic_cast<XXML::Parser::ImportDecl*>(decl.get())) {
+                        modImports.push_back(importDecl->modulePath);
+                    } else if (auto* classDecl = dynamic_cast<XXML::Parser::ClassDecl*>(decl.get())) {
+                        modUserClasses.push_back(classDecl);
+                    }
+                }
+                scanForDerives(modInfo->ast.get(), modImports, modUserClasses);
+            }
+        }
+
+        // Auto-compile any inline derives found
+        if (!preScanDerives.empty() && !deriveMode) {
+            std::cout << "Auto-compiling " << preScanDerives.size() << " in-language derive(s)...\n";
+
+            std::string exeDirForDerives = XXML::Utils::ProcessUtils::getExecutableDirectory();
+#ifdef _WIN32
+            std::string compilerPathForDerives = exeDirForDerives + "/xxml.exe";
+#else
+            std::string compilerPathForDerives = exeDirForDerives + "/xxml";
+#endif
+            XXML::Derive::DeriveCompiler deriveCompilerPreScan(compilerPathForDerives);
+
+            for (const auto& pending : preScanDerives) {
+                std::cout << "  Compiling [ Derive <" << pending.deriveName << "> ]...\n";
+
+                XXML::Derive::DeriveCompiler::DeriveInfo info;
+                info.deriveName = pending.deriveName;
+                info.deriveDecl = pending.deriveDecl;
+                info.imports = pending.imports;
+                info.userClasses = pending.userClasses;
+
+                auto result = deriveCompilerPreScan.compileDerive(info, errorReporter);
+
+                if (result.success) {
+                    std::cout << "    ✓ Compiled successfully: " << result.dllPath << "\n";
+
+                    if (deriveRegistry.loadDerive(result.dllPath)) {
+                        std::cout << "    ✓ Loaded into derive registry\n";
+                    } else {
+                        std::cerr << "    ✗ Warning: Failed to load compiled derive\n";
+                    }
+                } else {
+                    std::cerr << "    ✗ Compilation failed: " << result.errorMessage << "\n";
+                }
+            }
+            std::cout << "\n";
+        }
+
         // Run the full multi-stage pipeline (TypeCanonicalizer -> SemanticAnalysis ->
         // TemplateExpander -> OwnershipAnalyzer -> LayoutComputer -> ABILowering)
         auto passResults = mainAnalyzer->runPipeline(*mainModule->ast);
