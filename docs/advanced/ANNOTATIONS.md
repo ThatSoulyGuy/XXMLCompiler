@@ -1533,6 +1533,6 @@ typedef struct {
 
 ---
 
-**XXML Annotation System v2.0**
+**XXML Annotation System v3.0**
 
 *Last updated: Full DLL generation, processor access to user-defined code, and error reporting implemented.*

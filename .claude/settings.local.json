@@ -335,7 +335,9 @@
       "Bash(git -C /Users/ericphillips/Documents/IntelliJ/Projects/CLion/XXMLCompiler checkout -- src/Import/Module.cpp src/Semantic/SymbolTable.cpp src/main.cpp)",
       "Bash(/tmp/stringable_test.exe:*)",
       "Bash(/tmp/stringable_test2.exe:*)",
-      "Bash(/tmp/tiny2_test_fixed.exe:*)"
+      "Bash(/tmp/tiny2_test_fixed.exe:*)",
+      "Bash(cmake:*)",
+      "Bash(./build/release/bin/xxml-lsp:*)"
     ],
     "deny": [],
     "ask": []

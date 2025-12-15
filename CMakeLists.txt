@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(XXMLCompiler VERSION 3.0.0 LANGUAGES CXX C)
+project(XXMLCompiler VERSION 3.0.1 LANGUAGES CXX C)
 
 # Set C++23 standard for modern features
 set(CMAKE_CXX_STANDARD 23)
@@ -39,6 +39,14 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 
 # Include directories
 include_directories(${CMAKE_SOURCE_DIR}/include)
+include_directories(${CMAKE_BINARY_DIR}/include)  # For generated headers
+
+# Generate version header from template
+configure_file(
+    ${CMAKE_SOURCE_DIR}/include/Common/Version.h.in
+    ${CMAKE_BINARY_DIR}/include/Common/Version.h
+    @ONLY
+)
 
 # Auto-discover source files
 file(GLOB_RECURSE XXML_SOURCES CONFIGURE_DEPENDS

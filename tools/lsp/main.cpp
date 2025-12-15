@@ -2,6 +2,7 @@
 // XXML Language Server Protocol Implementation
 
 #include "LSPServer.h"
+#include "Common/Version.h"
 #include <iostream>
 #include <cstdlib>
 #include <vector>
@@ -14,7 +15,7 @@ int main(int argc, char* argv[]) {
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
         if (arg == "--version" || arg == "-v") {
-            std::cout << "xxml-lsp 0.1.0" << std::endl;
+            std::cout << "xxml-lsp " << XXML_VERSION_STRING << std::endl;
             return 0;
         }
         if (arg == "--help" || arg == "-h") {

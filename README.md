@@ -445,4 +445,4 @@ This project is licensed under the MIT License - see LICENSE file for details.
 
 ---
 
-**XXML Compiler v2.3.0**
+**XXML Compiler v3.0.0**

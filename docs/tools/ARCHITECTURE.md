@@ -615,6 +615,6 @@ Implement LSP for IDE integration:
 
 ---
 
-**XXML Compiler Architecture v2.0**
+**XXML Compiler Architecture v3.0**
 
 > **Note**: The LLVM backend is the sole code generation target. All XXML programs compile to native executables via LLVM IR.
