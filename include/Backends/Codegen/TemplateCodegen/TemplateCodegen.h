@@ -49,9 +49,12 @@ struct TemplateMethodAnalysis {
     bool usesNestedTemplates = false;
 
     // Can this method use a shared base implementation?
+    // Methods with type-dependent return or parameters cannot be shared
+    // because the call site needs the correct type signature.
     bool canShareImplementation() const {
         return isTypeIndependent || (usesOnlySize && !usesComparison &&
-               !usesHashing && !usesToString && !usesNestedTemplates);
+               !usesHashing && !usesToString && !usesNestedTemplates &&
+               !hasTypeDependentReturn && !hasTypeDependentParams);
     }
 };
 

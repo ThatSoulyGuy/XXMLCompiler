@@ -17,7 +17,16 @@
       "Bash(\"D:\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" \"D:\\VisualStudio\\Projects\\XXMLCompiler\\tests\\SeparateDeriveUsage.XXML\" -o \"D:\\VisualStudio\\Projects\\XXMLCompiler\\separatetest.exe\")",
       "Bash(\"D:\\VisualStudio\\Projects\\XXMLCompiler\\minderivetest.exe\")",
       "Bash(\"D:\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" \"C:/Users/bkmcm/Documents/XXMLStudio/Projects/Hello/src/Main.XXML\" -o \"D:\\VisualStudio\\Projects\\XXMLCompiler\\hellotest2.exe\")",
-      "Bash(\"D:\\VisualStudio\\Projects\\XXMLCompiler\\hellotest2.exe\")"
+      "Bash(\"D:\\VisualStudio\\Projects\\XXMLCompiler\\hellotest2.exe\")",
+      "Bash(\"D:\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" \"D:\\VisualStudio\\Projects\\XXMLCompiler\\tests\\TemplateRefTest.XXML\" -o \"D:\\VisualStudio\\Projects\\XXMLCompiler\\templatereftest.exe\")",
+      "Bash(\"D:\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" \"D:\\VisualStudio\\Projects\\XXMLCompiler\\tests\\TemplateRefTest3.XXML\" -o \"D:\\VisualStudio\\Projects\\XXMLCompiler\\templatereftest3.exe\")",
+      "Bash(\"D:\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" \"D:\\VisualStudio\\Projects\\XXMLCompiler\\tests\\TemplateRefTest4.XXML\" -o \"D:\\VisualStudio\\Projects\\XXMLCompiler\\templatereftest4.exe\")",
+      "Bash(\"D:\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" \"D:\\VisualStudio\\Projects\\XXMLCompiler\\tests\\TemplateRefTest5.XXML\" -o \"D:\\VisualStudio\\Projects\\XXMLCompiler\\templatereftest5.exe\")",
+      "Bash(\"D:\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" \"D:\\VisualStudio\\Projects\\XXMLCompiler\\tests\\TemplateRefTest8.XXML\" -o \"D:\\VisualStudio\\Projects\\XXMLCompiler\\templatereftest8.exe\")",
+      "Bash(\"D:\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" \"D:\\VisualStudio\\Projects\\XXMLCompiler\\tests\\TemplateRefTest10.XXML\" -o \"D:\\VisualStudio\\Projects\\XXMLCompiler\\templatereftest10.exe\")",
+      "Bash(\"D:\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" \"D:\\VisualStudio\\Projects\\XXMLCompiler\\tests\\TemplateRefTest9.XXML\" -o \"D:\\VisualStudio\\Projects\\XXMLCompiler\\reftest9.exe\")",
+      "Bash(\"D:\\VisualStudio\\Projects\\XXMLCompiler\\reftest9.exe\")",
+      "Bash(\"D:\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" \"C:/Users/bkmcm/Documents/XXMLStudio/Projects/Hello/src/Main.XXML\" --emit-llvm -o \"D:\\VisualStudio\\Projects\\XXMLCompiler\\hellotest.ll\")"
     ]
   }
 }

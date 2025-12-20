@@ -31,22 +31,24 @@
 				}
 			}
 
-			// Get element at index
-			Method <get> Returns T^ Parameters (Parameter <index> Types Integer&) Do
+			// Get element at index (returns borrowed reference)
+			// For T& return: returns the ADDRESS of the slot containing T^
+			Method <get> Returns T& Parameters (Parameter <index> Types Integer&) Do
 			{
 				Instantiate NativeType<"int64">^ As <zero> = 0;
 				Instantiate NativeType<"int64">^ As <idx> = index.toInt64();
 
 				If (idx < zero) -> {
-					Return Syscall::ptr_read(dataPtr);
+					Return dataPtr;
 				}
 
 				If (idx >= arraySize) -> {
-					Return Syscall::ptr_read(dataPtr);
+					Return dataPtr;
 				}
 
+				// Return the address of the slot (T**), not the value (T^)
 				Instantiate NativeType<"ptr">^ As <offset> = dataPtr + (idx * 8);
-				Return Syscall::ptr_read(offset);
+				Return offset;
 			}
 
 			// Set element at index

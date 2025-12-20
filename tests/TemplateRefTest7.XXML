@@ -1,0 +1,40 @@
+// Test with pointer arithmetic but no position property
+
+[ Namespace <Test>
+	[ Class <Iterator> <T Constrains None> Final Extends None
+
+		[ Private <>
+			Property <dataPtr> Types NativeType<"ptr">^;
+		]
+
+		[ Public <>
+			Constructor Parameters (Parameter <data> Types NativeType<"ptr">^) ->
+			{
+				Set dataPtr = data;
+			}
+
+			// Method returning T& with pointer arithmetic
+			Method <current> Returns T& Parameters () Do
+			{
+				Instantiate NativeType<"int64">^ As <zero> = 0;
+				Instantiate NativeType<"ptr">^ As <offset> = dataPtr + (zero * 8);
+				Return Syscall::ptr_read(offset);
+			}
+
+			// Method that calls current()
+			Method <next> Returns T^ Parameters () Do
+			{
+				Instantiate T^ As <elem> = this.current();
+				Return elem;
+			}
+		]
+	]
+]
+
+[ Entrypoint
+	{
+		Instantiate NativeType<"ptr">^ As <data> = 0;
+		Instantiate Test::Iterator<Integer>^ As <iter> = Test::Iterator@Integer::Constructor(data);
+		Exit(0);
+	}
+]

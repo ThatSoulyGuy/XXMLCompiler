@@ -40,23 +40,25 @@
 				Return Bool::Constructor(position > zero);
 			}
 
-			// Get current element without advancing
-			Method <current> Returns T^ Parameters () Do
+			// Get current element without advancing (returns borrowed reference)
+			// For T& return: returns the ADDRESS of the slot containing T^
+			Method <current> Returns T& Parameters () Do
 			{
 				If (position >= listSize) -> {
 					Instantiate NativeType<"ptr">^ As <nullPtr> = 0;
-					Return Syscall::ptr_read(nullPtr);
+					Return nullPtr;
 				}
 				Instantiate NativeType<"int64">^ As <zero> = 0;
 				If (position < zero) -> {
 					Instantiate NativeType<"ptr">^ As <nullPtr> = 0;
-					Return Syscall::ptr_read(nullPtr);
+					Return nullPtr;
 				}
+				// Return the address of the slot (T**), not the value (T^)
 				Instantiate NativeType<"ptr">^ As <offset> = dataPtr + (position * 8);
-				Return Syscall::ptr_read(offset);
+				Return offset;
 			}
 
-			// Advance iterator and return the current element
+			// Advance iterator and return the current element (owned copy)
 			Method <next> Returns T^ Parameters () Do
 			{
 				Instantiate T^ As <elem> = this.current();
@@ -65,8 +67,25 @@
 				Return elem;
 			}
 
-			// Move iterator backward and return the previous element
+			// Advance iterator and return the current element (borrowed reference)
+			Method <nextRef> Returns T& Parameters () Do
+			{
+				Instantiate T& As <elem> = this.current();
+				Instantiate NativeType<"int64">^ As <one> = 1;
+				Set position = position + one;
+				Return elem;
+			}
+
+			// Move iterator backward and return the previous element (owned copy)
 			Method <previous> Returns T^ Parameters () Do
+			{
+				Instantiate NativeType<"int64">^ As <one> = 1;
+				Set position = position - one;
+				Return this.current();
+			}
+
+			// Move iterator backward and return the previous element (borrowed reference)
+			Method <previousRef> Returns T& Parameters () Do
 			{
 				Instantiate NativeType<"int64">^ As <one> = 1;
 				Set position = position - one;
@@ -80,21 +99,23 @@
 				Set position = position + delta;
 			}
 
-			// Get element at absolute index (doesn't change position)
-			Method <at> Returns T^ Parameters (Parameter <idx> Types Integer^) Do
+			// Get element at absolute index (doesn't change position, returns borrowed reference)
+			// For T& return: returns the ADDRESS of the slot containing T^
+			Method <at> Returns T& Parameters (Parameter <idx> Types Integer^) Do
 			{
 				Instantiate NativeType<"int64">^ As <i> = idx.toInt64();
 				Instantiate NativeType<"int64">^ As <zero> = 0;
 				If (i < zero) -> {
 					Instantiate NativeType<"ptr">^ As <nullPtr> = 0;
-					Return Syscall::ptr_read(nullPtr);
+					Return nullPtr;
 				}
 				If (i >= listSize) -> {
 					Instantiate NativeType<"ptr">^ As <nullPtr> = 0;
-					Return Syscall::ptr_read(nullPtr);
+					Return nullPtr;
 				}
+				// Return the address of the slot (T**), not the value (T^)
 				Instantiate NativeType<"ptr">^ As <offset> = dataPtr + (i * 8);
-				Return Syscall::ptr_read(offset);
+				Return offset;
 			}
 
 			// Get current position index

@@ -179,6 +179,25 @@ public:
     std::unique_ptr<ASTNode> clone() const override = 0;
     // Convenience method that returns properly typed pointer
     virtual std::unique_ptr<Expression> cloneExpr() const = 0;
+
+    // Type information populated by semantic analysis
+    // These fields are set by SemanticAnalyzer::registerExpressionType()
+    // and used by codegen to determine correct method dispatch
+    std::string resolvedType;  // e.g., "Integer", "String", "List<Integer>"
+    OwnershipType resolvedOwnership = OwnershipType::None;
+
+    // Helper to get full type with ownership marker
+    std::string getFullType() const {
+        if (resolvedType.empty()) return "";
+        std::string result = resolvedType;
+        switch (resolvedOwnership) {
+            case OwnershipType::Owned: result += "^"; break;
+            case OwnershipType::Reference: result += "&"; break;
+            case OwnershipType::Copy: result += "%"; break;
+            default: break;
+        }
+        return result;
+    }
 };
 
 class IntegerLiteralExpr : public Expression {

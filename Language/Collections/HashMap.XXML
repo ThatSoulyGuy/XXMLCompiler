@@ -147,7 +147,7 @@
 
 			// Get value by key, returns null if not found
 			// Note: Returns a reference to the stored value, NOT a copy
-			Method <get> Returns V& Parameters (Parameter <key> Types K^) Do
+			Method <get> Returns V& Parameters (Parameter <key> Types K&) Do
 			{
 				// Get hash and bucket index
 				Instantiate NativeType<"int64">^ As <hashVal> = key.hash();
@@ -168,7 +168,7 @@
 				// Empty bucket
 				If (keyData == 0) -> {
 					Instantiate NativeType<"ptr">^ As <nullPtr> = 0;
-					Return Syscall::ptr_read(nullPtr);
+					Return nullPtr;
 				}
 
 				// Search for key
@@ -185,9 +185,9 @@
 					Run Syscall::memcpy(&existingKey, &nullPtr1, 8);
 
 					If (keysEqual) -> {
-						// Found - return value
+						// Found - return value (return address for V& semantics)
 						Instantiate NativeType<"ptr">^ As <valueElemOffset> = valueData + (i * 8);
-						Return Syscall::ptr_read(valueElemOffset);
+						Return valueElemOffset;
 					}
 
 					Set i = i + 1;
@@ -195,11 +195,11 @@
 
 				// Not found
 				Instantiate NativeType<"ptr">^ As <nullPtr> = 0;
-				Return Syscall::ptr_read(nullPtr);
+				Return nullPtr;
 			}
 
-			// Check if key exists
-			Method <containsKey> Returns Bool^ Parameters (Parameter <key> Types K^) Do
+			// Check if key exists (takes reference - no ownership transfer)
+			Method <containsKey> Returns Bool^ Parameters (Parameter <key> Types K&) Do
 			{
 				// Get hash and bucket index
 				Instantiate NativeType<"int64">^ As <hashVal> = key.hash();
@@ -243,8 +243,8 @@
 				Return Bool::Constructor(false);
 			}
 
-			// Remove a key-value pair
-			Method <remove> Returns Bool^ Parameters (Parameter <key> Types K^) Do
+			// Remove a key-value pair (takes reference - no ownership transfer)
+			Method <remove> Returns Bool^ Parameters (Parameter <key> Types K&) Do
 			{
 				// Get hash and bucket index
 				Instantiate NativeType<"int64">^ As <hashVal> = key.hash();

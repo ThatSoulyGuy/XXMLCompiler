@@ -111,10 +111,7 @@
 	Run System::Console::print(String::Constructor("  [3]: "));
 	Run System::Console::printLine(r3.toString());
 
-	// Test dispose
-	Run System::Console::printLine(String::Constructor("Disposing list..."));
-	Run numbers.dispose();
-
+	// List uses RAII - destructor is called automatically when it goes out of scope
 	Run System::Console::printLine(String::Constructor("=== All List Tests Passed ==="));
 	Exit(0);
 }

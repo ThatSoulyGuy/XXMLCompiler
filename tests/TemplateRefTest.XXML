@@ -1,0 +1,31 @@
+// Minimal test for template methods returning T&
+
+[ Namespace <Test>
+	[ Class <Container> <T Constrains None> Final Extends None
+
+		[ Private <>
+			Property <data> Types NativeType<"ptr">^;
+		]
+
+		[ Public <>
+			Constructor () ->
+			{
+				Instantiate NativeType<"ptr">^ As <nullPtr> = 0;
+				Set data = nullPtr;
+			}
+
+			// This method returns T& (reference) - problematic with templates
+			Method <getRef> Returns T& Parameters () Do
+			{
+				Return Syscall::ptr_read(data);
+			}
+		]
+	]
+]
+
+[ Entrypoint
+	{
+		Instantiate Test::Container<Integer>^ As <c> = Test::Container@Integer::Constructor();
+		Exit(0);
+	}
+]

@@ -1,0 +1,44 @@
+// More complex test - mirrors STL Iterator current() pattern
+
+[ Namespace <Test>
+	[ Class <Iterator> <T Constrains None> Final Extends None
+
+		[ Private <>
+			Property <dataPtr> Types NativeType<"ptr">^;
+			Property <position> Types NativeType<"int64">^;
+		]
+
+		[ Public <>
+			Constructor Parameters (Parameter <data> Types NativeType<"ptr">^) ->
+			{
+				Set dataPtr = data;
+				Instantiate NativeType<"int64">^ As <zero> = 0;
+				Set position = zero;
+			}
+
+			// This mirrors ListIterator::current() returning T&
+			Method <current> Returns T& Parameters () Do
+			{
+				Instantiate NativeType<"ptr">^ As <offset> = dataPtr + (position * 8);
+				Return Syscall::ptr_read(offset);
+			}
+
+			// This mirrors ListIterator::next() which calls current() and assigns to T^
+			Method <next> Returns T^ Parameters () Do
+			{
+				Instantiate T^ As <elem> = this.current();
+				Instantiate NativeType<"int64">^ As <one> = 1;
+				Set position = position + one;
+				Return elem;
+			}
+		]
+	]
+]
+
+[ Entrypoint
+	{
+		Instantiate NativeType<"ptr">^ As <data> = 0;
+		Instantiate Test::Iterator<Integer>^ As <iter> = Test::Iterator@Integer::Constructor(data);
+		Exit(0);
+	}
+]

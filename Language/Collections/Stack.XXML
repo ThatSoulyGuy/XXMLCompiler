@@ -73,21 +73,22 @@
 				Return value;
 			}
 
-			// Peek at the top element without removing it
-			Method <peek> Returns T^ Parameters () Do
+			// Peek at the top element without removing it (returns borrowed reference)
+			// For T& return: returns the ADDRESS of the slot containing T^
+			Method <peek> Returns T& Parameters () Do
 			{
 				Instantiate NativeType<"int64">^ As <zero> = 0;
 
 				// Return null if empty
 				If (count == zero) -> {
 					Instantiate NativeType<"ptr">^ As <nullPtr> = 0;
-					Return Syscall::ptr_read(nullPtr);
+					Return nullPtr;
 				}
 
-				// Get the top element
+				// Return the address of the slot (T**), not the value (T^)
 				Instantiate NativeType<"int64">^ As <topIndex> = count - 1;
 				Instantiate NativeType<"ptr">^ As <offset> = dataPtr + (topIndex * 8);
-				Return Syscall::ptr_read(offset);
+				Return offset;
 			}
 
 			// Get stack size

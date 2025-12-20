@@ -6,21 +6,21 @@
 	[ Class <Console> Final Extends None
 
 		[ Public <>
-			// Output Operations
+			// Output Operations (take references - no ownership transfer)
 			Method <print> Returns None Parameters (
-				Parameter <message> Types String^
+				Parameter <message> Types String&
 			) Do {
 				// Print without newline
 			}
 
 			Method <printLine> Returns None Parameters (
-				Parameter <message> Types String^
+				Parameter <message> Types String&
 			) Do {
 				// Print with newline
 			}
 
 			Method <printError> Returns None Parameters (
-				Parameter <message> Types String^
+				Parameter <message> Types String&
 			) Do {
 				// Print to error stream
 			}
@@ -56,8 +56,8 @@
 
 			// Formatting
 			Method <printFormatted> Returns None Parameters (
-				Parameter <format> Types String^,
-				Parameter <value> Types String^
+				Parameter <format> Types String&,
+				Parameter <value> Types String&
 			) Do {
 				// Print formatted string
 			}
@@ -72,28 +72,28 @@
 			}
 
 			Method <sleep> Returns None Parameters (
-				Parameter <milliseconds> Types Integer^
+				Parameter <milliseconds> Types Integer&
 			) Do {
 				// Sleep for specified milliseconds
 			}
 
 			// Environment
 			Method <getEnv> Returns String^ Parameters (
-				Parameter <varName> Types String^
+				Parameter <varName> Types String&
 			) Do {
 				Return String::Constructor("");
 			}
 
 			Method <setEnv> Returns Bool^ Parameters (
-				Parameter <varName> Types String^,
-				Parameter <value> Types String^
+				Parameter <varName> Types String&,
+				Parameter <value> Types String&
 			) Do {
 				Return Bool::Constructor(false);
 			}
 
 			// Program Control
 			Method <exit> Returns None Parameters (
-				Parameter <exitCode> Types Integer^
+				Parameter <exitCode> Types Integer&
 			) Do {
 				// Exit program
 			}

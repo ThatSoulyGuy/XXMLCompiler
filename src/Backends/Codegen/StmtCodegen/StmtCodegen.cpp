@@ -63,6 +63,18 @@ void StmtCodegen::visitReturn(Parser::ReturnStmt* stmt) {
             // Non-void return - save value, emit destructors, then return
             auto returnValue = exprCodegen_.generate(stmt->value.get());
 
+            // Check if the return expression returns a reference type (T&) but the
+            // method's return type is owned. In that case, we need to load from the reference.
+            bool valueIsReference = (stmt->value->resolvedOwnership == Parser::OwnershipType::Reference);
+            bool returnTypeIsReference = (!returnType.empty() && returnType.back() == '&');
+            if (valueIsReference && !returnTypeIsReference && returnValue.isPtr()) {
+                returnValue = LLVMIR::AnyValue(ctx_.builder().createLoad(
+                    ctx_.builder().getPtrTy(),
+                    returnValue.asPtr(),
+                    "ref.load.return"
+                ));
+            }
+
             // Check if we're returning a simple variable - if so, skip its destructor
             // because ownership is being transferred to the caller
             std::string excludeVar;
@@ -119,6 +131,17 @@ void StmtCodegen::visitAssignment(Parser::AssignmentStmt* stmt) {
 
     // Generate code for the value expression
     auto valueResult = exprCodegen_.generate(stmt->value.get());
+
+    // Check if the value expression returns a reference type (T&) but we're
+    // assigning to an owned variable. In that case, we need to load from the reference.
+    bool valueIsReference = (stmt->value->resolvedOwnership == Parser::OwnershipType::Reference);
+    if (valueIsReference && valueResult.isPtr()) {
+        valueResult = LLVMIR::AnyValue(ctx_.builder().createLoad(
+            ctx_.builder().getPtrTy(),
+            valueResult.asPtr(),
+            "ref.load.assign"
+        ));
+    }
 
     // Handle different types of lvalue expressions
     if (auto* identExpr = dynamic_cast<Parser::IdentifierExpr*>(stmt->target.get())) {
@@ -245,6 +268,19 @@ void StmtCodegen::visitInstantiate(Parser::InstantiateStmt* stmt) {
     // If there's an initializer, generate it and store
     if (stmt->initializer) {
         auto initValue = exprCodegen_.generate(stmt->initializer.get());
+
+        // Check if the initializer expression returns a reference type (T&)
+        // If so, we need to load from the reference to get the actual value
+        bool initializerIsReference = (stmt->initializer->resolvedOwnership == Parser::OwnershipType::Reference);
+        if (initializerIsReference && initValue.isPtr()) {
+            // The initializer returned T& (address of where T^ is stored)
+            // Load from that address to get the actual T^ value
+            initValue = LLVMIR::AnyValue(ctx_.builder().createLoad(
+                ctx_.builder().getPtrTy(),
+                initValue.asPtr(),
+                "ref.load"
+            ));
+        }
 
         // For value types (Structures), the constructor returns a pointer to a temp alloca.
         // We need to copy the struct from the temp to our variable's alloca.

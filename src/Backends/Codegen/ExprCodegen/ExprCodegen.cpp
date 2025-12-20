@@ -96,7 +96,13 @@ LLVMIR::AnyValue ExprCodegen::loadIfNeeded(LLVMIR::AnyValue value, LLVMIR::Alloc
 std::string ExprCodegen::getExpressionType(Parser::Expression* expr) const {
     if (!expr) return "Unknown";
 
-    // Literals have known types
+    // First check if semantic analysis populated the type (preferred)
+    // This is set by SemanticAnalyzer::registerExpressionType()
+    if (!expr->resolvedType.empty()) {
+        return expr->resolvedType;
+    }
+
+    // Fallback for literals (should already have resolvedType set, but just in case)
     if (dynamic_cast<Parser::IntegerLiteralExpr*>(expr)) return "Integer";
     if (dynamic_cast<Parser::FloatLiteralExpr*>(expr)) return "Float";
     if (dynamic_cast<Parser::DoubleLiteralExpr*>(expr)) return "Double";
@@ -110,7 +116,7 @@ std::string ExprCodegen::getExpressionType(Parser::Expression* expr) const {
         }
     }
 
-    // For other expressions, would need type inference
+    // No type information available
     return "Unknown";
 }
 
@@ -340,6 +346,12 @@ LLVMIR::AnyValue ExprCodegen::visitBinary(Parser::BinaryExpr* expr) {
     // Evaluate left operand
     auto leftResult = generate(expr->left.get());
 
+    // If left operand returns a reference (T&), load to get the actual value
+    if (expr->left->resolvedOwnership == Parser::OwnershipType::Reference && leftResult.isPtr()) {
+        leftResult = LLVMIR::AnyValue(ctx_.builder().createLoad(
+            ctx_.builder().getPtrTy(), leftResult.asPtr(), "ref.load.left"));
+    }
+
     // Short-circuit for logical operators
     if (expr->op == "&&" || expr->op == "and") {
         return generateLogicalAnd(expr, leftResult);
@@ -350,6 +362,12 @@ LLVMIR::AnyValue ExprCodegen::visitBinary(Parser::BinaryExpr* expr) {
 
     // Evaluate right operand
     auto rightResult = generate(expr->right.get());
+
+    // If right operand returns a reference (T&), load to get the actual value
+    if (expr->right->resolvedOwnership == Parser::OwnershipType::Reference && rightResult.isPtr()) {
+        rightResult = LLVMIR::AnyValue(ctx_.builder().createLoad(
+            ctx_.builder().getPtrTy(), rightResult.asPtr(), "ref.load.right"));
+    }
 
     // Determine operand types
     std::string leftType = getExpressionType(expr->left.get());
@@ -685,19 +703,11 @@ LLVMIR::AnyValue ExprCodegen::loadPropertyFromThis(const PropertyInfo& prop) {
         prop.name + ".ptr"
     );
 
-    // Check if the current method returns a reference type
-    // If so, return the address of the property (for reference semantics)
-    std::string returnType = std::string(ctx_.currentReturnType());
-    bool isReferenceReturn = returnType.find("&") != std::string::npos ||
-                             returnType.find("Reference") != std::string::npos;
-
-    if (isReferenceReturn) {
-        // For reference returns, return the address (pointer to the storage)
-        ctx_.lastExprValue = LLVMIR::AnyValue(propPtr);
-        return ctx_.lastExprValue;
-    }
-
-    // Use ptr type for object types (owned/reference/copy), otherwise primitive type
+    // Always load the property value.
+    // Reference semantics for return statements are handled separately -
+    // just because a method returns T& doesn't mean every property access
+    // in that method should return the address. Properties used in expressions
+    // like `dataPtr + position` need the actual value, not the address.
     auto* propType = prop.isObjectType ? ctx_.module().getContext().getPtrTy() : ctx_.mapType(prop.xxmlType);
     auto loaded = ctx_.builder().createLoad(propType, propPtr, "");
 
@@ -740,18 +750,11 @@ LLVMIR::AnyValue ExprCodegen::loadThisProperty(const std::string& propName) {
                 propName + ".ptr"
             );
 
-            // Check if the current method returns a reference type
-            // If so, return the address of the property (for reference semantics)
-            std::string returnType = std::string(ctx_.currentReturnType());
-            bool isReferenceReturn = returnType.find("&") != std::string::npos ||
-                                     returnType.find("Reference") != std::string::npos;
-
-            if (isReferenceReturn) {
-                // For reference returns, return the address (pointer to the storage)
-                ctx_.lastExprValue = LLVMIR::AnyValue(propPtr);
-                return ctx_.lastExprValue;
-            }
-
+            // Always load the property value.
+            // Reference semantics for return statements are handled separately -
+            // just because a method returns T& doesn't mean every property access
+            // in that method should return the address. Properties used in expressions
+            // like `dataPtr + position` need the actual value, not the address.
             // Use ptr type for object types (owned/reference/copy), otherwise primitive type
             auto* propType = prop.isObjectType ? ctx_.module().getContext().getPtrTy() : ctx_.mapType(prop.xxmlType);
             auto loaded = ctx_.builder().createLoad(propType, propPtr, "");
@@ -1139,67 +1142,15 @@ LLVMIR::AnyValue ExprCodegen::handleMemberCall(Parser::CallExpr* expr,
         if (innerResult.isPtr()) {
             isInstanceMethod = true;
 
-            // Determine the return type of the inner call to find the correct method
-            std::string returnType;
-            bool isReferenceReturn = false;
+            // Use the resolved type from semantic analysis
+            // This is set by SemanticAnalyzer::registerExpressionType()
+            std::string returnType = innerCall->resolvedType;
+            bool isReferenceReturn = (innerCall->resolvedOwnership == Parser::OwnershipType::Reference);
 
-            if (auto* innerMemberAccess = dynamic_cast<Parser::MemberAccessExpr*>(innerCall->callee.get())) {
-                std::string innerMethodName = innerMemberAccess->member;
-                // Strip leading :: if present
-                if (innerMethodName.substr(0, 2) == "::") {
-                    innerMethodName = innerMethodName.substr(2);
-                }
-
-                // For static constructor calls like String::Constructor, return type is the class
-                if (innerMethodName == "Constructor") {
-                    // Get class name from the object of the member access
-                    if (auto* classIdent = dynamic_cast<Parser::IdentifierExpr*>(innerMemberAccess->object.get())) {
-                        returnType = classIdent->name;
-                    } else if (auto* nestedMember = dynamic_cast<Parser::MemberAccessExpr*>(innerMemberAccess->object.get())) {
-                        // For nested like Namespace::Class::Constructor, extract the class name
-                        std::string member = nestedMember->member;
-                        if (member.substr(0, 2) == "::") {
-                            member = member.substr(2);
-                        }
-                        returnType = member;  // Use innermost class name
-                    }
-                } else if (innerMethodName == "toString") {
-                    returnType = "String";
-                } else if (innerMethodName == "toInt64" || innerMethodName == "getValue") {
-                    // These typically return the value, need instance type
-                    // Default to Integer for now - better heuristic needed
-                    returnType = "Integer";
-                } else {
-                    // Look up the method's return type from the semantic analyzer
-                    // First determine the class of the object
-                    std::string innerClassName;
-                    if (auto* objIdent = dynamic_cast<Parser::IdentifierExpr*>(innerMemberAccess->object.get())) {
-                        // Get the type of the variable from context
-                        const auto* varInfo = ctx_.getVariable(objIdent->name);
-                        if (varInfo) {
-                            innerClassName = varInfo->xxmlType;
-                            // Strip ownership markers
-                            if (!innerClassName.empty() && (innerClassName.back() == '^' ||
-                                innerClassName.back() == '&' || innerClassName.back() == '%')) {
-                                innerClassName.pop_back();
-                            }
-                        }
-                    }
-
-                    if (!innerClassName.empty()) {
-                        // Use direct lookup to avoid lossy mangling/demangling for template types
-                        returnType = ctx_.lookupMethodReturnTypeDirect(innerClassName, innerMethodName);
-                        // Check if return type is a reference before stripping
-                        if (!returnType.empty() && returnType.back() == '&') {
-                            isReferenceReturn = true;
-                        }
-                        // Strip ownership markers from return type
-                        if (!returnType.empty() && (returnType.back() == '^' ||
-                            returnType.back() == '&' || returnType.back() == '%')) {
-                            returnType.pop_back();
-                        }
-                    }
-                }
+            // Strip ownership markers from return type if present
+            if (!returnType.empty() && (returnType.back() == '^' ||
+                returnType.back() == '&' || returnType.back() == '%')) {
+                returnType.pop_back();
             }
 
             // If the inner method returns a reference type, the result is a pointer
@@ -1213,12 +1164,6 @@ LLVMIR::AnyValue ExprCodegen::handleMemberCall(Parser::CallExpr* expr,
                 instancePtr = loadedObj.asPtr();
             } else {
                 instancePtr = innerResult.asPtr();
-            }
-
-            // Default fallback - only if we couldn't determine the type
-            // This should rarely happen with proper type tracking
-            if (returnType.empty()) {
-                returnType = "Object";
             }
 
             // Strip template args from type name for function lookup

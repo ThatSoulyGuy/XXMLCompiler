@@ -71,12 +71,13 @@
 				Return Bool::Constructor(totalVisited < totalElements);
 			}
 
-			// Get current element without advancing
-			Method <current> Returns T^ Parameters () Do
+			// Get current element without advancing (returns borrowed reference)
+			// For T& return: returns the ADDRESS of the slot containing T^
+			Method <current> Returns T& Parameters () Do
 			{
 				If (totalVisited >= totalElements) -> {
 					Instantiate NativeType<"ptr">^ As <nullPtr> = 0;
-					Return Syscall::ptr_read(nullPtr);
+					Return nullPtr;
 				}
 
 				// Get bucket data pointer
@@ -85,18 +86,34 @@
 
 				If (bucketData == 0) -> {
 					Instantiate NativeType<"ptr">^ As <nullPtr> = 0;
-					Return Syscall::ptr_read(nullPtr);
+					Return nullPtr;
 				}
 
-				// Get element at position
+				// Return the address of the slot (T**), not the value (T^)
 				Instantiate NativeType<"ptr">^ As <elemOffset> = bucketData + (posInBucket * 8);
-				Return Syscall::ptr_read(elemOffset);
+				Return elemOffset;
 			}
 
-			// Advance and return the current element
+			// Advance and return the current element (owned copy)
 			Method <next> Returns T^ Parameters () Do
 			{
 				Instantiate T^ As <elem> = this.current();
+
+				// Advance position
+				Instantiate NativeType<"int64">^ As <one> = 1;
+				Set posInBucket = posInBucket + one;
+				Set totalVisited = totalVisited + one;
+
+				// Find next valid position
+				Run this.findNextElement();
+
+				Return elem;
+			}
+
+			// Advance and return the current element (borrowed reference)
+			Method <nextRef> Returns T& Parameters () Do
+			{
+				Instantiate T& As <elem> = this.current();
 
 				// Advance position
 				Instantiate NativeType<"int64">^ As <one> = 1;

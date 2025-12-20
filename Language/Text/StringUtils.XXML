@@ -8,8 +8,8 @@
 
 			// Check if string contains substring
 			Method <contains> Returns Bool^ Parameters (
-				Parameter <str> Types String^,
-				Parameter <substring> Types String^
+				Parameter <str> Types String&,
+				Parameter <substring> Types String&
 			) Do {
 				Instantiate NativeType<"int64">^ As <index> = indexOf(str, substring);
 
@@ -22,8 +22,8 @@
 
 			// Find first index of substring (-1 if not found)
 			Method <indexOf> Returns NativeType<"int64">% Parameters (
-				Parameter <str> Types String^,
-				Parameter <substring> Types String^
+				Parameter <str> Types String&,
+				Parameter <substring> Types String&
 			) Do {
 				Instantiate NativeType<"int64">^ As <strLen> = str.length();
 				Instantiate NativeType<"int64">^ As <subLen> = substring.length();
@@ -41,8 +41,8 @@
 
 			// Check if string starts with prefix
 			Method <startsWith> Returns Bool^ Parameters (
-				Parameter <str> Types String^,
-				Parameter <prefix> Types String^
+				Parameter <str> Types String&,
+				Parameter <prefix> Types String&
 			) Do {
 				Instantiate NativeType<"int64">^ As <strLen> = str.length();
 				Instantiate NativeType<"int64">^ As <prefixLen> = prefix.length();
@@ -60,8 +60,8 @@
 
 			// Check if string ends with suffix
 			Method <endsWith> Returns Bool^ Parameters (
-				Parameter <str> Types String^,
-				Parameter <suffix> Types String^
+				Parameter <str> Types String&,
+				Parameter <suffix> Types String&
 			) Do {
 				Instantiate NativeType<"int64">^ As <strLen> = str.length();
 				Instantiate NativeType<"int64">^ As <suffixLen> = suffix.length();
@@ -80,9 +80,9 @@
 
 			// Get substring from start to end (exclusive)
 			Method <substring> Returns String^ Parameters (
-				Parameter <str> Types String^,
-				Parameter <start> Types Integer^,
-				Parameter <end> Types Integer^
+				Parameter <str> Types String&,
+				Parameter <start> Types Integer&,
+				Parameter <end> Types Integer&
 			) Do {
 				Instantiate NativeType<"int64">^ As <strLen> = str.length();
 				Instantiate NativeType<"int64">^ As <startIdx> = start;
@@ -127,8 +127,8 @@
 
 			// Split string by delimiter (returns List<String>)
 			Method <split> Returns Collections::List<String>^ Parameters (
-				Parameter <str> Types String^,
-				Parameter <delimiter> Types String^
+				Parameter <str> Types String&,
+				Parameter <delimiter> Types String&
 			) Do {
 				Instantiate Collections::List<String>^ As <list> = Collections::List<String>::Constructor();
 
@@ -146,7 +146,7 @@
 			}
 
 			// Trim leading and trailing whitespace
-			Method <trim> Returns String^ Parameters (Parameter <str> Types String^) Do {
+			Method <trim> Returns String^ Parameters (Parameter <str> Types String&) Do {
 				Instantiate NativeType<"int64">^ As <len> = str.length();
 
 				If (len == 0) -> {
@@ -169,8 +169,8 @@
 
 			// Join List<String> with delimiter
 			Method <join> Returns String^ Parameters (
-				Parameter <list> Types Collections::List<String>^,
-				Parameter <delimiter> Types String^
+				Parameter <list> Types Collections::List<String>&,
+				Parameter <delimiter> Types String&
 			) Do {
 				Instantiate NativeType<"int64">^ As <size> = list.size();
 
@@ -183,8 +183,8 @@
 
 			// Repeat string n times
 			Method <repeat> Returns String^ Parameters (
-				Parameter <str> Types String^,
-				Parameter <count> Types Integer^
+				Parameter <str> Types String&,
+				Parameter <count> Types Integer&
 			) Do {
 				Instantiate NativeType<"int64">^ As <n> = count;
 
@@ -197,9 +197,9 @@
 
 			// Pad left to width with character
 			Method <padLeft> Returns String^ Parameters (
-				Parameter <str> Types String^,
-				Parameter <width> Types Integer^,
-				Parameter <padChar> Types String^
+				Parameter <str> Types String&,
+				Parameter <width> Types Integer&,
+				Parameter <padChar> Types String&
 			) Do {
 				Instantiate NativeType<"int64">^ As <strLen> = str.length();
 				Instantiate NativeType<"int64">^ As <targetWidth> = width;
@@ -216,9 +216,9 @@
 
 			// Pad right to width with character
 			Method <padRight> Returns String^ Parameters (
-				Parameter <str> Types String^,
-				Parameter <width> Types Integer^,
-				Parameter <padChar> Types String^
+				Parameter <str> Types String&,
+				Parameter <width> Types Integer&,
+				Parameter <padChar> Types String&
 			) Do {
 				Instantiate NativeType<"int64">^ As <strLen> = str.length();
 				Instantiate NativeType<"int64">^ As <targetWidth> = width;
@@ -237,11 +237,11 @@
 		[ Private <>
 			// Recursive helper for indexOf
 			Method <indexOfHelper> Returns NativeType<"int64">% Parameters (
-				Parameter <str> Types String^,
-				Parameter <substring> Types String^,
-				Parameter <index> Types Integer^,
-				Parameter <strLen> Types Integer^,
-				Parameter <subLen> Types Integer^
+				Parameter <str> Types String&,
+				Parameter <substring> Types String&,
+				Parameter <index> Types Integer&,
+				Parameter <strLen> Types Integer&,
+				Parameter <subLen> Types Integer&
 			) Do {
 				Instantiate NativeType<"int64">^ As <idx> = index;
 				Instantiate NativeType<"int64">^ As <maxIdx> = strLen - subLen;
@@ -263,11 +263,11 @@
 
 			// Check if substring matches at position
 			Method <matchesAt> Returns Bool^ Parameters (
-				Parameter <str> Types String^,
-				Parameter <substring> Types String^,
-				Parameter <strPos> Types Integer^,
-				Parameter <subPos> Types Integer^,
-				Parameter <subLen> Types Integer^
+				Parameter <str> Types String&,
+				Parameter <substring> Types String&,
+				Parameter <strPos> Types Integer&,
+				Parameter <subPos> Types Integer&,
+				Parameter <subLen> Types Integer&
 			) Do {
 				Instantiate NativeType<"int64">^ As <subIdx> = subPos;
 				Instantiate NativeType<"int64">^ As <length> = subLen;
@@ -290,10 +290,10 @@
 
 			// Helper for startsWith
 			Method <startsWithHelper> Returns Bool^ Parameters (
-				Parameter <str> Types String^,
-				Parameter <prefix> Types String^,
-				Parameter <index> Types Integer^,
-				Parameter <prefixLen> Types Integer^
+				Parameter <str> Types String&,
+				Parameter <prefix> Types String&,
+				Parameter <index> Types Integer&,
+				Parameter <prefixLen> Types Integer&
 			) Do {
 				Instantiate NativeType<"int64">^ As <idx> = index;
 				Instantiate NativeType<"int64">^ As <len> = prefixLen;
@@ -315,11 +315,11 @@
 
 			// Helper for endsWith
 			Method <endsWithHelper> Returns Bool^ Parameters (
-				Parameter <str> Types String^,
-				Parameter <suffix> Types String^,
-				Parameter <strPos> Types Integer^,
-				Parameter <suffixPos> Types Integer^,
-				Parameter <suffixLen> Types Integer^
+				Parameter <str> Types String&,
+				Parameter <suffix> Types String&,
+				Parameter <strPos> Types Integer&,
+				Parameter <suffixPos> Types Integer&,
+				Parameter <suffixLen> Types Integer&
 			) Do {
 				Instantiate NativeType<"int64">^ As <sufIdx> = suffixPos;
 				Instantiate NativeType<"int64">^ As <len> = suffixLen;
@@ -342,13 +342,13 @@
 
 			// Helper for split
 			Method <splitHelper> Returns None Parameters (
-				Parameter <str> Types String^,
-				Parameter <delimiter> Types String^,
-				Parameter <list> Types Collections::List<String>^,
-				Parameter <start> Types Integer^,
-				Parameter <current> Types Integer^,
-				Parameter <strLen> Types Integer^,
-				Parameter <delimLen> Types Integer^
+				Parameter <str> Types String&,
+				Parameter <delimiter> Types String&,
+				Parameter <list> Types Collections::List<String>&,
+				Parameter <start> Types Integer&,
+				Parameter <current> Types Integer&,
+				Parameter <strLen> Types Integer&,
+				Parameter <delimLen> Types Integer&
 			) Do {
 				Instantiate NativeType<"int64">^ As <cur> = current;
 				Instantiate NativeType<"int64">^ As <len> = strLen;
@@ -382,9 +382,9 @@
 
 			// Find first non-whitespace character
 			Method <findFirstNonWhitespace> Returns NativeType<"int64">% Parameters (
-				Parameter <str> Types String^,
-				Parameter <index> Types Integer^,
-				Parameter <len> Types Integer^
+				Parameter <str> Types String&,
+				Parameter <index> Types Integer&,
+				Parameter <len> Types Integer&
 			) Do {
 				Instantiate NativeType<"int64">^ As <idx> = index;
 				Instantiate NativeType<"int64">^ As <length> = len;
@@ -406,8 +406,8 @@
 
 			// Find last non-whitespace character
 			Method <findLastNonWhitespace> Returns NativeType<"int64">% Parameters (
-				Parameter <str> Types String^,
-				Parameter <index> Types Integer^
+				Parameter <str> Types String&,
+				Parameter <index> Types Integer&
 			) Do {
 				Instantiate NativeType<"int64">^ As <idx> = index;
 
@@ -427,7 +427,7 @@
 			}
 
 			// Check if character is whitespace
-			Method <isWhitespace> Returns Bool^ Parameters (Parameter <ch> Types String^) Do {
+			Method <isWhitespace> Returns Bool^ Parameters (Parameter <ch> Types String&) Do {
 				Instantiate NativeType<"ptr">^ As <cstr> = ch.toCString();
 				Instantiate NativeType<"int64">^ As <charCode> = Syscall::read_int64(cstr);
 
@@ -453,11 +453,11 @@
 
 			// Helper for join
 			Method <joinHelper> Returns String^ Parameters (
-				Parameter <list> Types Collections::List<String>^,
-				Parameter <delimiter> Types String^,
-				Parameter <index> Types Integer^,
-				Parameter <result> Types String^,
-				Parameter <size> Types Integer^
+				Parameter <list> Types Collections::List<String>&,
+				Parameter <delimiter> Types String&,
+				Parameter <index> Types Integer&,
+				Parameter <result> Types String&,
+				Parameter <size> Types Integer&
 			) Do {
 				Instantiate NativeType<"int64">^ As <idx> = index;
 				Instantiate NativeType<"int64">^ As <length> = size;
@@ -482,9 +482,9 @@
 
 			// Helper for repeat
 			Method <repeatHelper> Returns String^ Parameters (
-				Parameter <str> Types String^,
-				Parameter <count> Types Integer^,
-				Parameter <result> Types String^
+				Parameter <str> Types String&,
+				Parameter <count> Types Integer&,
+				Parameter <result> Types String&
 			) Do {
 				Instantiate NativeType<"int64">^ As <n> = count;
 

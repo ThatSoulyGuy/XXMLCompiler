@@ -114,20 +114,21 @@
 				Return value;
 			}
 
-			// Peek at the front element without removing it
-			Method <peek> Returns T^ Parameters () Do
+			// Peek at the front element without removing it (returns borrowed reference)
+			// For T& return: returns the ADDRESS of the slot containing T^
+			Method <peek> Returns T& Parameters () Do
 			{
 				Instantiate NativeType<"int64">^ As <zero> = 0;
 
 				// Return null if empty
 				If (count == zero) -> {
 					Instantiate NativeType<"ptr">^ As <nullPtr> = 0;
-					Return Syscall::ptr_read(nullPtr);
+					Return nullPtr;
 				}
 
-				// Get the front element
+				// Return the address of the slot (T**), not the value (T^)
 				Instantiate NativeType<"ptr">^ As <offset> = dataPtr + (head * 8);
-				Return Syscall::ptr_read(offset);
+				Return offset;
 			}
 
 			// Get queue size

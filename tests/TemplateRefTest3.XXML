@@ -1,0 +1,32 @@
+// Simplest test - just T& return from template method
+
+[ Namespace <Test>
+	[ Class <Box> <T Constrains None> Final Extends None
+
+		[ Private <>
+			Property <dataPtr> Types NativeType<"ptr">^;
+		]
+
+		[ Public <>
+			Constructor () ->
+			{
+				Instantiate NativeType<"ptr">^ As <nullPtr> = 0;
+				Set dataPtr = nullPtr;
+			}
+
+			// Simple method returning T&
+			Method <getRef> Returns T& Parameters () Do
+			{
+				Return Syscall::ptr_read(dataPtr);
+			}
+		]
+	]
+]
+
+[ Entrypoint
+	{
+		Instantiate Test::Box<Integer>^ As <b> = Test::Box@Integer::Constructor();
+		Instantiate Integer& As <ref> = b.getRef();
+		Exit(0);
+	}
+]

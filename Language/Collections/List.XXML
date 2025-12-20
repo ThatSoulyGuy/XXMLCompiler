@@ -54,24 +54,27 @@
 				Set count = newCount;
 			}
 
-			// Get element at index
-			Method <get> Returns T^ Parameters (Parameter <index> Types Integer&) Do
+			// Get element at index (returns borrowed reference)
+			// For T& return: returns the ADDRESS of the slot containing T^
+			// The caller will load from this address to get the actual T^ value
+			Method <get> Returns T& Parameters (Parameter <index> Types Integer&) Do
 			{
 				Instantiate NativeType<"int64">^ As <zero> = 0;
 				Instantiate NativeType<"int64">^ As <idx> = index.toInt64();
 
 				If (idx < zero) -> {
 					Instantiate NativeType<"ptr">^ As <nullPtr> = 0;
-					Return Syscall::ptr_read(nullPtr);
+					Return nullPtr;
 				}
 
 				If (idx >= count) -> {
 					Instantiate NativeType<"ptr">^ As <nullPtr> = 0;
-					Return Syscall::ptr_read(nullPtr);
+					Return nullPtr;
 				}
 
+				// Return the address of the slot (T**), not the value (T^)
 				Instantiate NativeType<"ptr">^ As <offset> = dataPtr + (idx * 8);
-				Return Syscall::ptr_read(offset);
+				Return offset;
 			}
 
 			// Set element at index

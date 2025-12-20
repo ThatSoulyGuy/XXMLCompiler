@@ -741,6 +741,11 @@ void SemanticAnalyzer::registerExpressionType(Parser::Expression* expr,
     expressionTypes[expr] = xxmlType;
     expressionOwnerships[expr] = ownership;
 
+    // Store directly in AST node for codegen access
+    // This ensures type info survives across compilation phases
+    expr->resolvedType = xxmlType;
+    expr->resolvedOwnership = ownership;
+
     // Create C++-aware ResolvedType and store in TypeContext
     Core::ResolvedType resolved;
     resolved.xxmlTypeName = xxmlType;
@@ -2334,6 +2339,8 @@ void SemanticAnalyzer::visit(Parser::ThisExpr& node) {
     if (inQuoteBlock_) {
         expressionTypes[&node] = DEFERRED_TYPE;
         expressionOwnerships[&node] = Parser::OwnershipType::Reference;
+        node.resolvedType = DEFERRED_TYPE;
+        node.resolvedOwnership = Parser::OwnershipType::Reference;
         return;
     }
 
@@ -2346,12 +2353,16 @@ void SemanticAnalyzer::visit(Parser::ThisExpr& node) {
         );
         expressionTypes[&node] = UNKNOWN_TYPE;
         expressionOwnerships[&node] = Parser::OwnershipType::Reference;
+        node.resolvedType = UNKNOWN_TYPE;
+        node.resolvedOwnership = Parser::OwnershipType::Reference;
         return;
     }
 
     // 'this' has the type of the current class and is a reference
     expressionTypes[&node] = currentClass;
     expressionOwnerships[&node] = Parser::OwnershipType::Reference;
+    node.resolvedType = currentClass;
+    node.resolvedOwnership = Parser::OwnershipType::Reference;
 }
 
 void SemanticAnalyzer::visit(Parser::IdentifierExpr& node) {
@@ -3695,9 +3706,11 @@ void SemanticAnalyzer::visit(Parser::BinaryExpr& node) {
             node.op == "<=" || node.op == ">=" ||
             node.op == "&&" || node.op == "||") {
             expressionTypes[&node] = "Bool";
+            node.resolvedType = "Bool";
         } else {
             // Arithmetic operators return the type of their operands
             expressionTypes[&node] = leftType;
+            node.resolvedType = leftType;
         }
     } else {
         // Unary operation
@@ -3706,12 +3719,15 @@ void SemanticAnalyzer::visit(Parser::BinaryExpr& node) {
         // Unary ! operator returns Bool
         if (node.op == "!") {
             expressionTypes[&node] = "Bool";
+            node.resolvedType = "Bool";
         } else {
             expressionTypes[&node] = rightType;
+            node.resolvedType = rightType;
         }
     }
 
     expressionOwnerships[&node] = Parser::OwnershipType::Owned;
+    node.resolvedOwnership = Parser::OwnershipType::Owned;
 }
 
 void SemanticAnalyzer::visit(Parser::TypeRef& node) {

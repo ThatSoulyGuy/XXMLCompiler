@@ -1,0 +1,38 @@
+// Test assigning T& to T^ in template context
+
+[ Namespace <Test>
+	[ Class <Box> <T Constrains None> Final Extends None
+
+		[ Private <>
+			Property <dataPtr> Types NativeType<"ptr">^;
+		]
+
+		[ Public <>
+			Constructor () ->
+			{
+				Instantiate NativeType<"ptr">^ As <nullPtr> = 0;
+				Set dataPtr = nullPtr;
+			}
+
+			// Method returning T&
+			Method <getRef> Returns T& Parameters () Do
+			{
+				Return Syscall::ptr_read(dataPtr);
+			}
+
+			// Method that assigns T& to T^
+			Method <getCopy> Returns T^ Parameters () Do
+			{
+				Instantiate T^ As <copy> = this.getRef();
+				Return copy;
+			}
+		]
+	]
+]
+
+[ Entrypoint
+	{
+		Instantiate Test::Box<Integer>^ As <b> = Test::Box@Integer::Constructor();
+		Exit(0);
+	}
+]

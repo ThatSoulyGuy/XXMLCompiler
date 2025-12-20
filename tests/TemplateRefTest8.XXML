@@ -1,0 +1,41 @@
+// Test with position property but not using it in current()
+
+[ Namespace <Test>
+	[ Class <Iterator> <T Constrains None> Final Extends None
+
+		[ Private <>
+			Property <dataPtr> Types NativeType<"ptr">^;
+			Property <position> Types NativeType<"int64">^;
+		]
+
+		[ Public <>
+			Constructor Parameters (Parameter <data> Types NativeType<"ptr">^) ->
+			{
+				Set dataPtr = data;
+				Instantiate NativeType<"int64">^ As <zero> = 0;
+				Set position = zero;
+			}
+
+			// Method returning T& WITHOUT using position
+			Method <current> Returns T& Parameters () Do
+			{
+				Return Syscall::ptr_read(dataPtr);
+			}
+
+			// Method that calls current()
+			Method <next> Returns T^ Parameters () Do
+			{
+				Instantiate T^ As <elem> = this.current();
+				Return elem;
+			}
+		]
+	]
+]
+
+[ Entrypoint
+	{
+		Instantiate NativeType<"ptr">^ As <data> = 0;
+		Instantiate Test::Iterator<Integer>^ As <iter> = Test::Iterator@Integer::Constructor(data);
+		Exit(0);
+	}
+]
