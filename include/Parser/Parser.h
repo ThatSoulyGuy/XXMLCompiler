@@ -13,6 +13,7 @@ private:
     std::vector<Lexer::Token> tokens;
     size_t current;
     Common::ErrorReporter& errorReporter;
+    bool inQuoteBlock_ = false;  // Track if we're inside a Quote { } block
 
     // Token navigation
     const Lexer::Token& peek() const;
@@ -81,6 +82,8 @@ private:
     std::unique_ptr<Expression> parseCallOrMemberAccess(std::unique_ptr<Expression> expr);
     std::unique_ptr<Expression> parseTypeOfExpression();
     std::unique_ptr<Expression> parseLambda();
+    std::unique_ptr<Expression> parseQuoteExpression();
+    std::unique_ptr<Expression> parseSplicePlaceholder();
 
     std::unique_ptr<TypeRef> parseTypeRef();
     std::unique_ptr<TypeRef> parseFunctionTypeRef();

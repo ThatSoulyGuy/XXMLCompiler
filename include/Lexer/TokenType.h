@@ -66,6 +66,9 @@ enum class TokenType {
     AnnotationAllow,  // AnnotationAllow
     Derive,           // Derive (user-defined derive declaration)
 
+    // Quote/splice keywords
+    Quote,            // Quote (for quasi-quotation blocks)
+
     // FFI keywords
     NativeStructure,  // NativeStructure
     Aligns,           // Aligns
@@ -111,6 +114,8 @@ enum class TokenType {
     Pipe,             // |
     Caret,            // ^
     At,               // @
+    Dollar,           // $  (single splice in Quote blocks)
+    DollarBrace,      // ${ (expression splice in Quote blocks)
     Exclamation,      // !
     Question,         // ?
     Hash,             // #

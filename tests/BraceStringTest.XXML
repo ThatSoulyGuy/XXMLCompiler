@@ -1,0 +1,9 @@
+#import Language::Core;
+
+[ Entrypoint
+    {
+        Instantiate String^ As <s> = String::Constructor("[{test}]");
+        Run Console::printLine(s);
+        Exit(0);
+    }
+]

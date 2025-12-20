@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(\"D:\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" \"D:\\VisualStudio\\Projects\\XXMLCompiler\\tests\\QuoteTest.XXML\" -o \"D:\\VisualStudio\\Projects\\XXMLCompiler\\quotetest.exe\")",
+      "Bash(\"D:\\VisualStudio\\Projects\\XXMLCompiler\\quotetest.exe\")",
+      "Bash(\"D:\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\":*)",
+      "Bash(\"D:\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" \"D:\\VisualStudio\\Projects\\XXMLCompiler\\tests\\QuoteSpliceTest.XXML\" -o \"D:\\VisualStudio\\Projects\\XXMLCompiler\\splicetest.exe\")",
+      "Bash(\"D:\\VisualStudio\\Projects\\XXMLCompiler\\splicetest.exe\")",
+      "Bash(\"D:\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" \"D:\\VisualStudio\\Projects\\XXMLCompiler\\tests\\QuoteHelloTest.XXML\" -o \"D:\\VisualStudio\\Projects\\XXMLCompiler\\quotehellotest.exe\")",
+      "Bash(\"D:\\VisualStudio\\Projects\\XXMLCompiler\\quotehellotest.exe\")",
+      "Bash(\"D:\\VisualStudio\\Projects\\XXMLCompiler\\quotederivetest.exe\")",
+      "Bash(\"D:\\VisualStudio\\Projects\\XXMLCompiler\\bracetest.exe\")",
+      "Bash(\"D:\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" \"D:\\VisualStudio\\Projects\\XXMLCompiler\\tests\\FreshDeriveTest.XXML\" -o \"D:\\VisualStudio\\Projects\\XXMLCompiler\\freshtest.exe\")",
+      "Bash(\"D:\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" --derive \"C:\\Users\\bkmcm\\AppData\\Local\\Temp\\FreshTest123_derive_11817556576737473045.XXML\" -o \"C:\\Users\\bkmcm\\AppData\\Local\\Temp\\test_derive.dll\")",
+      "Bash(\"D:\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" \"D:\\VisualStudio\\Projects\\XXMLCompiler\\tests\\JsonStringTest.XXML\" -o \"D:\\VisualStudio\\Projects\\XXMLCompiler\\jsontest.exe\")",
+      "Bash(\"D:\\VisualStudio\\Projects\\XXMLCompiler\\jsontest.exe\")",
+      "Bash(\"D:\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" \"D:\\VisualStudio\\Projects\\XXMLCompiler\\tests\\SeparateDeriveUsage.XXML\" -o \"D:\\VisualStudio\\Projects\\XXMLCompiler\\separatetest.exe\")",
+      "Bash(\"D:\\VisualStudio\\Projects\\XXMLCompiler\\minderivetest.exe\")",
+      "Bash(\"D:\\VisualStudio\\Projects\\XXMLCompiler\\build\\release\\bin\\xxml.exe\" \"C:/Users/bkmcm/Documents/XXMLStudio/Projects/Hello/src/Main.XXML\" -o \"D:\\VisualStudio\\Projects\\XXMLCompiler\\hellotest2.exe\")",
+      "Bash(\"D:\\VisualStudio\\Projects\\XXMLCompiler\\hellotest2.exe\")"
+    ]
+  }
+}

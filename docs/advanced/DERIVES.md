@@ -25,6 +25,7 @@ The derive system allows automatic generation of common methods (like `equals()`
    - [Basic Structure](#basic-structure)
    - [Compiling and Using](#compiling-and-using)
    - [DeriveContext API](#derivecontext-api)
+   - [Quote-Based Code Generation](#quote-based-code-generation)
    - [Complete Example: Stringable Derive](#complete-example-stringable-derive)
    - [In-Language vs C++ Derives](#in-language-vs-c-derives)
 6. [Examples](#examples)
@@ -700,6 +701,169 @@ The `DeriveContext` class provides the following methods:
 | `message(String&)` | message | Emit info message |
 | `hasErrors()` | - | Check if errors were emitted |
 
+#### AST-Based Code Generation
+
+| Method | Parameters | Description |
+|--------|------------|-------------|
+| `addMethodAST` | `name, returnType, parameters, bodyAST` | Add method using JSON AST |
+| `addStaticMethodAST` | `name, returnType, parameters, bodyAST` | Add static method using JSON AST |
+| `substituteSplice` | `json, varName, value` | Replace splice marker in JSON |
+| `substituteSpliceAll` | `json, varName, value` | Replace all splice markers for variable |
+
+### Quote-Based Code Generation
+
+In addition to string-based code generation, XXML supports **Quote blocks** for generating code as structured AST (Abstract Syntax Tree) templates. This provides a cleaner, more readable syntax for complex code generation.
+
+#### Quote Syntax
+
+Quote blocks capture XXML code as a JSON-serialized AST template:
+
+```xxml
+// Quote for multiple statements (default)
+Instantiate String^ As <body> = Quote<Statements> {
+    Instantiate String^ As <result> = String::Constructor("Hello");
+    Return result;
+};
+
+// Quote for single expression
+Instantiate String^ As <expr> = Quote<Expression> {
+    String::Constructor("Hello").append(String::Constructor(" World"))
+};
+
+// Quote for single statement
+Instantiate String^ As <stmt> = Quote<Statement> {
+    Return String::Constructor("Done");
+};
+```
+
+**Quote Kinds:**
+
+| Kind | Syntax | Returns |
+|------|--------|---------|
+| `Statements` | `Quote<Statements> { ... }` or `Quote { ... }` | JSON array of statements |
+| `Expression` | `Quote<Expression> { ... }` | JSON for single expression |
+| `Statement` | `Quote<Statement> { ... }` | JSON for single statement |
+
+#### Splice Placeholders
+
+Splice placeholders allow injecting runtime values into Quote templates using the `$` prefix:
+
+```xxml
+Instantiate String^ As <className> = ctx.getClassName();
+Instantiate String^ As <prefix> = className.append(String::Constructor("{"));
+
+// $prefix is replaced with the actual value at runtime
+Instantiate String^ As <body> = Quote<Statements> {
+    Return String::Constructor($prefix).append(String::Constructor("}"));
+};
+```
+
+**How Splicing Works:**
+
+1. At compile time, Quote serializes to JSON with splice markers: `{"__SPLICE__":"prefix"}`
+2. At runtime, the marker is replaced with the JSON AST representation of the variable's value
+3. For String variables, the value is wrapped as: `{"kind":"StringLiteral","value":"..."}`
+
+**Splice Syntax:**
+
+| Syntax | Description |
+|--------|-------------|
+| `$varName` | Splice a variable's value into the template |
+| `this.$propName` | Spliced member access (property name from variable) |
+
+#### Spliced Member Access
+
+For accessing members where the member name comes from a variable:
+
+```xxml
+Instantiate String^ As <propName> = ctx.getPropertyNameAt(i);
+
+// this.$propName accesses the property named by propName
+Instantiate String^ As <body> = Quote<Statements> {
+    Return this.$propName.toString();
+};
+```
+
+This generates JSON with `SplicedMemberAccess` nodes that are resolved when the AST is materialized.
+
+#### Using addMethodAST
+
+The `addMethodAST` method accepts JSON AST instead of XXML source code:
+
+```xxml
+Method <generate> Returns None Parameters (Parameter <ctx> Types DeriveContext&) Do {
+    Instantiate String^ As <className> = ctx.getClassName();
+    Instantiate Integer^ As <count> = ctx.getPropertyCount();
+
+    If (count.equals(Integer::Constructor(0))) -> {
+        // For zero-property classes, use Quote with splice
+        Instantiate String^ As <prefix> = className.append(String::Constructor("{"));
+
+        Instantiate String^ As <body> = Quote<Statements> {
+            Return String::Constructor($prefix).append(String::Constructor("}"));
+        };
+
+        Run ctx.addMethodAST(
+            String::Constructor("toString"),
+            String::Constructor("String^"),
+            String::Constructor(""),  // no parameters
+            body
+        );
+    }
+}
+```
+
+**Comparison: String-based vs AST-based:**
+
+| Aspect | String-based (`addMethod`) | AST-based (`addMethodAST`) |
+|--------|---------------------------|---------------------------|
+| Input | XXML source code string | JSON AST from Quote |
+| Parsing | Parsed at derive execution | Already parsed |
+| Readability | Requires escape sequences | Clean Quote syntax |
+| Splicing | Manual string concatenation | `$variable` syntax |
+| Best for | Dynamic code patterns | Static templates with values |
+
+#### Complete Quote Example
+
+```xxml
+[ Derive <Greetable>
+    [ Public <>
+        Method <generate> Returns None Parameters (Parameter <ctx> Types DeriveContext&) Do {
+            Instantiate String^ As <className> = ctx.getClassName();
+
+            // Build greeting message using splice
+            Instantiate String^ As <greeting> = String::Constructor("Hello from ")
+                .append(className)
+                .append(String::Constructor("!"));
+
+            // Generate method body using Quote with $greeting splice
+            Instantiate String^ As <body> = Quote<Statements> {
+                Return String::Constructor($greeting);
+            };
+
+            Run ctx.addMethodAST(
+                String::Constructor("greet"),
+                String::Constructor("String^"),
+                String::Constructor(""),
+                body
+            );
+        }
+    ]
+]
+```
+
+Usage:
+```xxml
+@Derive(trait = "Greetable")
+[ Class <MyClass> Final Extends None
+    [ Public <>
+        Constructor = default;
+    ]
+]
+
+// Generated: greet() returns "Hello from MyClass!"
+```
+
 ### Complete Example: Stringable Derive
 
 Here's the complete implementation of the Stringable derive in XXML:
@@ -863,19 +1027,22 @@ xxml --use-derive=Stringable.dll MyApp.XXML -o app.exe
 | Language | XXML | C++ |
 | Distribution | DLL file | Built into compiler |
 | Compilation | Separate `--derive` step | Compiler rebuild |
-| AST Access | String templates | Direct AST manipulation |
+| AST Access | String templates or Quote blocks | Direct AST manipulation |
+| Code Generation | `addMethod` (strings) or `addMethodAST` (Quote) | Direct AST construction |
 | Type Safety | Runtime validation | Compile-time validation |
 | Best For | User-defined traits | Core language features |
 
 ### Limitations
 
-1. **String-Based Code Generation**: Generated method bodies are XXML source strings that are parsed at compile time. Syntax errors in generated code will be reported but may be harder to debug.
+1. **Two Code Generation Modes**: In-language derives support both string-based (`addMethod`) and AST-based (`addMethodAST`) code generation. String-based requires escape sequences; AST-based uses Quote blocks with cleaner syntax.
 
-2. **No Direct AST Access**: Unlike C++ handlers, in-language derives cannot directly construct AST nodes. All code generation is via string templates.
+2. **Quote Splice Limitations**: Splice placeholders (`$variable`) only support String variables. The value is embedded as a StringLiteral AST node. Complex AST composition requires multiple Quote blocks or string-based generation.
 
 3. **Runtime Overhead**: Type system queries (`typeHasMethod`, etc.) are resolved at compile time when the derive runs, but require function calls through the DLL boundary.
 
 4. **Debugging**: Debug information for generated code points to the derive definition, not the generated method body.
+
+5. **Dynamic Patterns**: For highly dynamic code patterns (e.g., iterating over properties to build chained method calls), string-based generation may be more practical than Quote blocks.
 
 ---
 

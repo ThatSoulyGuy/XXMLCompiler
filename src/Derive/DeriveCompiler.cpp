@@ -431,6 +431,51 @@ std::string DeriveCompiler::serializeExpression(Parser::Expression* expr) {
     else if (auto* thisExpr = dynamic_cast<Parser::ThisExpr*>(expr)) {
         return "this";
     }
+    else if (auto* splicedMember = dynamic_cast<Parser::SplicedMemberAccessExpr*>(expr)) {
+        // Serialize as obj.$spliceName
+        return serializeExpression(splicedMember->object.get()) + ".$" + splicedMember->spliceName;
+    }
+    else if (auto* splicePlace = dynamic_cast<Parser::SplicePlaceholder*>(expr)) {
+        // Serialize as $variableName or @variableName for spread
+        return (splicePlace->isSpread ? "@" : "$") + splicePlace->variableName;
+    }
+    else if (auto* quoteExpr = dynamic_cast<Parser::QuoteExpr*>(expr)) {
+        // Serialize as Quote<Kind> { ... }
+        std::ostringstream out;
+        out << "Quote<";
+        switch (quoteExpr->kind) {
+            case Parser::QuoteExpr::QuoteKind::Expression:
+                out << "Expression";
+                break;
+            case Parser::QuoteExpr::QuoteKind::Statement:
+                out << "Statement";
+                break;
+            case Parser::QuoteExpr::QuoteKind::Statements:
+                out << "Statements";
+                break;
+            case Parser::QuoteExpr::QuoteKind::Declaration:
+                out << "Declaration";
+                break;
+        }
+        out << "> { ";
+
+        // Serialize template nodes
+        bool first = true;
+        for (const auto& node : quoteExpr->templateNodes) {
+            if (!first) out << " ";
+            first = false;
+
+            // Check if it's an expression or statement
+            if (auto* exprNode = dynamic_cast<Parser::Expression*>(node.get())) {
+                out << serializeExpression(exprNode);
+            } else if (auto* stmtNode = dynamic_cast<Parser::Statement*>(node.get())) {
+                out << serializeStatement(stmtNode, 0);
+            }
+        }
+
+        out << " }";
+        return out.str();
+    }
 
     return "/* unknown expression */";
 }

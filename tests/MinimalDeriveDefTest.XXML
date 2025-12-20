@@ -1,0 +1,39 @@
+#import Language::Core;
+#import Language::Derives;
+
+// Test addMethodAST with valid JSON AST
+[ Derive <TestDef999>
+    [ Public <>
+        Method <canDerive> Returns String^ Parameters (Parameter <ctx> Types DeriveContext&) ->
+        {
+            Return String::Constructor("");
+        }
+
+        Method <generate> Returns None Parameters (Parameter <ctx> Types DeriveContext&) ->
+        {
+            // Test addMethodAST with JSON body that returns "hello from AST"
+            // JSON format: [{"kind":"Return","value":{"kind":"Call","callee":...}}]
+            Run ctx.addMethodAST(
+                String::Constructor("testMethod"),
+                String::Constructor("String^"),
+                String::Constructor(""),
+                String::Constructor("[{\"kind\":\"Return\",\"value\":{\"kind\":\"Call\",\"callee\":{\"kind\":\"MemberAccess\",\"object\":{\"kind\":\"Identifier\",\"name\":\"String\"},\"member\":\"::Constructor\"},\"arguments\":[{\"kind\":\"StringLiteral\",\"value\":\"hello from AST\"}]}}]")
+            );
+        }
+    ]
+]
+
+@Derive(trait = "TestDef999")
+[ Class <TestClass999>
+    [ Public <>
+        Constructor = default;
+    ]
+]
+
+[ Entrypoint
+    {
+        Instantiate TestClass999^ As <t> = TestClass999::Constructor();
+        Run Console::printLine(t.testMethod());
+        Exit(0);
+    }
+]

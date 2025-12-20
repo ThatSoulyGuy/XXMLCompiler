@@ -53,6 +53,12 @@ public:
     // TypeOf
     virtual LLVMIR::AnyValue visitTypeOf(Parser::TypeOfExpr* expr);
 
+    // Quote (AST quasi-quotation)
+    virtual LLVMIR::AnyValue visitQuote(Parser::QuoteExpr* expr);
+
+    // Splice placeholder (used within Quote blocks)
+    virtual LLVMIR::AnyValue visitSplicePlaceholder(Parser::SplicePlaceholder* expr);
+
 protected:
     CodegenContext& ctx_;
 

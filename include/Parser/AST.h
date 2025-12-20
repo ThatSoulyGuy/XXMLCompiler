@@ -289,6 +289,23 @@ public:
     std::unique_ptr<Expression> cloneExpr() const override;
 };
 
+// Spliced member access - member access where the member name comes from a splice
+// Used in Quote blocks: this.$propName, obj.$methodName()
+class SplicedMemberAccessExpr : public Expression {
+public:
+    std::unique_ptr<Expression> object;
+    std::string spliceName;  // The splice variable name (without $)
+    bool isSpread;           // Was @ used instead of $
+
+    SplicedMemberAccessExpr(std::unique_ptr<Expression> obj, const std::string& name,
+                            bool spread, const Common::SourceLocation& loc)
+        : Expression(loc), object(std::move(obj)), spliceName(name), isSpread(spread) {}
+
+    void accept(ASTVisitor& visitor) override;
+    std::unique_ptr<ASTNode> clone() const override;
+    std::unique_ptr<Expression> cloneExpr() const override;
+};
+
 class CallExpr : public Expression {
 public:
     std::unique_ptr<Expression> callee;
@@ -371,6 +388,72 @@ public:
     void accept(ASTVisitor& visitor) override;
     std::unique_ptr<ASTNode> clone() const override;
     std::unique_ptr<Expression> cloneExpr() const override;
+};
+
+// Splice placeholder - marks interpolation points in Quote blocks
+// $identifier or ${expression} or @identifier (spread)
+class SplicePlaceholder : public Expression {
+public:
+    std::string variableName;  // The variable to splice
+    bool isSpread;             // @ prefix for spreading sequences
+    bool isBraced;             // ${} vs $ syntax
+
+    SplicePlaceholder(const std::string& name, bool spread, bool braced,
+                      const Common::SourceLocation& loc)
+        : Expression(loc), variableName(name), isSpread(spread), isBraced(braced) {}
+
+    void accept(ASTVisitor& visitor) override;
+    std::unique_ptr<ASTNode> clone() const override;
+    std::unique_ptr<Expression> cloneExpr() const override;
+};
+
+// Quote expression - captures code as AST template
+// Quote<Expression> { expr } or Quote { statements }
+class QuoteExpr : public Expression {
+public:
+    // What kind of AST the quote produces
+    enum class QuoteKind {
+        Expression,   // Quote<Expression> { ... } - single expression
+        Statement,    // Quote<Statement> { ... } - single statement
+        Statements,   // Quote { ... } - list of statements (default)
+        Declaration   // Quote<Declaration> { ... } - class/method declaration
+    };
+
+    // Information about a splice point within the quoted template
+    struct SpliceInfo {
+        enum class Kind { Single, Spread };
+        Kind kind;
+        std::string variableName;
+        Common::SourceLocation location;
+
+        SpliceInfo(Kind k, const std::string& name, const Common::SourceLocation& loc)
+            : kind(k), variableName(name), location(loc) {}
+    };
+
+    QuoteKind kind;
+    std::vector<std::unique_ptr<ASTNode>> templateNodes;  // The captured AST template
+    std::vector<SpliceInfo> splices;                      // All splice points found
+
+    QuoteExpr(QuoteKind k, const Common::SourceLocation& loc)
+        : Expression(loc), kind(k) {}
+
+    void accept(ASTVisitor& visitor) override;
+    std::unique_ptr<ASTNode> clone() const override;
+    std::unique_ptr<Expression> cloneExpr() const override;
+
+    // Helper to check if template contains any splices
+    bool hasSplices() const { return !splices.empty(); }
+
+    // Get kind as string for debugging
+    static std::string kindToString(QuoteKind k) {
+        switch (k) {
+            case QuoteKind::Expression: return "Expression";
+            case QuoteKind::Statement: return "Statement";
+            case QuoteKind::Statements: return "Statements";
+            case QuoteKind::Declaration: return "Declaration";
+        }
+        return "Unknown";
+    }
 };
 
 // Statements
@@ -1038,10 +1121,13 @@ public:
     virtual void visit(IdentifierExpr& node) = 0;
     virtual void visit(ReferenceExpr& node) = 0;
     virtual void visit(MemberAccessExpr& node) = 0;
+    virtual void visit(SplicedMemberAccessExpr& node) = 0;
     virtual void visit(CallExpr& node) = 0;
     virtual void visit(BinaryExpr& node) = 0;
     virtual void visit(TypeOfExpr& node) = 0;
     virtual void visit(LambdaExpr& node) = 0;
+    virtual void visit(SplicePlaceholder& node) = 0;
+    virtual void visit(QuoteExpr& node) = 0;
 
     virtual void visit(TypeRef& node) = 0;
     virtual void visit(FunctionTypeRef& node) = 0;

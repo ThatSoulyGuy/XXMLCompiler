@@ -1600,8 +1600,21 @@ std::unique_ptr<Expression> Parser::parsePostfix() {
 std::unique_ptr<Expression> Parser::parseCallOrMemberAccess(std::unique_ptr<Expression> expr) {
     while (true) {
         if (match(Lexer::TokenType::Dot)) {
-            // Member access
-            if (check(Lexer::TokenType::Identifier)) {
+            // Member access - check for splice in Quote blocks first
+            if (inQuoteBlock_ && (check(Lexer::TokenType::Dollar) || check(Lexer::TokenType::At))) {
+                // Spliced member access: obj.$propName or obj.@propNames
+                auto spliceLoc = peek().location;
+                bool isSpread = check(Lexer::TokenType::At);
+                advance(); // consume $ or @
+
+                if (!check(Lexer::TokenType::Identifier)) {
+                    error("Expected identifier after '$' or '@' in spliced member access");
+                    break;
+                }
+                std::string spliceName = advance().lexeme;
+                expr = std::make_unique<SplicedMemberAccessExpr>(std::move(expr), spliceName, isSpread, spliceLoc);
+            }
+            else if (check(Lexer::TokenType::Identifier)) {
                 std::string member = advance().lexeme;
                 auto memberLoc = previous().location;
 
@@ -2022,6 +2035,19 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
         }
         // Not a lambda - restore position
         current--;  // Put back the '['
+    }
+
+    // Handle Quote expressions: Quote<Type> { ... } or Quote { ... }
+    if (match(Lexer::TokenType::Quote)) {
+        return parseQuoteExpression();
+    }
+
+    // Handle splice placeholders inside Quote blocks: $var, ${expr}, or @var
+    if (inQuoteBlock_) {
+        if (check(Lexer::TokenType::Dollar) || check(Lexer::TokenType::DollarBrace) ||
+            check(Lexer::TokenType::At)) {
+            return parseSplicePlaceholder();
+        }
     }
 
     error("Expected expression");
@@ -2454,6 +2480,128 @@ std::unique_ptr<TypeRef> Parser::parseFunctionTypeRef() {
         ownership,
         loc
     );
+}
+
+std::unique_ptr<Expression> Parser::parseQuoteExpression() {
+    // Called after Quote keyword was consumed
+    auto loc = previous().location;
+
+    // Determine quote kind based on optional type parameter
+    QuoteExpr::QuoteKind kind = QuoteExpr::QuoteKind::Statements;  // Default
+
+    // Check for optional type parameter: Quote<Expression>, Quote<Statement>, etc.
+    // The lexer may produce either LeftAngle + Identifier + RightAngle tokens,
+    // or a single AngleBracketId token (e.g., "<Expression>")
+    if (match(Lexer::TokenType::AngleBracketId)) {
+        // AngleBracketId includes the angle brackets: "<Expression>"
+        std::string kindStr = previous().lexeme;
+        // Strip the angle brackets
+        if (kindStr.size() > 2 && kindStr.front() == '<' && kindStr.back() == '>') {
+            kindStr = kindStr.substr(1, kindStr.size() - 2);
+        }
+        if (kindStr == "Expression") {
+            kind = QuoteExpr::QuoteKind::Expression;
+        } else if (kindStr == "Statement") {
+            kind = QuoteExpr::QuoteKind::Statement;
+        } else if (kindStr == "Statements") {
+            kind = QuoteExpr::QuoteKind::Statements;
+        } else if (kindStr == "Declaration") {
+            kind = QuoteExpr::QuoteKind::Declaration;
+        } else {
+            error("Invalid Quote kind: expected Expression, Statement, Statements, or Declaration");
+        }
+    } else if (match(Lexer::TokenType::LeftAngle)) {
+        if (check(Lexer::TokenType::Identifier)) {
+            std::string kindStr = advance().lexeme;
+            if (kindStr == "Expression") {
+                kind = QuoteExpr::QuoteKind::Expression;
+            } else if (kindStr == "Statement") {
+                kind = QuoteExpr::QuoteKind::Statement;
+            } else if (kindStr == "Statements") {
+                kind = QuoteExpr::QuoteKind::Statements;
+            } else if (kindStr == "Declaration") {
+                kind = QuoteExpr::QuoteKind::Declaration;
+            } else {
+                error("Invalid Quote kind: expected Expression, Statement, Statements, or Declaration");
+            }
+        }
+        consume(Lexer::TokenType::RightAngle, "Expected '>' after Quote type parameter");
+    }
+
+    auto quoteExpr = std::make_unique<QuoteExpr>(kind, loc);
+
+    // Parse the block { ... } with quote context enabled
+    consume(Lexer::TokenType::LeftBrace, "Expected '{' after Quote");
+
+    // Save and set quote context
+    bool previousQuoteBlock = inQuoteBlock_;
+    inQuoteBlock_ = true;
+
+    // Parse contents based on kind
+    if (kind == QuoteExpr::QuoteKind::Expression) {
+        // Parse single expression
+        auto expr = parseExpression();
+        quoteExpr->templateNodes.push_back(std::move(expr));
+    } else if (kind == QuoteExpr::QuoteKind::Statement) {
+        // Parse single statement
+        auto stmt = parseStatement();
+        quoteExpr->templateNodes.push_back(std::move(stmt));
+    } else {
+        // Parse multiple statements (Statements or Declaration)
+        while (!check(Lexer::TokenType::RightBrace) && !isAtEnd()) {
+            auto stmt = parseStatement();
+            quoteExpr->templateNodes.push_back(std::move(stmt));
+        }
+    }
+
+    // Restore quote context
+    inQuoteBlock_ = previousQuoteBlock;
+
+    consume(Lexer::TokenType::RightBrace, "Expected '}' after Quote body");
+
+    // Collect splice info from the parsed nodes (done during semantic analysis)
+    // For now, just return the quote expression
+
+    return quoteExpr;
+}
+
+std::unique_ptr<Expression> Parser::parseSplicePlaceholder() {
+    auto loc = peek().location;
+
+    bool isSpread = false;
+    bool isBraced = false;
+    std::string variableName;
+
+    if (match(Lexer::TokenType::At)) {
+        // Spread splice: @identifier
+        isSpread = true;
+        if (!check(Lexer::TokenType::Identifier)) {
+            error("Expected identifier after '@' in splice");
+            return std::make_unique<IntegerLiteralExpr>(0, loc);
+        }
+        variableName = advance().lexeme;
+    } else if (match(Lexer::TokenType::DollarBrace)) {
+        // Braced splice: ${expression} - for now just parse identifier
+        isBraced = true;
+        if (!check(Lexer::TokenType::Identifier)) {
+            error("Expected identifier after '${' in splice");
+            return std::make_unique<IntegerLiteralExpr>(0, loc);
+        }
+        variableName = advance().lexeme;
+        consume(Lexer::TokenType::RightBrace, "Expected '}' after splice expression");
+    } else if (match(Lexer::TokenType::Dollar)) {
+        // Simple splice: $identifier
+        if (!check(Lexer::TokenType::Identifier)) {
+            error("Expected identifier after '$' in splice");
+            return std::make_unique<IntegerLiteralExpr>(0, loc);
+        }
+        variableName = advance().lexeme;
+    } else {
+        error("Expected splice placeholder ($, ${, or @)");
+        return std::make_unique<IntegerLiteralExpr>(0, loc);
+    }
+
+    return std::make_unique<SplicePlaceholder>(variableName, isSpread, isBraced, loc);
 }
 
 } // namespace Parser

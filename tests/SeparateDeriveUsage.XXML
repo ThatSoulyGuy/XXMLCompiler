@@ -1,0 +1,21 @@
+#import Language::Core;
+#import Language::Derives;
+
+// This file ONLY uses the derive, doesn't define it
+// We'll use a built-in derive to test
+
+@Derive(trait = "Stringable")
+[ Class <SeparateTestClass>
+    [ Public <>
+        Constructor = default;
+        Property <value> Types Integer^;
+    ]
+]
+
+[ Entrypoint
+    {
+        Instantiate SeparateTestClass^ As <t> = SeparateTestClass::Constructor();
+        Run Console::printLine(t.toString());
+        Exit(0);
+    }
+]

@@ -107,7 +107,7 @@ static char* derive_strdup(const char* s) {
  */
 static void derive_addMethodInternal(DeriveCodeGen* gen, const char* name,
                                      const char* returnType, const char* parameters,
-                                     const char* body, int isStatic) {
+                                     const char* body, int isStatic, int isAST) {
     if (!gen) return;
 
     /* Grow array if needed */
@@ -127,6 +127,7 @@ static void derive_addMethodInternal(DeriveCodeGen* gen, const char* name,
     m->parameters = derive_strdup(parameters);
     m->body = derive_strdup(body);
     m->isStatic = isStatic;
+    m->isAST = isAST;
 }
 
 /**
@@ -396,7 +397,7 @@ void Derive_addMethod(DeriveContext* ctx, void* nameStr, void* returnTypeStr,
 
     if (!name || !returnType || !body) return;
 
-    derive_addMethodInternal(gen, name, returnType, parameters, body, 0);
+    derive_addMethodInternal(gen, name, returnType, parameters, body, 0, 0);
 }
 
 void Derive_addStaticMethod(DeriveContext* ctx, void* nameStr, void* returnTypeStr,
@@ -411,7 +412,37 @@ void Derive_addStaticMethod(DeriveContext* ctx, void* nameStr, void* returnTypeS
 
     if (!name || !returnType || !body) return;
 
-    derive_addMethodInternal(gen, name, returnType, parameters, body, 1);
+    derive_addMethodInternal(gen, name, returnType, parameters, body, 1, 0);
+}
+
+void Derive_addMethodAST(DeriveContext* ctx, void* nameStr, void* returnTypeStr,
+                         void* parametersStr, void* bodyASTStr) {
+    if (!ctx || !ctx->_codeGen || !nameStr || !returnTypeStr || !bodyASTStr) return;
+    DeriveCodeGen* gen = (DeriveCodeGen*)ctx->_codeGen;
+
+    const char* name = String_toCString(nameStr);
+    const char* returnType = String_toCString(returnTypeStr);
+    const char* parameters = parametersStr ? String_toCString(parametersStr) : "";
+    const char* bodyAST = String_toCString(bodyASTStr);
+
+    if (!name || !returnType || !bodyAST) return;
+
+    derive_addMethodInternal(gen, name, returnType, parameters, bodyAST, 0, 1);
+}
+
+void Derive_addStaticMethodAST(DeriveContext* ctx, void* nameStr, void* returnTypeStr,
+                               void* parametersStr, void* bodyASTStr) {
+    if (!ctx || !ctx->_codeGen || !nameStr || !returnTypeStr || !bodyASTStr) return;
+    DeriveCodeGen* gen = (DeriveCodeGen*)ctx->_codeGen;
+
+    const char* name = String_toCString(nameStr);
+    const char* returnType = String_toCString(returnTypeStr);
+    const char* parameters = parametersStr ? String_toCString(parametersStr) : "";
+    const char* bodyAST = String_toCString(bodyASTStr);
+
+    if (!name || !returnType || !bodyAST) return;
+
+    derive_addMethodInternal(gen, name, returnType, parameters, bodyAST, 1, 1);
 }
 
 void Derive_addProperty(DeriveContext* ctx, void* nameStr, void* typeStr,
@@ -500,6 +531,153 @@ void* Derive_hasErrors(DeriveContext* ctx) {
     if (!ctx || !ctx->_codeGen) return Bool_Constructor(0);
     DeriveCodeGen* gen = (DeriveCodeGen*)ctx->_codeGen;
     return Bool_Constructor(gen->hasErrors);
+}
+
+/* ==========================================================================
+ * AST/Quote Splice Substitution Implementation
+ * ========================================================================== */
+
+/**
+ * Helper to find and replace a pattern in a string
+ * Returns a newly allocated string with all occurrences replaced
+ */
+static char* string_replace_all(const char* str, const char* pattern, const char* replacement) {
+    if (!str || !pattern || !replacement) return NULL;
+
+    size_t strLen = strlen(str);
+    size_t patLen = strlen(pattern);
+    size_t repLen = strlen(replacement);
+
+    if (patLen == 0) return derive_strdup(str);
+
+    /* Count occurrences */
+    int count = 0;
+    const char* pos = str;
+    while ((pos = strstr(pos, pattern)) != NULL) {
+        count++;
+        pos += patLen;
+    }
+
+    if (count == 0) return derive_strdup(str);
+
+    /* Allocate result */
+    size_t newLen = strLen + count * (repLen - patLen);
+    char* result = (char*)malloc(newLen + 1);
+    if (!result) return NULL;
+
+    /* Build result */
+    char* dest = result;
+    pos = str;
+    const char* prev = str;
+    while ((pos = strstr(prev, pattern)) != NULL) {
+        /* Copy part before pattern */
+        size_t len = pos - prev;
+        memcpy(dest, prev, len);
+        dest += len;
+
+        /* Copy replacement */
+        memcpy(dest, replacement, repLen);
+        dest += repLen;
+
+        prev = pos + patLen;
+    }
+
+    /* Copy remainder */
+    strcpy(dest, prev);
+
+    return result;
+}
+
+void* Derive_substituteSplice(void* jsonStr, void* varNameStr, void* valueStr) {
+    if (!jsonStr || !varNameStr || !valueStr) {
+        return jsonStr ? jsonStr : String_Constructor("");
+    }
+
+    const char* json = String_toCString(jsonStr);
+    const char* varName = String_toCString(varNameStr);
+    const char* value = String_toCString(valueStr);
+
+    if (!json || !varName || !value) {
+        return String_Constructor(json ? json : "");
+    }
+
+    /* Build the pattern to search for: {"__SPLICE__":"varName"} */
+    size_t patternLen = 17 + strlen(varName) + 2; /* {"__SPLICE__":"..."}  */
+    char* pattern = (char*)malloc(patternLen + 1);
+    if (!pattern) return String_Constructor(json);
+    snprintf(pattern, patternLen + 1, "{\"__SPLICE__\":\"%s\"}", varName);
+
+    /* Build the replacement: "value" */
+    size_t replaceLen = strlen(value) + 2;
+    char* replacement = (char*)malloc(replaceLen + 1);
+    if (!replacement) {
+        free(pattern);
+        return String_Constructor(json);
+    }
+    snprintf(replacement, replaceLen + 1, "\"%s\"", value);
+
+    /* Perform replacement */
+    char* result = string_replace_all(json, pattern, replacement);
+
+    free(pattern);
+    free(replacement);
+
+    if (!result) return String_Constructor(json);
+
+    void* resultStr = String_Constructor(result);
+    free(result);
+    return resultStr;
+}
+
+void* Derive_substituteSpliceAll(void* jsonStr, void* varNameStr, void* valueStr) {
+    if (!jsonStr || !varNameStr || !valueStr) {
+        return jsonStr ? jsonStr : String_Constructor("");
+    }
+
+    const char* json = String_toCString(jsonStr);
+    const char* varName = String_toCString(varNameStr);
+    const char* value = String_toCString(valueStr);
+
+    if (!json || !varName || !value) {
+        return String_Constructor(json ? json : "");
+    }
+
+    /* First handle identifier splices: {"__SPLICE__":"varName"} -> "value" */
+    size_t patternLen = 17 + strlen(varName) + 2;
+    char* pattern1 = (char*)malloc(patternLen + 1);
+    if (!pattern1) return String_Constructor(json);
+    snprintf(pattern1, patternLen + 1, "{\"__SPLICE__\":\"%s\"}", varName);
+
+    size_t replaceLen = strlen(value) + 2;
+    char* replacement1 = (char*)malloc(replaceLen + 1);
+    if (!replacement1) {
+        free(pattern1);
+        return String_Constructor(json);
+    }
+    snprintf(replacement1, replaceLen + 1, "\"%s\"", value);
+
+    char* temp = string_replace_all(json, pattern1, replacement1);
+    free(pattern1);
+    free(replacement1);
+
+    if (!temp) return String_Constructor(json);
+
+    /* Now handle member splices in SplicedMemberAccess:
+     * "member":{"__SPLICE__":"varName"} -> "member":"value"
+     * This is actually already handled by the above, since the pattern is the same.
+     *
+     * But we also need to convert SplicedMemberAccess to regular MemberAccess:
+     * {"kind":"SplicedMemberAccess","object":...,"member":"propName"}
+     * -> {"kind":"MemberAccess","object":...,"member":"propName"}
+     */
+    char* temp2 = string_replace_all(temp, "\"kind\":\"SplicedMemberAccess\"", "\"kind\":\"MemberAccess\"");
+    free(temp);
+
+    if (!temp2) return String_Constructor(json);
+
+    void* resultStr = String_Constructor(temp2);
+    free(temp2);
+    return resultStr;
 }
 
 /* ==========================================================================
@@ -605,6 +783,16 @@ void xxml_Derive_addStaticMethod(DeriveContext* ctx, void* name, void* returnTyp
     Derive_addStaticMethod(ctx, name, returnType, parameters, body);
 }
 
+void xxml_Derive_addMethodAST(DeriveContext* ctx, void* name, void* returnType,
+                              void* parameters, void* bodyAST) {
+    Derive_addMethodAST(ctx, name, returnType, parameters, bodyAST);
+}
+
+void xxml_Derive_addStaticMethodAST(DeriveContext* ctx, void* name, void* returnType,
+                                    void* parameters, void* bodyAST) {
+    Derive_addStaticMethodAST(ctx, name, returnType, parameters, bodyAST);
+}
+
 void xxml_Derive_addProperty(DeriveContext* ctx, void* name, void* type,
                              void* ownership, void* defaultValue) {
     Derive_addProperty(ctx, name, type, ownership, defaultValue);
@@ -625,6 +813,15 @@ void xxml_Derive_message(DeriveContext* ctx, void* message) {
 
 void* xxml_Derive_hasErrors(DeriveContext* ctx) {
     return Derive_hasErrors(ctx);
+}
+
+/* Splice Substitution Wrappers */
+void* xxml_Derive_substituteSplice(void* json, void* varName, void* value) {
+    return Derive_substituteSplice(json, varName, value);
+}
+
+void* xxml_Derive_substituteSpliceAll(void* json, void* varName, void* value) {
+    return Derive_substituteSpliceAll(json, varName, value);
 }
 
 /* ==========================================================================

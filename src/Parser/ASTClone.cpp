@@ -145,6 +145,14 @@ std::unique_ptr<Expression> MemberAccessExpr::cloneExpr() const {
     return std::make_unique<MemberAccessExpr>(object->cloneExpr(), member, location);
 }
 
+std::unique_ptr<ASTNode> SplicedMemberAccessExpr::clone() const {
+    return cloneExpr();
+}
+
+std::unique_ptr<Expression> SplicedMemberAccessExpr::cloneExpr() const {
+    return std::make_unique<SplicedMemberAccessExpr>(object->cloneExpr(), spliceName, isSpread, location);
+}
+
 std::unique_ptr<ASTNode> CallExpr::clone() const {
     return cloneExpr();
 }
@@ -210,6 +218,32 @@ std::unique_ptr<Expression> LambdaExpr::cloneExpr() const {
         location
     );
     cloned->isCompiletime = isCompiletime;
+    return cloned;
+}
+
+std::unique_ptr<ASTNode> SplicePlaceholder::clone() const {
+    return cloneExpr();
+}
+
+std::unique_ptr<Expression> SplicePlaceholder::cloneExpr() const {
+    return std::make_unique<SplicePlaceholder>(variableName, isSpread, isBraced, location);
+}
+
+std::unique_ptr<ASTNode> QuoteExpr::clone() const {
+    return cloneExpr();
+}
+
+std::unique_ptr<Expression> QuoteExpr::cloneExpr() const {
+    auto cloned = std::make_unique<QuoteExpr>(kind, location);
+
+    // Clone template nodes
+    for (const auto& node : templateNodes) {
+        cloned->templateNodes.push_back(node->clone());
+    }
+
+    // Copy splice info (simple struct, can copy directly)
+    cloned->splices = splices;
+
     return cloned;
 }
 

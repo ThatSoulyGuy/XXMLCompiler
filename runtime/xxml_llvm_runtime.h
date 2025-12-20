@@ -102,6 +102,8 @@ void* String_copy(void* self);
 void* String_charAt(void* self, void* indexObj);
 void String_setCharAt(void* self, void* indexObj, void* charStr);
 int64_t xxml_string_hash(void* self);
+void* String_replace(void* self, void* pattern, void* replacement);
+void* xxml_splice_wrap_string(void* str);
 
 // ============================================
 // Bool Operations
@@ -468,6 +470,9 @@ const char* xxml_string_charAt(void* str, int64_t index);
 
 // Set character at index from another string (uses first character)
 void xxml_string_setCharAt(void* str, int64_t index, void* charStr);
+
+// Replace all occurrences of pattern with replacement
+void* xxml_string_replace(void* self, void* pattern, void* replacement);
 
 // Destroy an XXML String
 void xxml_string_destroy(void* str);

@@ -460,6 +460,121 @@ int64_t xxml_string_hash(void* self) {
     return (int64_t)hash;
 }
 
+// String replace - replaces all occurrences of pattern with replacement
+// xxml_string_replace is the syscall version (called by XXML String.replace)
+void* xxml_string_replace(void* self, void* pattern, void* replacement);
+
+void* String_replace(void* self, void* pattern, void* replacement) {
+    if (!self || !pattern || !replacement) return String_copy(self);
+
+    String* str = (String*)self;
+    String* pat = (String*)pattern;
+    String* rep = (String*)replacement;
+
+    if (!str->data || !pat->data || pat->length == 0) {
+        return String_copy(self);
+    }
+
+    // Count occurrences to calculate result size
+    size_t count = 0;
+    const char* pos = str->data;
+    while ((pos = strstr(pos, pat->data)) != NULL) {
+        count++;
+        pos += pat->length;
+    }
+
+    if (count == 0) {
+        return String_copy(self);
+    }
+
+    // Calculate new length
+    size_t repLen = rep->data ? rep->length : 0;
+    size_t newLen = str->length + count * (repLen - pat->length);
+
+    char* result = (char*)xxml_malloc(newLen + 1);
+    if (!result) return String_copy(self);
+
+    // Build result string
+    char* dst = result;
+    const char* src = str->data;
+    while (*src) {
+        if (strncmp(src, pat->data, pat->length) == 0) {
+            if (rep->data && repLen > 0) {
+                memcpy(dst, rep->data, repLen);
+                dst += repLen;
+            }
+            src += pat->length;
+        } else {
+            *dst++ = *src++;
+        }
+    }
+    *dst = '\0';
+
+    void* newStr = String_Constructor(result);
+    xxml_free(result);
+    return newStr;
+}
+
+// Syscall wrapper for String_replace (called by XXML String.replace method)
+void* xxml_string_replace(void* self, void* pattern, void* replacement) {
+    return String_replace(self, pattern, replacement);
+}
+
+// Wrap a String value as a StringLiteral AST JSON for Quote splice substitution
+// Returns: {"kind":"StringLiteral","value":"escaped_string"}
+void* xxml_splice_wrap_string(void* str) {
+    if (!str) {
+        return String_Constructor("{\"kind\":\"StringLiteral\",\"value\":\"\"}");
+    }
+
+    String* s = (String*)str;
+    const char* data = s->data ? s->data : "";
+    size_t dataLen = s->length;
+
+    // Estimate escaped length (worst case: all chars need escaping)
+    size_t bufSize = 64 + dataLen * 6;  // prefix + escaped content + suffix
+    char* buffer = (char*)xxml_malloc(bufSize);
+    if (!buffer) {
+        return String_Constructor("{\"kind\":\"StringLiteral\",\"value\":\"\"}");
+    }
+
+    char* dst = buffer;
+
+    // Write prefix
+    const char* prefix = "{\"kind\":\"StringLiteral\",\"value\":\"";
+    size_t prefixLen = strlen(prefix);
+    memcpy(dst, prefix, prefixLen);
+    dst += prefixLen;
+
+    // Write escaped string value
+    for (size_t i = 0; i < dataLen; i++) {
+        char c = data[i];
+        switch (c) {
+            case '\"': *dst++ = '\\'; *dst++ = '\"'; break;
+            case '\\': *dst++ = '\\'; *dst++ = '\\'; break;
+            case '\n': *dst++ = '\\'; *dst++ = 'n'; break;
+            case '\r': *dst++ = '\\'; *dst++ = 'r'; break;
+            case '\t': *dst++ = '\\'; *dst++ = 't'; break;
+            default:
+                if ((unsigned char)c < 32) {
+                    // Control character - use \uXXXX
+                    dst += sprintf(dst, "\\u%04x", (unsigned char)c);
+                } else {
+                    *dst++ = c;
+                }
+                break;
+        }
+    }
+
+    // Write suffix
+    const char* suffix = "\"}";
+    memcpy(dst, suffix, 3);  // includes null terminator
+
+    void* result = String_Constructor(buffer);
+    xxml_free(buffer);
+    return result;
+}
+
 // ============================================
 // Bool Operations
 // ============================================

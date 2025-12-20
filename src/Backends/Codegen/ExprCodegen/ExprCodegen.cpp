@@ -3,8 +3,10 @@
 #include "Backends/NameMangler.h"
 #include "Semantic/SemanticError.h"
 #include "Semantic/CompiletimeInterpreter.h"
+#include "Derive/ASTSerializer.h"
 #include <unordered_set>
 #include <iostream>
+#include <sstream>
 
 namespace XXML {
 namespace Backends {
@@ -51,6 +53,12 @@ LLVMIR::AnyValue ExprCodegen::generate(Parser::Expression* expr) {
     if (auto* memberExpr = dynamic_cast<Parser::MemberAccessExpr*>(expr)) {
         return visitMemberAccess(memberExpr);
     }
+    if (auto* splicedMember = dynamic_cast<Parser::SplicedMemberAccessExpr*>(expr)) {
+        // SplicedMemberAccessExpr should only appear in Quote blocks where it's serialized,
+        // not directly evaluated. If we get here, it's an error.
+        throw Semantic::CodegenInvariantViolation("INVALID_SPLICED_MEMBER",
+            "SplicedMemberAccessExpr encountered outside Quote context");
+    }
     if (auto* callExpr = dynamic_cast<Parser::CallExpr*>(expr)) {
         return visitCall(callExpr);
     }
@@ -59,6 +67,12 @@ LLVMIR::AnyValue ExprCodegen::generate(Parser::Expression* expr) {
     }
     if (auto* typeofExpr = dynamic_cast<Parser::TypeOfExpr*>(expr)) {
         return visitTypeOf(typeofExpr);
+    }
+    if (auto* quoteExpr = dynamic_cast<Parser::QuoteExpr*>(expr)) {
+        return visitQuote(quoteExpr);
+    }
+    if (auto* spliceExpr = dynamic_cast<Parser::SplicePlaceholder*>(expr)) {
+        return visitSplicePlaceholder(spliceExpr);
     }
 
     // Unknown expression type - return null
@@ -463,6 +477,179 @@ LLVMIR::AnyValue ExprCodegen::visitLambda(Parser::LambdaExpr*) {
 LLVMIR::AnyValue ExprCodegen::visitTypeOf(Parser::TypeOfExpr*) {
     // TypeOf implementation - stub for now
     return LLVMIR::AnyValue(ctx_.builder().getNullPtr());
+}
+
+LLVMIR::AnyValue ExprCodegen::visitQuote(Parser::QuoteExpr* expr) {
+    if (!expr) {
+        throw Semantic::CodegenInvariantViolation("NULL_QUOTE",
+            "QuoteExpr is null");
+    }
+
+    // The Quote expression captures code as an AST template and returns
+    // a JSON string representation that can be passed to DeriveContext methods.
+    //
+    // Strategy:
+    // 1. Serialize the template AST to JSON at compile-time
+    // 2. The serializer emits {"__SPLICE__":"varName"} markers for splice placeholders
+    // 3. Generate runtime code that:
+    //    a. Starts with the template JSON string
+    //    b. For each splice, evaluates the variable and converts to AST JSON
+    //    c. Replaces the markers with the splice values
+    //    d. Returns the final JSON string
+
+    // First, serialize the template AST to JSON
+    // The serializer will encounter SplicePlaceholder nodes and emit markers
+    std::string templateJson;
+
+    if (expr->kind == Parser::QuoteExpr::QuoteKind::Expression) {
+        // Single expression quote
+        if (!expr->templateNodes.empty()) {
+            if (auto* exprNode = dynamic_cast<Parser::Expression*>(expr->templateNodes[0].get())) {
+                templateJson = Derive::ASTSerializer::serializeExpr(exprNode);
+            }
+        }
+    } else if (expr->kind == Parser::QuoteExpr::QuoteKind::Statement) {
+        // Single statement quote
+        if (!expr->templateNodes.empty()) {
+            if (auto* stmtNode = dynamic_cast<Parser::Statement*>(expr->templateNodes[0].get())) {
+                templateJson = Derive::ASTSerializer::serializeStmt(stmtNode);
+            }
+        }
+    } else {
+        // Statements (default) - serialize as array of statements
+        std::vector<std::unique_ptr<Parser::Statement>> stmts;
+        for (auto& node : expr->templateNodes) {
+            if (auto* stmt = dynamic_cast<Parser::Statement*>(node.get())) {
+                // We need to clone since we can't move from the original
+                auto cloned = stmt->clone();
+                if (auto* clonedStmt = dynamic_cast<Parser::Statement*>(cloned.release())) {
+                    stmts.push_back(std::unique_ptr<Parser::Statement>(clonedStmt));
+                }
+            }
+        }
+        templateJson = Derive::ASTSerializer::serializeStatements(stmts);
+    }
+
+    // If there are no splices, just return the template JSON as a String
+    if (expr->splices.empty()) {
+        return emitStringConstant(templateJson);
+    }
+
+    // There are splices - we need to generate runtime substitution code
+    // Start with the template JSON string
+    auto result = emitStringConstant(templateJson);
+
+    // For each splice, generate code to:
+    // 1. Get the splice variable's value
+    // 2. Convert it to JSON AST representation
+    // 3. Replace the marker in the string
+
+    for (const auto& splice : expr->splices) {
+        // The marker in the JSON is: {"__SPLICE__":"variableName"}
+        // We need to replace this entire JSON object with the AST JSON of the splice value
+        std::string marker = "{\"__SPLICE__\":\"" + splice.variableName + "\"}";
+
+        // Look up the splice variable
+        auto* varInfo = ctx_.getVariable(splice.variableName);
+        if (!varInfo) {
+            throw Semantic::UnresolvedIdentifierError(splice.variableName);
+        }
+
+        // Get the variable's value
+        LLVMIR::AnyValue spliceValue;
+        if (varInfo->alloca) {
+            auto* loadType = ctx_.mapType(varInfo->xxmlType);
+            spliceValue = ctx_.builder().createLoad(
+                loadType,
+                LLVMIR::PtrValue(varInfo->alloca),
+                splice.variableName + ".load"
+            );
+        } else {
+            spliceValue = varInfo->value;
+        }
+
+        // For String types in derives, the value should be embedded as a StringLiteral AST node
+        // For other types, we convert to string representation
+        std::string baseType = TypeNormalizer::stripOwnershipMarker(varInfo->xxmlType);
+
+        LLVMIR::AnyValue jsonValue;
+
+        // Get or declare the splice helper function
+        // This function takes a String^ and wraps it as: {"kind":"StringLiteral","value":"..."}
+        auto* wrapStringFunc = ctx_.module().getFunction("xxml_splice_wrap_string");
+        if (!wrapStringFunc) {
+            std::vector<LLVMIR::Type*> params = { ctx_.builder().getPtrTy() };
+            auto* funcType = ctx_.module().getContext().getFunctionTy(
+                ctx_.builder().getPtrTy(), params, false);
+            wrapStringFunc = ctx_.module().createFunction(funcType, "xxml_splice_wrap_string",
+                LLVMIR::Function::Linkage::External);
+        }
+
+        if (baseType == "String" || baseType == "Language::Core::String") {
+            // For String values, wrap as StringLiteral AST JSON
+            std::vector<LLVMIR::AnyValue> wrapArgs = { spliceValue };
+            jsonValue = ctx_.builder().createCall(wrapStringFunc, wrapArgs, "splice.json");
+        } else {
+            // For non-string types, first convert to string via toString()
+            std::string toStringName = ctx_.mangleFunctionName(
+                ctx_.resolveToQualifiedName(baseType), "toString");
+            auto* toStringFunc = ctx_.module().getFunction(toStringName);
+            if (toStringFunc && spliceValue.isPtr()) {
+                std::vector<LLVMIR::AnyValue> args = { spliceValue };
+                auto strValue = ctx_.builder().createCall(toStringFunc, args, "splice.str");
+                // Then wrap as StringLiteral AST JSON
+                std::vector<LLVMIR::AnyValue> wrapArgs = { strValue };
+                jsonValue = ctx_.builder().createCall(wrapStringFunc, wrapArgs, "splice.json");
+            } else {
+                // Fallback - create empty string literal
+                jsonValue = emitStringConstant("{\"kind\":\"StringLiteral\",\"value\":\"\"}");
+            }
+        }
+
+        // Now call String_replace to substitute the marker with the splice value
+        // result = result.replace(marker, jsonValue)
+        auto* replaceFunc = ctx_.module().getFunction("String_replace");
+        if (!replaceFunc) {
+            // Declare String_replace(self, pattern, replacement) -> String^
+            std::vector<LLVMIR::Type*> params = {
+                ctx_.builder().getPtrTy(),  // self
+                ctx_.builder().getPtrTy(),  // pattern
+                ctx_.builder().getPtrTy()   // replacement
+            };
+            auto* funcType = ctx_.module().getContext().getFunctionTy(
+                ctx_.builder().getPtrTy(), params, false);
+            replaceFunc = ctx_.module().createFunction(funcType, "String_replace",
+                LLVMIR::Function::Linkage::External);
+        }
+
+        // Create the marker string
+        auto markerStr = emitStringConstant(marker);
+
+        // Call replace
+        std::vector<LLVMIR::AnyValue> replaceArgs = { result, markerStr, jsonValue };
+        result = ctx_.builder().createCall(replaceFunc, replaceArgs, "quote.replaced");
+    }
+
+    ctx_.lastExprValue = result;
+    return ctx_.lastExprValue;
+}
+
+LLVMIR::AnyValue ExprCodegen::visitSplicePlaceholder(Parser::SplicePlaceholder* expr) {
+    if (!expr) {
+        throw Semantic::CodegenInvariantViolation("NULL_SPLICE",
+            "SplicePlaceholder is null");
+    }
+
+    // SplicePlaceholder should only appear within Quote blocks.
+    // When we encounter one during normal code generation (not inside Quote serialization),
+    // it means the user wrote $var outside of a Quote block, which is an error.
+    //
+    // However, during Quote template serialization, the ASTSerializer handles these
+    // by emitting markers. So if we get here during normal codegen, it's an error.
+
+    throw Semantic::CodegenInvariantViolation("SPLICE_OUTSIDE_QUOTE",
+        "Splice placeholder '$" + expr->variableName +
+        "' can only be used inside Quote { } blocks");
 }
 
 // === Private Helper Methods ===
@@ -1635,15 +1822,21 @@ LLVMIR::AnyValue ExprCodegen::emitStringConstant(const std::string& value) {
     auto* globalStr = ctx_.module().getOrCreateStringLiteral(value);
     auto strPtr = globalStr->toTypedValue();
 
-    // Call String_Constructor with the C string
+    // Get or declare String_Constructor
     auto* func = ctx_.module().getFunction("String_Constructor");
-    if (func) {
-        std::vector<LLVMIR::AnyValue> args = { strPtr };
-        auto result = builder.createCall(func, args, "ct.str");
-        return LLVMIR::AnyValue(result);
+    if (!func) {
+        // Declare String_Constructor(const char*) -> String^
+        std::vector<LLVMIR::Type*> params = { builder.getPtrTy() };
+        auto* funcType = ctx_.module().getContext().getFunctionTy(
+            builder.getPtrTy(), params, false);
+        func = ctx_.module().createFunction(funcType, "String_Constructor",
+            LLVMIR::Function::Linkage::External);
     }
 
-    return strPtr;
+    // Call String_Constructor with the C string
+    std::vector<LLVMIR::AnyValue> args = { strPtr };
+    auto result = builder.createCall(func, args, "ct.str");
+    return LLVMIR::AnyValue(result);
 }
 
 LLVMIR::AnyValue ExprCodegen::emitObjectConstant(Semantic::CompiletimeObject* obj) {

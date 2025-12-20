@@ -480,7 +480,12 @@ void PreambleGen::emitDeriveAPI(std::stringstream& out) const {
     // Code generation
     out << "declare ptr @xxml_Derive_addMethod(ptr, ptr, ptr, ptr, ptr)\n";
     out << "declare ptr @xxml_Derive_addStaticMethod(ptr, ptr, ptr, ptr, ptr)\n";
+    out << "declare ptr @xxml_Derive_addMethodAST(ptr, ptr, ptr, ptr, ptr)\n";
+    out << "declare ptr @xxml_Derive_addStaticMethodAST(ptr, ptr, ptr, ptr, ptr)\n";
     out << "declare ptr @xxml_Derive_addProperty(ptr, ptr, ptr, ptr, ptr)\n";
+    // Splice substitution
+    out << "declare ptr @xxml_Derive_substituteSplice(ptr, ptr, ptr)\n";
+    out << "declare ptr @xxml_Derive_substituteSpliceAll(ptr, ptr, ptr)\n";
     // Diagnostics
     out << "declare void @xxml_Derive_error(ptr, ptr)\n";
     out << "declare void @xxml_Derive_warning(ptr, ptr)\n";
@@ -515,6 +520,9 @@ void PreambleGen::emitUtilityFunctions(std::stringstream& out) const {
     out << "declare ptr @xxml_string_charAt(ptr, i64)\n";
     out << "declare void @xxml_string_setCharAt(ptr, i64, ptr)\n";
     out << "declare void @xxml_string_destroy(ptr)\n";
+    out << "declare ptr @xxml_string_replace(ptr, ptr, ptr)\n";
+    out << "declare ptr @String_replace(ptr, ptr, ptr)\n";
+    out << "declare ptr @xxml_splice_wrap_string(ptr)\n";
     out << "declare i64 @xxml_ptr_is_null(ptr)\n";
     out << "declare ptr @xxml_ptr_null()\n";
     out << "\n";

@@ -162,6 +162,21 @@
 				Run Syscall::string_setCharAt(ptr, idx, chPtr);
 			}
 
+			// Replace all occurrences of pattern with replacement
+			Method <replace> Returns String^ Parameters (
+				Parameter <pattern> Types String&,
+				Parameter <replacement> Types String&
+			) ->
+			{
+				Instantiate NativeType<"string_ptr">^ As <ptr> = data;
+				Instantiate NativeType<"string_ptr">^ As <patPtr> = pattern.data;
+				Instantiate NativeType<"string_ptr">^ As <repPtr> = replacement.data;
+				Instantiate NativeType<"string_ptr">^ As <resultPtr> = Syscall::string_replace(ptr, patPtr, repPtr);
+				Instantiate String^ As <result> = String::Constructor("");
+				Run Syscall::memcpy(&result.data, &resultPtr, 8);
+				Return result;
+			}
+
 			// Destructor - called automatically by RAII
 			Destructor Parameters () ->
 			{

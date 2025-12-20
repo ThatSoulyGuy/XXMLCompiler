@@ -115,6 +115,7 @@ private:
     bool inTemplateDefinition;  // True when analyzing template class/method definition
     bool inProcessorContext_ = false;  // True when visiting ProcessorDecl (enables intrinsic types)
     bool inDeriveContext_ = false;     // True when visiting DeriveDecl (enables DeriveContext type)
+    bool inQuoteBlock_ = false;        // True when inside Quote { } block (skip identifier validation)
     std::string processorTargetType_;  // The type being annotated (for getTargetValue() return type)
     std::string currentAnnotationName_;  // The annotation being processed (for getAnnotationArg() return type)
     std::set<std::string> templateTypeParameters;  // Template parameters in current scope
@@ -638,10 +639,13 @@ public:
     void visit(Parser::IdentifierExpr& node) override;
     void visit(Parser::ReferenceExpr& node) override;
     void visit(Parser::MemberAccessExpr& node) override;
+    void visit(Parser::SplicedMemberAccessExpr& node) override;
     void visit(Parser::CallExpr& node) override;
     void visit(Parser::BinaryExpr& node) override;
     void visit(Parser::TypeOfExpr& node) override;
     void visit(Parser::LambdaExpr& node) override;
+    void visit(Parser::SplicePlaceholder& node) override;
+    void visit(Parser::QuoteExpr& node) override;
 
     void visit(Parser::TypeRef& node) override;
     void visit(Parser::FunctionTypeRef& node) override;

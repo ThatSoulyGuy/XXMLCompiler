@@ -1,0 +1,33 @@
+// Test Quote expression syntax
+#import Language::Core;
+
+[ Entrypoint
+    {
+        // Test 1: Basic Quote without splices
+        Run Console::printLine(String::Constructor("Test 1: Basic Quote"));
+        Instantiate String^ As <json1> = Quote {
+            Return String::Constructor("Hello");
+        };
+        Run Console::printLine(json1);
+        Run Console::printLine(String::Constructor(""));
+
+        // Test 2: Quote<Expression> syntax
+        Run Console::printLine(String::Constructor("Test 2: Quote<Expression>"));
+        Instantiate String^ As <json2> = Quote<Expression> {
+            Integer::Constructor(42)
+        };
+        Run Console::printLine(json2);
+        Run Console::printLine(String::Constructor(""));
+
+        // Test 3: Quote with method call chain
+        Run Console::printLine(String::Constructor("Test 3: Method chain in Quote"));
+        Instantiate String^ As <json3> = Quote<Expression> {
+            String::Constructor("test").length().toString()
+        };
+        Run Console::printLine(json3);
+        Run Console::printLine(String::Constructor(""));
+
+        Run Console::printLine(String::Constructor("All Quote tests passed!"));
+        Exit(0);
+    }
+]

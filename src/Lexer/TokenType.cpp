@@ -57,6 +57,7 @@ static const std::unordered_map<std::string, TokenType> keywords = {
     {"Retain", TokenType::Retain},
     {"AnnotationAllow", TokenType::AnnotationAllow},
     {"Derive", TokenType::Derive},
+    {"Quote", TokenType::Quote},
     {"NativeStructure", TokenType::NativeStructure},
     {"Aligns", TokenType::Aligns},
     {"CallbackType", TokenType::CallbackType},
@@ -123,6 +124,7 @@ std::string tokenTypeToString(TokenType type) {
         case TokenType::Retain: return "Retain";
         case TokenType::AnnotationAllow: return "AnnotationAllow";
         case TokenType::Derive: return "Derive";
+        case TokenType::Quote: return "Quote";
         case TokenType::NativeStructure: return "NativeStructure";
         case TokenType::Aligns: return "Aligns";
         case TokenType::CallbackType: return "CallbackType";
@@ -161,6 +163,8 @@ std::string tokenTypeToString(TokenType type) {
         case TokenType::Pipe: return "Pipe";
         case TokenType::Caret: return "Caret";
         case TokenType::At: return "At";
+        case TokenType::Dollar: return "Dollar";
+        case TokenType::DollarBrace: return "DollarBrace";
         case TokenType::Exclamation: return "Exclamation";
         case TokenType::Question: return "Question";
         case TokenType::Hash: return "Hash";

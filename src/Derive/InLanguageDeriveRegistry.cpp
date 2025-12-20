@@ -1,4 +1,5 @@
 #include "Derive/InLanguageDeriveRegistry.h"
+#include "Derive/ASTSerializer.h"
 #include "Semantic/SemanticAnalyzer.h"
 #include "Lexer/Lexer.h"
 #include "Parser/Parser.h"
@@ -21,6 +22,7 @@ extern "C" {
         const char* parameters;
         const char* body;
         int isStatic;  // 1 if static method, 0 otherwise
+        int isAST;     // 1 if body is JSON AST, 0 if XXML source code
     };
 
     struct DeriveGeneratedProperty {
@@ -288,12 +290,26 @@ Semantic::DeriveResult InLanguageDeriveHandler::generate(
     for (int i = 0; i < deriveResultC.methodCount; i++) {
         const auto& genMethod = methods[i];
 
-        // Parse the method body into AST (with property name qualification)
-        auto body = parseMethodBody(genMethod.body, propertyNameSet, analyzer);
-        if (body.empty() && genMethod.body && strlen(genMethod.body) > 0) {
-            result.errors.push_back("Failed to parse generated method body for '" +
-                                   std::string(genMethod.name) + "'");
-            continue;
+        std::vector<std::unique_ptr<Parser::Statement>> body;
+
+        // Check if body is AST JSON or XXML source code
+        if (genMethod.isAST) {
+            // Deserialize AST from JSON
+            try {
+                body = ASTSerializer::deserializeStatements(genMethod.body ? genMethod.body : "");
+            } catch (const std::exception& e) {
+                result.errors.push_back("Failed to deserialize AST for method '" +
+                                       std::string(genMethod.name) + "': " + e.what());
+                continue;
+            }
+        } else {
+            // Parse XXML source code into AST (with property name qualification)
+            body = parseMethodBody(genMethod.body, propertyNameSet, analyzer);
+            if (body.empty() && genMethod.body && strlen(genMethod.body) > 0) {
+                result.errors.push_back("Failed to parse generated method body for '" +
+                                       std::string(genMethod.name) + "'");
+                continue;
+            }
         }
 
         // Parse ownership from return type string (e.g., "String^" -> "String" with Owned)

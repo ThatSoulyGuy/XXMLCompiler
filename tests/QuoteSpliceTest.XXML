@@ -1,0 +1,57 @@
+// Test Quote expression with splice variables
+#import Language::Core;
+
+[ Class <TestClass> Final Extends None
+    [ Private <>
+        Property <value> Types Integer^;
+    ]
+    [ Public <>
+        Constructor Parameters () -> {
+            Set value = Integer::Constructor(42);
+        }
+    ]
+]
+
+[ Entrypoint
+    {
+        // Test 1: Simple splice variable as identifier
+        Run Console::printLine(String::Constructor("Test 1: Splice as identifier"));
+        Instantiate String^ As <className> = String::Constructor("Person");
+        Instantiate String^ As <json1> = Quote<Expression> {
+            $className::Constructor()
+        };
+        Run Console::printLine(json1);
+        Run Console::printLine(String::Constructor(""));
+
+        // Test 2: Spliced member access (obj.$fieldName)
+        Run Console::printLine(String::Constructor("Test 2: Spliced member access"));
+        Instantiate String^ As <fieldName> = String::Constructor("age");
+        Instantiate String^ As <json2> = Quote<Expression> {
+            person.$fieldName
+        };
+        Run Console::printLine(json2);
+        Run Console::printLine(String::Constructor(""));
+
+        // Test 3: Splice in method call (obj.$methodName())
+        Run Console::printLine(String::Constructor("Test 3: Splice as method name"));
+        Instantiate String^ As <methodName> = String::Constructor("getValue");
+        Instantiate String^ As <json3> = Quote<Expression> {
+            obj.$methodName()
+        };
+        Run Console::printLine(json3);
+        Run Console::printLine(String::Constructor(""));
+
+        // Test 4: Multiple splices
+        Run Console::printLine(String::Constructor("Test 4: Multiple splices"));
+        Instantiate String^ As <typeName> = String::Constructor("MyClass");
+        Instantiate String^ As <memberName> = String::Constructor("data");
+        Instantiate String^ As <json4> = Quote<Expression> {
+            $typeName::Constructor(input.$memberName)
+        };
+        Run Console::printLine(json4);
+        Run Console::printLine(String::Constructor(""));
+
+        Run Console::printLine(String::Constructor("All splice tests completed!"));
+        Exit(0);
+    }
+]

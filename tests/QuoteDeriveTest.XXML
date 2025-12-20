@@ -1,0 +1,43 @@
+#import Language::Core;
+#import Language::Derives;
+
+// Test Quote expression in derive
+[ Derive <QuoteTest>
+    [ Public <>
+        Method <canDerive> Returns String^ Parameters (Parameter <ctx> Types DeriveContext&) ->
+        {
+            Return String::Constructor("");
+        }
+
+        Method <generate> Returns None Parameters (Parameter <ctx> Types DeriveContext&) ->
+        {
+            // Use Quote to generate a simple testQuote method
+            // Quote should serialize to JSON AST automatically
+            Instantiate String^ As <body> = Quote<Statements> {
+                Return String::Constructor("QuoteTest works!");
+            };
+
+            Run ctx.addMethodAST(
+                String::Constructor("testQuote"),
+                String::Constructor("String^"),
+                String::Constructor(""),
+                body
+            );
+        }
+    ]
+]
+
+@Derive(trait = "QuoteTest")
+[ Class <QuoteTestClass>
+    [ Public <>
+        Constructor = default;
+    ]
+]
+
+[ Entrypoint
+    {
+        Instantiate QuoteTestClass^ As <obj> = QuoteTestClass::Constructor();
+        Run Console::printLine(obj.testQuote());
+        Exit(0);
+    }
+]

@@ -282,6 +282,32 @@
                 Run Syscall::Derive_addStaticMethod(ptr, name, returnType, parameters, body);
             }
 
+            // Add a method to the target class using AST JSON
+            // The bodyAST parameter should be a JSON-serialized AST produced
+            // by Quote { } blocks in the derive code.
+            Method <addMethodAST> Returns None Parameters (
+                Parameter <name> Types String&,
+                Parameter <returnType> Types String&,
+                Parameter <parameters> Types String&,
+                Parameter <bodyAST> Types String&
+            ) ->
+            {
+                Instantiate NativeType<"ptr">^ As <ptr> = ctxPtr;
+                Run Syscall::Derive_addMethodAST(ptr, name, returnType, parameters, bodyAST);
+            }
+
+            // Add a static method using AST JSON
+            Method <addStaticMethodAST> Returns None Parameters (
+                Parameter <name> Types String&,
+                Parameter <returnType> Types String&,
+                Parameter <parameters> Types String&,
+                Parameter <bodyAST> Types String&
+            ) ->
+            {
+                Instantiate NativeType<"ptr">^ As <ptr> = ctxPtr;
+                Run Syscall::Derive_addStaticMethodAST(ptr, name, returnType, parameters, bodyAST);
+            }
+
             // Add a property to the target class
             // - name: property name
             // - type: property type (without ownership)
@@ -338,6 +364,36 @@
                 Instantiate NativeType<"ptr">^ As <ptr> = ctxPtr;
                 Instantiate NativeType<"ptr">^ As <result> =
                     Syscall::Derive_hasErrors(ptr);
+                Return result;
+            }
+
+            // ================================================================
+            // AST/Quote Splice Substitution
+            // ================================================================
+
+            // Substitute a splice placeholder in AST JSON
+            // Replaces {"__SPLICE__":"varName"} with "value" in the JSON
+            Method <substituteSplice> Returns String^ Parameters (
+                Parameter <json> Types String&,
+                Parameter <varName> Types String&,
+                Parameter <value> Types String&
+            ) ->
+            {
+                Instantiate NativeType<"ptr">^ As <result> =
+                    Syscall::Derive_substituteSplice(json, varName, value);
+                Return result;
+            }
+
+            // Substitute all splice placeholders for a variable in AST JSON
+            // Also converts SplicedMemberAccess to MemberAccess
+            Method <substituteSpliceAll> Returns String^ Parameters (
+                Parameter <json> Types String&,
+                Parameter <varName> Types String&,
+                Parameter <value> Types String&
+            ) ->
+            {
+                Instantiate NativeType<"ptr">^ As <result> =
+                    Syscall::Derive_substituteSpliceAll(json, varName, value);
                 Return result;
             }
         ]

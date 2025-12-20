@@ -123,6 +123,7 @@ SemanticAnalyzer::SemanticAnalyzer(Core::CompilationContext& context, Common::Er
     intrinsicMethods_["Syscall::string_hash"] = {"NativeType<\"int64\">", Parser::OwnershipType::Owned};
     intrinsicMethods_["Syscall::string_charAt"] = {"NativeType<\"cstr\">", Parser::OwnershipType::Owned};
     intrinsicMethods_["Syscall::string_setCharAt"] = {"None", Parser::OwnershipType::None};
+    intrinsicMethods_["Syscall::string_replace"] = {"NativeType<\"string_ptr\">", Parser::OwnershipType::Owned};
     intrinsicMethods_["Syscall::string_destroy"] = {"None", Parser::OwnershipType::None};
 
     // Syscall - type conversion
@@ -280,8 +281,12 @@ SemanticAnalyzer::SemanticAnalyzer(Core::CompilationContext& context, Common::Er
 
     // Syscall - derive code generation
     intrinsicMethods_["Syscall::Derive_addMethod"] = {"None", Parser::OwnershipType::None};
+    intrinsicMethods_["Syscall::Derive_addMethodAST"] = {"None", Parser::OwnershipType::None};
     intrinsicMethods_["Syscall::Derive_addStaticMethod"] = {"None", Parser::OwnershipType::None};
+    intrinsicMethods_["Syscall::Derive_addStaticMethodAST"] = {"None", Parser::OwnershipType::None};
     intrinsicMethods_["Syscall::Derive_addProperty"] = {"None", Parser::OwnershipType::None};
+    intrinsicMethods_["Syscall::Derive_substituteSplice"] = {"NativeType<\"ptr\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::Derive_substituteSpliceAll"] = {"NativeType<\"ptr\">", Parser::OwnershipType::Owned};
 
     // Syscall - derive diagnostics
     intrinsicMethods_["Syscall::Derive_error"] = {"None", Parser::OwnershipType::None};
@@ -488,6 +493,22 @@ CompilationPassResults SemanticAnalyzer::runPipeline(Parser::Program& program) {
 bool SemanticAnalyzer::isCompatibleType(const std::string& expected, const std::string& actual) {
     // Exact match
     if (expected == actual) return true;
+
+    // Strip ownership markers for comparison (^, &, %)
+    auto stripOwnership = [](const std::string& type) -> std::string {
+        if (type.empty()) return type;
+        char lastChar = type.back();
+        if (lastChar == '^' || lastChar == '&' || lastChar == '%') {
+            return type.substr(0, type.size() - 1);
+        }
+        return type;
+    };
+
+    std::string expectedStripped = stripOwnership(expected);
+    std::string actualStripped = stripOwnership(actual);
+
+    // Check if base types match after stripping ownership
+    if (expectedStripped == actualStripped) return true;
 
     // None is compatible with everything (void/null)
     if (expected == "None" || actual == "None") return true;
@@ -2309,6 +2330,13 @@ void SemanticAnalyzer::visit(Parser::BoolLiteralExpr& node) {
 }
 
 void SemanticAnalyzer::visit(Parser::ThisExpr& node) {
+    // Inside Quote blocks, 'this' is a template placeholder - don't validate
+    if (inQuoteBlock_) {
+        expressionTypes[&node] = DEFERRED_TYPE;
+        expressionOwnerships[&node] = Parser::OwnershipType::Reference;
+        return;
+    }
+
     // 'this' can only be used inside a class method
     if (currentClass.empty()) {
         errorReporter.reportError(
@@ -2530,16 +2558,17 @@ void SemanticAnalyzer::visit(Parser::IdentifierExpr& node) {
             return;
         }
 
-        // Only error during validation phase
-        if (enableValidation) {
+        // Only error during validation phase, and not inside Quote blocks
+        // (Quote templates are not validated against current scope)
+        if (enableValidation && !inQuoteBlock_) {
             errorReporter.reportError(
                 Common::ErrorCode::UndeclaredIdentifier,
                 "Undeclared identifier '" + node.name + "'",
                 node.location
             );
         }
-        // Use Deferred in template context (might be resolved at instantiation)
-        expressionTypes[&node] = inTemplateDefinition ? DEFERRED_TYPE : UNKNOWN_TYPE;
+        // Use Deferred in template/Quote context (might be resolved at instantiation/runtime)
+        expressionTypes[&node] = (inTemplateDefinition || inQuoteBlock_) ? DEFERRED_TYPE : UNKNOWN_TYPE;
         expressionOwnerships[&node] = Parser::OwnershipType::Owned;
         return;
     }
@@ -2563,6 +2592,13 @@ void SemanticAnalyzer::visit(Parser::ReferenceExpr& node) {
 
 void SemanticAnalyzer::visit(Parser::MemberAccessExpr& node) {
     node.object->accept(*this);
+
+    // Inside Quote blocks, we don't validate member access - they're templates
+    // Just mark as DEFERRED_TYPE and return
+    if (inQuoteBlock_) {
+        registerExpressionType(&node, DEFERRED_TYPE, Parser::OwnershipType::Owned);
+        return;
+    }
 
     std::string objectType = getExpressionType(node.object.get());
 
@@ -2780,11 +2816,28 @@ void SemanticAnalyzer::visit(Parser::MemberAccessExpr& node) {
     }
 }
 
+void SemanticAnalyzer::visit(Parser::SplicedMemberAccessExpr& node) {
+    // SplicedMemberAccessExpr is only valid inside Quote blocks.
+    // The actual member name comes from a splice variable at runtime.
+    // We can't type-check it statically, so mark as Deferred.
+    node.object->accept(*this);
+
+    // In Quote context, we defer type resolution since the member is a splice
+    registerExpressionType(&node, DEFERRED_TYPE, Parser::OwnershipType::Owned);
+}
+
 void SemanticAnalyzer::visit(Parser::CallExpr& node) {
     node.callee->accept(*this);
 
     for (auto& arg : node.arguments) {
         arg->accept(*this);
+    }
+
+    // Inside Quote blocks, we don't validate calls - they're templates
+    // Just mark as DEFERRED_TYPE and return
+    if (inQuoteBlock_) {
+        registerExpressionType(&node, DEFERRED_TYPE, Parser::OwnershipType::Owned);
+        return;
     }
 
     // Validate the method call
@@ -6201,6 +6254,114 @@ void SemanticAnalyzer::visit(Parser::FunctionTypeRef& node) {
     for (const auto& param : node.paramTypes) {
         param->accept(*this);
     }
+}
+
+void SemanticAnalyzer::visit(Parser::SplicePlaceholder& node) {
+    // SplicePlaceholder is only valid inside Quote blocks
+    // The variable reference will be resolved during quote materialization
+    // For now, just record that this is a splice expression
+    expressionTypes[&node] = "__splice";
+}
+
+// Helper function to recursively collect splice placeholders from AST nodes
+static void collectSplicesFromNode(Parser::ASTNode* node, std::vector<Parser::QuoteExpr::SpliceInfo>& splices) {
+    if (!node) return;
+
+    // Check if this node is a splice placeholder
+    if (auto* splice = dynamic_cast<Parser::SplicePlaceholder*>(node)) {
+        Parser::QuoteExpr::SpliceInfo info(
+            splice->isSpread ? Parser::QuoteExpr::SpliceInfo::Kind::Spread
+                            : Parser::QuoteExpr::SpliceInfo::Kind::Single,
+            splice->variableName,
+            splice->location
+        );
+        splices.push_back(info);
+        return;
+    }
+
+    // Recursively check children based on node type
+    if (auto* expr = dynamic_cast<Parser::Expression*>(node)) {
+        // Check various expression types for children
+        if (auto* call = dynamic_cast<Parser::CallExpr*>(expr)) {
+            collectSplicesFromNode(call->callee.get(), splices);
+            for (auto& arg : call->arguments) {
+                collectSplicesFromNode(arg.get(), splices);
+            }
+        } else if (auto* member = dynamic_cast<Parser::MemberAccessExpr*>(expr)) {
+            collectSplicesFromNode(member->object.get(), splices);
+        } else if (auto* binary = dynamic_cast<Parser::BinaryExpr*>(expr)) {
+            collectSplicesFromNode(binary->left.get(), splices);
+            collectSplicesFromNode(binary->right.get(), splices);
+        } else if (auto* splicedMember = dynamic_cast<Parser::SplicedMemberAccessExpr*>(expr)) {
+            collectSplicesFromNode(splicedMember->object.get(), splices);
+            // Also add the spliced member name
+            Parser::QuoteExpr::SpliceInfo info(
+                splicedMember->isSpread ? Parser::QuoteExpr::SpliceInfo::Kind::Spread
+                                       : Parser::QuoteExpr::SpliceInfo::Kind::Single,
+                splicedMember->spliceName,
+                splicedMember->location
+            );
+            splices.push_back(info);
+        }
+    } else if (auto* stmt = dynamic_cast<Parser::Statement*>(node)) {
+        // Check various statement types for expressions
+        if (auto* retStmt = dynamic_cast<Parser::ReturnStmt*>(stmt)) {
+            collectSplicesFromNode(retStmt->value.get(), splices);
+        } else if (auto* runStmt = dynamic_cast<Parser::RunStmt*>(stmt)) {
+            collectSplicesFromNode(runStmt->expression.get(), splices);
+        } else if (auto* instStmt = dynamic_cast<Parser::InstantiateStmt*>(stmt)) {
+            collectSplicesFromNode(instStmt->initializer.get(), splices);
+        } else if (auto* assign = dynamic_cast<Parser::AssignmentStmt*>(stmt)) {
+            collectSplicesFromNode(assign->value.get(), splices);
+        } else if (auto* ifStmt = dynamic_cast<Parser::IfStmt*>(stmt)) {
+            collectSplicesFromNode(ifStmt->condition.get(), splices);
+            for (auto& s : ifStmt->thenBranch) {
+                collectSplicesFromNode(s.get(), splices);
+            }
+            for (auto& s : ifStmt->elseBranch) {
+                collectSplicesFromNode(s.get(), splices);
+            }
+        } else if (auto* whileStmt = dynamic_cast<Parser::WhileStmt*>(stmt)) {
+            collectSplicesFromNode(whileStmt->condition.get(), splices);
+            for (auto& s : whileStmt->body) {
+                collectSplicesFromNode(s.get(), splices);
+            }
+        } else if (auto* forStmt = dynamic_cast<Parser::ForStmt*>(stmt)) {
+            if (forStmt->rangeStart) collectSplicesFromNode(forStmt->rangeStart.get(), splices);
+            if (forStmt->rangeEnd) collectSplicesFromNode(forStmt->rangeEnd.get(), splices);
+            for (auto& s : forStmt->body) {
+                collectSplicesFromNode(s.get(), splices);
+            }
+        }
+    }
+}
+
+void SemanticAnalyzer::visit(Parser::QuoteExpr& node) {
+    // Quote expressions capture code as AST templates
+    // The template nodes are not validated against the current scope - they're templates
+    // that will be materialized in a different context at runtime.
+    // Set inQuoteBlock_ to skip identifier validation inside the Quote.
+    bool previousInQuote = inQuoteBlock_;
+    inQuoteBlock_ = true;
+
+    for (const auto& templateNode : node.templateNodes) {
+        templateNode->accept(*this);
+    }
+
+    inQuoteBlock_ = previousInQuote;
+
+    // Collect splice placeholders from the template nodes
+    // This populates node.splices so codegen knows what to substitute
+    node.splices.clear();
+    for (const auto& templateNode : node.templateNodes) {
+        collectSplicesFromNode(templateNode.get(), node.splices);
+    }
+
+    // Quote expressions serialize the AST to JSON format at compile-time.
+    // The result is always a String^ containing the JSON representation
+    // of the captured AST template. This JSON can be passed to derive API
+    // methods like addMethodAST().
+    expressionTypes[&node] = "String^";
 }
 
 // ============================================================================

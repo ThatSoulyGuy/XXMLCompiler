@@ -1,0 +1,38 @@
+#import Language::Core;
+#import Language::Derives;
+
+// Fresh test - unique derive name to avoid caching
+[ Derive <FreshTest123>
+    [ Public <>
+        Method <canDerive> Returns String^ Parameters (Parameter <ctx> Types DeriveContext&) ->
+        {
+            Return String::Constructor("");
+        }
+
+        Method <generate> Returns None Parameters (Parameter <ctx> Types DeriveContext&) ->
+        {
+            // Test addMethodAST with JSON body containing curly braces
+            Run ctx.addMethodAST(
+                String::Constructor("testMethod"),
+                String::Constructor("String^"),
+                String::Constructor(""),
+                String::Constructor("[{\"kind\":\"ReturnStmt\",\"value\":{\"kind\":\"CallExpr\",\"callee\":{\"kind\":\"StaticMethod\",\"className\":\"String\",\"method\":\"Constructor\"},\"arguments\":[{\"kind\":\"StringLiteral\",\"value\":\"hello from AST\"}]}}]")
+            );
+        }
+    ]
+]
+
+@Derive(trait = "FreshTest123")
+[ Class <FreshData>
+    [ Public <>
+        Constructor = default;
+    ]
+]
+
+[ Entrypoint
+    {
+        Instantiate FreshData^ As <d> = FreshData::Constructor();
+        Run Console::printLine(d.testMethod());
+        Exit(0);
+    }
+]

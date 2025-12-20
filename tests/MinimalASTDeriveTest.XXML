@@ -1,0 +1,45 @@
+#import Language::Core;
+#import Language::Collections;
+#import Language::Derives;
+
+// Minimal derive to test addMethodAST
+[ Derive <MinimalAST>
+    [ Public <>
+        Method <canDerive> Returns String^ Parameters (Parameter <ctx> Types DeriveContext&) ->
+        {
+            Return String::Constructor("");
+        }
+
+        Method <generate> Returns None Parameters (Parameter <ctx> Types DeriveContext&) ->
+        {
+            // Try with shorter string
+            Run ctx.addMethodAST(
+                String::Constructor("getVal"),
+                String::Constructor("String^"),
+                String::Constructor(""),
+                String::Constructor("[abc]")
+            );
+        }
+    ]
+]
+
+@Derive(trait = "MinimalAST")
+[ Class <Data>
+    [ Public <>
+        Constructor Parameters (Parameter <n> Types String%) ->
+        {
+            Set this.name = n;
+        }
+    ]
+    [ Private<>
+        Property <name> Types String^;
+    ]
+]
+
+[ Entrypoint
+    {
+        Instantiate Data^ As <d> = Data::Constructor(String::Constructor("Test"));
+        Run Console::printLine(d.getVal());
+        Exit(0);
+    }
+]

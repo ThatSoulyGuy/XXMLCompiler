@@ -1,0 +1,10 @@
+#import Language::Core;
+
+[ Entrypoint
+    {
+        // Test JSON-like string with curly braces
+        Instantiate String^ As <json> = String::Constructor("[{\"kind\":\"test\"}]");
+        Run Console::printLine(json);
+        Exit(0);
+    }
+]

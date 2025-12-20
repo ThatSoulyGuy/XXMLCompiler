@@ -1,0 +1,97 @@
+#import Language::Core;
+#import Language::Collections;
+#import Language::Derives;
+
+// Stringablee derive demonstrating Quote expressions
+[ Derive <Stringablee>
+    [ Public <>
+
+        Method <canDerive> Returns String^ Parameters (Parameter <ctx> Types DeriveContext&) ->
+        {
+            Return String::Constructor("");
+        }
+
+        Method <generate> Returns None Parameters (Parameter <ctx> Types DeriveContext&) ->
+        {
+            Instantiate Integer^ As <count> = ctx.getPropertyCount();
+            Instantiate String^ As <className> = ctx.getClassName();
+
+            If (count.equals(Integer::Constructor(0))) ->
+            {
+                Instantiate String^ As <body> = String::Constructor("Return String::Constructor(\"")
+                    .append(className)
+                    .append(String::Constructor("{}\");"));
+                Run ctx.addMethod(
+                    String::Constructor("toString"),
+                    String::Constructor("String^"),
+                    String::Constructor(""),
+                    body
+                );
+            }
+            Else ->
+            {
+                Instantiate String^ As <firstProp> = ctx.getPropertyNameAt(Integer::Constructor(0));
+
+                // Build method body
+                Instantiate String^ As <prefix> = className
+                    .append(String::Constructor("{"))
+                    .append(firstProp)
+                    .append(String::Constructor("="));
+
+                Instantiate String^ As <body> = String::Constructor("Return String::Constructor(\"")
+                    .append(prefix)
+                    .append(String::Constructor("\").append("))
+                    .append(firstProp)
+                    .append(String::Constructor(".toString())"));
+
+                Instantiate Integer^ As <i> = Integer::Constructor(1);
+                While (i.lessThan(count)) ->
+                {
+                    Instantiate String^ As <propName> = ctx.getPropertyNameAt(i);
+
+                    Set body = body
+                        .append(String::Constructor(".append(String::Constructor(\", "))
+                        .append(propName)
+                        .append(String::Constructor("=\")).append("))
+                        .append(propName)
+                        .append(String::Constructor(".toString())"));
+
+                    Set i = i.add(Integer::Constructor(1));
+                }
+
+                Set body = body.append(String::Constructor(".append(String::Constructor(\"}\"));"));
+
+                Run ctx.addMethod(
+                    String::Constructor("toString"),
+                    String::Constructor("String^"),
+                    String::Constructor(""),
+                    body
+                );
+            }
+        }
+    ]
+]
+
+@Derive(trait = "Stringablee")
+[ Class <Hello>
+    [ Public <>
+        Constructor = default;
+
+        Constructor Parameters (Parameter <x> Types Integer%) ->
+        {
+            Set this.x = x;
+        }
+    ]
+    [ Private<>
+        Property <x> Types Integer^;
+    ]
+]
+
+[ Entrypoint
+    {
+        Instantiate Hello^ As <hello> = Hello::Constructor(Integer::Constructor(24));
+        Run Console::printLine(hello.toString());
+        Run Console::printLine(String::Constructor("Test complete!"));
+        Exit(0);
+    }
+]

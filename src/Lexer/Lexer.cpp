@@ -331,6 +331,14 @@ Token Lexer::lexOperator() {
         case '^': advance(); return makeToken(TokenType::Caret, "^", startLoc);
         case '@': advance(); return makeToken(TokenType::At, "@", startLoc);
 
+        case '$':
+            advance();
+            if (current() == '{') {
+                advance();
+                return makeToken(TokenType::DollarBrace, "${", startLoc);
+            }
+            return makeToken(TokenType::Dollar, "$", startLoc);
+
         case '#': advance(); return makeToken(TokenType::Hash, "#", startLoc);
 
         case '.':
