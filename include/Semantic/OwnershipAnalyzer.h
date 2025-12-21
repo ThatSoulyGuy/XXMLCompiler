@@ -51,6 +51,7 @@ public:
 private:
     Common::ErrorReporter& errorReporter_;
     OwnershipAnalysisResult result_;
+    const SemanticValidationResult* semanticResult_ = nullptr;  // For method signature lookup
 
     // Variable tracking
     struct VariableInfo {

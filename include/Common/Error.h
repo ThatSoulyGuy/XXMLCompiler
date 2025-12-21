@@ -43,6 +43,7 @@ enum class ErrorCode {
     MissingArgument,
     UnknownArgument,
     InvalidAnnotationTarget,
+    CircularDependency,
 
     // CodeGen errors (4000-4999)
     CodeGenError = 4000,

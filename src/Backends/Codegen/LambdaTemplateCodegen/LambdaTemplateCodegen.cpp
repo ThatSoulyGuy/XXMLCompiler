@@ -150,8 +150,6 @@ void LambdaTemplateCodegen::generateLambdaTemplates(Semantic::SemanticAnalyzer& 
         }
         generatedInstantiations_.insert(mangledName);
 
-        std::cerr << "[DEBUG] Generating lambda template instantiation: " << mangledName << "\n";
-
         // Build type substitution map
         ASTCloner::TypeMap typeMap = buildTypeMap(
             lambdaInfo.templateParams, inst.arguments, inst.evaluatedValues);
@@ -165,46 +163,105 @@ void LambdaTemplateCodegen::generateLambdaTemplates(Semantic::SemanticAnalyzer& 
         // Generate unique function name for this instantiation
         std::string lambdaFuncName = "@lambda.template." + mangledName;
 
-        // Determine return type
-        std::string returnType = "ptr";  // Default to ptr for objects
+        // Build parameter types list (closure ptr + actual params) as LLVM types
+        auto& llvmCtx = ctx_.module().getContext();
+        auto* ptrTy = llvmCtx.getPtrTy();
+
+        // Determine return type as LLVM type
+        std::string returnTypeStr = "ptr";  // Default to ptr for objects
+        LLVMIR::Type* returnType = ptrTy;
         if (clonedLambda->returnType) {
-            returnType = getLLVMType(clonedLambda->returnType->typeName);
+            returnTypeStr = getLLVMType(clonedLambda->returnType->typeName);
+            if (returnTypeStr == "void") {
+                returnType = llvmCtx.getVoidTy();
+            } else if (returnTypeStr == "i64") {
+                returnType = llvmCtx.getInt64Ty();
+            } else if (returnTypeStr == "i32") {
+                returnType = llvmCtx.getInt32Ty();
+            } else if (returnTypeStr == "i1") {
+                returnType = llvmCtx.getInt1Ty();
+            } else if (returnTypeStr == "float") {
+                returnType = llvmCtx.getFloatTy();
+            } else if (returnTypeStr == "double") {
+                returnType = llvmCtx.getDoubleTy();
+            }
         }
 
-        // Build parameter types list (closure ptr + actual params)
-        std::vector<std::string> paramTypes;
-        paramTypes.push_back("ptr");  // First param is always closure pointer
+        // Build string-based parameter types for LambdaInfo
+        std::vector<std::string> paramTypesStr;
+        paramTypesStr.push_back("ptr");  // First param is always closure pointer
+
+        // Build LLVM parameter types
+        std::vector<LLVMIR::Type*> paramTypes;
+        paramTypes.push_back(ptrTy);  // Closure pointer
         for (const auto& param : clonedLambda->parameters) {
-            std::string paramType = getLLVMType(param->type->typeName);
-            paramTypes.push_back(paramType);
+            std::string paramTypeStr = getLLVMType(param->type->typeName);
+            paramTypesStr.push_back(paramTypeStr);
+            if (paramTypeStr == "i64") {
+                paramTypes.push_back(llvmCtx.getInt64Ty());
+            } else if (paramTypeStr == "i32") {
+                paramTypes.push_back(llvmCtx.getInt32Ty());
+            } else if (paramTypeStr == "i1") {
+                paramTypes.push_back(llvmCtx.getInt1Ty());
+            } else if (paramTypeStr == "float") {
+                paramTypes.push_back(llvmCtx.getFloatTy());
+            } else if (paramTypeStr == "double") {
+                paramTypes.push_back(llvmCtx.getDoubleTy());
+            } else {
+                paramTypes.push_back(ptrTy);
+            }
         }
 
-        // Build closure struct type: { ptr (func), ptr (capture0), ptr (capture1), ... }
-        std::string closureTypeStr = "{ ptr";
-        for (size_t i = 0; i < clonedLambda->captures.size(); ++i) {
-            closureTypeStr += ", ptr";
+        // Create function type and function in the typed module
+        auto* funcType = llvmCtx.getFunctionTy(returnType, paramTypes);
+        std::string actualFuncName = "lambda.template." + mangledName;
+        auto* func = ctx_.module().createFunction(funcType, actualFuncName);
+        if (!func) {
+            std::cerr << "[ERROR] Failed to create lambda function: " << actualFuncName << "\n";
+            continue;
         }
-        closureTypeStr += " }";
 
-        // Generate lambda function definition
-        std::stringstream lambdaDef;
-        lambdaDef << "\n; Lambda template function: " << mangledName << "\n";
-        lambdaDef << "define " << returnType << " " << lambdaFuncName << "(ptr %closure";
+        // Save current function state and set up for lambda generation
+        auto* savedFunc = ctx_.currentFunction();
+        auto* savedBlock = ctx_.builder().getInsertBlock();
+        std::string savedReturnType(ctx_.currentReturnType());
+
+        ctx_.setCurrentFunction(func);
+        ctx_.setCurrentReturnType(returnTypeStr);
+
+        // Create entry block
+        auto* entryBlock = func->createBasicBlock("entry");
+        ctx_.builder().setInsertPoint(entryBlock);
+
+        // Set up function arguments - closure pointer is first argument
+        func->getArg(0)->setName("closure");
         for (size_t i = 0; i < clonedLambda->parameters.size(); ++i) {
-            lambdaDef << ", " << paramTypes[i + 1] << " %" << clonedLambda->parameters[i]->name;
+            func->getArg(i + 1)->setName(clonedLambda->parameters[i]->name);
+            // Declare parameter in context for body access
+            auto argVal = LLVMIR::AnyValue(LLVMIR::PtrValue(func->getArg(i + 1)));
+            ctx_.declareParameter(clonedLambda->parameters[i]->name,
+                                  clonedLambda->parameters[i]->type->typeName, argVal);
         }
-        lambdaDef << ") {\n";
-        lambdaDef << "entry:\n";
+
+        // Build closure struct type for GEP operations
+        std::vector<LLVMIR::Type*> closureFieldTypes;
+        closureFieldTypes.push_back(ptrTy);  // Function pointer
+        for (size_t i = 0; i < clonedLambda->captures.size(); ++i) {
+            closureFieldTypes.push_back(ptrTy);  // Captured values are pointers
+        }
+        auto* closureStructType = llvmCtx.createStructTy("lambda.closure." + mangledName);
+        closureStructType->setBody(closureFieldTypes);
 
         // Load captured variables from closure struct
+        auto closurePtr = LLVMIR::AnyValue(LLVMIR::PtrValue(func->getArg(0)));
         for (size_t i = 0; i < clonedLambda->captures.size(); ++i) {
             const auto& capture = clonedLambda->captures[i];
-            std::string captureReg = "%capture." + capture.varName;
             // GEP to get pointer to capture field (index i+1, since index 0 is function ptr)
-            lambdaDef << "  " << captureReg << ".ptr = getelementptr inbounds "
-                      << closureTypeStr << ", ptr %closure, i32 0, i32 " << (i + 1) << "\n";
+            auto gepVal = ctx_.builder().createStructGEP(closureStructType, closurePtr.asPtr(), i + 1,
+                                                          "capture." + capture.varName + ".ptr");
             // Load the captured value pointer
-            lambdaDef << "  " << captureReg << " = load ptr, ptr " << captureReg << ".ptr\n";
+            auto loadedVal = ctx_.builder().createLoad(ptrTy, gepVal, "capture." + capture.varName);
+            ctx_.declareVariable(capture.varName, "ptr", LLVMIR::AnyValue(loadedVal));
         }
 
         // Check if body contains a return statement
@@ -217,8 +274,6 @@ void LambdaTemplateCodegen::generateLambdaTemplates(Semantic::SemanticAnalyzer& 
         }
 
         // Generate lambda body statements using modular codegen
-        // Note: This generates directly to the LLVMIR module, not to our text output
-        // TODO: Full lambda template instantiation needs proper LLVMIR extraction
         if (modularCodegen_) {
             for (const auto& stmt : clonedLambda->body) {
                 modularCodegen_->generateStmt(stmt.get());
@@ -227,17 +282,40 @@ void LambdaTemplateCodegen::generateLambdaTemplates(Semantic::SemanticAnalyzer& 
 
         // Add default return if body doesn't have one
         if (!hasReturn) {
-            std::string defaultVal = getDefaultReturnValue(returnType);
-            if (returnType == "void") {
-                lambdaDef << "  ret void\n";
+            if (returnTypeStr == "void") {
+                ctx_.builder().createRetVoid();
+            } else if (returnTypeStr == "ptr") {
+                auto nullVal = ctx_.builder().getNullPtr();
+                ctx_.builder().createRet(LLVMIR::AnyValue(nullVal));
+            } else if (returnTypeStr == "i64") {
+                auto zeroVal = ctx_.builder().getInt64(0);
+                ctx_.builder().createRet(LLVMIR::AnyValue(zeroVal));
+            } else if (returnTypeStr == "i32") {
+                auto zeroVal = ctx_.builder().getInt32(0);
+                ctx_.builder().createRet(LLVMIR::AnyValue(zeroVal));
+            } else if (returnTypeStr == "i1") {
+                auto falseVal = ctx_.builder().getInt1(false);
+                ctx_.builder().createRet(LLVMIR::AnyValue(falseVal));
+            } else if (returnTypeStr == "float") {
+                auto zeroVal = ctx_.builder().getFloat(0.0f);
+                ctx_.builder().createRet(LLVMIR::AnyValue(zeroVal));
+            } else if (returnTypeStr == "double") {
+                auto zeroVal = ctx_.builder().getDouble(0.0);
+                ctx_.builder().createRet(LLVMIR::AnyValue(zeroVal));
             } else {
-                lambdaDef << "  ret " << returnType << " " << defaultVal << "\n";
+                auto nullVal = ctx_.builder().getNullPtr();
+                ctx_.builder().createRet(LLVMIR::AnyValue(nullVal));
             }
         }
-        lambdaDef << "}\n";
 
-        // Store lambda definition for later emission
-        lambdaDefinitions_.push_back(lambdaDef.str());
+        // Restore previous function state
+        if (savedFunc) {
+            ctx_.setCurrentFunction(savedFunc);
+        }
+        if (savedBlock) {
+            ctx_.builder().setInsertPoint(savedBlock);
+        }
+        ctx_.setCurrentReturnType(savedReturnType);
 
         // Build the lookup key: "identity<Integer>"
         std::string lookupKey = inst.variableName + "<";
@@ -258,8 +336,8 @@ void LambdaTemplateCodegen::generateLambdaTemplates(Semantic::SemanticAnalyzer& 
         // Store LambdaInfo for parameter types etc.
         LambdaInfo info;
         info.functionName = lambdaFuncName;
-        info.returnType = returnType;
-        info.paramTypes = paramTypes;
+        info.returnType = returnTypeStr;
+        info.paramTypes = paramTypesStr;
         lambdaInfos_[lookupKey] = info;
         lambdaInfos_[mangledName] = info;
     }

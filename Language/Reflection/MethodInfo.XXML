@@ -218,6 +218,65 @@
 				Run sig.append(String::Constructor(")"));
 				Return sig;
 			}
+
+			// ============================================
+			// Dynamic Method Invocation
+			// ============================================
+
+			// Invoke instance method with no arguments
+			// Returns the result as a raw pointer (caller must cast appropriately)
+			Method <invoke> Returns NativeType<"ptr">^ Parameters (
+				Parameter <instance> Types NativeType<"ptr">%
+			) ->
+			{
+				Instantiate NativeType<"ptr">^ As <ptr> = methodInfoPtr;
+				Instantiate NativeType<"ptr">^ As <nullArgs> = 0;
+				Instantiate NativeType<"int64">^ As <argCount> = 0;
+				Return Syscall::reflection_method_invoke(ptr, instance, nullArgs, argCount);
+			}
+
+			// Invoke instance method with arguments array
+			// args: pointer to array of void* arguments
+			// argCount: number of arguments (must match method's parameter count)
+			Method <invokeWithArgs> Returns NativeType<"ptr">^ Parameters (
+				Parameter <instance> Types NativeType<"ptr">%,
+				Parameter <args> Types NativeType<"ptr">%,
+				Parameter <argCount> Types Integer&
+			) ->
+			{
+				Instantiate NativeType<"ptr">^ As <ptr> = methodInfoPtr;
+				Instantiate NativeType<"int64">^ As <count> = argCount.toInt64();
+				Return Syscall::reflection_method_invoke(ptr, instance, args, count);
+			}
+
+			// Invoke static method with no arguments
+			Method <invokeStatic> Returns NativeType<"ptr">^ Parameters () ->
+			{
+				Instantiate NativeType<"ptr">^ As <ptr> = methodInfoPtr;
+				Instantiate NativeType<"ptr">^ As <nullInstance> = 0;
+				Instantiate NativeType<"ptr">^ As <nullArgs> = 0;
+				Instantiate NativeType<"int64">^ As <argCount> = 0;
+				Return Syscall::reflection_method_invoke(ptr, nullInstance, nullArgs, argCount);
+			}
+
+			// Invoke static method with arguments array
+			Method <invokeStaticWithArgs> Returns NativeType<"ptr">^ Parameters (
+				Parameter <args> Types NativeType<"ptr">%,
+				Parameter <argCount> Types Integer&
+			) ->
+			{
+				Instantiate NativeType<"ptr">^ As <ptr> = methodInfoPtr;
+				Instantiate NativeType<"ptr">^ As <nullInstance> = 0;
+				Instantiate NativeType<"int64">^ As <count> = argCount.toInt64();
+				Return Syscall::reflection_method_invoke(ptr, nullInstance, args, count);
+			}
+
+			// Get the raw function pointer (for advanced usage)
+			Method <getFunctionPointer> Returns NativeType<"ptr">^ Parameters () ->
+			{
+				Instantiate NativeType<"ptr">^ As <ptr> = methodInfoPtr;
+				Return Syscall::reflection_method_getFunctionPointer(ptr);
+			}
 		]
 	]
 ]

@@ -210,6 +210,8 @@ SemanticAnalyzer::SemanticAnalyzer(Core::CompilationContext& context, Common::Er
     intrinsicMethods_["Syscall::reflection_method_getParameter"] = {"NativeType<\"ptr\">", Parser::OwnershipType::Owned};
     intrinsicMethods_["Syscall::reflection_method_isStatic"] = {"NativeType<\"int64\">", Parser::OwnershipType::Owned};
     intrinsicMethods_["Syscall::reflection_method_isConstructor"] = {"NativeType<\"int64\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::reflection_method_invoke"] = {"NativeType<\"ptr\">", Parser::OwnershipType::Owned};
+    intrinsicMethods_["Syscall::reflection_method_getFunctionPointer"] = {"NativeType<\"ptr\">", Parser::OwnershipType::Owned};
 
     // Syscall - runtime reflection ParameterInfo methods
     intrinsicMethods_["Syscall::reflection_parameter_getName"] = {"NativeType<\"cstr\">", Parser::OwnershipType::Owned};
@@ -2109,6 +2111,8 @@ void SemanticAnalyzer::visit(Parser::InstantiateStmt& node) {
             TemplateLambdaInfo lambdaInfo;
             lambdaInfo.variableName = node.variableName;
             lambdaInfo.templateParams = lambdaExpr->templateParams;
+            // Extract calls from body at registration time (AST is valid here)
+            lambdaInfo.callsInBody = extractCallsFromLambdaBody(lambdaExpr, lambdaExpr->templateParams);
             lambdaInfo.astNode = lambdaExpr;
             // Store captured variable types for IR generation
             for (const auto& capture : lambdaExpr->captures) {
@@ -4571,6 +4575,113 @@ std::vector<SemanticAnalyzer::TemplateBodyCallInfo> SemanticAnalyzer::extractCal
     return calls;
 }
 
+// Extract calls from lambda body - same approach as method body
+std::vector<SemanticAnalyzer::TemplateBodyCallInfo> SemanticAnalyzer::extractCallsFromLambdaBody(
+    Parser::LambdaExpr* lambda,
+    const std::vector<Parser::TemplateParameter>& templateParams) {
+
+    std::vector<TemplateBodyCallInfo> calls;
+    if (!lambda) return calls;
+
+    // Build set of template parameter names
+    std::set<std::string> templateParamNames;
+    for (const auto& param : templateParams) {
+        if (param.kind == Parser::TemplateParameter::Kind::Type) {
+            templateParamNames.insert(param.name);
+        }
+    }
+
+    // Walk all statements in the lambda body
+    for (auto& stmt : lambda->body) {
+        extractCallsFromStatement(stmt.get(), templateParamNames, calls);
+    }
+
+    return calls;
+}
+
+// Validate lambda template body using pre-extracted call information
+void SemanticAnalyzer::validateLambdaTemplateBody(
+    const std::string& variableName,
+    const std::vector<Parser::TemplateArgument>& args,
+    const Common::SourceLocation& callLocation) {
+
+    auto it = templateLambdas_.find(variableName);
+    if (it == templateLambdas_.end()) return;
+
+    const TemplateLambdaInfo& lambdaInfo = it->second;
+
+    // Skip if no calls were extracted (empty body or no template-param calls)
+    if (lambdaInfo.callsInBody.empty()) return;
+
+    // Build type substitution map from template arguments
+    std::unordered_map<std::string, std::string> typeMap;
+    for (size_t i = 0; i < lambdaInfo.templateParams.size() && i < args.size(); ++i) {
+        const auto& param = lambdaInfo.templateParams[i];
+        const auto& arg = args[i];
+        if (param.kind == Parser::TemplateParameter::Kind::Type &&
+            arg.kind == Parser::TemplateArgument::Kind::Type) {
+            typeMap[param.name] = arg.typeArg;
+        }
+    }
+
+    // Validate each extracted call with substituted types
+    for (const auto& call : lambdaInfo.callsInBody) {
+        // Substitute the template parameter with the actual type
+        auto typeIt = typeMap.find(call.className);
+        if (typeIt == typeMap.end()) continue;
+
+        std::string substitutedClassName = typeIt->second;
+
+        // Find the method in the substituted class
+        MethodInfo* method = findMethod(substitutedClassName, call.methodName);
+        if (!method) {
+            errorReporter.reportError(
+                Common::ErrorCode::UndeclaredIdentifier,
+                "Lambda template instantiation error: Method '" + call.methodName +
+                "' not found in class '" + substitutedClassName + "'",
+                callLocation
+            );
+            continue;
+        }
+
+        // Validate argument count
+        if (call.argumentTypes.size() != method->parameters.size()) {
+            errorReporter.reportError(
+                Common::ErrorCode::InvalidMethodCall,
+                "Lambda template instantiation error: Method '" + substitutedClassName + "::" +
+                call.methodName + "' expects " + std::to_string(method->parameters.size()) +
+                " argument(s), but " + std::to_string(call.argumentTypes.size()) + " provided",
+                callLocation
+            );
+            continue;
+        }
+
+        // Validate argument types
+        for (size_t i = 0; i < call.argumentTypes.size(); ++i) {
+            const std::string& argType = call.argumentTypes[i];
+            const auto& [expectedType, expectedOwnership] = method->parameters[i];
+
+            // Strip ownership from expected type for comparison
+            std::string baseExpectedType = expectedType;
+            if (!baseExpectedType.empty() &&
+                (baseExpectedType.back() == '^' || baseExpectedType.back() == '&' ||
+                 baseExpectedType.back() == '%')) {
+                baseExpectedType.pop_back();
+            }
+
+            if (!isCompatibleType(baseExpectedType, argType)) {
+                errorReporter.reportError(
+                    Common::ErrorCode::TypeMismatch,
+                    "Lambda template instantiation error: Cannot pass '" + argType +
+                    "' to method '" + substitutedClassName + "::" + call.methodName +
+                    "' which expects '" + expectedType + "'",
+                    callLocation
+                );
+            }
+        }
+    }
+}
+
 void SemanticAnalyzer::recordMethodTemplateInstantiation(const std::string& className, const std::string& instantiatedClassName, const std::string& methodName, const std::vector<Parser::TemplateArgument>& args) {
     std::string methodKey = className + "::" + methodName;
 
@@ -4786,9 +4897,10 @@ void SemanticAnalyzer::recordLambdaTemplateInstantiation(const std::string& vari
     // Record the instantiation
     lambdaTemplateInstantiations_.insert(inst);
 
-    // Lambda template body validation is disabled for now as it can cause
-    // memory access issues similar to method templates
-    // TODO: Re-enable when AST lifetime management is improved
+    // Validate lambda template body using pre-extracted call data
+    // (Safe approach: uses only pre-extracted TemplateBodyCallInfo, no AST access)
+    validateLambdaTemplateBody(inst.variableName, inst.arguments,
+        inst.arguments.empty() ? Common::SourceLocation{} : inst.arguments[0].location);
 }
 
 bool SemanticAnalyzer::isTemplateLambda(const std::string& variableName) {
@@ -4894,257 +5006,6 @@ void SemanticAnalyzer::validateMethodTemplateBody(
                 );
             }
         }
-    }
-}
-
-void SemanticAnalyzer::validateLambdaTemplateBody(
-    const std::string& variableName,
-    const std::vector<Parser::TemplateArgument>& args,
-    const Common::SourceLocation& callLocation) {
-
-    auto it = templateLambdas_.find(variableName);
-    if (it == templateLambdas_.end()) return;
-
-    const TemplateLambdaInfo& lambdaInfo = it->second;
-    Parser::LambdaExpr* templateLambda = lambdaInfo.astNode;
-
-    // Skip validation for imported modules (astNode is null for imported templates)
-    if (!templateLambda) return;
-
-    // Skip validation for lambdas that return template types
-    if (templateLambda->returnType) {
-        const std::string& retTypeName = templateLambda->returnType->typeName;
-        if (retTypeName.find('@') != std::string::npos ||
-            retTypeName.find('<') != std::string::npos) {
-            return;
-        }
-    }
-
-    if (templateLambda->body.empty()) return;
-
-    // Build type substitution map
-    std::unordered_map<std::string, std::string> typeMap;
-    for (size_t i = 0; i < lambdaInfo.templateParams.size() && i < args.size(); ++i) {
-        const auto& param = lambdaInfo.templateParams[i];
-        const auto& arg = args[i];
-        if (param.kind == Parser::TemplateParameter::Kind::Type &&
-            arg.kind == Parser::TemplateArgument::Kind::Type) {
-            typeMap[param.name] = arg.typeArg;
-        }
-    }
-
-    // Validate each statement in the body with substituted types
-    for (auto& stmt : templateLambda->body) {
-        validateStatementWithSubstitution(stmt.get(), typeMap, callLocation);
-    }
-}
-
-void SemanticAnalyzer::validateStatementWithSubstitution(
-    Parser::Statement* stmt,
-    const std::unordered_map<std::string, std::string>& typeMap,
-    const Common::SourceLocation& callLocation) {
-
-    if (!stmt) return;
-
-    // Handle ReturnStmt
-    if (auto* returnStmt = dynamic_cast<Parser::ReturnStmt*>(stmt)) {
-        if (returnStmt->value) {
-            validateExpressionWithSubstitution(returnStmt->value.get(), typeMap, callLocation);
-        }
-        return;
-    }
-
-    // Handle RunStmt
-    if (auto* runStmt = dynamic_cast<Parser::RunStmt*>(stmt)) {
-        if (runStmt->expression) {
-            validateExpressionWithSubstitution(runStmt->expression.get(), typeMap, callLocation);
-        }
-        return;
-    }
-
-    // Handle InstantiateStmt
-    if (auto* instStmt = dynamic_cast<Parser::InstantiateStmt*>(stmt)) {
-        if (instStmt->initializer) {
-            validateExpressionWithSubstitution(instStmt->initializer.get(), typeMap, callLocation);
-        }
-        return;
-    }
-
-    // Handle IfStmt
-    if (auto* ifStmt = dynamic_cast<Parser::IfStmt*>(stmt)) {
-        if (ifStmt->condition) {
-            validateExpressionWithSubstitution(ifStmt->condition.get(), typeMap, callLocation);
-        }
-        for (auto& s : ifStmt->thenBranch) {
-            validateStatementWithSubstitution(s.get(), typeMap, callLocation);
-        }
-        for (auto& s : ifStmt->elseBranch) {
-            validateStatementWithSubstitution(s.get(), typeMap, callLocation);
-        }
-        return;
-    }
-
-    // Handle WhileStmt
-    if (auto* whileStmt = dynamic_cast<Parser::WhileStmt*>(stmt)) {
-        if (whileStmt->condition) {
-            validateExpressionWithSubstitution(whileStmt->condition.get(), typeMap, callLocation);
-        }
-        for (auto& s : whileStmt->body) {
-            validateStatementWithSubstitution(s.get(), typeMap, callLocation);
-        }
-        return;
-    }
-
-    // Handle ForStmt
-    if (auto* forStmt = dynamic_cast<Parser::ForStmt*>(stmt)) {
-        if (forStmt->rangeStart) {
-            validateExpressionWithSubstitution(forStmt->rangeStart.get(), typeMap, callLocation);
-        }
-        if (forStmt->rangeEnd) {
-            validateExpressionWithSubstitution(forStmt->rangeEnd.get(), typeMap, callLocation);
-        }
-        for (auto& s : forStmt->body) {
-            validateStatementWithSubstitution(s.get(), typeMap, callLocation);
-        }
-        return;
-    }
-}
-
-void SemanticAnalyzer::validateExpressionWithSubstitution(
-    Parser::Expression* expr,
-    const std::unordered_map<std::string, std::string>& typeMap,
-    const Common::SourceLocation& callLocation) {
-
-    if (!expr) return;
-
-    // Use try-catch to handle any errors gracefully
-    // This is a best-effort validation - we'd rather skip than crash
-    try {
-        if (auto* callExpr = dynamic_cast<Parser::CallExpr*>(expr)) {
-            if (!callExpr->callee) {
-                // Recursively validate arguments even if callee is null
-                for (auto& arg : callExpr->arguments) {
-                    if (arg) validateExpressionWithSubstitution(arg.get(), typeMap, callLocation);
-                }
-                return;
-            }
-            std::string fullName = buildQualifiedName(callExpr->callee.get());
-        std::string className = extractClassName(fullName);
-        std::string methodName = extractMethodName(fullName);
-
-        // Skip if we couldn't parse the callee properly
-        if (className.empty() || methodName.empty()) {
-            // Still recursively validate arguments
-            for (auto& arg : callExpr->arguments) {
-                validateExpressionWithSubstitution(arg.get(), typeMap, callLocation);
-            }
-            return;
-        }
-
-        // Skip validation for parameterized types (e.g., Box@T, Maybe<T>)
-        // These involve nested template resolution that's complex to validate here
-        if (className.find('@') != std::string::npos ||
-            className.find('<') != std::string::npos) {
-            // Still validate arguments
-            for (auto& arg : callExpr->arguments) {
-                validateExpressionWithSubstitution(arg.get(), typeMap, callLocation);
-            }
-            return;
-        }
-
-        // Substitute template parameter with actual type
-        auto typeIt = typeMap.find(className);
-        if (typeIt != typeMap.end()) {
-            std::string substitutedClassName = typeIt->second;
-
-            // Now validate the substituted call
-            MethodInfo* method = findMethod(substitutedClassName, methodName);
-            if (!method) {
-                errorReporter.reportError(
-                    Common::ErrorCode::UndeclaredIdentifier,
-                    "Method '" + methodName + "' not found in class '" + substitutedClassName +
-                    "' (from template instantiation with " + className + " = " + substitutedClassName + ")",
-                    callLocation
-                );
-                return;
-            }
-
-            // Validate argument count
-            if (callExpr->arguments.size() != method->parameters.size()) {
-                errorReporter.reportError(
-                    Common::ErrorCode::InvalidMethodCall,
-                    "Method '" + substitutedClassName + "::" + methodName + "' expects " +
-                    std::to_string(method->parameters.size()) + " argument(s), but " +
-                    std::to_string(callExpr->arguments.size()) + " provided (from template instantiation)",
-                    callLocation
-                );
-            } else {
-                // Validate argument types
-                for (size_t i = 0; i < callExpr->arguments.size(); ++i) {
-                    if (!callExpr->arguments[i]) continue;  // Safety check
-                    std::string argType = getExpressionType(callExpr->arguments[i].get());
-                    if (argType.empty()) continue;  // Skip if couldn't determine type
-                    const auto& [expectedType, expectedOwnership] = method->parameters[i];
-
-                    // Strip ownership from expected type
-                    std::string baseExpectedType = expectedType;
-                    if (!baseExpectedType.empty() &&
-                        (baseExpectedType.back() == '^' || baseExpectedType.back() == '&' ||
-                         baseExpectedType.back() == '%')) {
-                        baseExpectedType.pop_back();
-                    }
-
-                    // For template body validation, be stricter:
-                    // Don't allow Integer -> NativeType<cstr> (only valid for null pointer checks)
-                    // Don't allow Integer -> NativeType<string_ptr>
-                    bool isStrictlyIncompatible = false;
-                    if (argType == "Integer" &&
-                        (baseExpectedType.find("NativeType<cstr>") != std::string::npos ||
-                         baseExpectedType.find("NativeType<\"cstr\">") != std::string::npos ||
-                         baseExpectedType.find("NativeType<string_ptr>") != std::string::npos ||
-                         baseExpectedType.find("NativeType<\"string_ptr\">") != std::string::npos)) {
-                        isStrictlyIncompatible = true;
-                    }
-
-                    if (isStrictlyIncompatible || !isCompatibleType(baseExpectedType, argType)) {
-                        errorReporter.reportError(
-                            Common::ErrorCode::TypeMismatch,
-                            "Template instantiation error: Cannot pass '" + argType +
-                            "' to method '" + substitutedClassName + "::" + methodName +
-                            "' which expects '" + expectedType + "'",
-                            callLocation
-                        );
-                    }
-                }
-            }
-        }
-
-        // Recursively validate arguments
-        for (auto& arg : callExpr->arguments) {
-            validateExpressionWithSubstitution(arg.get(), typeMap, callLocation);
-        }
-        return;
-    }
-
-    // Handle BinaryExpr
-    if (auto* binaryExpr = dynamic_cast<Parser::BinaryExpr*>(expr)) {
-        validateExpressionWithSubstitution(binaryExpr->left.get(), typeMap, callLocation);
-        validateExpressionWithSubstitution(binaryExpr->right.get(), typeMap, callLocation);
-        return;
-    }
-
-    // Handle MemberAccessExpr
-    if (auto* memberExpr = dynamic_cast<Parser::MemberAccessExpr*>(expr)) {
-        if (memberExpr->object) {
-            validateExpressionWithSubstitution(memberExpr->object.get(), typeMap, callLocation);
-        }
-        return;
-    }
-    } catch (const std::exception&) {
-        // Silently skip validation on error - better to let code gen handle it
-        // than to crash during validation
-    } catch (...) {
-        // Catch any other exceptions
     }
 }
 

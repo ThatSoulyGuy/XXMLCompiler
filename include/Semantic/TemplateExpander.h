@@ -133,6 +133,20 @@ private:
     bool validateTruthRequirement(Parser::Expression* expr,
                                   const std::unordered_map<std::string, std::string>& substitutions);
 
+    // Deep type substitution helpers
+    void substituteTypeRef(Parser::TypeRef* typeRef,
+                          const std::unordered_map<std::string, std::string>& substitutions);
+    void substituteInStatement(Parser::Statement* stmt,
+                              const std::unordered_map<std::string, std::string>& substitutions);
+    void substituteInExpression(Parser::Expression* expr,
+                               const std::unordered_map<std::string, std::string>& substitutions);
+
+    // Constraint requirement validation helpers
+    bool validateRequirementParams(const std::vector<std::unique_ptr<Parser::RequireStmt>>& requirements,
+                                   const std::set<std::string>& validParams,
+                                   const Common::SourceLocation& constraintLoc);
+    void collectExpressionIdentifiers(Parser::Expression* expr, std::set<std::string>& identifiers);
+
     // Instantiation
     InstantiatedClass instantiateClass(
         const InstantiationRequest& request,

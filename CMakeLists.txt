@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(XXMLCompiler VERSION 3.1.2 LANGUAGES CXX C)
+project(XXMLCompiler VERSION 3.1.3 LANGUAGES CXX C)
 
 # Set C++23 standard for modern features
 set(CMAKE_CXX_STANDARD 23)

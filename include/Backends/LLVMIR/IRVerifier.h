@@ -36,12 +36,15 @@ enum class VerificationErrorKind {
     PHIMissingPredecessor,
     PHITypeMismatch,
     ReturnTypeMismatch,
+    UseBeforeDefinition,
+    SSAViolation,
 
     // Module-level errors
     DuplicateFunctionName,
     DuplicateGlobalName,
     UnresolvedCall,
-    TypeInconsistency
+    TypeInconsistency,
+    InvalidType
 };
 
 /**

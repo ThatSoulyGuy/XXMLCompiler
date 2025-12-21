@@ -79,7 +79,18 @@ LLVMIR::ReflectionClassInfo ReflectionCodegen::convertMetadata(const ReflectionC
         // Use metadata if available, otherwise default to false
         method.isStatic = (m < metadata.methodIsStatic.size()) ? metadata.methodIsStatic[m] : false;
         method.isConstructor = (method.name == "Constructor");
-        method.funcPtr = nullptr;  // TODO: Set actual function pointer if needed
+
+        // Set actual function pointer by looking up the mangled function name
+        // Try full mangled name first (Language_Core_Integer_toString)
+        std::string mangledClassName = mangleName(metadata.fullName);
+        std::string funcName = mangledClassName + "_" + method.name;
+        method.funcPtr = ctx_.module().getFunction(funcName);
+
+        // If not found, try short name (Integer_toString) - used by C runtime
+        if (!method.funcPtr) {
+            std::string shortFuncName = metadata.name + "_" + method.name;
+            method.funcPtr = ctx_.module().getFunction(shortFuncName);
+        }
 
         // Convert parameters
         if (m < metadata.methodParameters.size()) {
@@ -237,6 +248,21 @@ void ReflectionCodegen::generate() {
             bool isStatic = (m < metadata.methodIsStatic.size()) ? metadata.methodIsStatic[m] : false;
             bool isCtor = (method.first == "Constructor");
 
+            // Build function name for function pointer lookup
+            // Try full mangled name first (Language_Core_Integer_toString)
+            std::string funcName = mangledName + "_" + method.first;
+            auto* funcPtr = ctx_.module().getFunction(funcName);
+
+            // If not found, try short name (Integer_toString) - used by C runtime
+            if (!funcPtr) {
+                std::string shortFuncName = metadata.name + "_" + method.first;
+                funcPtr = ctx_.module().getFunction(shortFuncName);
+                if (funcPtr) {
+                    funcName = shortFuncName;  // Use short name for IR output
+                }
+            }
+            std::string funcPtrStr = funcPtr ? ("@" + funcName) : "null";
+
             if (!isFirst) out << ",\n";
             // ReflectionMethodInfo: name, returnType, returnOwnership, paramCount, params, funcPtr, isStatic, isCtor, annotationCount, annotations
             out << "  %ReflectionMethodInfo { "
@@ -245,7 +271,7 @@ void ReflectionCodegen::generate() {
                 << "i32 " << returnOwnership << ", "
                 << "i32 " << paramCount << ", "
                 << "ptr null, "  // params (not implemented yet)
-                << "ptr null, "  // funcPtr
+                << "ptr " << funcPtrStr << ", "  // funcPtr - actual function if found
                 << "i1 " << (isStatic ? "true" : "false") << ", "
                 << "i1 " << (isCtor ? "true" : "false") << ", "
                 << "i32 0, "  // annotationCount

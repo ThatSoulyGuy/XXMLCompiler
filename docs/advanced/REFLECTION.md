@@ -61,9 +61,10 @@ The `GetType<T>` template uses the `__typename(T)` compiler intrinsic to get the
 
 ### MethodInfo.XXML
 
-Method introspection with parameter details.
+Method introspection with parameter details and dynamic invocation.
 
 ```xxml
+// Introspection
 method.getName() -> String^              // Method name
 method.getReturnType() -> String^        // Return type name
 method.getReturnOwnership() -> Integer^  // Return ownership (0=None, 1=^, 2=&, 3=%)
@@ -71,7 +72,15 @@ method.getParameterCount() -> Integer^   // Number of parameters
 method.getParameterAt(Integer&) -> ParameterInfo^  // Get parameter by index
 method.isStatic() -> Bool^               // Check if static method
 method.isConstructor() -> Bool^          // Check if constructor
+method.isMutating() -> Bool^             // Check if method mutates object state
 method.getSignature() -> String^         // Full signature (e.g., "String greet(Integer, String)")
+
+// Dynamic Invocation
+method.invoke(instance: NativeType<"ptr">%) -> NativeType<"ptr">^           // Invoke with no args
+method.invokeWithArgs(instance: NativeType<"ptr">%, args: NativeType<"ptr">%, argCount: Integer&) -> NativeType<"ptr">^  // Invoke with args
+method.invokeStatic() -> NativeType<"ptr">^                                  // Invoke static method (no args)
+method.invokeStaticWithArgs(args: NativeType<"ptr">%, argCount: Integer&) -> NativeType<"ptr">^  // Invoke static with args
+method.getFunctionPointer() -> NativeType<"ptr">^                            // Get raw function pointer
 ```
 
 ### PropertyInfo.XXML
@@ -274,6 +283,10 @@ Method introspection:
 - `xxml_reflection_method_getParameter(void*, int64_t)` - Get parameter by index
 - `xxml_reflection_method_isStatic(void*)` - Check if static
 - `xxml_reflection_method_isConstructor(void*)` - Check if constructor
+
+Dynamic invocation:
+- `xxml_reflection_method_invoke(void*, void*, void**, int64_t)` - Invoke method dynamically
+- `xxml_reflection_method_getFunctionPointer(void*)` - Get raw function pointer
 
 Parameter introspection:
 - `xxml_reflection_parameter_getName(void*)` - Get parameter name
@@ -479,6 +492,49 @@ If (isTemplate.getValue()) -> {
 }
 ```
 
+### Dynamic Method Invocation
+
+```xxml
+#import Language::Core;
+#import Language::Reflection;
+
+// Create an instance and get its type
+Instantiate Integer^ As <num> = Integer::Constructor(42);
+Instantiate Type^ As <intType> = Type::forName(String::Constructor("Integer"));
+
+// Get pointer to the instance for invoke calls
+Instantiate NativeType<"ptr">^ As <numPtr> = 0;
+Run Syscall::memcpy(&numPtr, &num, 8);
+
+// Look up the toString method
+Instantiate MethodInfo^ As <toStringMethod> = intType.getMethod(String::Constructor("toString"));
+
+If (toStringMethod != None::Constructor()) -> {
+    // Invoke the method dynamically
+    Instantiate NativeType<"ptr">^ As <resultPtr> = toStringMethod.invoke(numPtr);
+
+    // Cast result back to String (toString returns String^)
+    Instantiate String& As <result> = resultPtr;
+    Run Console::printLine(result);  // Prints: 42
+}
+
+// For methods with arguments, use invokeWithArgs
+// Example: calling a method with 2 parameters
+// Instantiate NativeType<"ptr">^ As <args[2]>;
+// Set args[0] = arg1Ptr;
+// Set args[1] = arg2Ptr;
+// Instantiate NativeType<"ptr">^ As <result> = method.invokeWithArgs(instance, &args[0], Integer::Constructor(2));
+
+// For static methods
+// Instantiate NativeType<"ptr">^ As <result> = method.invokeStatic();
+```
+
+**Notes:**
+- `invoke()` returns raw `NativeType<"ptr">^` - caller must cast appropriately
+- For primitive returns (like `toInt64()`), the result IS the value, not a pointer to it
+- Static methods use `invokeStatic()` or `invokeStaticWithArgs()` (no instance needed)
+- Supports up to 8 parameters via `invokeWithArgs()`
+
 ---
 
 ## Test Suite
@@ -504,6 +560,12 @@ Located in `tests/`:
 - Constructor detection
 - Return type analysis
 - Ownership comparison across methods
+
+### ReflectionInvokeTest.XXML
+- Dynamic method invocation via `invoke()`
+- Method lookup using `Type::forName()` and `getMethod()`
+- Function pointer retrieval via `getFunctionPointer()`
+- Return value handling for different types
 
 ---
 
@@ -563,8 +625,10 @@ Located in `tests/`:
 - May expose sensitive class structure
 
 ### Dynamic Invocation
-- Method invocation via reflection not yet implemented
-- When added, validate all reflected calls
+- Method invocation via reflection is now implemented
+- Supports 0-8 parameters via function pointer casting
+- Returns raw pointer - caller must cast to appropriate type
+- Validate argument counts match method signatures
 - Consider sandboxing for untrusted code
 
 ---
@@ -572,7 +636,7 @@ Located in `tests/`:
 ## Future Enhancements
 
 ### Short Term
-- [ ] Dynamic method invocation
+- [x] Dynamic method invocation (completed)
 - [ ] Property get/set via reflection
 - [ ] Hash map type registry for O(1) lookup
 - [x] Attribute/annotation support (completed)

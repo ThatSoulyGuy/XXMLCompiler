@@ -3,8 +3,13 @@
 #include "Backends/LLVMBackend.h"
 #include "Linker/LinkerInterface.h"
 #include "Utils/ProcessUtils.h"
+#include "Lexer/Lexer.h"
+#include "Parser/Parser.h"
+#include "Semantic/SemanticAnalyzer.h"
+#include "Common/Error.h"
 #include <iostream>
 #include <fstream>
+#include <sstream>
 #include <filesystem>
 
 namespace XXML {
@@ -12,6 +17,9 @@ namespace Driver {
 
 CompilationDriver::CompilationDriver(const CompilationConfig& config)
     : config_(config) {
+
+    // Initialize error reporter
+    errorReporter_ = std::make_unique<Common::ErrorReporter>();
 
     // Initialize compilation context
     context_ = std::make_unique<Core::CompilationContext>();
@@ -146,21 +154,58 @@ CompilationResult CompilationDriver::compile() {
 }
 
 bool CompilationDriver::parseAndTypeCheck(std::string& errorMessage) {
-    // TODO: Integrate with existing parser and type checker from main.cpp
-    // For now, this is a placeholder that would:
-    // 1. Load and parse the input file
-    // 2. Resolve imports
-    // 3. Run type checking
-    // 4. Build the AST
-
     // Check if input file exists
     if (!Utils::ProcessUtils::fileExists(config_.inputFile)) {
         errorMessage = "Input file not found: " + config_.inputFile;
         return false;
     }
 
-    // This would be implemented by calling the existing parser/typechecker
-    // from the main compilation context
+    // Step 1: Read source file
+    std::ifstream inputFile(config_.inputFile);
+    if (!inputFile) {
+        errorMessage = "Failed to open: " + config_.inputFile;
+        return false;
+    }
+    std::stringstream buffer;
+    buffer << inputFile.rdbuf();
+    std::string source = buffer.str();
+    if (source.empty()) {
+        errorMessage = "File is empty or failed to read: " + config_.inputFile;
+        return false;
+    }
+
+    // Step 2: Lexical analysis
+    logVerbose("  Lexing...");
+    Lexer::Lexer lexer(source, config_.inputFile, *errorReporter_);
+    auto tokens = lexer.tokenize();
+    if (errorReporter_->hasErrors()) {
+        errorMessage = "Lexer errors";
+        return false;
+    }
+
+    // Step 3: Parse to AST
+    logVerbose("  Parsing...");
+    Parser::Parser parser(tokens, *errorReporter_);
+    program_ = parser.parse();
+    if (!program_ || errorReporter_->hasErrors()) {
+        errorMessage = "Parser errors";
+        return false;
+    }
+
+    // Step 4: Semantic analysis
+    logVerbose("  Type checking...");
+    analyzer_ = std::make_unique<Semantic::SemanticAnalyzer>(*context_, *errorReporter_);
+    analyzer_->analyze(*program_);
+    if (errorReporter_->hasErrors()) {
+        errorMessage = "Semantic errors";
+        return false;
+    }
+
+    // Connect analyzer to backend if available
+    if (llvmBackend_) {
+        llvmBackend_->setSemanticAnalyzer(analyzer_.get());
+    }
+
     return true;
 }
 
@@ -170,13 +215,20 @@ bool CompilationDriver::generateLLVMIR(std::string& irCode, std::string& errorMe
         return false;
     }
 
-    // TODO: Get the AST from the compilation context and generate IR
-    // For now, this is a placeholder
-    // In real implementation:
-    // irCode = llvmBackend_->generate(*program);
+    if (!program_) {
+        errorMessage = "No program to generate IR from - run parseAndTypeCheck first";
+        return false;
+    }
 
-    errorMessage = "LLVM IR generation not yet integrated with parser";
-    return false;
+    // Generate LLVM IR from the parsed and analyzed program
+    irCode = llvmBackend_->generate(*program_);
+    if (irCode.empty() || errorReporter_->hasErrors()) {
+        errorMessage = "Code generation errors";
+        return false;
+    }
+
+    logVerbose("✓ LLVM IR generated (" + std::to_string(irCode.size()) + " bytes)");
+    return true;
 }
 
 bool CompilationDriver::generateObjectFile(const std::string& irCode,

@@ -495,8 +495,8 @@ QualifiedType TypeCanonicalizer::resolveType(const std::string& typeName,
         return it->second;
     }
 
-    // Handle NativeType<X>
-    if (isNativeType(typeName)) {
+    // Handle NativeType<X> or plain NativeType (template args may be stored separately)
+    if (isNativeType(typeName) || typeName == "NativeType") {
         QualifiedType nativeType;
         nativeType.qualifiedName = typeName;
         nativeType.simpleName = typeName;
@@ -637,7 +637,7 @@ void TypeCanonicalizer::reportCircularDependency(const std::string& typeName,
     }
 
     errorReporter_.reportError(
-        Common::ErrorCode::TypeMismatch,  // TODO: Add specific error code
+        Common::ErrorCode::CircularDependency,
         "Circular type dependency detected: " + cycleStr,
         Common::SourceLocation{}
     );

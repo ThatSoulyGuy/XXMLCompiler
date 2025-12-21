@@ -1,4 +1,5 @@
 #include "Backends/Codegen/CodegenContext.h"
+#include "Backends/Codegen/RuntimeManifest.h"
 #include "Backends/TypeNormalizer.h"
 #include "Backends/NameMangler.h"
 #include "Core/TypeRegistry.h"
@@ -294,69 +295,11 @@ std::string CodegenContext::lookupMethodReturnType(const std::string& mangledNam
         return registryIt->second;
     }
 
-    // Check preamble/runtime functions first
-    // These are declared in PreambleGen but not registered in the module
-    static const std::unordered_map<std::string, std::string> preambleFunctions = {
-        // Native type constructors - these allocate and return owned pointers
-        {"Bool_Constructor", "Bool^"},
-        {"Integer_Constructor", "Integer^"},
-        {"Float_Constructor", "Float^"},
-        {"Double_Constructor", "Double^"},
-        {"String_Constructor", "String^"},
-        {"Byte_Constructor", "Byte^"},
-        // Integer methods that return NativeType
-        {"Integer_getValue", "NativeType<int64>"},
-        {"Integer_toInt64", "NativeType<int64>"},
-        {"Integer_toInt32", "NativeType<int32>"},
-        // Float methods
-        {"Float_getValue", "NativeType<float>"},
-        // Double methods
-        {"Double_getValue", "NativeType<double>"},
-        // Bool methods
-        {"Bool_getValue", "NativeType<bool>"},
-        // String methods that return primitives
-        {"String_length", "NativeType<int64>"},
-        {"String_equals", "NativeType<bool>"},
-        {"String_isEmpty", "NativeType<bool>"},
-        // Memory/Syscall methods
-        {"xxml_int64_read", "NativeType<int64>"},
-        {"xxml_read_byte", "NativeType<int8>"},
-        {"xxml_string_hash", "NativeType<int64>"},
-        {"xxml_ptr_is_null", "NativeType<int64>"},
-        // Reflection methods that return primitives
-        {"Reflection_getTypeCount", "NativeType<int32>"},
-        {"xxml_reflection_type_isTemplate", "NativeType<int64>"},
-        {"xxml_reflection_type_getTemplateParamCount", "NativeType<int64>"},
-        {"xxml_reflection_type_getPropertyCount", "NativeType<int64>"},
-        {"xxml_reflection_type_getMethodCount", "NativeType<int64>"},
-        {"xxml_reflection_type_getInstanceSize", "NativeType<int64>"},
-        {"xxml_reflection_property_getOwnership", "NativeType<int64>"},
-        {"xxml_reflection_property_getOffset", "NativeType<int64>"},
-        {"xxml_reflection_method_getReturnOwnership", "NativeType<int64>"},
-        {"xxml_reflection_method_getParameterCount", "NativeType<int64>"},
-        {"xxml_reflection_method_isStatic", "NativeType<int64>"},
-        {"xxml_reflection_method_isConstructor", "NativeType<int64>"},
-        {"xxml_reflection_parameter_getOwnership", "NativeType<int64>"},
-        // Language::Reflection::Type methods (used in reflection API)
-        {"Language_Reflection_Type_getName", "String"},
-        {"Language_Reflection_Type_getFullName", "String"},
-        {"Language_Reflection_Type_getNamespace", "String"},
-        {"Language_Reflection_Type_isTemplate", "Bool"},
-        {"Language_Reflection_Type_getTemplateParameterCount", "Integer"},
-        {"Language_Reflection_Type_getPropertyCount", "Integer"},
-        {"Language_Reflection_Type_getPropertyAt", "Language::Reflection::PropertyInfo"},
-        {"Language_Reflection_Type_getProperty", "Language::Reflection::PropertyInfo"},
-        {"Language_Reflection_Type_getMethodCount", "Integer"},
-        {"Language_Reflection_Type_getMethodAt", "Language::Reflection::MethodInfo"},
-        {"Language_Reflection_Type_getMethod", "Language::Reflection::MethodInfo"},
-        {"Language_Reflection_Type_forName", "Language::Reflection::Type"},
-        {"Language_Reflection_Type_getInstanceSize", "Integer"},
-        {"Language_Reflection_GetType_String_get", "Language::Reflection::Type"},
-    };
-
-    auto preambleIt = preambleFunctions.find(mangledName);
-    if (preambleIt != preambleFunctions.end()) {
-        return preambleIt->second;
+    // Check preamble/runtime functions using RuntimeManifest (single source of truth)
+    static const RuntimeManifest manifest;
+    std::string xxmlReturnType = manifest.getXXMLReturnType(mangledName);
+    if (!xxmlReturnType.empty()) {
+        return xxmlReturnType;
     }
 
     // Special handling for Native class methods (FFI)

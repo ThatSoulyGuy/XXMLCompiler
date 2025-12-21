@@ -267,14 +267,6 @@ private:
         const std::string& variableName,
         const std::vector<Parser::TemplateArgument>& args,
         const Common::SourceLocation& callLocation);
-    void validateStatementWithSubstitution(
-        Parser::Statement* stmt,
-        const std::unordered_map<std::string, std::string>& typeMap,
-        const Common::SourceLocation& callLocation);
-    void validateExpressionWithSubstitution(
-        Parser::Expression* expr,
-        const std::unordered_map<std::string, std::string>& typeMap,
-        const Common::SourceLocation& callLocation);
 
     // Constraint registry and validation (ConstraintInfo defined in PassResults.h)
     std::unordered_map<std::string, ConstraintInfo> constraintRegistry_;  // Constraint name -> info
@@ -366,6 +358,9 @@ private:
                                    std::vector<TemplateBodyCallInfo>& calls);
     std::vector<TemplateBodyCallInfo> extractCallsFromMethodBody(
         Parser::MethodDecl* method,
+        const std::vector<Parser::TemplateParameter>& templateParams);
+    std::vector<TemplateBodyCallInfo> extractCallsFromLambdaBody(
+        Parser::LambdaExpr* lambda,
         const std::vector<Parser::TemplateParameter>& templateParams);
 
 public:

@@ -1,5 +1,6 @@
 #include "Backends/LLVMIR/Emitter.h"
 #include "Backends/LLVMIR/TypedBuilder.h"
+#include "Backends/Codegen/RuntimeManifest.h"
 #include <iomanip>
 #include <algorithm>
 
@@ -132,17 +133,27 @@ void LLVMEmitter::emitGlobalVariables() {
 // ============================================================================
 
 void LLVMEmitter::emitFunctionDeclarations() {
+    // Use RuntimeManifest to check for preamble functions precisely
+    static const Codegen::RuntimeManifest runtimeManifest;
+
     // Preamble function prefixes - these are declared in the preamble already
+    // NOTE: Only includes prefixes for functions NOT covered by RuntimeManifest
     static const std::vector<std::string> preamblePrefixes = {
         "Bool_", "Integer_", "Float_", "Double_", "String_", "Console_",
         "Object_",  // Fallback type for string operations
+        "System_", "Syscall_", "Mem_",  // System-level runtime functions
         "Reflection_", "xxml_", "malloc", "free", "memcpy", "memset",
         "llvm.", "printf", "puts", "exit"
     };
 
     for (const auto& [name, func] : module_.getFunctions()) {
         if (func->isDeclaration()) {
-            // Check if this is a preamble function by checking prefixes
+            // First, check RuntimeManifest for exact match (most precise)
+            if (runtimeManifest.hasFunction(name)) {
+                continue;  // Skip - declared in preamble
+            }
+
+            // Then, check prefixes for other preamble functions
             bool isPreambleFunc = false;
             for (const auto& prefix : preamblePrefixes) {
                 if (name.find(prefix) == 0) {

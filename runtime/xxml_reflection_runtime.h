@@ -147,6 +147,17 @@ const char* xxml_reflection_parameter_getName(void* paramInfo);
 const char* xxml_reflection_parameter_getTypeName(void* paramInfo);
 int64_t xxml_reflection_parameter_getOwnership(void* paramInfo);
 
+// Dynamic method invocation
+// Invokes the method with the given instance and arguments
+// For static methods, instance should be NULL
+// args is an array of void* pointers to arguments
+// argCount must match the method's parameter count
+// Returns the method's return value as void* (or NULL for void methods)
+void* xxml_reflection_method_invoke(void* methodInfo, void* instance, void** args, int64_t argCount);
+
+// Get function pointer from method info (for advanced use)
+void* xxml_reflection_method_getFunctionPointer(void* methodInfo);
+
 // ============================================
 // Language::Reflection Module Functions
 // ============================================

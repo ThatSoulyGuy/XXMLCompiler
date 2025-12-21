@@ -1517,6 +1517,30 @@ void* Language_Reflection_Type_getMethodAt(void* self, void* index) {
     return Language_Reflection_MethodInfo_Constructor(methodPtr);
 }
 
+// Language::Reflection::Type::getMethod - get method by name
+void* Language_Reflection_Type_getMethod(void* self, void* nameStr) {
+    Language_Reflection_Type* type = (Language_Reflection_Type*)self;
+    if (!type || !nameStr) return NULL;
+    const char* cstr = String_toCString(nameStr);
+    void* methodPtr = xxml_reflection_type_getMethodByName(type->typeInfoPtr, cstr);
+    if (!methodPtr) return NULL;
+    return Language_Reflection_MethodInfo_Constructor(methodPtr);
+}
+
+// Language::Reflection::MethodInfo::invoke - invoke with no arguments
+void* Language_Reflection_MethodInfo_invoke(void* self, void* instance) {
+    Language_Reflection_MethodInfo* info = (Language_Reflection_MethodInfo*)self;
+    if (!info) return NULL;
+    return xxml_reflection_method_invoke(info->methodInfoPtr, instance, NULL, 0);
+}
+
+// Language::Reflection::MethodInfo::getFunctionPointer - get raw function pointer
+void* Language_Reflection_MethodInfo_getFunctionPointer(void* self) {
+    Language_Reflection_MethodInfo* info = (Language_Reflection_MethodInfo*)self;
+    if (!info) return NULL;
+    return xxml_reflection_method_getFunctionPointer(info->methodInfoPtr);
+}
+
 // NOTE: Language::Reflection::GetType<T> template implementations are NOT included here
 // because the compiler generates them. We only provide the base Type/PropertyInfo/MethodInfo
 // class implementations which the compiler cannot generate due to AST corruption issues.

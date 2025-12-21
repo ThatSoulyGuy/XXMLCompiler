@@ -10,6 +10,8 @@ namespace Core { class CompilationContext; }
 namespace Parser { class Program; }
 namespace Backends { class LLVMBackend; }
 namespace Linker { class ILinker; }
+namespace Common { class ErrorReporter; }
+namespace Semantic { class SemanticAnalyzer; }
 
 namespace Driver {
 
@@ -104,6 +106,9 @@ private:
     std::unique_ptr<Core::CompilationContext> context_;
     std::unique_ptr<Backends::LLVMBackend> llvmBackend_;
     std::unique_ptr<Linker::ILinker> linker_;
+    std::unique_ptr<Common::ErrorReporter> errorReporter_;
+    std::unique_ptr<Parser::Program> program_;
+    std::unique_ptr<Semantic::SemanticAnalyzer> analyzer_;
 
     // Pipeline stages
     bool parseAndTypeCheck(std::string& errorMessage);

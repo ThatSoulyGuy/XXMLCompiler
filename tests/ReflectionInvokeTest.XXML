@@ -1,0 +1,95 @@
+#import Language::Core;
+#import Language::Reflection;
+
+[ Entrypoint
+	{
+		Run Console::printLine(String::Constructor("=== Reflection Dynamic Invoke Test ==="));
+
+		// Create an Integer instance
+		Instantiate Integer^ As <num> = Integer::Constructor(42);
+		Run Console::print(String::Constructor("Initial value: "));
+		Run Console::printLine(num.toString());
+
+		// Get the Type for Integer using Type::forName
+		Instantiate Type^ As <intType> = Type::forName(String::Constructor("Integer"));
+		Run Console::print(String::Constructor("Type name: "));
+		Run Console::printLine(intType.getFullName());
+
+		// Get instance pointer for invoke calls
+		Instantiate NativeType<"ptr">^ As <numPtr> = 0;
+		Run Syscall::memcpy(&numPtr, &num, 8);
+
+		// Test 1: List available methods
+		Run Console::printLine(String::Constructor("\n--- Available Methods ---"));
+		Instantiate Integer^ As <methodCount> = intType.getMethodCount();
+		Run Console::print(String::Constructor("Method count: "));
+		Run Console::printLine(methodCount.toString());
+
+		Instantiate NativeType<"int64">^ As <i> = 0;
+		Instantiate NativeType<"int64">^ As <count> = methodCount.toInt64();
+		While (i < count) -> {
+			Instantiate MethodInfo^ As <method> = intType.getMethodAt(Integer::Constructor(i));
+			Run Console::print(String::Constructor("  "));
+			Run Console::print(method.getName());
+			Run Console::print(String::Constructor(" - params: "));
+			Run Console::printLine(method.getParameterCount().toString());
+			Set i = i + 1;
+		}
+
+		// Test 2: Invoke toString() dynamically (no args)
+		Run Console::printLine(String::Constructor("\n--- Test 1: Invoke toString() ---"));
+		Instantiate MethodInfo^ As <toStringMethod> = intType.getMethod(String::Constructor("toString"));
+		If (toStringMethod != None::Constructor()) -> {
+			Run Console::print(String::Constructor("Found method: "));
+			Run Console::printLine(toStringMethod.getName());
+			Run Console::print(String::Constructor("Parameter count: "));
+			Run Console::printLine(toStringMethod.getParameterCount().toString());
+
+			// Invoke the method dynamically
+			Instantiate NativeType<"ptr">^ As <resultPtr> = toStringMethod.invoke(numPtr);
+
+			If (resultPtr != 0) -> {
+				// Cast result back to String
+				Instantiate String& As <result> = resultPtr;
+				Run Console::print(String::Constructor("Result: "));
+				Run Console::printLine(result);
+			} Else -> {
+				Run Console::printLine(String::Constructor("WARNING: Result was null"));
+			}
+		} Else -> {
+			Run Console::printLine(String::Constructor("ERROR: toString method not found"));
+		}
+
+		// Test 3: Invoke toInt64() dynamically
+		Run Console::printLine(String::Constructor("\n--- Test 2: Invoke toInt64() ---"));
+		Instantiate MethodInfo^ As <toInt64Method> = intType.getMethod(String::Constructor("toInt64"));
+		If (toInt64Method != None::Constructor()) -> {
+			Run Console::print(String::Constructor("Found method: "));
+			Run Console::printLine(toInt64Method.getName());
+
+			// Invoke the method dynamically
+			Instantiate NativeType<"ptr">^ As <resultPtr> = toInt64Method.invoke(numPtr);
+
+			Run Console::print(String::Constructor("Result (should be 42): "));
+			// For primitive return, the result IS the value, not a pointer to it
+			Instantiate NativeType<"int64">^ As <resultVal> = resultPtr;
+			Run Console::printLine(Integer::Constructor(resultVal).toString());
+		} Else -> {
+			Run Console::printLine(String::Constructor("ERROR: toInt64 method not found"));
+		}
+
+		// Test 4: Get function pointer
+		Run Console::printLine(String::Constructor("\n--- Test 3: Get Function Pointer ---"));
+		If (toStringMethod != None::Constructor()) -> {
+			Instantiate NativeType<"ptr">^ As <fnPtr> = toStringMethod.getFunctionPointer();
+			If (fnPtr != 0) -> {
+				Run Console::printLine(String::Constructor("Function pointer obtained successfully"));
+			} Else -> {
+				Run Console::printLine(String::Constructor("WARNING: Function pointer is null"));
+			}
+		}
+
+		Run Console::printLine(String::Constructor("\n=== All Tests Complete ==="));
+		Exit(0);
+	}
+]

@@ -12,8 +12,9 @@ OwnershipAnalyzer::OwnershipAnalyzer(Common::ErrorReporter& errorReporter)
 }
 
 OwnershipAnalysisResult OwnershipAnalyzer::run(Parser::Program& program,
-                                                const SemanticValidationResult& /* semanticResult */) {
+                                                const SemanticValidationResult& semanticResult) {
     result_ = OwnershipAnalysisResult{};
+    semanticResult_ = &semanticResult;  // Store for use in analyzeCallArguments
 
     // Analyze each declaration
     for (auto& decl : program.declarations) {
@@ -380,11 +381,82 @@ void OwnershipAnalyzer::analyzeLambdaCaptures(Parser::LambdaExpr* lambda) {
 void OwnershipAnalyzer::analyzeCallArguments(Parser::CallExpr* call) {
     if (!call) return;
 
-    // TODO: Look up the function signature to determine parameter ownership
-    // For now, analyze all arguments
-    for (auto& arg : call->arguments) {
-        if (arg) {
+    // Try to look up the function signature to determine parameter ownership
+    const MethodInfo* methodInfo = nullptr;
+
+    if (semanticResult_ && call->callee) {
+        // Try to resolve the call target
+        // Case 1: MemberAccessExpr (obj.method or Class.method for static calls)
+        if (auto* memberAccess = dynamic_cast<Parser::MemberAccessExpr*>(call->callee.get())) {
+            std::string methodName = memberAccess->member;
+
+            // Try to get the object's type name
+            // If object is an IdentifierExpr, check if it's a class name (static call) or variable
+            if (auto* objIdent = dynamic_cast<Parser::IdentifierExpr*>(memberAccess->object.get())) {
+                // First check if it's a class name (static call)
+                auto classIt = semanticResult_->classRegistry.find(objIdent->name);
+                if (classIt != semanticResult_->classRegistry.end() && classIt->second) {
+                    auto methodIt = classIt->second->methods.find(methodName);
+                    if (methodIt != classIt->second->methods.end()) {
+                        methodInfo = &methodIt->second;
+                    }
+                }
+
+                // If not found, check if it's a known variable
+                if (!methodInfo) {
+                    auto varIt = variables_.find(objIdent->name);
+                    if (varIt != variables_.end()) {
+                        // Look up the type's methods
+                        auto classIt2 = semanticResult_->classRegistry.find(varIt->second.typeName);
+                        if (classIt2 != semanticResult_->classRegistry.end() && classIt2->second) {
+                            auto methodIt2 = classIt2->second->methods.find(methodName);
+                            if (methodIt2 != classIt2->second->methods.end()) {
+                                methodInfo = &methodIt2->second;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // If we found method info, analyze arguments with ownership awareness
+    if (methodInfo && !methodInfo->parameters.empty()) {
+        for (size_t i = 0; i < call->arguments.size(); ++i) {
+            auto& arg = call->arguments[i];
+            if (!arg) continue;
+
+            // Get parameter ownership if available
+            Parser::OwnershipType paramOwnership = Parser::OwnershipType::None;
+            if (i < methodInfo->parameters.size()) {
+                paramOwnership = methodInfo->parameters[i].second;
+            }
+
+            // Check if this argument would be moved
+            if (paramOwnership == Parser::OwnershipType::Owned) {
+                std::string varName = extractVariableName(arg.get());
+                if (!varName.empty()) {
+                    auto varIt = variables_.find(varName);
+                    if (varIt != variables_.end() && isOwnedType(varIt->second.ownership)) {
+                        // This argument will be moved to the function
+                        markMoved(varName, call->location);
+                    }
+                }
+            } else if (paramOwnership == Parser::OwnershipType::Reference) {
+                std::string varName = extractVariableName(arg.get());
+                if (!varName.empty()) {
+                    markBorrowed(varName, "call argument", currentScope_);
+                }
+            }
+
             analyzeExpression(arg.get());
+        }
+    } else {
+        // Fallback: analyze all arguments without ownership awareness
+        for (auto& arg : call->arguments) {
+            if (arg) {
+                analyzeExpression(arg.get());
+            }
         }
     }
 }

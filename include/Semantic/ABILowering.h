@@ -3,6 +3,7 @@
 #include <vector>
 #include <memory>
 #include <unordered_map>
+#include <set>
 #include "../Parser/AST.h"
 #include "../Common/Error.h"
 #include "PassResults.h"
@@ -65,6 +66,7 @@ private:
     const LayoutComputationResult& layoutResult_;
     TargetPlatform platform_;
     ABILoweringResult result_;
+    std::set<std::string> callbackTypeNames_;  // Registry of callback type names
 
     // Lower a native method
     LoweredSignature lowerMethod(Parser::MethodDecl* method);

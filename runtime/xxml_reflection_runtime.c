@@ -251,3 +251,121 @@ int64_t xxml_reflection_parameter_getOwnership(void* paramInfo) {
     ReflectionParameterInfo* info = (ReflectionParameterInfo*)paramInfo;
     return info ? info->ownership : 0;
 }
+
+// Get function pointer from method info
+void* xxml_reflection_method_getFunctionPointer(void* methodInfo) {
+    ReflectionMethodInfo* info = (ReflectionMethodInfo*)methodInfo;
+    return info ? info->functionPointer : NULL;
+}
+
+// Dynamic method invocation
+// Uses function pointer casting to call methods with varying arities
+// Supports 0-8 parameters (covers vast majority of use cases)
+void* xxml_reflection_method_invoke(void* methodInfo, void* instance, void** args, int64_t argCount) {
+    ReflectionMethodInfo* info = (ReflectionMethodInfo*)methodInfo;
+    if (!info || !info->functionPointer) {
+        return NULL;
+    }
+
+    // Validate argument count
+    int64_t expectedCount = info->parameterCount;
+    if (argCount != expectedCount) {
+        // Argument count mismatch - could add error reporting here
+        return NULL;
+    }
+
+    void* fn = info->functionPointer;
+
+    // For instance methods, 'instance' is the first implicit argument
+    // For static methods, we don't pass instance
+    if (info->isStatic) {
+        // Static method - no instance pointer
+        switch (argCount) {
+            case 0: {
+                typedef void* (*Fn0)(void);
+                return ((Fn0)fn)();
+            }
+            case 1: {
+                typedef void* (*Fn1)(void*);
+                return ((Fn1)fn)(args[0]);
+            }
+            case 2: {
+                typedef void* (*Fn2)(void*, void*);
+                return ((Fn2)fn)(args[0], args[1]);
+            }
+            case 3: {
+                typedef void* (*Fn3)(void*, void*, void*);
+                return ((Fn3)fn)(args[0], args[1], args[2]);
+            }
+            case 4: {
+                typedef void* (*Fn4)(void*, void*, void*, void*);
+                return ((Fn4)fn)(args[0], args[1], args[2], args[3]);
+            }
+            case 5: {
+                typedef void* (*Fn5)(void*, void*, void*, void*, void*);
+                return ((Fn5)fn)(args[0], args[1], args[2], args[3], args[4]);
+            }
+            case 6: {
+                typedef void* (*Fn6)(void*, void*, void*, void*, void*, void*);
+                return ((Fn6)fn)(args[0], args[1], args[2], args[3], args[4], args[5]);
+            }
+            case 7: {
+                typedef void* (*Fn7)(void*, void*, void*, void*, void*, void*, void*);
+                return ((Fn7)fn)(args[0], args[1], args[2], args[3], args[4], args[5], args[6]);
+            }
+            case 8: {
+                typedef void* (*Fn8)(void*, void*, void*, void*, void*, void*, void*, void*);
+                return ((Fn8)fn)(args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7]);
+            }
+            default:
+                // Too many arguments - not supported
+                return NULL;
+        }
+    } else {
+        // Instance method - instance is first argument
+        if (!instance) {
+            return NULL;  // Instance required for non-static methods
+        }
+        switch (argCount) {
+            case 0: {
+                typedef void* (*Fn0)(void*);
+                return ((Fn0)fn)(instance);
+            }
+            case 1: {
+                typedef void* (*Fn1)(void*, void*);
+                return ((Fn1)fn)(instance, args[0]);
+            }
+            case 2: {
+                typedef void* (*Fn2)(void*, void*, void*);
+                return ((Fn2)fn)(instance, args[0], args[1]);
+            }
+            case 3: {
+                typedef void* (*Fn3)(void*, void*, void*, void*);
+                return ((Fn3)fn)(instance, args[0], args[1], args[2]);
+            }
+            case 4: {
+                typedef void* (*Fn4)(void*, void*, void*, void*, void*);
+                return ((Fn4)fn)(instance, args[0], args[1], args[2], args[3]);
+            }
+            case 5: {
+                typedef void* (*Fn5)(void*, void*, void*, void*, void*, void*);
+                return ((Fn5)fn)(instance, args[0], args[1], args[2], args[3], args[4]);
+            }
+            case 6: {
+                typedef void* (*Fn6)(void*, void*, void*, void*, void*, void*, void*);
+                return ((Fn6)fn)(instance, args[0], args[1], args[2], args[3], args[4], args[5]);
+            }
+            case 7: {
+                typedef void* (*Fn7)(void*, void*, void*, void*, void*, void*, void*, void*);
+                return ((Fn7)fn)(instance, args[0], args[1], args[2], args[3], args[4], args[5], args[6]);
+            }
+            case 8: {
+                typedef void* (*Fn8)(void*, void*, void*, void*, void*, void*, void*, void*, void*);
+                return ((Fn8)fn)(instance, args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7]);
+            }
+            default:
+                // Too many arguments - not supported
+                return NULL;
+        }
+    }
+}

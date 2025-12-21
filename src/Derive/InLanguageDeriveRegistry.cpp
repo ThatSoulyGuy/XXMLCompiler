@@ -5,6 +5,8 @@
 #include "Parser/Parser.h"
 #include <iostream>
 #include <filesystem>
+#include <cctype>
+#include <algorithm>
 
 #ifndef _WIN32
 #include <dlfcn.h>
@@ -12,6 +14,205 @@
 
 namespace XXML {
 namespace Derive {
+
+// =============================================================================
+// Type System Callback Functions (C ABI)
+// These are passed to derives via the DeriveTypeSystem struct
+// =============================================================================
+
+// Helper struct to match runtime's DeriveTypeSystem layout
+struct TypeSystemCallbackData {
+    Semantic::SemanticAnalyzer* analyzer;
+};
+
+static const Semantic::ClassInfo* findClassInRegistry(Semantic::SemanticAnalyzer* analyzer, const std::string& typeName) {
+    if (!analyzer) return nullptr;
+    const auto& registry = analyzer->getClassRegistry();
+
+    // Try exact match first
+    auto it = registry.find(typeName);
+    if (it != registry.end()) return &it->second;
+
+    // Try with Language::Core:: prefix
+    it = registry.find("Language::Core::" + typeName);
+    if (it != registry.end()) return &it->second;
+
+    return nullptr;
+}
+
+static int typeSystemHasMethod(void* compilerState, const char* typeName, const char* methodName) {
+    if (!compilerState || !typeName || !methodName) return 0;
+    auto* data = static_cast<TypeSystemCallbackData*>(compilerState);
+    if (!data->analyzer) return 0;
+
+    // Use the analyzer's class registry to check if the type has the method
+    const Semantic::ClassInfo* classInfo = findClassInRegistry(data->analyzer, typeName);
+    if (!classInfo) return 0;
+
+    // Check if method exists
+    return classInfo->methods.count(methodName) > 0 ? 1 : 0;
+}
+
+static int typeSystemHasProperty(void* compilerState, const char* typeName, const char* propertyName) {
+    if (!compilerState || !typeName || !propertyName) return 0;
+    auto* data = static_cast<TypeSystemCallbackData*>(compilerState);
+    if (!data->analyzer) return 0;
+
+    const Semantic::ClassInfo* classInfo = findClassInRegistry(data->analyzer, typeName);
+    if (!classInfo) return 0;
+
+    return classInfo->properties.count(propertyName) > 0 ? 1 : 0;
+}
+
+static int typeSystemImplementsTrait(void* compilerState, const char* typeName, const char* traitName) {
+    if (!compilerState || !typeName || !traitName) return 0;
+    auto* data = static_cast<TypeSystemCallbackData*>(compilerState);
+    if (!data->analyzer) return 0;
+
+    const Semantic::ClassInfo* classInfo = findClassInRegistry(data->analyzer, typeName);
+    if (!classInfo) return 0;
+
+    // Check if the AST node has @Derive annotations for the trait
+    if (classInfo->astNode) {
+        for (const auto& annotation : classInfo->astNode->annotations) {
+            if (annotation && annotation->annotationName == "Derive") {
+                // Check if this derive annotation has the requested trait
+                for (const auto& arg : annotation->arguments) {
+                    // arg.first is the parameter name (string)
+                    if (arg.first == traitName) {
+                        return 1;
+                    }
+                    // arg.second is an Expression - check if it's an identifier matching the trait
+                    if (arg.second) {
+                        if (auto* ident = dynamic_cast<Parser::IdentifierExpr*>(arg.second.get())) {
+                            if (ident->name == traitName) {
+                                return 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return 0;
+}
+
+static int typeSystemIsBuiltin(void* compilerState, const char* typeName) {
+    if (!typeName) return 0;
+    // Check against known builtin types
+    std::string name(typeName);
+    if (name == "Integer" || name == "Float" || name == "Double" ||
+        name == "Bool" || name == "Boolean" || name == "String" ||
+        name == "Char" || name == "Byte" || name == "Short" ||
+        name == "Long" || name == "Void" || name == "None") {
+        return 1;
+    }
+    return 0;
+}
+
+// Type system structure matching runtime's DeriveTypeSystem layout
+struct DeriveTypeSystem {
+    int (*hasMethod)(void* compilerState, const char* typeName, const char* methodName);
+    int (*hasProperty)(void* compilerState, const char* typeName, const char* propertyName);
+    int (*implementsTrait)(void* compilerState, const char* typeName, const char* traitName);
+    int (*isBuiltin)(void* compilerState, const char* typeName);
+    void* compilerState;
+};
+
+// Diagnostics structure matching runtime's DeriveDiagnostics layout
+struct DeriveDiagnostics {
+    int* errorFlag;
+    const char* deriveName;
+    const char* targetClass;
+    const char* sourceFile;
+    int lineNumber;
+    int columnNumber;
+};
+
+// =============================================================================
+// Parameter String Parsing Helper
+// Parses strings like "name: String^, age: Integer^" into ParameterDecl objects
+// =============================================================================
+
+static std::string trim(const std::string& str) {
+    size_t start = str.find_first_not_of(" \t\r\n");
+    if (start == std::string::npos) return "";
+    size_t end = str.find_last_not_of(" \t\r\n");
+    return str.substr(start, end - start + 1);
+}
+
+static std::vector<std::unique_ptr<Parser::ParameterDecl>> parseParameterString(const std::string& paramStr) {
+    std::vector<std::unique_ptr<Parser::ParameterDecl>> params;
+    if (paramStr.empty()) return params;
+
+    // Split on commas, respecting nested template brackets
+    std::vector<std::string> parts;
+    int depth = 0;
+    std::string current;
+    for (char c : paramStr) {
+        if (c == '<') {
+            depth++;
+            current += c;
+        } else if (c == '>') {
+            depth--;
+            current += c;
+        } else if (c == ',' && depth == 0) {
+            parts.push_back(current);
+            current.clear();
+        } else {
+            current += c;
+        }
+    }
+    if (!current.empty()) {
+        parts.push_back(current);
+    }
+
+    // Parse each "name: Type^" or "name: Type" part
+    for (const auto& part : parts) {
+        std::string trimmedPart = trim(part);
+        if (trimmedPart.empty()) continue;
+
+        auto colonPos = trimmedPart.find(':');
+        if (colonPos == std::string::npos) continue;
+
+        std::string name = trim(trimmedPart.substr(0, colonPos));
+        std::string typeStr = trim(trimmedPart.substr(colonPos + 1));
+        if (name.empty() || typeStr.empty()) continue;
+
+        // Extract ownership from type string
+        Parser::OwnershipType ownership = Parser::OwnershipType::None;
+        if (!typeStr.empty()) {
+            char last = typeStr.back();
+            if (last == '^') {
+                ownership = Parser::OwnershipType::Owned;
+                typeStr = typeStr.substr(0, typeStr.length() - 1);
+            } else if (last == '&') {
+                ownership = Parser::OwnershipType::Reference;
+                typeStr = typeStr.substr(0, typeStr.length() - 1);
+            } else if (last == '%') {
+                ownership = Parser::OwnershipType::Copy;
+                typeStr = typeStr.substr(0, typeStr.length() - 1);
+            }
+        }
+
+        // Create type reference
+        auto typeRef = std::make_unique<Parser::TypeRef>(
+            typeStr,
+            ownership,
+            Common::SourceLocation()
+        );
+
+        // Create parameter declaration
+        auto param = std::make_unique<Parser::ParameterDecl>(
+            name,
+            std::move(typeRef),
+            Common::SourceLocation()
+        );
+
+        params.push_back(std::move(param));
+    }
+    return params;
+}
 
 // Forward declarations for DeriveContext C API structs
 extern "C" {
@@ -248,20 +449,46 @@ Semantic::DeriveResult InLanguageDeriveHandler::generate(
         return result;
     }
 
+    // Set up type system callbacks
+    TypeSystemCallbackData typeSystemData;
+    typeSystemData.analyzer = &analyzer;
+
+    DeriveTypeSystem typeSystem;
+    typeSystem.hasMethod = typeSystemHasMethod;
+    typeSystem.hasProperty = typeSystemHasProperty;
+    typeSystem.implementsTrait = typeSystemImplementsTrait;
+    typeSystem.isBuiltin = typeSystemIsBuiltin;
+    typeSystem.compilerState = &typeSystemData;
+
+    // Set up diagnostics
+    int errorFlag = 0;
+    DeriveDiagnostics diagnostics;
+    diagnostics.errorFlag = &errorFlag;
+    diagnostics.deriveName = deriveName_.c_str();
+    diagnostics.targetClass = classDecl->name.c_str();
+    diagnostics.sourceFile = classDecl->location.filename.c_str();
+    diagnostics.lineNumber = static_cast<int>(classDecl->location.line);
+    diagnostics.columnNumber = static_cast<int>(classDecl->location.column);
+
     // Create context with proper structure
     DeriveContext ctx = {};
     ctx.className = classDecl->name.c_str();
     ctx.namespaceName = "";
-    ctx.sourceFile = "";
-    ctx.lineNumber = 0;
-    ctx.columnNumber = 0;
+    ctx.sourceFile = classDecl->location.filename.c_str();
+    ctx.lineNumber = static_cast<int>(classDecl->location.line);
+    ctx.columnNumber = static_cast<int>(classDecl->location.column);
     ctx._classInfo = &classInfo;
-    ctx._typeSystem = nullptr;  // TODO: implement type system queries
+    ctx._typeSystem = &typeSystem;
     ctx._codeGen = codeGen;
-    ctx._diagnostics = nullptr;  // TODO: implement diagnostics
+    ctx._diagnostics = &diagnostics;
 
     // Call generate function
     generateFn_(&ctx);
+
+    // Check if derive reported errors via diagnostics
+    if (errorFlag) {
+        result.errors.push_back("Derive '" + deriveName_ + "' reported an error");
+    }
 
     // Get result from code generator using dynamically loaded function
     if (!codeGenGetResultFn_) {
@@ -337,9 +564,9 @@ Semantic::DeriveResult InLanguageDeriveHandler::generate(
             Common::SourceLocation()
         );
 
-        // Parse parameters
-        std::vector<std::unique_ptr<Parser::ParameterDecl>> params;
-        // TODO: Parse parameter string like "name: String^, age: Integer^"
+        // Parse parameters from parameter string (e.g., "name: String^, age: Integer^")
+        std::string parameterStr = genMethod.parameters ? genMethod.parameters : "";
+        std::vector<std::unique_ptr<Parser::ParameterDecl>> params = parseParameterString(parameterStr);
 
         // Create method declaration
         auto method = std::make_unique<Parser::MethodDecl>(

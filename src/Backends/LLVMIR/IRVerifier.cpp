@@ -1,4 +1,5 @@
 #include "Backends/LLVMIR/IRVerifier.h"
+#include "Backends/LLVMIR/ValueTracker.h"
 #include <algorithm>
 #include <iterator>
 #include <queue>
@@ -71,6 +72,10 @@ const char* IRVerifier::errorKindToString(VerificationErrorKind kind) {
             return "PHI_TYPE_MISMATCH";
         case VerificationErrorKind::ReturnTypeMismatch:
             return "RETURN_TYPE_MISMATCH";
+        case VerificationErrorKind::UseBeforeDefinition:
+            return "USE_BEFORE_DEFINITION";
+        case VerificationErrorKind::SSAViolation:
+            return "SSA_VIOLATION";
         case VerificationErrorKind::DuplicateFunctionName:
             return "DUPLICATE_FUNCTION_NAME";
         case VerificationErrorKind::DuplicateGlobalName:
@@ -79,6 +84,8 @@ const char* IRVerifier::errorKindToString(VerificationErrorKind kind) {
             return "UNRESOLVED_CALL";
         case VerificationErrorKind::TypeInconsistency:
             return "TYPE_INCONSISTENCY";
+        case VerificationErrorKind::InvalidType:
+            return "INVALID_TYPE";
         default:
             return "UNKNOWN_ERROR";
     }
@@ -529,10 +536,42 @@ void IRVerifier::checkAllocaPlacement(const Function* func) {
     }
 }
 
+// Helper to extract incoming blocks from any PHI node type
+static std::vector<BasicBlock*> getPHIIncomingBlocks(const Instruction* inst) {
+    std::vector<BasicBlock*> blocks;
+    if (auto* intPHI = dynamic_cast<const IntPHI*>(inst)) {
+        for (size_t i = 0; i < intPHI->getNumIncoming(); ++i) {
+            blocks.push_back(intPHI->getIncomingBlock(i));
+        }
+    } else if (auto* floatPHI = dynamic_cast<const FloatPHI*>(inst)) {
+        for (size_t i = 0; i < floatPHI->getNumIncoming(); ++i) {
+            blocks.push_back(floatPHI->getIncomingBlock(i));
+        }
+    } else if (auto* ptrPHI = dynamic_cast<const PtrPHI*>(inst)) {
+        for (size_t i = 0; i < ptrPHI->getNumIncoming(); ++i) {
+            blocks.push_back(ptrPHI->getIncomingBlock(i));
+        }
+    }
+    return blocks;
+}
+
 void IRVerifier::checkPHINodes(const Function* func) {
     // PHI nodes should be at the beginning of blocks and have correct types
     for (const auto& bb : func->getBasicBlocks()) {
         bool pastPHIs = false;
+
+        // Compute predecessors for this block
+        std::set<const BasicBlock*> predecessors;
+        for (const auto& otherBb : func->getBasicBlocks()) {
+            if (const auto* term = otherBb->getTerminator()) {
+                for (size_t i = 0; i < term->getNumSuccessors(); ++i) {
+                    if (term->getSuccessor(i) == bb.get()) {
+                        predecessors.insert(otherBb.get());
+                        break;
+                    }
+                }
+            }
+        }
 
         for (auto it = bb->begin(); it != bb->end(); ++it) {
             bool isPHI = ((*it)->getOpcode() == Opcode::PHI);
@@ -547,8 +586,29 @@ void IRVerifier::checkPHINodes(const Function* func) {
                 pastPHIs = true;
             }
 
-            // TODO: Check PHI incoming blocks match predecessors
-            // TODO: Check all PHI incoming values have same type
+            if (isPHI) {
+                // Check PHI incoming blocks match predecessors
+                auto incomingBlocks = getPHIIncomingBlocks(*it);
+                std::set<const BasicBlock*> incomingSet(incomingBlocks.begin(), incomingBlocks.end());
+
+                // Check that incoming count matches predecessor count
+                if (incomingBlocks.size() != predecessors.size()) {
+                    reportError(VerificationErrorKind::PHITypeMismatch,
+                                "PHI incoming count (" + std::to_string(incomingBlocks.size()) +
+                                ") doesn't match predecessor count (" + std::to_string(predecessors.size()) + ")",
+                                *it, bb.get(), func);
+                }
+
+                // Check that incoming blocks match predecessors exactly
+                if (incomingSet != predecessors) {
+                    reportError(VerificationErrorKind::PHITypeMismatch,
+                                "PHI incoming blocks don't match block predecessors",
+                                *it, bb.get(), func);
+                }
+
+                // Note: Type checking is inherent in the templated PHI design -
+                // TypedPHINode<T> enforces that all incoming values are of type T
+            }
         }
     }
 }
@@ -585,13 +645,56 @@ void IRVerifier::checkReturnTypes(const Function* func) {
 }
 
 void IRVerifier::checkSSAForm(const Function* func) {
-    // TODO: Implement with ValueTracker integration
-    // For now, basic definition tracking
+    if (!valueTracker_) return;
+
+    // Check for undefined uses (values used before definition)
+    for (const Value* undef : valueTracker_->findUndefinedUses()) {
+        std::string valueName = "unknown";
+        if (undef) {
+            valueName = undef->getName();
+            if (valueName.empty()) {
+                valueName = "%" + std::to_string(reinterpret_cast<uintptr_t>(undef));
+            }
+        }
+        reportError(VerificationErrorKind::UseBeforeDefinition,
+                    "Value used before definition: " + valueName,
+                    nullptr, nullptr, func);
+    }
+
+    // Check for multiple definitions (SSA violation)
+    for (const Value* multi : valueTracker_->findMultipleDefinitions()) {
+        std::string valueName = "unknown";
+        if (multi) {
+            valueName = multi->getName();
+            if (valueName.empty()) {
+                valueName = "%" + std::to_string(reinterpret_cast<uintptr_t>(multi));
+            }
+        }
+        reportError(VerificationErrorKind::SSAViolation,
+                    "Multiple definitions of value: " + valueName,
+                    nullptr, nullptr, func);
+    }
 }
 
 void IRVerifier::checkDominance(const Function* func) {
-    // TODO: Implement dominance checking
-    // Requires ValueTracker to know where values are defined and used
+    if (!valueTracker_) return;
+
+    // Set dominance info from computed dominators
+    valueTracker_->setDominanceInfo(idom_);
+
+    // Find all dominance violations
+    for (const auto& [value, use] : valueTracker_->findDominanceViolations()) {
+        std::string valueName = "unknown";
+        if (value) {
+            valueName = value->getName();
+            if (valueName.empty()) {
+                valueName = "%" + std::to_string(reinterpret_cast<uintptr_t>(value));
+            }
+        }
+        reportError(VerificationErrorKind::DominanceViolation,
+                    "Use not dominated by definition: " + valueName,
+                    use.user, use.block, func);
+    }
 }
 
 void IRVerifier::checkReachability(const Function* func) {
@@ -714,7 +817,35 @@ void IRVerifier::checkCallTargets() {
 }
 
 void IRVerifier::checkTypeConsistency() {
-    // TODO: Check struct types are used consistently across module
+    // Check struct types are defined consistently across the module
+    const auto& structs = module_.getStructs();
+
+    for (const auto& [name, structType] : structs) {
+        if (!structType) {
+            reportError(VerificationErrorKind::InvalidType,
+                        "Null struct type registered: " + name,
+                        nullptr, nullptr, nullptr);
+            continue;
+        }
+
+        // Check that all field types are valid (non-null)
+        for (size_t i = 0; i < structType->getNumFields(); ++i) {
+            Type* fieldType = structType->getFieldType(i);
+            if (!fieldType) {
+                reportError(VerificationErrorKind::InvalidType,
+                            "Struct " + name + " has null field type at index " + std::to_string(i),
+                            nullptr, nullptr, nullptr);
+            }
+        }
+
+        // Check for struct name conflicts (shouldn't happen due to map, but verify)
+        if (structType->hasName() && structType->getName() != name) {
+            reportError(VerificationErrorKind::InvalidType,
+                        "Struct registered as '" + name + "' but has name '" +
+                        structType->getName() + "'",
+                        nullptr, nullptr, nullptr);
+        }
+    }
 }
 
 // =============================================================================
@@ -761,9 +892,18 @@ std::map<const BasicBlock*, const BasicBlock*> IRVerifier::computeDominators(con
         for (const BasicBlock* bb : blocks) {
             if (bb == entry) continue;
 
-            // Get predecessors
+            // Get predecessors by checking which blocks have bb as a successor
             std::vector<const BasicBlock*> preds;
-            // TODO: Need predecessor information - for now skip
+            for (const auto& otherBb : func->getBasicBlocks()) {
+                if (const auto* term = otherBb->getTerminator()) {
+                    for (size_t i = 0; i < term->getNumSuccessors(); ++i) {
+                        if (term->getSuccessor(i) == bb) {
+                            preds.push_back(otherBb.get());
+                            break;
+                        }
+                    }
+                }
+            }
 
             if (preds.empty()) continue;
 

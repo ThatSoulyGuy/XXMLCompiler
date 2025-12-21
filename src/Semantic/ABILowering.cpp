@@ -21,6 +21,12 @@ ABILoweringResult ABILowering::run(
 
     result_ = ABILoweringResult{};
 
+    // Populate callback type registry for use by isCallbackType()
+    callbackTypeNames_.clear();
+    for (const auto& [name, info] : callbackTypes) {
+        callbackTypeNames_.insert(name);
+    }
+
     // Lower native methods
     for (auto* method : nativeMethods) {
         if (!method || !method->isNative) continue;
@@ -279,7 +285,11 @@ bool ABILowering::isPointerType(const std::string& typeName) const {
 }
 
 bool ABILowering::isCallbackType(const std::string& typeName) const {
-    // TODO: Check callback type registry
+    // Check against the callback type registry
+    if (callbackTypeNames_.count(typeName) > 0) {
+        return true;
+    }
+    // Fallback: also check for "Callback" in name for backwards compatibility
     return typeName.find("Callback") != std::string::npos;
 }
 

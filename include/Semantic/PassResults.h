@@ -81,6 +81,7 @@ struct TemplateMethodInfo {
 struct TemplateLambdaInfo {
     std::string variableName;  // Variable name holding the lambda
     std::vector<Parser::TemplateParameter> templateParams;  // COPIED from AST
+    std::vector<TemplateBodyCallInfo> callsInBody;  // Extracted calls for validation (same as methods)
     Parser::LambdaExpr* astNode = nullptr;  // Optional: only valid for same-module access
     std::unordered_map<std::string, std::string> capturedVarTypes;  // varName -> type (e.g., "Integer^")
 };

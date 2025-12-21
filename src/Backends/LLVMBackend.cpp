@@ -1,5 +1,6 @@
 ﻿#include "Backends/LLVMBackend.h"
 #include "Backends/TypeNormalizer.h"  // For type string utilities
+#include "Backends/Codegen/RuntimeManifest.h"  // For preamble function tracking
 #include "Core/CompilationContext.h"
 #include "Core/TypeRegistry.h"
 #include "Core/OperatorRegistry.h"
@@ -88,23 +89,14 @@ std::string LLVMBackend::generate(Parser::Program& program) {
         modularCodegen_->context().setDeriveMode(deriveMode_);
     }
 
-    // Track preamble-declared functions to prevent duplicates when processing modules
+    // Track ALL preamble-declared functions to prevent duplicates when processing modules
+    // Use RuntimeManifest to get complete list of preamble functions
     if (modularCodegen_) {
-        // Annotation Info bindings
-        modularCodegen_->markFunctionDeclared("Language_Reflection_AnnotationInfo_Constructor");
-        modularCodegen_->markFunctionDeclared("Language_Reflection_AnnotationInfo_getName");
-        modularCodegen_->markFunctionDeclared("Language_Reflection_AnnotationInfo_getArgumentCount");
-        modularCodegen_->markFunctionDeclared("Language_Reflection_AnnotationInfo_getArgument");
-        modularCodegen_->markFunctionDeclared("Language_Reflection_AnnotationInfo_getArgumentByName");
-        modularCodegen_->markFunctionDeclared("Language_Reflection_AnnotationInfo_hasArgument");
-        // Annotation Arg bindings
-        modularCodegen_->markFunctionDeclared("Language_Reflection_AnnotationArg_Constructor");
-        modularCodegen_->markFunctionDeclared("Language_Reflection_AnnotationArg_getName");
-        modularCodegen_->markFunctionDeclared("Language_Reflection_AnnotationArg_getType");
-        modularCodegen_->markFunctionDeclared("Language_Reflection_AnnotationArg_asInteger");
-        modularCodegen_->markFunctionDeclared("Language_Reflection_AnnotationArg_asString");
-        modularCodegen_->markFunctionDeclared("Language_Reflection_AnnotationArg_asBool");
-        modularCodegen_->markFunctionDeclared("Language_Reflection_AnnotationArg_asDouble");
+        Codegen::RuntimeManifest manifest;
+        auto allNames = manifest.getAllFunctionNames();
+        for (const auto& funcName : allNames) {
+            modularCodegen_->markFunctionDeclared(funcName);
+        }
     }
 
     // Forward declare all user-defined functions before code generation
@@ -187,9 +179,14 @@ std::string LLVMBackend::generate(Parser::Program& program) {
                     if (ns->name.find("Language") == 0 || ns->name.find("System") == 0 ||
                         ns->name.find("Syscall") == 0 || ns->name.find("Mem") == 0 ||
                         ns->name == "Collections") {
-                        // In processor mode, we need to compile ProcessorCtx module classes
-                        // In derive mode, we need to compile Derives module classes
-                        if (processorMode_ && ns->name.find("Language::ProcessorCtx") == 0) {
+                        // Some Language modules have XXML code that needs compilation:
+                        // - Language::Collections - XXML template implementations
+                        // - Language::ProcessorCtx - processor mode
+                        // - Language::Derives - derive mode
+                        // Language::Core and Language::Reflection are implemented in C runtime
+                        if (ns->name.find("Language::Collections") == 0) {
+                            isRuntimeModule = false;  // These have XXML code to compile
+                        } else if (processorMode_ && ns->name.find("Language::ProcessorCtx") == 0) {
                             isRuntimeModule = false;
                         } else if (deriveMode_ && ns->name.find("Language::Derives") == 0) {
                             isRuntimeModule = false;

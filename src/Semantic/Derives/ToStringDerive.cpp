@@ -196,9 +196,12 @@ bool ToStringDeriveHandler::hasToStringMethod(
                 return true;
             }
         }
-    }
 
-    // TODO: Check base class for toString method
+        // Check base class for toString method
+        if (!it->second.baseClassName.empty() && it->second.baseClassName != "None") {
+            return hasToStringMethod(it->second.baseClassName, analyzer);
+        }
+    }
 
     return false;
 }

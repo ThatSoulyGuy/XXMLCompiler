@@ -97,7 +97,17 @@ bool TemplateExpander::validateConstraintDefinition(Parser::ConstraintDecl* decl
         validParams.insert(param.name);
     }
 
-    // TODO: Validate requirement expressions reference valid parameters
+    // Also collect parameter binding names
+    std::set<std::string> validBindings;
+    for (const auto& binding : decl->paramBindings) {
+        validBindings.insert(binding.bindingName);
+        validParams.insert(binding.templateParamName);
+    }
+
+    // Validate requirement expressions reference valid parameters
+    if (!validateRequirementParams(decl->requirements, validBindings, decl->location)) {
+        return false;
+    }
 
     return true;
 }
@@ -240,8 +250,44 @@ std::unique_ptr<Parser::ClassDecl> TemplateExpander::cloneClassWithSubstitution(
         static_cast<Parser::ClassDecl*>(original->clone().release())
     );
 
-    // Apply substitutions to the cloned AST
-    // TODO: Implement deep substitution in all type references
+    // Apply substitutions to the cloned AST - deep substitution in all type references
+    // Substitute in base class if present
+    if (!cloned->baseClass.empty()) {
+        auto it = substitutions.find(cloned->baseClass);
+        if (it != substitutions.end()) {
+            cloned->baseClass = it->second;
+        }
+    }
+
+    // Substitute in all sections (properties, methods, constructors)
+    for (auto& section : cloned->sections) {
+        if (!section) continue;
+        for (auto& decl : section->declarations) {
+            if (!decl) continue;
+
+            if (auto* method = dynamic_cast<Parser::MethodDecl*>(decl.get())) {
+                // Substitute return type
+                if (method->returnType) {
+                    substituteTypeRef(method->returnType.get(), substitutions);
+                }
+                // Substitute parameter types
+                for (auto& param : method->parameters) {
+                    if (param && param->type) {
+                        substituteTypeRef(param->type.get(), substitutions);
+                    }
+                }
+                // Substitute in method body
+                for (auto& stmt : method->body) {
+                    substituteInStatement(stmt.get(), substitutions);
+                }
+            } else if (auto* prop = dynamic_cast<Parser::PropertyDecl*>(decl.get())) {
+                // Substitute property type
+                if (prop->type) {
+                    substituteTypeRef(prop->type.get(), substitutions);
+                }
+            }
+        }
+    }
 
     return cloned;
 }
@@ -256,8 +302,23 @@ std::unique_ptr<Parser::MethodDecl> TemplateExpander::cloneMethodWithSubstitutio
         static_cast<Parser::MethodDecl*>(original->clone().release())
     );
 
-    // Apply substitutions
-    // TODO: Implement deep substitution
+    // Apply deep substitution to the method
+    // Substitute return type
+    if (cloned->returnType) {
+        substituteTypeRef(cloned->returnType.get(), substitutions);
+    }
+
+    // Substitute parameter types
+    for (auto& param : cloned->parameters) {
+        if (param && param->type) {
+            substituteTypeRef(param->type.get(), substitutions);
+        }
+    }
+
+    // Substitute in method body
+    for (auto& stmt : cloned->body) {
+        substituteInStatement(stmt.get(), substitutions);
+    }
 
     return cloned;
 }
@@ -272,8 +333,23 @@ std::unique_ptr<Parser::LambdaExpr> TemplateExpander::cloneLambdaWithSubstitutio
         static_cast<Parser::LambdaExpr*>(original->cloneExpr().release())
     );
 
-    // Apply substitutions
-    // TODO: Implement deep substitution
+    // Apply deep substitution to the lambda
+    // Substitute return type
+    if (cloned->returnType) {
+        substituteTypeRef(cloned->returnType.get(), substitutions);
+    }
+
+    // Substitute parameter types
+    for (auto& param : cloned->parameters) {
+        if (param && param->type) {
+            substituteTypeRef(param->type.get(), substitutions);
+        }
+    }
+
+    // Substitute in lambda body
+    for (auto& stmt : cloned->body) {
+        substituteInStatement(stmt.get(), substitutions);
+    }
 
     return cloned;
 }
@@ -425,9 +501,20 @@ bool TemplateExpander::validateMethodRequirement(const std::string& typeName,
         return false;
     }
 
-    // If return type is specified, we could validate it matches
-    // For now, just check the method exists
-    // TODO: Add return type validation if needed
+    // Validate return type if specified
+    if (returnType && !returnType->typeName.empty()) {
+        const std::string& actualReturnType = methodIt->second.returnType;
+        const std::string& expectedReturnType = returnType->typeName;
+
+        // Check for exact match or with Language::Core:: prefix
+        bool matches = (expectedReturnType == actualReturnType) ||
+                       ("Language::Core::" + expectedReturnType == actualReturnType) ||
+                       (expectedReturnType == "Language::Core::" + actualReturnType);
+
+        if (!matches) {
+            return false;
+        }
+    }
 
     return true;
 }
@@ -450,7 +537,33 @@ bool TemplateExpander::validateConstructorRequirement(
         return false;
     }
 
-    // TODO: Validate parameter types match if needed
+    // Validate parameter types match if specified
+    if (!paramTypes.empty()) {
+        const auto& actualParams = methodIt->second.parameters;
+
+        // Check parameter count
+        if (paramTypes.size() != actualParams.size()) {
+            return false;
+        }
+
+        // Check each parameter type
+        for (size_t i = 0; i < paramTypes.size(); ++i) {
+            if (!paramTypes[i]) continue;
+
+            const std::string& expectedType = paramTypes[i]->typeName;
+            const std::string& actualType = actualParams[i].first;
+
+            // Check for exact match or with Language::Core:: prefix
+            bool matches = (expectedType == actualType) ||
+                           ("Language::Core::" + expectedType == actualType) ||
+                           (expectedType == "Language::Core::" + actualType);
+
+            if (!matches) {
+                return false;
+            }
+        }
+    }
+
     return true;
 }
 
@@ -458,7 +571,69 @@ bool TemplateExpander::validateTruthRequirement(
     Parser::Expression* expr,
     const std::unordered_map<std::string, std::string>& substitutions) {
 
-    // TODO: Evaluate truth expression with substitutions
+    if (!expr) return true;
+
+    // Handle TypeOf comparisons like: TypeOf<T>() == TypeOf<SomeClass>()
+    if (auto* binaryExpr = dynamic_cast<Parser::BinaryExpr*>(expr)) {
+        if (binaryExpr->op == "==" || binaryExpr->op == "!=") {
+            std::string leftType, rightType;
+
+            // Check if left side is a TypeOf expression or a call to TypeOf
+            if (auto* leftTypeOf = dynamic_cast<Parser::TypeOfExpr*>(binaryExpr->left.get())) {
+                if (leftTypeOf->type) {
+                    leftType = leftTypeOf->type->typeName;
+                    // Apply substitution
+                    auto it = substitutions.find(leftType);
+                    if (it != substitutions.end()) {
+                        leftType = it->second;
+                    }
+                }
+            } else if (auto* leftCall = dynamic_cast<Parser::CallExpr*>(binaryExpr->left.get())) {
+                if (auto* leftTypeOfCallee = dynamic_cast<Parser::TypeOfExpr*>(leftCall->callee.get())) {
+                    if (leftTypeOfCallee->type) {
+                        leftType = leftTypeOfCallee->type->typeName;
+                        auto subIt = substitutions.find(leftType);
+                        if (subIt != substitutions.end()) {
+                            leftType = subIt->second;
+                        }
+                    }
+                }
+            }
+
+            // Check if right side is a TypeOf expression or a call to TypeOf
+            if (auto* rightTypeOf = dynamic_cast<Parser::TypeOfExpr*>(binaryExpr->right.get())) {
+                if (rightTypeOf->type) {
+                    rightType = rightTypeOf->type->typeName;
+                    // Apply substitution
+                    auto it = substitutions.find(rightType);
+                    if (it != substitutions.end()) {
+                        rightType = it->second;
+                    }
+                }
+            } else if (auto* rightCall = dynamic_cast<Parser::CallExpr*>(binaryExpr->right.get())) {
+                if (auto* rightTypeOfCallee = dynamic_cast<Parser::TypeOfExpr*>(rightCall->callee.get())) {
+                    if (rightTypeOfCallee->type) {
+                        rightType = rightTypeOfCallee->type->typeName;
+                        auto subIt = substitutions.find(rightType);
+                        if (subIt != substitutions.end()) {
+                            rightType = subIt->second;
+                        }
+                    }
+                }
+            }
+
+            if (!leftType.empty() && !rightType.empty()) {
+                bool typesEqual = (leftType == rightType) ||
+                                  ("Language::Core::" + leftType == rightType) ||
+                                  (leftType == "Language::Core::" + rightType);
+
+                return binaryExpr->op == "==" ? typesEqual : !typesEqual;
+            }
+        }
+    }
+
+    // For other expressions, default to true (conservative)
+    // Full compile-time evaluation would require the CompiletimeInterpreter
     return true;
 }
 
@@ -571,6 +746,208 @@ InstantiatedLambda TemplateExpander::instantiateLambda(
 
     result.valid = true;
     return result;
+}
+
+//==============================================================================
+// TYPE SUBSTITUTION HELPERS
+//==============================================================================
+
+void TemplateExpander::substituteTypeRef(Parser::TypeRef* typeRef,
+                                         const std::unordered_map<std::string, std::string>& substitutions) {
+    if (!typeRef) return;
+
+    // Direct substitution of the type name
+    auto it = substitutions.find(typeRef->typeName);
+    if (it != substitutions.end()) {
+        typeRef->typeName = it->second;
+    }
+
+    // Recursive substitution in template arguments
+    for (auto& arg : typeRef->templateArgs) {
+        if (arg.kind == Parser::TemplateArgument::Kind::Type) {
+            // Substitute the type argument string
+            auto argIt = substitutions.find(arg.typeArg);
+            if (argIt != substitutions.end()) {
+                arg.typeArg = argIt->second;
+            }
+        }
+    }
+}
+
+void TemplateExpander::substituteInStatement(Parser::Statement* stmt,
+                                             const std::unordered_map<std::string, std::string>& substitutions) {
+    if (!stmt) return;
+
+    // Handle different statement types
+    if (auto* instStmt = dynamic_cast<Parser::InstantiateStmt*>(stmt)) {
+        if (instStmt->type) {
+            substituteTypeRef(instStmt->type.get(), substitutions);
+        }
+        if (instStmt->initializer) {
+            substituteInExpression(instStmt->initializer.get(), substitutions);
+        }
+    } else if (auto* runStmt = dynamic_cast<Parser::RunStmt*>(stmt)) {
+        if (runStmt->expression) {
+            substituteInExpression(runStmt->expression.get(), substitutions);
+        }
+    } else if (auto* returnStmt = dynamic_cast<Parser::ReturnStmt*>(stmt)) {
+        if (returnStmt->value) {
+            substituteInExpression(returnStmt->value.get(), substitutions);
+        }
+    } else if (auto* ifStmt = dynamic_cast<Parser::IfStmt*>(stmt)) {
+        if (ifStmt->condition) {
+            substituteInExpression(ifStmt->condition.get(), substitutions);
+        }
+        for (auto& thenStmt : ifStmt->thenBranch) {
+            substituteInStatement(thenStmt.get(), substitutions);
+        }
+        for (auto& elseStmt : ifStmt->elseBranch) {
+            substituteInStatement(elseStmt.get(), substitutions);
+        }
+    } else if (auto* whileStmt = dynamic_cast<Parser::WhileStmt*>(stmt)) {
+        if (whileStmt->condition) {
+            substituteInExpression(whileStmt->condition.get(), substitutions);
+        }
+        for (auto& bodyStmt : whileStmt->body) {
+            substituteInStatement(bodyStmt.get(), substitutions);
+        }
+    } else if (auto* forStmt = dynamic_cast<Parser::ForStmt*>(stmt)) {
+        if (forStmt->iteratorType) {
+            substituteTypeRef(forStmt->iteratorType.get(), substitutions);
+        }
+        if (forStmt->rangeStart) {
+            substituteInExpression(forStmt->rangeStart.get(), substitutions);
+        }
+        if (forStmt->rangeEnd) {
+            substituteInExpression(forStmt->rangeEnd.get(), substitutions);
+        }
+        if (forStmt->condition) {
+            substituteInExpression(forStmt->condition.get(), substitutions);
+        }
+        if (forStmt->increment) {
+            substituteInExpression(forStmt->increment.get(), substitutions);
+        }
+        for (auto& bodyStmt : forStmt->body) {
+            substituteInStatement(bodyStmt.get(), substitutions);
+        }
+    } else if (auto* assignStmt = dynamic_cast<Parser::AssignmentStmt*>(stmt)) {
+        if (assignStmt->target) {
+            substituteInExpression(assignStmt->target.get(), substitutions);
+        }
+        if (assignStmt->value) {
+            substituteInExpression(assignStmt->value.get(), substitutions);
+        }
+    }
+}
+
+void TemplateExpander::substituteInExpression(Parser::Expression* expr,
+                                              const std::unordered_map<std::string, std::string>& substitutions) {
+    if (!expr) return;
+
+    // Handle different expression types
+    if (auto* callExpr = dynamic_cast<Parser::CallExpr*>(expr)) {
+        if (callExpr->callee) {
+            substituteInExpression(callExpr->callee.get(), substitutions);
+        }
+        for (auto& arg : callExpr->arguments) {
+            substituteInExpression(arg.get(), substitutions);
+        }
+    } else if (auto* memberExpr = dynamic_cast<Parser::MemberAccessExpr*>(expr)) {
+        if (memberExpr->object) {
+            substituteInExpression(memberExpr->object.get(), substitutions);
+        }
+    } else if (auto* binaryExpr = dynamic_cast<Parser::BinaryExpr*>(expr)) {
+        substituteInExpression(binaryExpr->left.get(), substitutions);
+        substituteInExpression(binaryExpr->right.get(), substitutions);
+    } else if (auto* refExpr = dynamic_cast<Parser::ReferenceExpr*>(expr)) {
+        if (refExpr->expr) {
+            substituteInExpression(refExpr->expr.get(), substitutions);
+        }
+    } else if (auto* lambdaExpr = dynamic_cast<Parser::LambdaExpr*>(expr)) {
+        if (lambdaExpr->returnType) {
+            substituteTypeRef(lambdaExpr->returnType.get(), substitutions);
+        }
+        for (auto& param : lambdaExpr->parameters) {
+            if (param && param->type) {
+                substituteTypeRef(param->type.get(), substitutions);
+            }
+        }
+        for (auto& stmt : lambdaExpr->body) {
+            substituteInStatement(stmt.get(), substitutions);
+        }
+    } else if (auto* typeofExpr = dynamic_cast<Parser::TypeOfExpr*>(expr)) {
+        // TypeOf expressions have a type reference that may need substitution
+        if (typeofExpr->type) {
+            substituteTypeRef(typeofExpr->type.get(), substitutions);
+        }
+    }
+}
+
+//==============================================================================
+// CONSTRAINT REQUIREMENT VALIDATION HELPERS
+//==============================================================================
+
+bool TemplateExpander::validateRequirementParams(
+    const std::vector<std::unique_ptr<Parser::RequireStmt>>& requirements,
+    const std::set<std::string>& validParams,
+    const Common::SourceLocation& constraintLoc) {
+
+    for (const auto& req : requirements) {
+        if (!req) continue;
+
+        switch (req->kind) {
+            case Parser::RequirementKind::Method:
+            case Parser::RequirementKind::CompiletimeMethod:
+                // Check that targetParam is a valid parameter binding
+                if (!req->targetParam.empty() && validParams.find(req->targetParam) == validParams.end()) {
+                    errorReporter_.reportError(
+                        Common::ErrorCode::UndeclaredIdentifier,
+                        "Constraint requirement references unknown parameter: " + req->targetParam,
+                        req->location
+                    );
+                    return false;
+                }
+                break;
+
+            case Parser::RequirementKind::Constructor:
+                // Check that targetParam is a valid parameter binding
+                if (!req->targetParam.empty() && validParams.find(req->targetParam) == validParams.end()) {
+                    errorReporter_.reportError(
+                        Common::ErrorCode::UndeclaredIdentifier,
+                        "Constructor requirement references unknown parameter: " + req->targetParam,
+                        req->location
+                    );
+                    return false;
+                }
+                break;
+
+            case Parser::RequirementKind::Truth:
+                // For truth requirements, we could validate identifiers in the expression
+                // For now, just accept them
+                break;
+        }
+    }
+
+    return true;
+}
+
+void TemplateExpander::collectExpressionIdentifiers(Parser::Expression* expr,
+                                                    std::set<std::string>& identifiers) {
+    if (!expr) return;
+
+    if (auto* identExpr = dynamic_cast<Parser::IdentifierExpr*>(expr)) {
+        identifiers.insert(identExpr->name);
+    } else if (auto* callExpr = dynamic_cast<Parser::CallExpr*>(expr)) {
+        collectExpressionIdentifiers(callExpr->callee.get(), identifiers);
+        for (auto& arg : callExpr->arguments) {
+            collectExpressionIdentifiers(arg.get(), identifiers);
+        }
+    } else if (auto* memberExpr = dynamic_cast<Parser::MemberAccessExpr*>(expr)) {
+        collectExpressionIdentifiers(memberExpr->object.get(), identifiers);
+    } else if (auto* binaryExpr = dynamic_cast<Parser::BinaryExpr*>(expr)) {
+        collectExpressionIdentifiers(binaryExpr->left.get(), identifiers);
+        collectExpressionIdentifiers(binaryExpr->right.get(), identifiers);
+    }
 }
 
 } // namespace Semantic

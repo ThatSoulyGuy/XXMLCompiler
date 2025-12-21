@@ -65,11 +65,57 @@ std::unique_ptr<CompiletimeValue> CompiletimeInterpreter::evalLiteral(Parser::Ex
 }
 
 std::unique_ptr<CompiletimeValue> CompiletimeInterpreter::evalBinary(Parser::BinaryExpr* expr) {
+    const std::string& op = expr->op;
+
+    // Handle unary expressions (left is null, e.g., -x, !b, ~n)
+    if (!expr->left) {
+        auto right = evaluate(expr->right.get());
+        if (!right) return nullptr;
+
+        // Negation: -x
+        if (op == "-") {
+            if (right->isInteger()) {
+                int64_t rv = static_cast<CompiletimeInteger*>(right.get())->value;
+                return std::make_unique<CompiletimeInteger>(-rv);
+            }
+            if (right->isFloat()) {
+                float rv = static_cast<CompiletimeFloat*>(right.get())->value;
+                return std::make_unique<CompiletimeFloat>(-rv);
+            }
+            if (right->isDouble()) {
+                double rv = static_cast<CompiletimeDouble*>(right.get())->value;
+                return std::make_unique<CompiletimeDouble>(-rv);
+            }
+        }
+
+        // Logical NOT: !b
+        if (op == "!") {
+            if (right->isBool()) {
+                bool rv = static_cast<CompiletimeBool*>(right.get())->value;
+                return std::make_unique<CompiletimeBool>(!rv);
+            }
+            // Also support !0 and !nonzero for integers
+            if (right->isInteger()) {
+                int64_t rv = static_cast<CompiletimeInteger*>(right.get())->value;
+                return std::make_unique<CompiletimeBool>(rv == 0);
+            }
+        }
+
+        // Bitwise NOT: ~n
+        if (op == "~") {
+            if (right->isInteger()) {
+                int64_t rv = static_cast<CompiletimeInteger*>(right.get())->value;
+                return std::make_unique<CompiletimeInteger>(~rv);
+            }
+        }
+
+        return nullptr; // Unary operator not supported for this type
+    }
+
+    // Binary expressions - both operands required
     auto left = evaluate(expr->left.get());
     auto right = evaluate(expr->right.get());
     if (!left || !right) return nullptr;
-
-    const std::string& op = expr->op;
 
     // Integer operations
     if (left->isInteger() && right->isInteger()) {
@@ -406,8 +452,13 @@ std::unique_ptr<CompiletimeValue> CompiletimeInterpreter::evalIdentifier(Parser:
 }
 
 std::unique_ptr<CompiletimeValue> CompiletimeInterpreter::evalUnary(Parser::Expression* expr) {
-    (void)expr;
-    // TODO: Handle unary expressions like -x, !b, ~n
+    // Unary expressions are handled in evalBinary as BinaryExpr with null left operand.
+    // This function exists for API completeness but delegates to the main evaluate path.
+    if (auto* binExpr = dynamic_cast<Parser::BinaryExpr*>(expr)) {
+        if (!binExpr->left) {
+            return evalBinary(binExpr);
+        }
+    }
     return nullptr;
 }
 

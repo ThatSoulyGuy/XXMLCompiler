@@ -905,7 +905,7 @@ LLVMIR::AnyValue ExprCodegen::handleMemberCall(Parser::CallExpr* expr,
                 }
                 // Native types don't use argument count suffix
                 static const std::unordered_set<std::string> nativeTypes = {
-                    "Integer", "Float", "Double", "Bool", "String", "Byte"
+                    "Integer", "Float", "Double", "Bool", "String", "Byte", "None"
                 };
                 bool isNativeType = nativeTypes.find(baseClassName) != nativeTypes.end();
 
@@ -1071,7 +1071,7 @@ LLVMIR::AnyValue ExprCodegen::handleMemberCall(Parser::CallExpr* expr,
                     baseClassName = baseClassName.substr(lastSep + 2);
                 }
                 static const std::unordered_set<std::string> nativeTypes = {
-                    "Integer", "Float", "Double", "Bool", "String", "Byte"
+                    "Integer", "Float", "Double", "Bool", "String", "Byte", "None"
                 };
                 bool isNativeType = nativeTypes.find(baseClassName) != nativeTypes.end();
 
@@ -1572,6 +1572,9 @@ LLVMIR::AnyValue ExprCodegen::generateLogicalAnd(Parser::BinaryExpr* expr, LLVMI
     auto* rhsBlock = func->createBasicBlock("and.rhs");
     auto* mergeBlock = func->createBasicBlock("and.merge");
 
+    // Save current block before branching - this is where the short-circuit comes from
+    auto* fromLhs = ctx_.currentBlock();
+
     ctx_.builder().createCondBr(leftResult.asInt(), rhsBlock, mergeBlock);
 
     ctx_.setInsertPoint(rhsBlock);
@@ -1581,7 +1584,7 @@ LLVMIR::AnyValue ExprCodegen::generateLogicalAnd(Parser::BinaryExpr* expr, LLVMI
 
     ctx_.setInsertPoint(mergeBlock);
     auto* phiNode = ctx_.builder().createIntPHI(ctx_.module().getContext().getInt1Ty(), "and.result");
-    phiNode->addIncoming(ctx_.builder().getInt1(false), ctx_.currentBlock());
+    phiNode->addIncoming(ctx_.builder().getInt1(false), fromLhs);
     phiNode->addIncoming(rightResult.asInt(), fromRhs);
 
     ctx_.lastExprValue = LLVMIR::AnyValue(phiNode->result());
@@ -1597,6 +1600,9 @@ LLVMIR::AnyValue ExprCodegen::generateLogicalOr(Parser::BinaryExpr* expr, LLVMIR
     auto* rhsBlock = func->createBasicBlock("or.rhs");
     auto* mergeBlock = func->createBasicBlock("or.merge");
 
+    // Save current block before branching - this is where the short-circuit comes from
+    auto* fromLhs = ctx_.currentBlock();
+
     ctx_.builder().createCondBr(leftResult.asInt(), mergeBlock, rhsBlock);
 
     ctx_.setInsertPoint(rhsBlock);
@@ -1606,7 +1612,7 @@ LLVMIR::AnyValue ExprCodegen::generateLogicalOr(Parser::BinaryExpr* expr, LLVMIR
 
     ctx_.setInsertPoint(mergeBlock);
     auto* phiNode = ctx_.builder().createIntPHI(ctx_.module().getContext().getInt1Ty(), "or.result");
-    phiNode->addIncoming(ctx_.builder().getInt1(true), ctx_.currentBlock());
+    phiNode->addIncoming(ctx_.builder().getInt1(true), fromLhs);
     phiNode->addIncoming(rightResult.asInt(), fromRhs);
 
     ctx_.lastExprValue = LLVMIR::AnyValue(phiNode->result());

@@ -2,6 +2,8 @@
 
 #include <string>
 #include <sstream>
+#include <memory>
+#include "Backends/Codegen/RuntimeManifest.h"
 
 namespace XXML {
 namespace Backends {
@@ -39,37 +41,17 @@ public:
     /// Get current target platform
     TargetPlatform getTargetPlatform() const { return platform_; }
 
+    /// Get the runtime manifest (single source of truth for runtime functions)
+    const RuntimeManifest& getManifest() const { return manifest_; }
+
 private:
     TargetPlatform platform_;
+    RuntimeManifest manifest_;
 
     // Helper methods for generating preamble sections
     void emitHeader(std::stringstream& out) const;
     void emitTargetInfo(std::stringstream& out) const;
     void emitBuiltinTypes(std::stringstream& out) const;
-    void emitMemoryManagement(std::stringstream& out) const;
-    void emitIntegerOperations(std::stringstream& out) const;
-    void emitFloatOperations(std::stringstream& out) const;
-    void emitDoubleOperations(std::stringstream& out) const;
-    void emitStringOperations(std::stringstream& out) const;
-    void emitBoolOperations(std::stringstream& out) const;
-    void emitListOperations(std::stringstream& out) const;
-    void emitConsoleIO(std::stringstream& out) const;
-    void emitSystemFunctions(std::stringstream& out) const;
-    void emitReflectionRuntime(std::stringstream& out) const;
-    void emitAnnotationRuntime(std::stringstream& out) const;
-    void emitProcessorAPI(std::stringstream& out) const;
-    void emitDeriveAPI(std::stringstream& out) const;
-    void emitDynamicValueMethods(std::stringstream& out) const;
-    void emitUtilityFunctions(std::stringstream& out) const;
-    void emitThreadingFunctions(std::stringstream& out) const;
-    void emitMutexFunctions(std::stringstream& out) const;
-    void emitConditionVariableFunctions(std::stringstream& out) const;
-    void emitAtomicFunctions(std::stringstream& out) const;
-    void emitTLSFunctions(std::stringstream& out) const;
-    void emitFileIOFunctions(std::stringstream& out) const;
-    void emitDirectoryFunctions(std::stringstream& out) const;
-    void emitPathFunctions(std::stringstream& out) const;
-    void emitFFIRuntime(std::stringstream& out) const;
     void emitWindowsDLLFunctions(std::stringstream& out) const;
     void emitAttributes(std::stringstream& out) const;
 };

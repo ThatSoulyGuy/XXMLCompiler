@@ -1,4 +1,5 @@
 #include "Backends/Codegen/ModularCodegen.h"
+#include "Backends/Codegen/RuntimeManifest.h"
 #include "Backends/LLVMIR/Emitter.h"
 #include "Backends/LLVMIR/GlobalBuilder.h"
 #include "Backends/TypeNormalizer.h"
@@ -230,6 +231,10 @@ void ModularCodegen::generateFunctionDeclarations(Parser::Program& program) {
     LLVMIR::GlobalBuilder globalBuilder(ctx_.module());
     LLVMIR::TypeContext& typeCtx = ctx_.module().getContext();
 
+    // RuntimeManifest contains preamble functions that are already declared
+    // with specific signatures - we must not redeclare them with different signatures
+    static const RuntimeManifest runtimeManifest;
+
     // Primitive types that should use simple names (no namespace prefix)
     static const std::unordered_set<std::string> primitives = {
         "Integer", "String", "Bool", "Float", "Double", "None", "Void",
@@ -292,7 +297,8 @@ void ModularCodegen::generateFunctionDeclarations(Parser::Program& program) {
                     std::string funcName = mangledClassName + "_Constructor_" +
                         std::to_string(ctor->parameters.size());
 
-                    if (!isFunctionDeclared(funcName)) {
+                    // Skip if already in RuntimeManifest (preamble) or already declared
+                    if (!isFunctionDeclared(funcName) && !runtimeManifest.hasFunction(funcName)) {
                         markFunctionDeclared(funcName);
                         LLVMIR::FunctionType* funcType = typeCtx.getFunctionTy(
                             typeCtx.getPtrTy(), std::move(paramTypes));
@@ -303,6 +309,18 @@ void ModularCodegen::generateFunctionDeclarations(Parser::Program& program) {
                 else if (auto* method = dynamic_cast<Parser::MethodDecl*>(decl.get())) {
                     // Skip native FFI methods
                     if (method->isNative) continue;
+
+                    std::string funcName = mangledClassName + "_" + method->name;
+
+                    // Skip if already declared (includes RuntimeManifest functions marked in LLVMBackend)
+                    if (isFunctionDeclared(funcName)) {
+                        continue;
+                    }
+
+                    // Also check RuntimeManifest as backup
+                    if (runtimeManifest.hasFunction(funcName)) {
+                        continue;
+                    }
 
                     // Build parameter types
                     std::vector<LLVMIR::Type*> paramTypes;
@@ -322,8 +340,6 @@ void ModularCodegen::generateFunctionDeclarations(Parser::Program& program) {
                         }
                         paramTypes.push_back(paramType);
                     }
-
-                    std::string funcName = mangledClassName + "_" + method->name;
 
                     // Check if return type should be a pointer based on ownership
                     bool isNativeReturnType = method->returnType->typeName.find("NativeType<") != std::string::npos;
